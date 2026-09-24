@@ -815,6 +815,8 @@ export default function ToolDetailPage() {
             "Content-Type": isFormBody ? "application/x-www-form-urlencoded" : "application/json",
         };
         headers.filter((h) => h.key && h.value).forEach((h) => {
+            // Form mode owns the Content-Type at runtime; mirror that here.
+            if (isFormBody && h.key.toLowerCase() === "content-type") return;
             headersObj[h.key] = h.value;
         });
 

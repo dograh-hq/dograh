@@ -74,6 +74,10 @@ def serialize_form_body(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _without_content_type(headers: dict[str, str]) -> dict[str, str]:
+    return {k: v for k, v in headers.items() if k.lower() != "content-type"}
+
+
 def tool_to_function_schema(tool: Any) -> dict[str, Any]:
     """Convert a ToolModel to an LLM function schema.
 
@@ -329,10 +333,6 @@ async def execute_http_tool(
 
     # Get headers from config
     headers = dict(config.get("headers", {}) or {})
-    if form_encoded:
-        # The body format owns the Content-Type. A JSON one kept from before
-        # the format was switched would make the server misread the body.
-        headers = {k: v for k, v in headers.items() if k.lower() != "content-type"}
 
     # Add auth header if credential is configured. Keep track of which headers
     # came from the credential so only those values are masked in test previews.
@@ -373,6 +373,13 @@ async def execute_http_tool(
                 organization_id=organization_id,
                 tool_name=tool.name,
             )
+
+    if form_encoded:
+        # The body format owns the Content-Type. A JSON one kept in the tool's
+        # headers from before the format was switched, or set by a credential
+        # shared with a JSON tool, would make the server misread the body.
+        headers = _without_content_type(headers)
+        credential_headers = _without_content_type(credential_headers)
 
     request_headers: dict[str, str] = {}
     if include_request_headers:

@@ -1153,6 +1153,63 @@ class TestExecuteHttpTool:
         assert captured["content_type"] == "application/x-www-form-urlencoded"
         assert captured["body"] == "To=%2B15550100&Body=Hi+there"
 
+    @pytest.mark.asyncio
+    async def test_form_body_overrides_credential_content_type(self):
+        """A Content-Type from a shared credential does not reach a form request."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-form-credential",
+            name="Send SMS",
+            description="Send an SMS",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/messages",
+                    "body_format": "form",
+                    "credential_uuid": "cred-uuid-ct",
+                },
+            },
+        )
+        credential = Mock()
+        credential.name = "JSON API header"
+        credential.credential_type = "custom_header"
+        credential.credential_data = {
+            "header_name": "Content-Type",
+            "header_value": "application/json",
+        }
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["content_type"] = request.headers["content-type"]
+            return httpx.Response(201, json={"sid": "SM1"})
+
+        real_client = httpx.AsyncClient
+
+        def client_factory(**kwargs):
+            return real_client(transport=httpx.MockTransport(handler), **kwargs)
+
+        with (
+            patch(
+                "api.services.workflow.tools.custom_tool.httpx.AsyncClient",
+                side_effect=client_factory,
+            ),
+            patch("api.services.workflow.tools.custom_tool.db_client") as mock_db,
+        ):
+            mock_db.get_credential_by_uuid = AsyncMock(return_value=credential)
+            result = await execute_http_tool(
+                tool,
+                {"To": "+15550100"},
+                organization_id=1,
+                include_request_headers=True,
+            )
+
+        assert result["status"] == "success"
+        assert captured["content_type"] == "application/x-www-form-urlencoded"
+        # The preview shows only headers that were actually sent.
+        assert result["request_headers"] == {}
+
     @pytest.mark.parametrize("method", ["GET", "DELETE"])
     @pytest.mark.asyncio
     async def test_form_body_format_ignored_without_body(self, method):

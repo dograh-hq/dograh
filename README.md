@@ -202,6 +202,9 @@ We love contributions! Dograh AI is 100% open source and we intend to keep it th
 - Commit your changes (git commit -m 'Add some AmazingFeature')
 - Push to the branch (git push origin feature/AmazingFeature)
 - Open a Pull Request
+- Sign the [Contributor License Agreement](CLA.md) when the CLA check asks you to (once, on your first pull request)
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## ⭐ Star History
 

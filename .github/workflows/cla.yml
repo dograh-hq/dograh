@@ -1,0 +1,39 @@
+name: CLA
+
+# Checks that every commit author on a pull request has signed CLA.md, and
+# records signatures that contributors post as PR comments. The result is the
+# license/cla commit status. Logic lives in .github/scripts/cla.js.
+#
+# pull_request_target runs with a write token even for fork PRs, so this
+# workflow must never check out or execute pull request code. The checkout
+# below is the base branch, where the script lives.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write # signatures on the cla-signatures branch
+  pull-requests: write # the CLA status comment
+  statuses: write # the license/cla commit status
+
+jobs:
+  cla:
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request &&
+        (contains(github.event.comment.body, 'I hereby sign the CLA') ||
+          github.event.comment.body == 'recheck'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const run = require('./.github/scripts/cla.js');
+            await run({ github, context, core });

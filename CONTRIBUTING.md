@@ -49,6 +49,20 @@ Please refer to our [Development Setup documentation](https://docs.dograh.com/co
 - Reference related issues and PRs in your discussions
 - Share early drafts for feedback on complex features
 
+## ✍️ Contributor License Agreement
+
+Before we can merge your first pull request, you need to sign the [Dograh Contributor License Agreement](CLA.md) (CLA). You keep the copyright to your contribution. The CLA grants Zansat Technologies Private Limited, the company behind Dograh, a license to use and distribute your contribution, including a patent license, and confirms that you have the right to contribute it. It is adapted from the Apache Software Foundation's Individual CLA, the template most company-backed open source projects base their CLA on.
+
+Signing takes one comment:
+
+1. Open your pull request. If you haven't signed yet, the CLA check comments with instructions.
+2. Reply on the pull request with exactly: `I have read the CLA Document and I hereby sign the CLA`
+3. The `license/cla` check turns green. You only sign once, and it covers all your future pull requests.
+
+The check looks at the author of every commit in the pull request, so every author must sign, and each commit's author email must be linked to a GitHub account. `Co-authored-by` trailers are not checked. Comment `recheck` to run the check again.
+
+If your employer has rights to the code you write, make sure you have their permission to contribute it, or ask them to sign the [Corporate CLA](CORPORATE_CLA.md) and email it to [contact@dograh.com](mailto:contact@dograh.com). You still sign the individual CLA on your pull request.
+
 ## Pull Request Requirements
 
 ### Telephony Provider Integration Pull Requests

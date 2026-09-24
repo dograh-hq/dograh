@@ -14,7 +14,10 @@ def compute_call_metrics(
         if event["type"] == RealtimeFeedbackType.LATENCY_MEASURED.value:
             latencies.append(event["payload"]["latency_seconds"])
         elif event["type"] == RealtimeFeedbackType.TTFB_METRIC.value:
-            ttfb_values.append(event["payload"]["ttfb_seconds"])
+            # avg_ttfb_seconds is the LLM's. Events without `kind` predate STT/TTS
+            # forwarding and are LLM measurements.
+            if event["payload"].get("kind", "llm") == "llm":
+                ttfb_values.append(event["payload"]["ttfb_seconds"])
 
     turns = set()
     for event in logs:

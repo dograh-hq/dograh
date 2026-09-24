@@ -10,6 +10,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 export interface TransferAgentWorkflowOption {
@@ -30,6 +31,9 @@ export interface TransferAgentToolConfigProps {
     workflowsLoading?: boolean;
     message: string;
     onMessageChange: (message: string) => void;
+    /** Whether the destination agent opens with its Start Call greeting. */
+    playGreeting: boolean;
+    onPlayGreetingChange: (playGreeting: boolean) => void;
 }
 
 export function TransferAgentToolConfig({
@@ -43,6 +47,8 @@ export function TransferAgentToolConfig({
     workflowsLoading = false,
     message,
     onMessageChange,
+    playGreeting,
+    onPlayGreetingChange,
 }: TransferAgentToolConfigProps) {
     return (
         <Card>
@@ -117,6 +123,24 @@ export function TransferAgentToolConfig({
                         value={message}
                         onChange={(e) => onMessageChange(e.target.value)}
                         placeholder="Let me connect you with the right person. One moment please."
+                    />
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                    <div className="grid gap-1">
+                        <Label htmlFor="transfer-agent-play-greeting">
+                            Play the destination agent&apos;s greeting
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                            Turn off to have the next agent continue the conversation instead
+                            of introducing itself. It then opens with a reply based on the
+                            handover note.
+                        </p>
+                    </div>
+                    <Switch
+                        id="transfer-agent-play-greeting"
+                        checked={playGreeting}
+                        onCheckedChange={onPlayGreetingChange}
                     />
                 </div>
             </CardContent>

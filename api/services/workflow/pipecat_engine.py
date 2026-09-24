@@ -1005,7 +1005,8 @@ class PipecatEngine:
             node_id: The node being opened.
             previous_node_id: The node just left. Passing the same id as
                 ``node_id`` suppresses the configured greeting when resuming
-                an existing node, such as a text-chat checkpoint.
+                an existing node, such as a text-chat checkpoint, or when an
+                agent transfer is set to continue the conversation.
             generate_if_no_greeting: Ask the LLM for an opening turn when the
                 node has no configured greeting.
             origin_visit_id: The agent visit this opening belongs to. An

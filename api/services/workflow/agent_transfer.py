@@ -37,6 +37,7 @@ class TransferRequest:
     destination_label: str
     origin_visit_id: str
     announcement: str | None = None
+    play_greeting: bool = True
     request_id: str = field(default_factory=lambda: f"xfer-{uuid.uuid4().hex[:10]}")
     cancelled_reason: str | None = None
 
@@ -182,8 +183,10 @@ class AgentTransferCoordinator:
             self._phase = TransferPhase.OPENING
             engine.call_monitor.resume()
             await engine.notify_agent_entered(destination)
+            start_node_id = destination.workflow.start_node_id
             await engine.queue_node_opening(
-                node_id=destination.workflow.start_node_id,
+                node_id=start_node_id,
+                previous_node_id=None if request.play_greeting else start_node_id,
                 generate_if_no_greeting=True,
                 origin_visit_id=destination.visit_id,
             )
@@ -249,8 +252,12 @@ class AgentTransferCoordinator:
     async def _announce(self, request, source):
         engine = self._engine
         if request.announcement:
+            # The assistant turn logs context speech; logging it here duplicates it.
             speech = await engine.queue_speech(
-                request.announcement, append_to_context=True, mute_user=True
+                request.announcement,
+                append_to_context=True,
+                persist_to_logs=False,
+                mute_user=True,
             )
             await speech.wait()
         # Also drain when the tool has no announcement.

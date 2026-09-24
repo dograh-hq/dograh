@@ -583,6 +583,7 @@ class CustomToolManager:
                 destination_label=tool.name,
                 origin_visit_id=self._agent.visit_id,
                 announcement=announcement,
+                play_greeting=config.get("play_greeting", True),
             )
 
             if not engine.transfer_coordinator.accept(request):

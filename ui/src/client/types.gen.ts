@@ -2193,6 +2193,58 @@ export type DispositionCodesResponse = {
 };
 
 /**
+ * DocumentContentResponseSchema
+ *
+ * Raw text of an editable (text or Markdown) document.
+ */
+export type DocumentContentResponseSchema = {
+    /**
+     * Document Uuid
+     */
+    document_uuid: string;
+    /**
+     * Filename
+     */
+    filename: string;
+    /**
+     * Retrieval Mode
+     */
+    retrieval_mode: string;
+    /**
+     * Content
+     *
+     * The stored file's text, as uploaded
+     */
+    content: string;
+    /**
+     * File Hash
+     *
+     * Version token; send it back as expected_file_hash when saving
+     */
+    file_hash: string;
+};
+
+/**
+ * DocumentContentUpdateRequestSchema
+ *
+ * Request schema for replacing an editable document's text.
+ */
+export type DocumentContentUpdateRequestSchema = {
+    /**
+     * Content
+     *
+     * New full text of the document
+     */
+    content: string;
+    /**
+     * Expected File Hash
+     *
+     * file_hash returned when the content was loaded. The save is rejected if the document has changed since.
+     */
+    expected_file_hash: string;
+};
+
+/**
  * DocumentListResponseSchema
  *
  * Response schema for list of documents.
@@ -2298,6 +2350,12 @@ export type DocumentResponseSchema = {
      * Is Active
      */
     is_active: boolean;
+    /**
+     * Has Live Content
+     *
+     * Whether agents can currently retrieve this document's content. Stays true while an edited document is re-indexed or after its re-index fails, because the previous version keeps serving until a new one succeeds.
+     */
+    has_live_content?: boolean;
 };
 
 /**
@@ -3343,6 +3401,12 @@ export type HttpApiConfig = {
     body_template?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Body Format
+     *
+     * Encoding of the POST, PUT, and PATCH request body: 'json' sends application/json, 'form' sends application/x-www-form-urlencoded.
+     */
+    body_format?: 'json' | 'form';
 };
 
 /**
@@ -6851,10 +6915,11 @@ export type ToolTestResponse = {
  * That keeps the routing decision in the one place the model already reasons
  * about, and leaves nothing to configure here but where the call goes.
  *
- * Everything about how a handoff sounds is fixed: the caller hears a ringer
- * while the next agent is prepared, and that agent opens with its own
- * configured greeting. Only the handover line is configurable, because it is
- * caller-facing and Dograh runs in more than one language.
+ * Most of how a handoff sounds is fixed: the caller hears a ringer while the
+ * next agent is prepared. The handover line is configurable because it is
+ * caller-facing and Dograh runs in more than one language, and so is whether
+ * the next agent opens with its greeting, because an agent that greets
+ * callers on its own number should not re-introduce itself mid-conversation.
  */
 export type TransferAgentConfig = {
     /**
@@ -6869,6 +6934,12 @@ export type TransferAgentConfig = {
      * Spoken by the current agent, in its own voice, before the caller is handed over. Supports template variables. Leave empty to hand over without saying anything.
      */
     message?: string;
+    /**
+     * Play Greeting
+     *
+     * Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
+     */
+    play_greeting?: boolean;
 };
 
 /**
@@ -15283,6 +15354,94 @@ export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses = {
 };
 
 export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponse = GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses[keyof GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses];
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Document Uuid
+         */
+        document_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/knowledge-base/documents/{document_uuid}/content';
+};
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetError = GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors[keyof GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors];
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentContentResponseSchema;
+};
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponse = GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses[keyof GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses];
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutData = {
+    body: DocumentContentUpdateRequestSchema;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Document Uuid
+         */
+        document_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/knowledge-base/documents/{document_uuid}/content';
+};
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutError = SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors[keyof SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors];
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentResponseSchema;
+};
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponse = SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses[keyof SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses];
 
 export type SearchChunksApiV1KnowledgeBaseSearchPostData = {
     body: ChunkSearchRequestSchema;

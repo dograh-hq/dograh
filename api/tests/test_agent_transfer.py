@@ -145,7 +145,12 @@ def build_agent_workflow(
 class TransferAgentTool:
     """Stands in for the persisted transfer_agent tool row."""
 
-    def __init__(self, *, message: str | None = "Let me put you through to billing."):
+    def __init__(
+        self,
+        *,
+        message: str | None = "Let me put you through to billing.",
+        play_greeting: bool = True,
+    ):
         self.tool_uuid = TRANSFER_TOOL_UUID
         self.name = "Transfer to Billing"
         self.description = "Use when the caller asks about an invoice."
@@ -156,6 +161,7 @@ class TransferAgentTool:
             "config": {
                 "workflow_id": DESTINATION_WORKFLOW_ID,
                 "message": message or "",
+                "play_greeting": play_greeting,
             },
         }
 
@@ -493,11 +499,13 @@ async def test_transfer_hands_the_call_over_without_dropping_it():
         spoken = harness.speech.lines
         assert ("source", "Let me put you through to billing.") in spoken
         assert ("destination", "Billing here, how can I help?") in spoken
-        assert [
+        # The announcement joins the conversation, so the assistant turn logs
+        # it; the feedback observer must not log it a second time.
+        assert "Let me put you through to billing." not in [
             event["payload"]["text"]
             for event in harness.logs.get_events()
             if event["type"] == "rtf-bot-text"
-        ].count("Let me put you through to billing.") == 1
+        ]
 
         # Retiring the source must not clean up the shared feedback observer
         # out from under the destination.
@@ -983,8 +991,52 @@ async def test_the_destination_opens_with_its_own_greeting():
         assert harness.engine.transfer_coordinator.completed[-1]["outcome"] == (
             "completed"
         )
-        # The destination always introduces itself with its own greeting.
+        # By default the destination introduces itself with its own greeting.
         assert "Billing here, how can I help?" in harness.speech.texts()
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_destination_set_to_continue_skips_its_greeting():
+    """With play_greeting off, the destination picks up without introducing itself."""
+    source_llm = MockLLMService(
+        mock_steps=[
+            MockLLMService.create_function_call_chunks(
+                "transfer_to_billing", {}, tool_call_id="call_transfer_1"
+            )
+        ],
+        chunk_delay=0.001,
+    )
+    destination_llm = MockLLMService(
+        mock_steps=[MockLLMService.create_text_chunks("Carrying on.")],
+        chunk_delay=0.001,
+    )
+
+    harness = TransferHarness()
+    await harness.build(
+        source_llm=source_llm,
+        destination_llm=destination_llm,
+        source_workflow=build_agent_workflow(
+            name="Reception", greeting=None, tool_uuids=[TRANSFER_TOOL_UUID]
+        ),
+        destination_workflow=build_agent_workflow(
+            name="Billing", greeting="Billing here, how can I help?"
+        ),
+    )
+    await harness.start()
+
+    try:
+        await run_transfer(harness, tool=TransferAgentTool(play_greeting=False))
+
+        assert harness.engine.transfer_coordinator.completed[-1]["outcome"] == (
+            "completed"
+        )
+        assert "Billing here, how can I help?" not in harness.speech.texts()
+        # The destination opened with a generated turn instead.
+        async with asyncio.timeout(5):
+            while destination_llm.get_current_step() < 1:
+                await asyncio.sleep(0.02)
     finally:
         await harness.stop()
 

@@ -9,6 +9,8 @@ from api.enums import CallType
 class WorkflowRunResponseSchema(BaseModel):
     id: int
     workflow_id: int
+    workflow_name: str | None = None
+    version_number: int | None = None
     name: str
     mode: str
     created_at: datetime

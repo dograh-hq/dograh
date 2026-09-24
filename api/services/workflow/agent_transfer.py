@@ -37,6 +37,7 @@ class TransferRequest:
     destination_label: str
     origin_visit_id: str
     announcement: str | None = None
+    play_greeting: bool = True
     request_id: str = field(default_factory=lambda: f"xfer-{uuid.uuid4().hex[:10]}")
     cancelled_reason: str | None = None
 
@@ -77,6 +78,7 @@ class AgentTransferCoordinator:
             return False
         self._request = request
         self._phase = TransferPhase.ANNOUNCING
+        self._engine.call_monitor.suspend()
         return True
 
     def start(self, request, *, context_ready=None):
@@ -179,9 +181,12 @@ class AgentTransferCoordinator:
             engine.commit_agent(destination, snapshot)
             committed = True
             self._phase = TransferPhase.OPENING
+            engine.call_monitor.resume()
             await engine.notify_agent_entered(destination)
+            start_node_id = destination.workflow.start_node_id
             await engine.queue_node_opening(
-                node_id=destination.workflow.start_node_id,
+                node_id=start_node_id,
+                previous_node_id=None if request.play_greeting else start_node_id,
                 generate_if_no_greeting=True,
                 origin_visit_id=destination.visit_id,
             )
@@ -227,6 +232,7 @@ class AgentTransferCoordinator:
                 )
 
         if not committed and engine.agent_can_act(source):
+            engine.expect_response()
             await source.queue_frame(
                 LLMMessagesAppendFrame(
                     [
@@ -246,8 +252,12 @@ class AgentTransferCoordinator:
     async def _announce(self, request, source):
         engine = self._engine
         if request.announcement:
+            # The assistant turn logs context speech; logging it here duplicates it.
             speech = await engine.queue_speech(
-                request.announcement, append_to_context=True, mute_user=True
+                request.announcement,
+                append_to_context=True,
+                persist_to_logs=False,
+                mute_user=True,
             )
             await speech.wait()
         # Also drain when the tool has no announcement.
@@ -281,6 +291,7 @@ class AgentTransferCoordinator:
     def _finish(self, request, outcome, source, destination):
         self._phase = TransferPhase.IDLE
         self._request = None
+        self._engine.call_monitor.resume()
         self._engine.record_transfer_outcome(
             {
                 "request_id": request.request_id,

@@ -5,6 +5,7 @@ import { getTurnCredentialsApiV1TurnCredentialsGet, validateUserConfigurationsAp
 import { TurnCredentialsResponse } from "@/client/types.gen";
 import { WorkflowValidationError } from "@/components/flow/types";
 import type { ConversationNodeTransitionItem, RealtimeFeedbackMessage as FeedbackMessage } from "@/components/workflow/conversation";
+import { isLlmTtfb } from "@/components/workflow/conversation/adapters/fromRealtimeFeedback";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { resolveBrowserBackendUrl } from '@/lib/apiClient';
 import { detailFromError } from '@/lib/apiError';
@@ -562,7 +563,13 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                         }
 
                         case 'rtf-ttfb-metric': {
-                            const { ttfb_seconds, processor, model } = message.payload;
+                            const { ttfb_seconds, processor, model, kind } = message.payload;
+                            // Only the LLM's TTFB is shown (as reasoning delay). STT and TTS
+                            // TTFB can arrive mid-reply, and any message between two bot-text
+                            // chunks splits the bot bubble.
+                            if (!isLlmTtfb(kind)) {
+                                break;
+                            }
                             setFeedbackMessages(prev => [...prev, {
                                 id: `ttfb-${Date.now()}`,
                                 type: 'ttfb-metric',

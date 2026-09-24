@@ -25,10 +25,24 @@ from api.db.models import (
     WorkflowRunModel,
 )
 from api.enums import OrganizationConfigurationKey
+from api.schemas.campaign import (
+    CampaignTrafficStatsResponse,
+    TrafficSplitRequest,
+    TrafficSplitResponse,
+)
 from api.services.auth.depends import get_user
 from api.services.campaign.runner import campaign_runner_service
 from api.services.campaign.source_sync import CampaignSourceSyncService
 from api.services.campaign.source_sync_factory import get_sync_service
+from api.services.campaign.traffic_split import (
+    build_split,
+    campaign_split,
+    primary_workflow_id,
+    resolve_variants,
+    split_response,
+    traffic_stats,
+    validate_variant_templates,
+)
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.reports import generate_campaign_report_csv
 from api.services.storage import storage_fs
@@ -235,7 +249,8 @@ class CircuitBreakerConfigResponse(BaseModel):
 
 class CreateCampaignRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    workflow_id: Optional[int] = None
+    workflow_id: int | None = Field(default=None, gt=0)
+    traffic_split: Optional[TrafficSplitRequest] = None
     source_type: Optional[str] = "csv"
     source_id: Optional[str] = None  # CSV file key or direct ID
     # Optional for backwards compatibility. When omitted, the resolver prefers
@@ -261,8 +276,15 @@ class CreateCampaignRequest(BaseModel):
     contacts: Optional[List[Dict[str, Any]]] = None
     contact_ids: Optional[List[int]] = None
 
+    @model_validator(mode="after")
+    def validate_agent_selection(self):
+        if (self.workflow_id is None) == (self.traffic_split is None):
+            raise ValueError("Provide exactly one of workflow_id or traffic_split")
+        return self
+
 
 class UpdateCampaignRequest(BaseModel):
+    traffic_split: TrafficSplitRequest | None = None
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     retry_config: Optional[RetryConfigRequest] = None
     max_concurrency: Optional[int] = Field(default=None, ge=1)
@@ -286,6 +308,7 @@ class CampaignLogEntryResponse(BaseModel):
 
 
 class CampaignResponse(BaseModel):
+    traffic_split: TrafficSplitResponse | None = None
     id: int
     name: str
     workflow_id: int
@@ -355,13 +378,14 @@ class CampaignProgressResponse(BaseModel):
 # Default retry config for campaigns
 
 
-def _build_campaign_response(
+async def _build_campaign_response(
     campaign,
     workflow_name: str,
     executed_count: int = 0,
     total_queued_count: int = 0,
     telephony_configuration_name: Optional[str] = None,
     warnings: Optional[List[str]] = None,
+    variant_labels: dict | None = None,
 ) -> CampaignResponse:
     """Build a CampaignResponse from a campaign model."""
     # Get retry_config from campaign or use defaults
@@ -393,6 +417,9 @@ def _build_campaign_response(
         )
 
     return CampaignResponse(
+        traffic_split=await split_response(
+            db_client, campaign, workflow_name, variant_labels
+        ),
         warnings=warnings or [],
         id=campaign.id,
         name=campaign.name,
@@ -508,6 +535,40 @@ async def delete_campaign_draft(
         return {"status": "cleared"}
 
 
+async def _authorize_campaign_variants(campaign, user) -> None:
+    if (campaign.orchestrator_metadata or {}).get("traffic_split"):
+        try:
+            resolved = await resolve_variants(
+                db_client,
+                campaign_split(campaign)["variants"],
+                campaign.organization_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        selections = {(w.id, d.id) for w, d in resolved}
+    else:
+        selections = {(campaign.workflow_id, None)}
+    for workflow_id, definition_id in selections:
+        result = await authorize_workflow_run_start(
+            workflow_id=workflow_id,
+            organization_id=user.selected_organization_id,
+            actor_user=user,
+            **({"definition_id": definition_id} if definition_id is not None else {}),
+        )
+        if not result.has_quota:
+            raise HTTPException(status_code=402, detail=result.error_message)
+
+
+@router.get("/{campaign_id}/traffic-stats")
+async def get_campaign_traffic_stats(
+    campaign_id: int, user: UserModel = Depends(get_user)
+) -> CampaignTrafficStatsResponse:
+    campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return await traffic_stats(db_client, campaign)
+
+
 @router.post("/create")
 @router.post("")
 @router.post("/")
@@ -517,36 +578,47 @@ async def create_campaign(
 ) -> CampaignResponse:
     """Create a new campaign"""
     await _ensure_queued_runs_columns()
-    # Verify workflow exists and belongs to organization or is a builtin template
-    workflow = None
-    workflow_id = request.workflow_id
-    if workflow_id:
-        workflow = await db_client.get_workflow(
-            workflow_id, organization_id=user.selected_organization_id
-        )
+    split = None
+    resolved = []
+    if getattr(request, "traffic_split", None) is not None:
+        split = build_split(request.traffic_split)
+        try:
+            resolved = await resolve_variants(
+                db_client, split["variants"], user.selected_organization_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        workflow_id = primary_workflow_id(split)
+        workflow = next(w for w, _ in resolved if w.id == workflow_id)
+    else:
+        workflow_id = request.workflow_id
+        workflow = None
+        if workflow_id:
+            workflow = await db_client.get_workflow(
+                workflow_id, organization_id=user.selected_organization_id
+            )
+            if not workflow:
+                async with db_client.async_session() as session:
+                    wf_res = await session.get(WorkflowModel, workflow_id)
+                    if wf_res and wf_res.is_builtin:
+                        workflow = wf_res
+
         if not workflow:
-            async with db_client.async_session() as session:
-                wf_res = await session.get(WorkflowModel, workflow_id)
-                if wf_res and wf_res.is_builtin:
-                    workflow = wf_res
+            all_wfs = await db_client.get_all_workflows_for_listing(user.selected_organization_id, status=None)
+            if all_wfs:
+                workflow = all_wfs[0]
+                workflow_id = workflow.id
+            else:
+                async with db_client.async_session() as session:
+                    builtin_res = await session.execute(
+                        select(WorkflowModel).where(WorkflowModel.is_builtin == True).limit(1)
+                    )
+                    workflow = builtin_res.scalars().first()
+                    if workflow:
+                        workflow_id = workflow.id
 
-    if not workflow:
-        all_wfs = await db_client.get_all_workflows_for_listing(user.selected_organization_id, status=None)
-        if all_wfs:
-            workflow = all_wfs[0]
-            workflow_id = workflow.id
-        else:
-            async with db_client.async_session() as session:
-                builtin_res = await session.execute(
-                    select(WorkflowModel).where(WorkflowModel.is_builtin == True).limit(1)
-                )
-                workflow = builtin_res.scalars().first()
-                if workflow:
-                    workflow_id = workflow.id
-
-    if not workflow:
-        raise HTTPException(status_code=404, detail="No active or built-in AI caller found")
-
+        if not workflow:
+            raise HTTPException(status_code=404, detail="No active or built-in AI caller found")
     workflow_name = workflow.name
 
     # Resolved before the source is validated
@@ -583,6 +655,13 @@ async def create_campaign(
         )
         if not validation_result.is_valid:
             raise HTTPException(status_code=400, detail=validation_result.error.message)
+
+    # All variants must be able to run every contact.
+    if split is not None and validation_result:
+        try:
+            validate_variant_templates(resolved, validation_result)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         # Validate template variables against source data columns
         if workflow:
@@ -685,6 +764,7 @@ async def create_campaign(
     campaign = await db_client.create_campaign(
         name=request.name,
         workflow_id=workflow_id,
+        traffic_split=split,
         source_type=source_type,
         source_id=source_id,
         user_id=user.id,
@@ -854,7 +934,7 @@ async def create_campaign(
     except Exception:
         pass
 
-    return _build_campaign_response(
+    return await _build_campaign_response(
         campaign,
         workflow_name,
         telephony_configuration_name=cfg_name,
@@ -1325,12 +1405,16 @@ async def get_campaigns(
     """Get campaigns for user's organization"""
     campaigns = await db_client.get_campaigns(user.selected_organization_id)
 
-    # Get workflow names for all campaigns
-    workflow_ids = list(set(c.workflow_id for c in campaigns))
-    workflows = await db_client.get_workflows_by_ids(
+    workflow_ids = list(
+        {v["workflow_id"] for c in campaigns for v in campaign_split(c)["variants"]}
+        | {c.workflow_id for c in campaigns}
+    )
+    variant_labels = await db_client.get_campaign_variant_labels(
         workflow_ids, user.selected_organization_id
     )
-    workflow_map = {w.id: w.name for w in workflows}
+    workflow_map = {
+        workflow_id: label["name"] for workflow_id, label in variant_labels.items()
+    }
 
     stats_map = await db_client.get_queued_runs_stats_for_campaigns(
         [c.id for c in campaigns]
@@ -1344,9 +1428,10 @@ async def get_campaigns(
     config_name_map = {cfg.id: cfg.name for cfg in org_configs}
 
     campaign_responses = [
-        _build_campaign_response(
+        await _build_campaign_response(
             c,
             workflow_map.get(c.workflow_id, "Unknown"),
+            variant_labels=variant_labels,
             executed_count=stats_map.get(c.id, {}).get("executed", 0),
             total_queued_count=stats_map.get(c.id, {}).get("total", 0),
             telephony_configuration_name=config_name_map.get(
@@ -1377,7 +1462,7 @@ async def get_campaign(
     cfg_name = await _get_telephony_configuration_name(
         campaign.telephony_configuration_id, user.selected_organization_id
     )
-    return _build_campaign_response(
+    return await _build_campaign_response(
         campaign,
         workflow_name or "Unknown",
         executed,
@@ -1409,13 +1494,7 @@ async def start_campaign(
 
     # Check Dograh quota before starting campaign (apply per-workflow
     # model_overrides so we evaluate the keys this campaign will use).
-    quota_result = await authorize_workflow_run_start(
-        workflow_id=campaign.workflow_id,
-        organization_id=user.selected_organization_id,
-        actor_user=user,
-    )
-    if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
+    await _authorize_campaign_variants(campaign, user)
 
     # Start the campaign using the runner service
     try:
@@ -1433,7 +1512,7 @@ async def start_campaign(
     cfg_name = await _get_telephony_configuration_name(
         campaign.telephony_configuration_id, user.selected_organization_id
     )
-    return _build_campaign_response(
+    return await _build_campaign_response(
         campaign,
         workflow_name or "Unknown",
         executed,
@@ -1469,7 +1548,7 @@ async def pause_campaign(
     cfg_name = await _get_telephony_configuration_name(
         campaign.telephony_configuration_id, user.selected_organization_id
     )
-    return _build_campaign_response(
+    return await _build_campaign_response(
         campaign,
         workflow_name or "Unknown",
         executed,
@@ -1593,30 +1672,47 @@ async def update_campaign(
     if request.retry_config is not None:
         update_kwargs["retry_config"] = request.retry_config.model_dump()
 
-    # Merge max_concurrency and schedule_config into orchestrator_metadata
-    metadata = campaign.orchestrator_metadata or {}
-    metadata_changed = False
-
+    metadata_patch = {}
     if "max_concurrency" in request.model_fields_set:
-        if request.max_concurrency is None:
-            metadata.pop("max_concurrency", None)
-        else:
-            metadata["max_concurrency"] = request.max_concurrency
-        metadata_changed = True
-
+        metadata_patch["max_concurrency"] = request.max_concurrency
     if request.schedule_config is not None:
-        metadata["schedule_config"] = request.schedule_config.model_dump()
-        metadata_changed = True
-
+        metadata_patch["schedule_config"] = request.schedule_config.model_dump()
     if request.circuit_breaker is not None:
-        metadata["circuit_breaker"] = request.circuit_breaker.model_dump()
-        metadata_changed = True
+        metadata_patch["circuit_breaker"] = request.circuit_breaker.model_dump()
+    if request.traffic_split is not None:
+        try:
+            resolved = await resolve_variants(
+                db_client,
+                request.traffic_split.model_dump()["variants"],
+                user.selected_organization_id,
+            )
+            require_e164 = await requires_e164_destinations(
+                campaign.telephony_configuration_id,
+                user.selected_organization_id,
+                db=db_client,
+            )
+            source = await get_sync_service(campaign.source_type).validate_source(
+                campaign.source_id,
+                user.selected_organization_id,
+                require_e164=require_e164,
+            )
+            if not source.is_valid:
+                raise ValueError(source.error.message)
+            validate_variant_templates(resolved, source)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if metadata_changed:
-        update_kwargs["orchestrator_metadata"] = metadata
-
-    if update_kwargs:
-        await db_client.update_campaign(campaign_id=campaign_id, **update_kwargs)
+    if update_kwargs or metadata_patch or request.traffic_split is not None:
+        try:
+            await db_client.update_campaign_settings(
+                campaign_id,
+                user.selected_organization_id,
+                settings=update_kwargs,
+                metadata_patch=metadata_patch,
+                traffic_split=request.traffic_split,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # Re-fetch to return updated data
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
@@ -1628,7 +1724,7 @@ async def update_campaign(
     cfg_name = await _get_telephony_configuration_name(
         campaign.telephony_configuration_id, user.selected_organization_id
     )
-    return _build_campaign_response(
+    return await _build_campaign_response(
         campaign,
         workflow_name or "Unknown",
         executed,
@@ -2604,7 +2700,7 @@ async def redial_campaign(
     cfg_name = await _get_telephony_configuration_name(
         child.telephony_configuration_id, user.selected_organization_id
     )
-    return _build_campaign_response(
+    return await _build_campaign_response(
         child,
         workflow_name or "Unknown",
         executed,
@@ -2636,13 +2732,7 @@ async def resume_campaign(
 
     # Check Dograh quota before resuming campaign (apply per-workflow
     # model_overrides so we evaluate the keys this campaign will use).
-    quota_result = await authorize_workflow_run_start(
-        workflow_id=campaign.workflow_id,
-        organization_id=user.selected_organization_id,
-        actor_user=user,
-    )
-    if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
+    await _authorize_campaign_variants(campaign, user)
 
     # Resume the campaign using the runner service
     try:
@@ -2660,7 +2750,7 @@ async def resume_campaign(
     cfg_name = await _get_telephony_configuration_name(
         campaign.telephony_configuration_id, user.selected_organization_id
     )
-    return _build_campaign_response(
+    return await _build_campaign_response(
         campaign,
         workflow_name or "Unknown",
         executed,

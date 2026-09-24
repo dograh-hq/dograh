@@ -39,8 +39,8 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 
 
 class ControlledTTS(MockTTSService):
-    def __init__(self):
-        super().__init__(mock_audio_duration_ms=80, frame_delay=0)
+    def __init__(self, **kwargs):
+        super().__init__(mock_audio_duration_ms=80, frame_delay=0, **kwargs)
         self.requested = asyncio.Queue()
         self.gates = {}
 
@@ -90,9 +90,10 @@ class HeldResponseBoundaries(FrameProcessor):
 
 
 class PlaybackHarness:
-    def __init__(self, *, hold_boundaries=False):
+    def __init__(self, *, hold_boundaries=False, timestamped_tts=False):
         self.engine = PipecatEngine(workflow=None, call_context_vars={})
-        self.tts = ControlledTTS()
+        # A timestamped TTS releases a response's end when its audio finishes.
+        self.tts = ControlledTTS(push_text_frames=not timestamped_tts)
         self.output = ControlledOutput()
         self.boundaries = HeldResponseBoundaries()
         self.user = LLMUserAggregator(
@@ -137,7 +138,7 @@ class PlaybackHarness:
 
 @pytest.fixture
 async def playback(request):
-    harness = PlaybackHarness(hold_boundaries=getattr(request, "param", False))
+    harness = PlaybackHarness(**getattr(request, "param", {}))
     ready = asyncio.Event()
 
     @harness.worker.event_handler("on_pipeline_started")
@@ -237,6 +238,22 @@ async def test_empty_audio_finishes_without_success_or_sticky_mute(playback):
     # This service emits no terminal TTS frame either; its serializer holds
     # the marker, so the operation's deadline must release the mute.
     assert speech.outcome is PlaybackOutcome.TIMED_OUT
+    assert not await playback.muted()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("playback", [{"timestamped_tts": True}], indirect=True)
+async def test_textless_response_ends_without_waiting_for_its_deadline(playback):
+    # An empty generation gives a timestamped TTS no audio to release its end
+    # marker; the expected response must still resolve, not hold the caller
+    # muted until the deadline.
+    speech = playback.engine.speech_playback.expect_response(
+        source=playback.user, mute_user=True, timeout=10
+    )
+    await playback.user.push_frame(LLMFullResponseStartFrame())
+    await playback.user.push_frame(LLMFullResponseEndFrame())
+    assert not await asyncio.wait_for(speech.wait(), 1)
+    assert speech.outcome is PlaybackOutcome.FAILED
     assert not await playback.muted()
 
 
@@ -411,7 +428,7 @@ async def test_response_already_queued_at_output_cannot_finish_next_response(pla
 @pytest.mark.parametrize("late_start", [False, True])
 @pytest.mark.parametrize("end_after_expiry", [False, True])
 @pytest.mark.parametrize("source_owned", [False, True])
-@pytest.mark.parametrize("playback", [True], indirect=True)
+@pytest.mark.parametrize("playback", [{"hold_boundaries": True}], indirect=True)
 async def test_stale_generation_boundaries_cannot_claim_new_response(
     playback, outcome, late_start, end_after_expiry, source_owned
 ):
@@ -459,7 +476,7 @@ async def test_stale_generation_boundaries_cannot_claim_new_response(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("playback", [True], indirect=True)
+@pytest.mark.parametrize("playback", [{"hold_boundaries": True}], indirect=True)
 async def test_stale_audio_does_not_make_an_empty_new_response_successful(playback):
     tracker = playback.engine.speech_playback
     old = tracker.expect_response(source=playback.tts, timeout=0.05)
@@ -509,11 +526,41 @@ async def test_enqueue_failure_releases_its_mute(playback):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [None, RuntimeError("unavailable")])
-async def test_recording_preparation_failure_never_takes_a_mute(playback, error):
+@pytest.mark.parametrize("greeting", [False, True])
+async def test_recording_preparation_failure_never_takes_a_mute(
+    playback, error, greeting
+):
     playback.engine.set_fetch_recording_audio(
         AsyncMock(return_value=None, side_effect=error)
     )
-    speech = await playback.engine.queue_speech(recording_pk=1, mute_user=True)
+    speech = await playback.engine.queue_speech(
+        recording_pk=1, mute_user=True, greeting=greeting
+    )
     assert not await speech.wait()
     assert speech.outcome is PlaybackOutcome.FAILED
     assert not await playback.muted()
+    assert not playback.engine.speech_playback.pending
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("greeting", [False, True])
+async def test_cancelling_recording_preparation_releases_playback(playback, greeting):
+    fetching = asyncio.Event()
+
+    async def fetch(**_):
+        fetching.set()
+        await asyncio.Event().wait()
+
+    playback.engine.set_fetch_recording_audio(AsyncMock(side_effect=fetch))
+    preparation = asyncio.create_task(
+        playback.engine.queue_speech(recording_pk=1, mute_user=True, greeting=greeting)
+    )
+    try:
+        await asyncio.wait_for(fetching.wait(), 1)
+        assert not await playback.muted()
+        assert playback.engine.speech_playback.pending
+    finally:
+        preparation.cancel()
+        await asyncio.gather(preparation, return_exceptions=True)
+    assert not playback.engine.speech_playback.pending
+    assert not playback.output.writing.is_set()

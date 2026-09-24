@@ -899,6 +899,36 @@ export type CallDispositionOption = {
 };
 
 /**
+ * CallEventsConnectionResult
+ */
+export type CallEventsConnectionResult = {
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * CallEventsSettings
+ */
+export type CallEventsSettings = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Sink Type
+     */
+    sink_type?: string | null;
+    /**
+     * Config
+     */
+    config?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
  * CallType
  */
 export type CallType = 'inbound' | 'outbound';
@@ -1036,6 +1066,7 @@ export type CampaignProgressResponse = {
  * CampaignResponse
  */
 export type CampaignResponse = {
+    traffic_split?: TrafficSplitResponse | null;
     /**
      * Id
      */
@@ -1175,6 +1206,20 @@ export type CampaignSourceDownloadResponse = {
      * Expires In
      */
     expires_in: number;
+};
+
+/**
+ * CampaignTrafficStatsResponse
+ */
+export type CampaignTrafficStatsResponse = {
+    /**
+     * Total Attempts
+     */
+    total_attempts: number;
+    /**
+     * Variants
+     */
+    variants: Array<TrafficVariantStats>;
 };
 
 /**
@@ -1550,7 +1595,8 @@ export type CreateCampaignRequest = {
     /**
      * Workflow Id
      */
-    workflow_id: number;
+    workflow_id?: number | null;
+    traffic_split?: TrafficSplitRequest | null;
     /**
      * Source Type
      */
@@ -2163,6 +2209,58 @@ export type DispositionCodesResponse = {
 };
 
 /**
+ * DocumentContentResponseSchema
+ *
+ * Raw text of an editable (text or Markdown) document.
+ */
+export type DocumentContentResponseSchema = {
+    /**
+     * Document Uuid
+     */
+    document_uuid: string;
+    /**
+     * Filename
+     */
+    filename: string;
+    /**
+     * Retrieval Mode
+     */
+    retrieval_mode: string;
+    /**
+     * Content
+     *
+     * The stored file's text, as uploaded
+     */
+    content: string;
+    /**
+     * File Hash
+     *
+     * Version token; send it back as expected_file_hash when saving
+     */
+    file_hash: string;
+};
+
+/**
+ * DocumentContentUpdateRequestSchema
+ *
+ * Request schema for replacing an editable document's text.
+ */
+export type DocumentContentUpdateRequestSchema = {
+    /**
+     * Content
+     *
+     * New full text of the document
+     */
+    content: string;
+    /**
+     * Expected File Hash
+     *
+     * file_hash returned when the content was loaded. The save is rejected if the document has changed since.
+     */
+    expected_file_hash: string;
+};
+
+/**
  * DocumentListResponseSchema
  *
  * Response schema for list of documents.
@@ -2268,6 +2366,12 @@ export type DocumentResponseSchema = {
      * Is Active
      */
     is_active: boolean;
+    /**
+     * Has Live Content
+     *
+     * Whether agents can currently retrieve this document's content. Stays true while an edited document is re-indexed or after its re-index fails, because the previous version keeps serving until a new one succeeds.
+     */
+    has_live_content?: boolean;
 };
 
 /**
@@ -3290,7 +3394,7 @@ export type HttpApiConfig = {
     /**
      * Custommessage
      *
-     * Custom message to play after tool execution.
+     * Custom message to play before the tool executes, while the request is in flight.
      */
     customMessage?: string | null;
     /**
@@ -3313,6 +3417,12 @@ export type HttpApiConfig = {
     body_template?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Body Format
+     *
+     * Encoding of the POST, PUT, and PATCH request body: 'json' sends application/json, 'form' sends application/x-www-form-urlencoded.
+     */
+    body_format?: 'json' | 'form';
 };
 
 /**
@@ -4584,6 +4694,41 @@ export type OrganizationModelServicesContext = {
  * OrganizationPreferences
  */
 export type OrganizationPreferences = {
+    /**
+     * Omit to keep the destination unchanged; null removes it.
+     */
+    call_events?: CallEventsSettings | null;
+    /**
+     * Test Phone Number
+     */
+    test_phone_number?: string | null;
+    /**
+     * Timezone
+     */
+    timezone?: string | null;
+    /**
+     * External Pbx Integrations Enabled
+     */
+    external_pbx_integrations_enabled?: boolean;
+    /**
+     * Disposition Mapping Enabled
+     */
+    disposition_mapping_enabled?: boolean;
+    /**
+     * Disposition Mapping
+     *
+     * Dograh disposition -> the code this organization uses for it. Applied when writing `gathered_context.mapped_call_disposition`, so webhooks, run filters, reports and external-PBX write-backs all read the organization's own vocabulary. Dispositions absent from the mapping pass through unchanged.
+     */
+    disposition_mapping?: {
+        [key: string]: string;
+    };
+};
+
+/**
+ * OrganizationPreferencesResponse
+ */
+export type OrganizationPreferencesResponse = {
+    call_events: CallEventsSettings;
     /**
      * Test Phone Number
      */
@@ -6113,6 +6258,74 @@ export type SuperuserWorkflowRunsListResponse = {
 };
 
 /**
+ * TTSCacheEntry
+ */
+export type TtsCacheEntry = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Text Preview
+     */
+    text_preview: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Model
+     */
+    model: string;
+    /**
+     * Voice Id
+     */
+    voice_id: string;
+    /**
+     * Duration Seconds
+     */
+    duration_seconds: number;
+    /**
+     * Hit Count
+     *
+     * Synthesis requests served from this entry; excludes previews
+     */
+    hit_count: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Last Used At
+     */
+    last_used_at: string;
+};
+
+/**
+ * TTSCacheInvalidation
+ */
+export type TtsCacheInvalidation = {
+    /**
+     * Removed
+     */
+    removed: number;
+};
+
+/**
+ * TTSCacheList
+ */
+export type TtsCacheList = {
+    /**
+     * Entries
+     */
+    entries: Array<TtsCacheEntry>;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
  * TelephonyConfigWarningsResponse
  *
  * Aggregated telephony-configuration warning counts for the user's org.
@@ -6708,6 +6921,154 @@ export type ToolTestResponse = {
 };
 
 /**
+ * TrafficDefinitionStats
+ */
+export type TrafficDefinitionStats = {
+    /**
+     * Definition Id
+     */
+    definition_id: number | null;
+    /**
+     * Version Number
+     */
+    version_number: number | null;
+    /**
+     * Attempts
+     */
+    attempts: number;
+};
+
+/**
+ * TrafficSplitRequest
+ */
+export type TrafficSplitRequest = {
+    /**
+     * Variants
+     */
+    variants: Array<TrafficVariantRequest>;
+};
+
+/**
+ * TrafficSplitResponse
+ */
+export type TrafficSplitResponse = {
+    /**
+     * Revision
+     */
+    revision: number;
+    /**
+     * Variants
+     */
+    variants: Array<TrafficVariantResponse>;
+};
+
+/**
+ * TrafficVariantRequest
+ */
+export type TrafficVariantRequest = {
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+    /**
+     * Workflow Definition Id
+     */
+    workflow_definition_id?: number | null;
+    /**
+     * Weight
+     */
+    weight: number;
+};
+
+/**
+ * TrafficVariantResponse
+ */
+export type TrafficVariantResponse = {
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+    /**
+     * Workflow Definition Id
+     */
+    workflow_definition_id?: number | null;
+    /**
+     * Weight
+     */
+    weight: number;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Workflow Name
+     */
+    workflow_name: string;
+    /**
+     * Version Number
+     */
+    version_number?: number | null;
+};
+
+/**
+ * TrafficVariantStats
+ */
+export type TrafficVariantStats = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+    /**
+     * Workflow Name
+     */
+    workflow_name: string;
+    /**
+     * Workflow Definition Id
+     */
+    workflow_definition_id: number | null;
+    /**
+     * Version Number
+     */
+    version_number: number | null;
+    /**
+     * Target Weight
+     */
+    target_weight: number | null;
+    /**
+     * Attempts
+     */
+    attempts?: number;
+    /**
+     * Completed
+     */
+    completed?: number;
+    /**
+     * Actual Percentage
+     */
+    actual_percentage?: number;
+    /**
+     * States
+     */
+    states?: {
+        [key: string]: number;
+    };
+    /**
+     * Outcomes
+     */
+    outcomes?: {
+        [key: string]: number;
+    };
+    /**
+     * Definitions
+     */
+    definitions?: Array<TrafficDefinitionStats>;
+};
+
+/**
  * TransferAgentConfig
  *
  * Configuration for Transfer Agent tools.
@@ -6718,10 +7079,11 @@ export type ToolTestResponse = {
  * That keeps the routing decision in the one place the model already reasons
  * about, and leaves nothing to configure here but where the call goes.
  *
- * Everything about how a handoff sounds is fixed: the caller hears a ringer
- * while the next agent is prepared, and that agent opens with its own
- * configured greeting. Only the handover line is configurable, because it is
- * caller-facing and Dograh runs in more than one language.
+ * Most of how a handoff sounds is fixed: the caller hears a ringer while the
+ * next agent is prepared. The handover line is configurable because it is
+ * caller-facing and Dograh runs in more than one language, and so is whether
+ * the next agent opens with its greeting, because an agent that greets
+ * callers on its own number should not re-introduce itself mid-conversation.
  */
 export type TransferAgentConfig = {
     /**
@@ -6736,6 +7098,12 @@ export type TransferAgentConfig = {
      * Spoken by the current agent, in its own voice, before the caller is handed over. Supports template variables. Leave empty to hand over without saying anything.
      */
     message?: string;
+    /**
+     * Play Greeting
+     *
+     * Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
+     */
+    play_greeting?: boolean;
 };
 
 /**
@@ -7068,6 +7436,7 @@ export type UltravoxRealtimeLlmConfiguration = {
  * UpdateCampaignRequest
  */
 export type UpdateCampaignRequest = {
+    traffic_split?: TrafficSplitRequest | null;
     /**
      * Name
      */
@@ -7719,6 +8088,12 @@ export type WorkflowConfigurationDefaults = {
      */
     context_compaction_enabled?: boolean;
     /**
+     * Tts Cache Enabled
+     *
+     * Reuse generated speech for repeated phrases. Supports MiniMax TTS.
+     */
+    tts_cache_enabled?: boolean;
+    /**
      * Call Dispositions
      *
      * Allowed business outcomes for terminal call classification. Each entry defines the exact stored code and the criteria for selecting it.
@@ -7935,6 +8310,14 @@ export type WorkflowRunResponseSchema = {
      * Workflow Id
      */
     workflow_id: number;
+    /**
+     * Workflow Name
+     */
+    workflow_name?: string | null;
+    /**
+     * Version Number
+     */
+    version_number?: number | null;
     /**
      * Name
      */
@@ -8332,6 +8715,28 @@ export type WorkflowVersionResponse = {
     template_context_variables?: {
         [key: string]: unknown;
     } | null;
+};
+
+/**
+ * WorkflowVersionSummaryResponse
+ */
+export type WorkflowVersionSummaryResponse = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Version Number
+     */
+    version_number: number | null;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Published At
+     */
+    published_at: string | null;
 };
 
 /**
@@ -9312,6 +9717,52 @@ export type GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponses = {
 
 export type GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponse = GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponses[keyof GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponses];
 
+export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/version-summaries';
+};
+
+export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetError = GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetErrors[keyof GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetErrors];
+
+export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetResponses = {
+    /**
+     * Response Get Workflow Version Summaries Api V1 Workflow  Workflow Id  Version Summaries Get
+     *
+     * Successful Response
+     */
+    200: Array<WorkflowVersionSummaryResponse>;
+};
+
+export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetResponse = GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetResponses[keyof GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetResponses];
+
 export type GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetData = {
     body?: never;
     headers?: {
@@ -9339,6 +9790,14 @@ export type GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetData = {
          * Offset
          */
         offset?: number;
+        /**
+         * Version Number
+         */
+        version_number?: number | null;
+        /**
+         * Status
+         */
+        status?: 'draft' | 'published' | 'archived' | null;
     };
     url: '/api/v1/workflow/{workflow_id}/versions';
 };
@@ -10745,6 +11204,50 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses = {
 };
 
 export type GetVoicesApiV1UserConfigurationsVoicesProviderGetResponse = GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses[keyof GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses];
+
+export type GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Campaign Id
+         */
+        campaign_id: number;
+    };
+    query?: never;
+    url: '/api/v1/campaign/{campaign_id}/traffic-stats';
+};
+
+export type GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetError = GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetErrors[keyof GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetErrors];
+
+export type GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CampaignTrafficStatsResponse;
+};
+
+export type GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetResponse = GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetResponses[keyof GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetResponses];
 
 export type CreateCampaignApiV1CampaignCreatePostData = {
     body: CreateCampaignRequest;
@@ -12304,7 +12807,7 @@ export type GetPreferencesApiV1OrganizationsPreferencesGetResponses = {
     /**
      * Successful Response
      */
-    200: OrganizationPreferences;
+    200: OrganizationPreferencesResponse;
 };
 
 export type GetPreferencesApiV1OrganizationsPreferencesGetResponse = GetPreferencesApiV1OrganizationsPreferencesGetResponses[keyof GetPreferencesApiV1OrganizationsPreferencesGetResponses];
@@ -12343,10 +12846,49 @@ export type SavePreferencesApiV1OrganizationsPreferencesPutResponses = {
     /**
      * Successful Response
      */
-    200: OrganizationPreferences;
+    200: OrganizationPreferencesResponse;
 };
 
 export type SavePreferencesApiV1OrganizationsPreferencesPutResponse = SavePreferencesApiV1OrganizationsPreferencesPutResponses[keyof SavePreferencesApiV1OrganizationsPreferencesPutResponses];
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostData = {
+    body: CallEventsSettings;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/call-events/test';
+};
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostError = TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostErrors[keyof TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostErrors];
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: CallEventsConnectionResult;
+};
+
+export type TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponse = TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponses[keyof TestCallEventsConnectionApiV1OrganizationsCallEventsTestPostResponses];
 
 export type ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetData = {
     body?: never;
@@ -15106,6 +15648,94 @@ export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses = {
 
 export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponse = GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses[keyof GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses];
 
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Document Uuid
+         */
+        document_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/knowledge-base/documents/{document_uuid}/content';
+};
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetError = GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors[keyof GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetErrors];
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentContentResponseSchema;
+};
+
+export type GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponse = GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses[keyof GetDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentGetResponses];
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutData = {
+    body: DocumentContentUpdateRequestSchema;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Document Uuid
+         */
+        document_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/knowledge-base/documents/{document_uuid}/content';
+};
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutError = SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors[keyof SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutErrors];
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentResponseSchema;
+};
+
+export type SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponse = SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses[keyof SaveDocumentContentApiV1KnowledgeBaseDocumentsDocumentUuidContentPutResponses];
+
 export type SearchChunksApiV1KnowledgeBaseSearchPostData = {
     body: ChunkSearchRequestSchema;
     headers?: {
@@ -15409,6 +16039,201 @@ export type TranscribeAudioApiV1WorkflowRecordingsTranscribePostResponses = {
      */
     200: unknown;
 };
+
+export type ClearTtsCacheApiV1TtsCacheDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/tts-cache';
+};
+
+export type ClearTtsCacheApiV1TtsCacheDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ClearTtsCacheApiV1TtsCacheDeleteError = ClearTtsCacheApiV1TtsCacheDeleteErrors[keyof ClearTtsCacheApiV1TtsCacheDeleteErrors];
+
+export type ClearTtsCacheApiV1TtsCacheDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: TtsCacheInvalidation;
+};
+
+export type ClearTtsCacheApiV1TtsCacheDeleteResponse = ClearTtsCacheApiV1TtsCacheDeleteResponses[keyof ClearTtsCacheApiV1TtsCacheDeleteResponses];
+
+export type ListTtsCacheApiV1TtsCacheGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Search
+         */
+        search?: string;
+        /**
+         * Sort
+         */
+        sort?: 'last_used' | 'duration' | 'usage';
+        /**
+         * Order
+         */
+        order?: 'asc' | 'desc';
+        /**
+         * Min Duration
+         */
+        min_duration?: number | null;
+        /**
+         * Max Duration
+         */
+        max_duration?: number | null;
+        /**
+         * Offset
+         */
+        offset?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/tts-cache';
+};
+
+export type ListTtsCacheApiV1TtsCacheGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListTtsCacheApiV1TtsCacheGetError = ListTtsCacheApiV1TtsCacheGetErrors[keyof ListTtsCacheApiV1TtsCacheGetErrors];
+
+export type ListTtsCacheApiV1TtsCacheGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: TtsCacheList;
+};
+
+export type ListTtsCacheApiV1TtsCacheGetResponse = ListTtsCacheApiV1TtsCacheGetResponses[keyof ListTtsCacheApiV1TtsCacheGetResponses];
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Entry Id
+         */
+        entry_id: string;
+    };
+    query?: never;
+    url: '/api/v1/tts-cache/{entry_id}/audio';
+};
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetError = PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetErrors[keyof PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetErrors];
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: Blob | File;
+};
+
+export type PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponse = PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponses[keyof PreviewTtsCacheApiV1TtsCacheEntryIdAudioGetResponses];
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Entry Id
+         */
+        entry_id: string;
+    };
+    query?: never;
+    url: '/api/v1/tts-cache/{entry_id}';
+};
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteError = InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteErrors[keyof InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteErrors];
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: TtsCacheInvalidation;
+};
+
+export type InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponse = InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponses[keyof InvalidateTtsCacheEntryApiV1TtsCacheEntryIdDeleteResponses];
 
 export type ListFoldersApiV1FolderGetData = {
     body?: never;

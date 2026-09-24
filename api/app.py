@@ -40,6 +40,7 @@ from api.services.pipecat.tracing_config import (
     handle_langfuse_sync,
     load_all_org_langfuse_credentials,
 )
+from api.services.pipecat.tts_cache.runtime import close_speech_cache
 from api.services.worker_sync.manager import (
     WorkerSyncManager,
     set_worker_sync_manager,
@@ -83,6 +84,11 @@ async def lifespan(app: FastAPI):
         set_worker_sync_manager(sync_manager)
 
         from api.services.observability import loop_exceptions, loop_lag, metrics
+        from api.services.observability.call_events import (
+            delivery as call_event_delivery,
+        )
+
+        call_event_delivery.start()
 
         # Event-loop lag gauge — per-pod saturation signal read off
         # /health/active-calls during autoscaling load tests.
@@ -96,11 +102,15 @@ async def lifespan(app: FastAPI):
             yield  # Run app
         finally:
             logger.info("Starting graceful shutdown...")
+            await call_event_delivery.shutdown()
             try:
                 await sync_manager.stop()
             finally:
-                await loop_lag.stop()
-                metrics.stop()
+                try:
+                    await close_speech_cache()
+                finally:
+                    await loop_lag.stop()
+                    metrics.stop()
 
 
 app = FastAPI(

@@ -1,7 +1,6 @@
 """Engine actions for the answer supervisor; no pipeline policy in Pipecat."""
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
@@ -10,6 +9,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 
 from api.enums import AnswerAction
 from api.schemas.answer_supervisor import AnswerMessage
+from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechPlayback
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -25,10 +25,19 @@ ANSWER_TERMINAL_REASONS = (
 )
 
 
-async def _speak(engine: "PipecatEngine", message: AnswerMessage) -> bool:
+async def _speak(
+    engine: "PipecatEngine",
+    message: AnswerMessage,
+    *,
+    mute_user: bool = True,
+    append_to_context: bool = True,
+) -> bool:
     """Use the existing org-scoped recording fetcher and transport playback tracker."""
     if not message.configured:
         return False
+    append_to_context = append_to_context and not (
+        message.recording_pk or message.recording_id
+    )
     try:
         speech = await engine.queue_speech(
             **(
@@ -40,9 +49,9 @@ async def _speak(engine: "PipecatEngine", message: AnswerMessage) -> bool:
                     else {"text": engine._format_prompt(message.text)}
                 )
             ),
-            mute_user=True,
-            append_to_context=not (message.recording_pk or message.recording_id),
-            persist_to_logs=bool(message.recording_pk or message.recording_id),
+            mute_user=mute_user,
+            append_to_context=append_to_context,
+            persist_to_logs=not append_to_context,
         )
         return await speech.wait()
     except Exception:
@@ -50,15 +59,54 @@ async def _speak(engine: "PipecatEngine", message: AnswerMessage) -> bool:
         return False
 
 
-async def _play_opening(engine, supervisor, *, provisional: bool, context=None):
+async def _speak_screening(engine: "PipecatEngine", supervisor) -> bool:
+    """Play the screener's reply until it finishes or a human takes over."""
+
+    async def accept_human():
+        while True:
+            verdict = await supervisor.wait_for_human()
+            if supervisor.commit(verdict):
+                return
+
+    playback = asyncio.create_task(
+        _speak(
+            engine,
+            supervisor.config.screening_message,
+            mute_user=False,
+            append_to_context=False,
+        )
+    )
+    human = asyncio.create_task(accept_human())
+    try:
+        done, _ = await asyncio.wait(
+            (playback, human), return_when=asyncio.FIRST_COMPLETED
+        )
+        if playback in done:
+            return await playback
+        await human
+        # Stop preparation before interrupting so a pending recording fetch
+        # cannot queue the screening reply after the human's greeting.
+        playback.cancel()
+        await asyncio.gather(playback, return_exceptions=True)
+        return await engine.interrupt_screening_reply()
+    finally:
+        for task in (playback, human):
+            task.cancel()
+        await asyncio.gather(playback, human, return_exceptions=True)
+
+
+async def _play_opening(
+    engine, supervisor, *, provisional: bool, context=None
+) -> SpeechPlayback | None:
+    result = None
     try:
         async with asyncio.timeout(45):
-            await engine.queue_node_opening(
+            result = await engine.queue_node_opening(
                 node_id=engine.active_agent.workflow.start_node_id,
                 previous_node_id=None,
                 generate_if_no_greeting=True,
                 wait_for_playback=True,
-                mute_user=not provisional,
+                mute_user=False,
                 opening_context=context,
             )
     except TimeoutError:
@@ -67,23 +115,14 @@ async def _play_opening(engine, supervisor, *, provisional: bool, context=None):
         logger.warning("Supervised opening failed ({})", type(error).__name__)
     if provisional:
         supervisor.opening_finished()
+    return result.playback if result is not None else None
 
 
-async def _stop_opening(engine, opening):
-    # Cancel preparation first: a recording fetch must not enqueue the greeting
-    # after the interruption. Cancelling a playback waiter does not stop audio.
-    opening.cancel()
-    await asyncio.gather(opening, return_exceptions=True)
-    return await engine.interrupt_answer_opening()
-
-
-async def _handle_answer(
-    engine: "PipecatEngine", supervisor, update_idle_timeout
-) -> AnswerAction | None:
+async def _handle_answer(engine: "PipecatEngine", supervisor) -> AnswerAction | None:
     rearms = 0
     opening = None
-    opening_stopped = False
-    await update_idle_timeout(0)
+    speech = None
+    screening = False
     try:
         while not engine.is_call_disposed():
             verdict = await supervisor.wait_for_verdict()
@@ -108,40 +147,36 @@ async def _handle_answer(
                     _play_opening(engine, supervisor, provisional=True, context=context)
                 )
                 continue
+            if opening is not None:
+                # Wait for completion or interruption before changing playback.
+                speech = await opening
             if verdict.action == AnswerAction.RELEASE:
                 if opening is None:
-                    await _play_opening(engine, supervisor, provisional=False)
-                else:
-                    # The initial greeting always finishes for a human answer.
-                    # Node interruption policy applies after this handover.
-                    await asyncio.gather(opening, return_exceptions=True)
-                if opening is not None:
-                    # Flush context writes while the gate is still closed.
-                    # Playback consumed earlier triggers; only a turn completed
-                    # after the greeting (or screening) needs an immediate reply.
-                    if await engine.drain_call_pipeline():
-                        run_llm = supervisor.has_pending_inference
-                        supervisor.release()
-                        if run_llm:
-                            await engine.active_agent.run_llm(engine.context)
-                    else:
-                        await engine.end_call_with_reason(
-                            "answer_message_failed", abort_immediately=True
-                        )
-                        return
-                else:
-                    supervisor.release()
-                await update_idle_timeout(None)
-                return
-
-            if opening is not None and not opening_stopped:
-                if not await _stop_opening(engine, opening):
+                    speech = await _play_opening(engine, supervisor, provisional=False)
+                interrupted = (
+                    speech is not None and speech.outcome is PlaybackOutcome.INTERRUPTED
+                )
+                # Only cascade greetings install the temporary turn strategy.
+                # Realtime caller turns are already committed before the verdict.
+                if interrupted and not engine._is_realtime:
+                    interrupted = await engine.greeting.wait_for_turn()
+                # Commit queued caller speech before opening the inference gate.
+                if not await engine.drain_call_pipeline():
                     await engine.end_call_with_reason(
                         "answer_message_failed", abort_immediately=True
                     )
                     return
-                opening_stopped = True
+                supervisor.release()
+                engine.call_monitor.activate(waiting_for_user=True)
+                # A pickup after screening is a new human turn. If an opening
+                # already ran, answer that turn instead of waiting for another.
+                if interrupted or (screening and opening is not None):
+                    engine.expect_response()
+                    await engine.active_agent.run_llm(engine.context)
+                return
+
             if verdict.action == AnswerAction.WAIT_FOR_SCREENING:
+                screening = True
                 supervisor.begin_screening_wait()
                 continue
             if verdict.action == AnswerAction.SCREEN_THEN_REARM:
@@ -149,11 +184,13 @@ async def _handle_answer(
                     reason = "screening_limit"
                 elif not supervisor.config.screening_message.configured:
                     reason = "screening_message_missing"
-                elif await _speak(engine, supervisor.config.screening_message):
-                    rearms += 1
-                    supervisor.begin_screening_wait()
-                    continue
                 else:
+                    screening = True
+                    supervisor.begin_screening_wait(start_timeout=False)
+                    if await _speak_screening(engine, supervisor):
+                        rearms += 1
+                        supervisor.start_screening_timeout()
+                        continue
                     reason = "answer_message_failed"
             elif verdict.action == AnswerAction.LEAVE_MESSAGE:
                 played = await _speak(engine, supervisor.config.voicemail_message)
@@ -176,13 +213,9 @@ async def _handle_answer(
 async def handle_answer(
     engine: "PipecatEngine",
     supervisor,
-    *,
-    update_idle_timeout: Callable[[float | None], Awaitable[None]],
 ):
     """Cancel pending inference/playback as soon as the pipeline ends."""
-    actions = asyncio.create_task(
-        _handle_answer(engine, supervisor, update_idle_timeout)
-    )
+    actions = asyncio.create_task(_handle_answer(engine, supervisor))
     disconnected = asyncio.create_task(supervisor.wait_closed())
     cancelled = False
     try:

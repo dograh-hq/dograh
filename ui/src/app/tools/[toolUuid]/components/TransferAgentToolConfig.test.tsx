@@ -14,6 +14,7 @@ const AGENTS = [
 function Harness({ initialWorkflowId = "" }: { initialWorkflowId?: string }) {
     const [workflowId, setWorkflowId] = useState(initialWorkflowId);
     const [message, setMessage] = useState("Connecting you now.");
+    const [playGreeting, setPlayGreeting] = useState(true);
     return (
         <TransferAgentToolConfig
             name="Transfer to Billing"
@@ -25,6 +26,8 @@ function Harness({ initialWorkflowId = "" }: { initialWorkflowId?: string }) {
             workflows={AGENTS}
             message={message}
             onMessageChange={setMessage}
+            playGreeting={playGreeting}
+            onPlayGreetingChange={setPlayGreeting}
         />
     );
 }
@@ -54,5 +57,18 @@ describe("TransferAgentToolConfig", () => {
         expect(
             (screen.getByLabelText("Handover message") as HTMLInputElement).value,
         ).toBe("One moment.");
+    });
+
+    it("toggles whether the destination plays its greeting", () => {
+        render(<Harness />);
+        const toggle = screen.getByLabelText("Play the destination agent's greeting");
+        expect(toggle.getAttribute("aria-checked")).toBe("true");
+
+        fireEvent.click(toggle);
+        expect(
+            screen
+                .getByLabelText("Play the destination agent's greeting")
+                .getAttribute("aria-checked"),
+        ).toBe("false");
     });
 });

@@ -239,6 +239,22 @@ def test_call_disposition_codes_use_machine_safe_format(code):
         )
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+def test_speech_cache_workflow_setting_round_trips(enabled):
+    config = WorkflowConfigurationDefaults.model_validate(
+        {"tts_cache_enabled": enabled}
+    )
+    assert config.model_dump(exclude_unset=True) == {"tts_cache_enabled": enabled}
+
+
+@pytest.mark.parametrize("settings", [{}, {"tts_cache_enabled": None}])
+def test_speech_cache_defaults_off_for_existing_workflows(settings):
+    assert (
+        WorkflowConfigurationDefaults.model_validate(settings).tts_cache_enabled
+        is False
+    )
+
+
 def test_exclude_unset_round_trip_stays_sparse():
     config = WorkflowConfigurationDefaults.model_validate(
         {"max_call_duration": 600, "custom_extra_key": {"a": 1}}

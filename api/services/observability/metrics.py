@@ -79,6 +79,30 @@ class RuntimeMetrics:
             unit="s",
             description="Time from user silence until the bot starts speaking",
         )
+        self.tts_cache_events = meter.create_counter(
+            "dograh_tts_cache_events", description="TTS cache outcomes"
+        )
+        self.tts_cache_latency = meter.create_histogram(
+            "dograh_tts_cache_latency",
+            unit="s",
+            description="TTS cache operation duration",
+        )
+        self.tts_cache_audio_bytes = meter.create_histogram(
+            "dograh_tts_cache_audio_bytes", unit="By", description="Admitted PCM size"
+        )
+        self.tts_cache_evictions = meter.create_counter(
+            "dograh_tts_cache_evictions",
+            description="Entries evicted to admit a new one",
+        )
+        self.tts_cache_avoided_characters = meter.create_counter(
+            "dograh_tts_cache_avoided_characters",
+            description="Synthesis characters served from cache",
+        )
+        self.tts_cache_replay_seconds = meter.create_histogram(
+            "dograh_tts_cache_replay_seconds",
+            unit="s",
+            description="Cached audio duration",
+        )
 
     def render(self) -> bytes:
         from prometheus_client import generate_latest

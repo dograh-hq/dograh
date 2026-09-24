@@ -11,6 +11,7 @@ from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
 
 from api.db import db_client
+from api.services.telephony import ws_auth
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.providers.telnyx.provider import (
@@ -35,6 +36,20 @@ router = APIRouter()
 # that later ended normally). Mapped to user-facing reasons published in the
 # TransferEvent. Source for cause values: Telnyx call.hangup payload spec —
 # https://developers.telnyx.com/api-reference/callbacks/call-hangup
+# Verified-but-ignored Telnyx events: they carry no call status the processor
+# models, so letting them reach _process_status_update only logs
+# "Unexpected status update" and appends a junk entry to the run's callback log.
+_INFORMATIONAL_EVENT_TYPES = frozenset(
+    {
+        "streaming.started",
+        "streaming.stopped",
+        "call.recording.saved",
+        "call.recording.error",
+        "call.recording.transcription.saved",
+    }
+)
+
+
 _HANGUP_CAUSE_TO_REASON = {
     "busy": "busy",
     "no_answer": "no_answer",
@@ -53,8 +68,35 @@ async def handle_telnyx_events(
 
     Telnyx sends all call lifecycle events (call.initiated, call.answered,
     call.hangup, streaming.started, streaming.stopped) as JSON POST requests.
+
+    Invalid-signature requests are answered with the same 404 "Workflow run
+    not found" as unknown run ids, deliberately: run ids are sequential
+    integers, so a distinct 401 on existing runs would let unsigned callers
+    enumerate which runs exist. The trade-off is that a misconfigured
+    ``webhook_public_key`` presents as a 404 to the caller; the
+    ``logger.warning`` below carries the real reason for operators.
+
+    When ``TELEPHONY_WS_TOKEN_SECRET`` is configured, the events webhook URL
+    minted by the provider carries an HMAC capability token in its query
+    string (Telnyx preserves query strings on webhook POSTs, unlike media
+    stream URLs, verified live). The token is verified before any database
+    lookup, so the reject path does constant work and the run-existence
+    distinction is closed for both status code and timing. With no secret
+    configured, the flow falls back to the lookup-then-verify order above.
     """
     set_current_run_id(workflow_run_id)
+
+    if ws_auth.token_configured():
+        presented = request.query_params.get("token")
+        if not ws_auth.verify_events_token(workflow_run_id, presented):
+            logger.warning(
+                f"[run {workflow_run_id}] Telnyx events request rejected: "
+                f"missing or invalid capability token "
+                f"(token_present={presented is not None})"
+            )
+            # Identical to the unknown-run response so probing run ids while
+            # unauthenticated is uniform in body, status, and timing.
+            raise HTTPException(status_code=404, detail="Workflow run not found")
 
     try:
         raw_body = (await request.body()).decode("utf-8")
@@ -64,7 +106,16 @@ async def handle_telnyx_events(
         )
         raise HTTPException(status_code=400, detail="Webhook body is not valid UTF-8")
 
-    event_data = json.loads(raw_body)
+    try:
+        event_data = json.loads(raw_body)
+    except json.JSONDecodeError:
+        # Unauthenticated until the signature check below, so an unparseable
+        # body must not surface as a 500 with a stack trace.
+        logger.warning(
+            f"[run {workflow_run_id}] Telnyx webhook body is not valid JSON "
+            f"(body_len={len(raw_body)})"
+        )
+        raise HTTPException(status_code=400, detail="Webhook body is not valid JSON")
 
     # Extract event type from Telnyx envelope. Telnyx sometimes delivers the
     # type with underscores (``streaming_started``) instead of dots
@@ -86,7 +137,10 @@ async def handle_telnyx_events(
     workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
     if not workflow:
         logger.warning(f"Workflow {workflow_run.workflow_id} not found")
-        raise HTTPException(status_code=404, detail="Workflow not found")
+        # Same body as the unknown-run 404 above: a run whose workflow row was
+        # deleted would otherwise be distinguishable from a run that never
+        # existed, re-opening the enumeration channel for that class of run.
+        raise HTTPException(status_code=404, detail="Workflow run not found")
 
     provider = await get_telephony_provider_for_run(
         workflow_run, workflow.organization_id
@@ -102,16 +156,33 @@ async def handle_telnyx_events(
             f"timestamp={request.headers.get('telnyx-timestamp')}, "
             f"body_len={len(raw_body)})"
         )
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+        # Deliberately identical to the unknown-run 404 above so unsigned
+        # callers cannot distinguish existing runs from missing ones. The
+        # warning above keeps the real reason in server logs.
+        raise HTTPException(status_code=404, detail="Workflow run not found")
 
     logger.debug(
         f"[run {workflow_run_id}] Telnyx webhook signature verified "
         f"(event_type={event_type})"
     )
 
-    # Skip streaming events. They are informational only, but still verified.
-    if event_type in ("streaming.started", "streaming.stopped"):
-        logger.debug(f"[run {workflow_run_id}] Telnyx streaming event: {event_type}")
+    # Skip informational events. Streaming and recording lifecycle events
+    # carry no status the processor needs, but they are still verified above
+    # so unsigned callers learn nothing from them.
+    #
+    # Dropping them before _process_status_update also keeps the run's
+    # telephony_status_callbacks list meaningful: recording callbacks are
+    # delivered after the recording is written, i.e. after call.hangup, so
+    # letting them through would make them the *last* entry and break
+    # CampaignRunnerService._count_failed_campaign_calls, which reads
+    # callbacks[-1]["status"] to decide whether a call failed.
+    #
+    # Event names are Telnyx's documented Call Control callbacks; there is no
+    # call.recording.started in that catalog.
+    if event_type in _INFORMATIONAL_EVENT_TYPES:
+        logger.debug(
+            f"[run {workflow_run_id}] Telnyx informational event: {event_type}"
+        )
         return {"status": "success"}
 
     # Parse the callback data into generic format

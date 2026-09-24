@@ -4,11 +4,19 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import DateTime, and_, case, cast, func, or_, text, update
 from sqlalchemy.future import select
+from sqlalchemy.orm import joinedload
 
 from api.db.base_client import BaseDBClient
 from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_clause
-from api.db.models import CampaignModel, QueuedRunModel, WorkflowModel, WorkflowRunModel
+from api.db.models import (
+    CampaignModel,
+    QueuedRunModel,
+    WorkflowDefinitionModel,
+    WorkflowModel,
+    WorkflowRunModel,
+)
 from api.enums import WorkflowRunState
+from api.schemas.campaign import TrafficSplitRequest
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.workflow.run_usage_response import format_public_cost_info
 from api.utils.recording_artifacts import get_recording_storage_key
@@ -126,7 +134,6 @@ class CampaignClient(BaseDBClient):
                     CampaignModel,
                     and_(
                         CampaignModel.id == WorkflowRunModel.campaign_id,
-                        CampaignModel.workflow_id == WorkflowRunModel.workflow_id,
                     ),
                 )
                 .join(
@@ -315,12 +322,13 @@ class CampaignClient(BaseDBClient):
                 return None
             run = await session.scalar(
                 select(WorkflowRunModel)
+                .join(WorkflowModel, WorkflowModel.id == WorkflowRunModel.workflow_id)
                 .where(
                     WorkflowRunModel.id == workflow_run_id,
                     WorkflowRunModel.campaign_id == campaign_id,
-                    WorkflowRunModel.workflow_id == campaign.workflow_id,
+                    WorkflowModel.organization_id == organization_id,
                 )
-                .with_for_update()
+                .with_for_update(of=WorkflowRunModel)
             )
             if run is None:
                 return None
@@ -401,11 +409,14 @@ class CampaignClient(BaseDBClient):
         circuit_breaker: Optional[dict] = None,
         telephony_configuration_id: Optional[int] = None,
         rate_limit_per_second: int = 1,
+        traffic_split: dict | None = None,
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
             # Build orchestrator_metadata with max_concurrency if provided
             orchestrator_metadata = {}
+            if traffic_split is not None:
+                orchestrator_metadata["traffic_split"] = traffic_split
             if max_concurrency is not None:
                 orchestrator_metadata["max_concurrency"] = max_concurrency
             if schedule_config is not None:
@@ -631,7 +642,13 @@ class CampaignClient(BaseDBClient):
             # Get paginated results with filters and sorting
             order_clause = get_workflow_run_order_clause(sort_by, sort_order)
             result = await session.execute(
-                base_query.order_by(order_clause).limit(limit).offset(offset)
+                base_query.options(
+                    joinedload(WorkflowRunModel.workflow),
+                    joinedload(WorkflowRunModel.definition),
+                )
+                .order_by(order_clause)
+                .limit(limit)
+                .offset(offset)
             )
 
             runs = [
@@ -639,6 +656,10 @@ class CampaignClient(BaseDBClient):
                     {
                         "id": run.id,
                         "workflow_id": run.workflow_id,
+                        "workflow_name": run.workflow.name if run.workflow else None,
+                        "version_number": run.definition.version_number
+                        if run.definition
+                        else None,
                         "name": run.name,
                         "mode": run.mode,
                         "created_at": run.created_at,
@@ -697,7 +718,13 @@ class CampaignClient(BaseDBClient):
             child_meta = {
                 k: v
                 for k, v in parent_meta.items()
-                if k in ("max_concurrency", "schedule_config", "circuit_breaker")
+                if k
+                in (
+                    "max_concurrency",
+                    "schedule_config",
+                    "circuit_breaker",
+                    "traffic_split",
+                )
             }
             child_meta["parent_campaign_id"] = parent_campaign.id
 
@@ -706,6 +733,7 @@ class CampaignClient(BaseDBClient):
                 workflow_id=parent_campaign.workflow_id,
                 source_type=parent_campaign.source_type,
                 source_id=parent_campaign.source_id,
+                telephony_configuration_id=parent_campaign.telephony_configuration_id,
                 created_by=parent_campaign.created_by,
                 organization_id=parent_campaign.organization_id,
                 retry_config=(
@@ -844,7 +872,137 @@ class CampaignClient(BaseDBClient):
                 await session.rollback()
                 raise e
             await session.refresh(campaign)
+        return campaign
+
+    async def update_campaign_settings(
+        self,
+        campaign_id: int,
+        organization_id: int,
+        *,
+        settings: dict,
+        metadata_patch: dict,
+        traffic_split: TrafficSplitRequest | None = None,
+    ) -> CampaignModel:
+        """Merge settings against the locked row, never a detached JSON snapshot."""
+        from api.services.campaign.traffic_split import build_split, primary_workflow_id
+
+        async with self.async_session() as session:
+            campaign = await session.scalar(
+                select(CampaignModel)
+                .where(
+                    CampaignModel.id == campaign_id,
+                    CampaignModel.organization_id == organization_id,
+                )
+                .with_for_update()
+            )
+            if campaign is None:
+                raise ValueError("Campaign not found")
+            if campaign.state in {"completed", "failed"}:
+                raise ValueError(f"Cannot update a {campaign.state} campaign")
+            for key, value in settings.items():
+                setattr(campaign, key, value)
+            metadata = dict(campaign.orchestrator_metadata or {})
+            for key, value in metadata_patch.items():
+                if value is None:
+                    metadata.pop(key, None)
+                else:
+                    metadata[key] = value
+            if traffic_split is not None:
+                split = build_split(traffic_split, metadata.get("traffic_split"))
+                metadata["traffic_split"] = split
+                campaign.workflow_id = primary_workflow_id(split)
+            campaign.orchestrator_metadata = metadata
+            campaign.updated_at = datetime.now(UTC)
+            await session.commit()
+            await session.refresh(campaign)
             return campaign
+
+    async def get_campaign_variant_labels(
+        self, workflow_ids: list[int], organization_id: int
+    ) -> dict:
+        """Batch-load names and version numbers without loading workflow graphs."""
+        if not workflow_ids:
+            return {}
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(
+                    WorkflowModel.id,
+                    WorkflowModel.name,
+                    WorkflowDefinitionModel.id.label("definition_id"),
+                    WorkflowDefinitionModel.version_number,
+                )
+                .outerjoin(
+                    WorkflowDefinitionModel,
+                    WorkflowDefinitionModel.workflow_id == WorkflowModel.id,
+                )
+                .where(
+                    WorkflowModel.id.in_(workflow_ids),
+                    WorkflowModel.organization_id == organization_id,
+                )
+            )
+            labels = {}
+            for row in result:
+                label = labels.setdefault(row.id, {"name": row.name, "versions": {}})
+                if row.definition_id is not None:
+                    label["versions"][row.definition_id] = row.version_number
+            return labels
+
+    async def get_campaign_traffic_counts(
+        self, campaign_id: int, organization_id: int
+    ) -> list[dict]:
+        attribution = WorkflowRunModel.extra["campaign_traffic_split"]
+        variant = attribution["variant_id"].as_string()
+        pinned = attribution["workflow_definition_id"].as_integer()
+        outcome = func.coalesce(
+            func.nullif(
+                WorkflowRunModel.gathered_context[
+                    "mapped_call_disposition"
+                ].as_string(),
+                "",
+            ),
+            WorkflowRunModel.gathered_context["call_disposition"].as_string(),
+            WorkflowRunModel.gathered_context["call_status"].as_string(),
+            "unknown",
+        )
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(
+                    variant.label("variant_id"),
+                    pinned.label("pinned_id"),
+                    WorkflowRunModel.workflow_id,
+                    WorkflowRunModel.definition_id,
+                    WorkflowRunModel.state,
+                    outcome.label("outcome"),
+                    func.count().label("attempts"),
+                    func.sum(
+                        case((WorkflowRunModel.is_completed.is_(True), 1), else_=0)
+                    ).label("completed"),
+                )
+                .join(CampaignModel, CampaignModel.id == WorkflowRunModel.campaign_id)
+                .join(WorkflowModel, WorkflowModel.id == WorkflowRunModel.workflow_id)
+                .where(
+                    CampaignModel.id == campaign_id,
+                    CampaignModel.organization_id == organization_id,
+                    WorkflowModel.organization_id == organization_id,
+                    # Keep legacy/uncertain attempts; only skip known undialed setups.
+                    func.coalesce(
+                        WorkflowRunModel.logs["campaign_dispatch"][
+                            "outcome"
+                        ].as_string(),
+                        "unknown",
+                    )
+                    != "not_started",
+                )
+                .group_by(
+                    variant,
+                    pinned,
+                    WorkflowRunModel.workflow_id,
+                    WorkflowRunModel.definition_id,
+                    WorkflowRunModel.state,
+                    outcome,
+                )
+            )
+            return [dict(row) for row in result.mappings()]
 
     async def append_campaign_log(
         self,

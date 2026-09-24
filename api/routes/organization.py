@@ -31,7 +31,11 @@ from api.schemas.ai_model_configuration import (
     OrganizationAIModelConfigurationResponse,
     OrganizationAIModelConfigurationV2,
 )
-from api.schemas.organization_preferences import OrganizationPreferences
+from api.schemas.call_events import CallEventsConnectionResult, CallEventsSettings
+from api.schemas.organization_preferences import (
+    OrganizationPreferences,
+    OrganizationPreferencesResponse,
+)
 from api.schemas.telephony_config import (
     TelephonyConfigRequest,
     TelephonyConfigurationCreateRequest,
@@ -80,14 +84,18 @@ from api.services.configuration.registry import (
 from api.services.mps_billing import ensure_hosted_mps_billing_account_v2
 from api.services.telephony.shared_trial_sync import sync_shared_trial_telephony_for_org
 from api.services.mps_service_key_client import mps_service_key_client
+from api.services.observability.call_events.configuration import (
+    check_connection,
+    resolve_settings,
+)
 from api.services.organization_context import (
     OrganizationContextResponse,
     get_organization_context,
 )
 from api.services.organization_preferences import (
     external_pbx_integrations_enabled,
-    get_organization_preferences,
-    upsert_organization_preferences,
+    get_organization_preferences_response,
+    update_organization_preferences,
 )
 from api.services.pipecat.tracing_config import normalize_langfuse_host
 from api.services.posthog_client import capture_event
@@ -637,23 +645,59 @@ async def get_disposition_codes(
     )
 
 
-@router.get("/preferences", response_model=OrganizationPreferences)
+@router.get("/preferences", response_model=OrganizationPreferencesResponse)
 async def get_preferences(
     user: UserModel = Depends(get_user_with_selected_organization),
 ):
     organization_id = user.selected_organization_id
-    return await get_organization_preferences(organization_id)
+    return await get_organization_preferences_response(organization_id)
 
 
-@router.put("/preferences", response_model=OrganizationPreferences)
+@router.put("/preferences", response_model=OrganizationPreferencesResponse)
 async def save_preferences(
     request: OrganizationPreferences,
     user: UserModel = Depends(get_user_with_selected_organization),
 ):
-    organization_id = user.selected_organization_id
-    return await upsert_organization_preferences(
-        organization_id,
-        request,
+    try:
+        return await update_organization_preferences(
+            user.selected_organization_id, request
+        )
+    except ValueError as exc:
+        raise _preferences_validation_error(exc) from None
+
+
+def _preferences_validation_error(exc: ValueError) -> HTTPException:
+    # Destination validation inputs can contain private keys. Never echo them.
+    if isinstance(exc, ValidationError):
+        messages = [
+            f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+            for e in exc.errors(include_input=False)
+        ]
+        return HTTPException(422, "; ".join(messages))
+    return HTTPException(422, str(exc))
+
+
+@router.post("/call-events/test", response_model=CallEventsConnectionResult)
+async def test_call_events_connection(
+    request: CallEventsSettings,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    try:
+        settings = await resolve_settings(user.selected_organization_id, request)
+    except ValueError as exc:
+        raise _preferences_validation_error(exc) from None
+    if not settings.sink_type:
+        raise HTTPException(422, "Select a destination")
+    try:
+        await check_connection(settings)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except Exception:
+        raise HTTPException(
+            400, "Connection failed. Check the destination and credentials."
+        ) from None
+    return CallEventsConnectionResult(
+        message="Connection and table schema verified. No events were written; write permission is checked on export."
     )
 
 

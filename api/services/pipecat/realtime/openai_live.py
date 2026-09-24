@@ -1,5 +1,6 @@
 """OpenAI Live with Dograh workflow tools and conversation controls."""
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import replace
 
@@ -63,6 +64,8 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             **kwargs,
         )
         self._bot_is_speaking = False
+        self._bot_playback_stopped = asyncio.Event()
+        self._bot_playback_stopped.set()
         self._deferred_transitions: list[FunctionCallFromLLM] = []
         self._pending_speech: list[str] = []
         self._initial_backend_request = False
@@ -181,6 +184,19 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             if self._context is not None:
                 await self._handle_context(self._context)
 
+    async def _close_turn_after_gap(self, role, turn):
+        if role != "assistant":
+            return await super()._close_turn_after_gap(role, turn)
+
+        # Live transcript gaps do not imply that its continuous audio stream
+        # has finished. Keep the response boundary behind audible playback so
+        # an end-node response cannot close the session halfway through speech.
+        await asyncio.sleep(turn.gap_secs)
+        await self._bot_playback_stopped.wait()
+        async with turn.lock:
+            turn.timer = None
+            await self._end_turn(role)
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         if isinstance(frame, LLMMessagesAppendFrame):
             for message in frame.messages:
@@ -196,8 +212,10 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             return
         elif isinstance(frame, BotStartedSpeakingFrame):
             self._bot_is_speaking = True
+            self._bot_playback_stopped.clear()
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
+            self._bot_playback_stopped.set()
             calls, self._deferred_transitions = self._deferred_transitions, []
             if calls:
                 await super().run_function_calls(calls)
@@ -266,6 +284,7 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
 
     async def _disconnect(self):
         self._bot_is_speaking = False
+        self._bot_playback_stopped.set()
         self._deferred_transitions.clear()
         self._pending_speech.clear()
         self._initial_backend_request = False

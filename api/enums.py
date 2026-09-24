@@ -161,6 +161,7 @@ class WorkflowRunStatus(Enum):
 
 
 class OrganizationConfigurationKey(Enum):
+    CALL_EVENTS = "CALL_EVENTS"
     CONCURRENT_CALL_LIMIT = "CONCURRENT_CALL_LIMIT"
     CAMPAIGN_DRAFT = "CAMPAIGN_DRAFT"
     TELEPHONY_CONFIGURATION = (
@@ -257,6 +258,7 @@ class PostHogEvent(str, Enum):
     CALL_FAILED = "call_failed"
     TELEPHONY_CONFIGURED = "telephony_configured"
     KNOWLEDGE_BASE_CREATED = "knowledge_base_created"
+    KNOWLEDGE_BASE_UPDATED = "knowledge_base_updated"
     TOOL_CREATED = "tool_created"
     AGENT_EMBEDDED = "agent_embedded"
     SIGNED_UP = "signed_up"

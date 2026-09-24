@@ -1,12 +1,16 @@
+import asyncio
 import re
 from types import SimpleNamespace
 
 import pytest
 from pipecat.frames.frames import (
     ErrorFrame,
+    MetricsFrame,
     TranscriptionFrame,
+    TTSSpeakFrame,
     TTSTextFrame,
 )
+from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import FramePushed
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_output import BaseOutputTransport
@@ -89,6 +93,37 @@ async def test_observer_ignores_upstream_broadcast_transcription_sibling():
     await observer.on_push_frame(_frame_pushed(frame, FrameDirection.UPSTREAM))
 
     assert messages == []
+
+
+@pytest.mark.asyncio
+async def test_agent_speech_is_logged_once_without_persisting_each_tts_word():
+    messages = []
+
+    async def ws_sender(message):
+        messages.append(message)
+
+    logs = InMemoryLogsBuffer(workflow_run_id=1)
+    feedback = RealtimeFeedbackObserver(ws_sender=ws_sender, logs_buffer=logs)
+    speak = TTSSpeakFrame(
+        "Alex calling.", append_to_context=False, persist_to_logs=True
+    )
+    request = _frame_pushed(speak, FrameDirection.DOWNSTREAM)
+    # A request may be visible both in the call and at several agent processors.
+    await asyncio.gather(*(feedback.on_push_frame(request) for _ in range(3)))
+
+    output = BaseOutputTransport(TransportParams())
+    for word in ("Alex", " calling."):
+        frame = TTSTextFrame(word, aggregated_by="word")
+        frame.append_to_context = False
+        await feedback.on_push_frame(_frame_pushed(frame, FrameDirection.DOWNSTREAM))
+        await feedback.on_push_frame(
+            _frame_pushed(frame, FrameDirection.DOWNSTREAM, source=output)
+        )
+
+    assert [event["payload"]["text"] for event in logs.get_events()] == [
+        "Alex calling."
+    ]
+    assert [event["payload"]["text"] for event in messages] == ["Alex", " calling."]
 
 
 @pytest.mark.asyncio
@@ -468,3 +503,33 @@ async def test_interrupted_bot_transcript_keeps_the_interrupted_turn_interval():
 
     await coordinator.record_bot_started_speaking(3, "2026-07-14T13:33:06.654+00:00")
     assert event["payload"]["timestamp"] == "2026-07-14T13:33:02.254+00:00"
+
+
+@pytest.mark.asyncio
+async def test_ttfb_is_forwarded_and_persisted_for_every_stage_tagged_with_kind():
+    messages = []
+
+    async def ws_sender(message):
+        messages.append(message)
+
+    logs = InMemoryLogsBuffer(workflow_run_id=1)
+    observer = RealtimeFeedbackObserver(ws_sender=ws_sender, logs_buffer=logs)
+    for processor, value in (
+        ("VendorSTTService#3", 0.3),
+        ("VendorLLMService#19", 0.8),
+        ("VendorTTSService#11", 0.2),
+        # Not an AI service: dropped rather than filed under a wrong stage.
+        ("BaseOutputTransport#0", 0.1),
+    ):
+        frame = MetricsFrame(
+            data=[TTFBMetricsData(processor=processor, model=None, value=value)]
+        )
+        await observer.on_push_frame(_frame_pushed(frame, FrameDirection.DOWNSTREAM))
+
+    expected = [("stt", 0.3), ("llm", 0.8), ("tts", 0.2)]
+    for events in (messages, logs.get_events()):
+        assert [
+            (event["payload"]["kind"], event["payload"]["ttfb_seconds"])
+            for event in events
+        ] == expected
+        assert {event["type"] for event in events} == {"rtf-ttfb-metric"}

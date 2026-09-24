@@ -57,7 +57,8 @@
               "configurations/api-keys",
               "configurations/agent-uuid",
               "configurations/interruption",
-              "configurations/tracing"
+              "configurations/tracing",
+              "configurations/call-events"
             ]
           },
           {

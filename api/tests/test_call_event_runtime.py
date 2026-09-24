@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -73,6 +74,37 @@ async def test_session_drains_callbacks_finishes_once_and_does_not_persist(monke
     assert not session.buffer.events
     assert not session.recorder._watchdog_tasks
     assert not user._event_handlers["on_user_turn_started"].handlers
+
+
+async def test_finish_waits_for_worker_callbacks_already_issued(monkeypatch):
+    user = Publisher(["on_user_turn_started"])
+    task = Publisher(["on_idle_timeout", "on_heartbeat_timeout", "on_pipeline_error"])
+    task.user_bot_latency_observer = None
+
+    async def wait_for_observers():
+        # The worker issues a callback in the loop turn that resumes finish():
+        # its handler task exists, but has not run when the batch is drained.
+        loop = asyncio.get_running_loop()
+        loop.call_soon(
+            lambda: loop.create_task(task._call_event_handler("on_heartbeat_timeout"))
+        )
+
+    task.wait_for_observers = wait_for_observers
+    session = runtime.CallEventsSession(
+        settings=CallEventsSettings(enabled=True, sink_type="fake"),
+        organization_id=7,
+        run_id=42,
+        workflow_id=3,
+        engine=SimpleNamespace(_gathered_context={}),
+    )
+    session.attach(task, user, SimpleNamespace())
+    submit = Mock()
+    monkeypatch.setattr(runtime.delivery, "submit", submit)
+
+    await session.finish()
+
+    events = submit.call_args.args[2]
+    assert [e.event for e in events] == ["heartbeat_timeout", "call_ended"]
 
 
 async def test_existing_observer_feeds_separate_recorder_before_rtf_filters():

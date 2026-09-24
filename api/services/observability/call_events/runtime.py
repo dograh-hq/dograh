@@ -26,7 +26,6 @@ class CallEventsSession:
         self._finished = False
         self._lock = asyncio.Lock()
         self._subscriptions = []
-        self._sources = []
         self._task = None
         self._monitor = None
 
@@ -40,7 +39,6 @@ class CallEventsSession:
             source.add_event_handler(event, handler)
             self._subscriptions.append((source, event, handler))
 
-        self._sources = [user_aggregator]
         for event, method in (
             ("on_user_turn_started", self.recorder.on_user_turn_started),
             ("on_user_turn_stopped", self.recorder.on_user_turn_stopped),
@@ -57,7 +55,6 @@ class CallEventsSession:
             subscribe(task, event, method)
         latency = task.user_bot_latency_observer
         if latency:
-            self._sources.append(latency)
             for name in (
                 "on_latency_measured",
                 "on_latency_breakdown",
@@ -100,14 +97,15 @@ class CallEventsSession:
                     "Call event observer drain timed out for org {}",
                     self.organization_id,
                 )
-            # Observer queues are drained by the call owner first. Pipecat
-            # schedules event callbacks separately; wait for those already issued.
-            pending = [
+            # Observer queues are drained by the call owner first. Pipecat runs
+            # each event callback in its own task; wait for those already issued
+            # for every event this session subscribed to, on every source.
+            pending = {
                 t
-                for source in self._sources
-                for _, t in getattr(source, "_event_tasks", ())
-                if t is not asyncio.current_task() and not t.done()
-            ]
+                for source, name, _ in self._subscriptions
+                for event, t in getattr(source, "_event_tasks", ())
+                if event == name and t is not asyncio.current_task() and not t.done()
+            }
             if pending:
                 await asyncio.wait(pending, timeout=2)
             self._finished = True

@@ -24,11 +24,11 @@ from api.services.observability.call_events.events import CallEvent
 def bigquery_config(monkeypatch):
     monkeypatch.setattr("api.constants.AUTH_PROVIDER", "local")
     return BigQueryConfig(
-        table="milo-506211.dograh.pipeline_diagnostics", auth_mode="application_default"
+        table="example-project.analytics.call_events", auth_mode="application_default"
     )
 
 
-def test_legacy_row_contract_and_stable_identity():
+def test_row_contract_and_stable_identity():
     event = CallEvent(
         event="latency_breakdown",
         ts=1726326192.123,
@@ -90,7 +90,7 @@ async def test_bigquery_partial_failure_and_payload(bigquery_config):
             frozenset({events[2].event_id}),
         )
         assert str(requests[0].url).endswith(
-            "/projects/milo-506211/datasets/dograh/tables/pipeline_diagnostics/insertAll"
+            "/projects/example-project/datasets/analytics/tables/call_events/insertAll"
         )
         payload = json.loads(requests[0].content)
         assert payload["rows"] == [to_bigquery_row(e) for e in events]
@@ -124,7 +124,7 @@ async def test_bigquery_http_failures(bigquery_config, status, retry):
 
 
 @pytest.fixture
-def pipeline_diagnostics_schema():
+def call_events_schema():
     # Existing table metadata, independent of the adapter's accepted types.
     return [
         {"mode": "REQUIRED", "name": "ts", "type": "TIMESTAMP"},
@@ -143,9 +143,9 @@ def pipeline_diagnostics_schema():
 
 @pytest.mark.parametrize("detail_type", ["JSON", "STRING"])
 async def test_connection_check_is_read_only_and_validates_schema(
-    bigquery_config, pipeline_diagnostics_schema, detail_type
+    bigquery_config, call_events_schema, detail_type
 ):
-    fields = pipeline_diagnostics_schema
+    fields = call_events_schema
     fields[-1]["type"] = detail_type
     requests = []
 
@@ -177,9 +177,9 @@ async def test_connection_check_is_read_only_and_validates_schema(
     ],
 )
 async def test_connection_check_rejects_incompatible_schema(
-    bigquery_config, pipeline_diagnostics_schema, schema_change, error
+    bigquery_config, call_events_schema, schema_change, error
 ):
-    fields = pipeline_diagnostics_schema
+    fields = call_events_schema
     if schema_change == "missing":
         fields.pop()
     elif schema_change == "type":
@@ -208,7 +208,7 @@ def test_hosted_org_cannot_use_server_identity(monkeypatch):
     monkeypatch.setattr("api.constants.AUTH_PROVIDER", "stack")
     with pytest.raises(ValueError, match="self-hosted"):
         BigQueryConfig(
-            table="milo-506211.dograh.pipeline_diagnostics",
+            table="example-project.analytics.call_events",
             auth_mode="application_default",
         )
 
@@ -261,9 +261,9 @@ def sink_settings():
         "enabled": True,
         "sink_type": "bigquery",
         "config": {
-            "table": "milo-506211.dograh.pipeline_diagnostics",
+            "table": "example-project.analytics.call_events",
             "auth_mode": "service_account",
-            "client_email": "test@milo-506211.iam.gserviceaccount.com",
+            "client_email": "test@example-project.iam.gserviceaccount.com",
             "private_key": "private-test-key",
         },
     }
@@ -366,7 +366,7 @@ async def test_connection_action_uses_unsaved_settings_without_writing(
     # Resolve an existing masked secret while testing a different, unsaved table.
     body = sink_settings()
     body["config"]["private_key"] = configuration.MASKED_SECRET
-    body["config"]["table"] = "milo-506211.dograh.other_table"
+    body["config"]["table"] = "example-project.analytics.other_table"
     spec.sensitive_fields = ("private_key",)
     response = await client.post("/organizations/call-events/test", json=body)
     assert response.status_code == 200

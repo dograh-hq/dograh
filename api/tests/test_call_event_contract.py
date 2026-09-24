@@ -1,8 +1,7 @@
-"""Replay the same facts used to capture the a4cecf2 compatibility fixture.
+"""Replay a fixed sequence of facts against the golden contract fixture.
 
-The fixture was generated with the recovered image's original observer and
-serializer, with clocks/hostname fixed. It is deliberately not generated from
-the implementation under test.
+The fixture pins the wire contract, with clocks/hostname fixed. It is
+deliberately not generated from the implementation under test.
 """
 
 import json
@@ -88,13 +87,13 @@ async def replay(recorder):
             user_turn_secs=0.2,
             ttfb=[
                 SimpleNamespace(
-                    processor="DeepgramSTTService#1", start_time=100, duration_secs=0.1
+                    processor="ExampleSTTService#1", start_time=100, duration_secs=0.1
                 ),
                 SimpleNamespace(
-                    processor="OpenAILLMService#2", start_time=100.2, duration_secs=0.2
+                    processor="ExampleLLMService#2", start_time=100.2, duration_secs=0.2
                 ),
                 SimpleNamespace(
-                    processor="CartesiaTTSService#3",
+                    processor="ExampleTTSService#3",
                     start_time=100.4,
                     duration_secs=0.1,
                 ),
@@ -125,12 +124,12 @@ def fixture_engine():
     )
 
 
-async def test_all_26_events_match_recovered_image(monkeypatch):
+async def test_all_26_events_match_the_contract_fixture(monkeypatch):
     captured = []
     monkeypatch.setattr(
         recorder_module, "time", SimpleNamespace(time=lambda: 101, monotonic=lambda: 10)
     )
-    monkeypatch.setattr(events, "host_name", lambda: "voice-test")
+    monkeypatch.setattr(events, "host_name", lambda: "host-test")
     recorder = recorder_module.CallEventRecorder(
         sink=SimpleNamespace(emit=captured.append),
         run_id=42,
@@ -146,7 +145,7 @@ async def test_all_26_events_match_recovered_image(monkeypatch):
         event.ts = 1726326192.123
         rows.append(to_bigquery_row(event)["json"])
     expected = json.loads(
-        (Path(__file__).parent / "fixtures/call_events_a4cecf2.json").read_text()
+        (Path(__file__).parent / "fixtures/call_events_contract.json").read_text()
     )
     assert len({row["event"] for row in rows}) == 26
     assert rows == expected

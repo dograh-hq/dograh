@@ -1,4 +1,4 @@
-"""BigQuery compatibility adapter for the pipeline_diagnostics event contract."""
+"""BigQuery adapter for the call event contract."""
 
 import asyncio
 import json
@@ -141,9 +141,7 @@ class BigQuerySink:
         fields = {
             f["name"]: f for f in response.json().get("schema", {}).get("fields", [])
         }
-        schema_error = (
-            "The table schema does not match the pipeline diagnostics event schema: "
-        )
+        schema_error = "The table schema does not match the call events schema: "
         for name, types in REQUIRED_COLUMNS.items():
             if name not in fields:
                 raise ValueError(f"{schema_error}Missing column '{name}'")

@@ -294,7 +294,7 @@ async def test_call_ended_disarms_the_hung_function_call_watchdog():
     assert sink.names()[-1] == ev.CALL_ENDED
 
 
-async def test_latency_breakdown_uses_the_field_names_milo_reads():
+async def test_latency_breakdown_uses_the_contract_field_names():
     sink = _RecordingSink()
     observer = _observer(sink=sink)
 
@@ -305,15 +305,15 @@ async def test_latency_breakdown_uses_the_field_names_milo_reads():
         LatencyBreakdown(
             ttfb=[
                 TTFBBreakdownMetrics(
-                    processor="DeepgramSTTService#3", start_time=0.0, duration_secs=0.12
+                    processor="ExampleSTTService#3", start_time=0.0, duration_secs=0.12
                 ),
                 TTFBBreakdownMetrics(
-                    processor="DograhGoogleVertexLLMService#19",
+                    processor="ExampleLLMService#19",
                     start_time=0.0,
                     duration_secs=0.44,
                 ),
                 TTFBBreakdownMetrics(
-                    processor="MiniMaxOwnedSessionTTSService#11",
+                    processor="ExampleTTSService#11",
                     start_time=0.0,
                     duration_secs=0.31,
                 ),
@@ -330,7 +330,7 @@ async def test_latency_breakdown_uses_the_field_names_milo_reads():
     assert breakdown.detail["e2e_ms"] == breakdown.value_ms == 1750.0
 
 
-async def test_risposta_ms_measures_turn_release_to_first_tts_audio():
+async def test_turn_to_audio_ms_measures_turn_release_to_first_tts_audio():
     """The published metric starts at the turn release, not at user silence."""
     sink = _RecordingSink()
     observer = _observer(sink=sink)
@@ -341,12 +341,12 @@ async def test_risposta_ms_measures_turn_release_to_first_tts_audio():
         LatencyBreakdown(
             ttfb=[
                 TTFBBreakdownMetrics(
-                    processor="DograhGoogleVertexLLMService#19",
+                    processor="ExampleLLMService#19",
                     start_time=100.6,
                     duration_secs=0.7,
                 ),
                 TTFBBreakdownMetrics(
-                    processor="MiniMaxOwnedSessionTTSService#11",
+                    processor="ExampleTTSService#11",
                     start_time=101.3,
                     duration_secs=0.8,
                 ),
@@ -357,13 +357,13 @@ async def test_risposta_ms_measures_turn_release_to_first_tts_audio():
     )
 
     detail = sink.first(ev.LATENCY_BREAKDOWN).detail
-    assert detail["risposta_ms"] == 1500.0  # 102.1 - 100.6
+    assert detail["turn_to_audio_ms"] == 1500.0  # 102.1 - 100.6
     # The raw pipecat number stays written, and stays bigger: it carries the VAD
     # window, the turn wait and the playback buffer.
     assert detail["e2e_ms"] == 2500.0
 
 
-async def test_risposta_ms_keeps_the_first_tts_audio_not_the_worst():
+async def test_turn_to_audio_ms_keeps_the_first_tts_audio_not_the_worst():
     sink = _RecordingSink()
     observer = _observer(sink=sink)
 
@@ -371,12 +371,12 @@ async def test_risposta_ms_keeps_the_first_tts_audio_not_the_worst():
         LatencyBreakdown(
             ttfb=[
                 TTFBBreakdownMetrics(
-                    processor="MiniMaxOwnedSessionTTSService#11",
+                    processor="ExampleTTSService#11",
                     start_time=100.5,
                     duration_secs=2.0,
                 ),
                 TTFBBreakdownMetrics(
-                    processor="MiniMaxOwnedSessionTTSService#11",
+                    processor="ExampleTTSService#11",
                     start_time=100.5,
                     duration_secs=0.4,
                 ),
@@ -387,12 +387,12 @@ async def test_risposta_ms_keeps_the_first_tts_audio_not_the_worst():
     )
 
     detail = sink.first(ev.LATENCY_BREAKDOWN).detail
-    assert detail["risposta_ms"] == 400.0
+    assert detail["turn_to_audio_ms"] == 400.0
     # The per-stage column answers a different question and keeps the worst one.
     assert detail["tts_ttfb_ms"] == 2000.0
 
 
-async def test_risposta_ms_is_none_without_both_ends():
+async def test_turn_to_audio_ms_is_none_without_both_ends():
     """No turn release, no TTS audio, or an audio older than the release: None.
 
     Never zero, and never fallen back to `e2e_ms`: two definitions in one column
@@ -402,7 +402,7 @@ async def test_risposta_ms_is_none_without_both_ends():
     observer = _observer(sink=sink)
 
     tts = TTFBBreakdownMetrics(
-        processor="MiniMaxOwnedSessionTTSService#11",
+        processor="ExampleTTSService#11",
         start_time=101.0,
         duration_secs=0.4,
     )
@@ -419,7 +419,7 @@ async def test_risposta_ms_is_none_without_both_ends():
     )
 
     for e in (x for x in sink.events if x.event == ev.LATENCY_BREAKDOWN):
-        assert e.detail["risposta_ms"] is None
+        assert e.detail["turn_to_audio_ms"] is None
 
 
 async def test_latency_breakdown_without_a_measurement_reports_no_e2e():
@@ -497,7 +497,7 @@ async def test_call_ended_summary_counts():
     }
     assert summary.detail["reason"] == "completed"
     # The raw EndTaskReason, not the business disposition: the two differ and
-    # MILO's KPIs read this one.
+    # KPIs on how calls terminate read this one.
     assert summary.detail["end_reason"] == "call_transferred"
     assert summary.detail["duration_s"] == 61.5
     assert summary.detail["turns"] == 1
@@ -519,18 +519,18 @@ async def test_call_ended_summary_counts():
 
 
 async def test_call_ended_carries_the_host(monkeypatch):
-    """Multi-host deployment: MILO must tell voice-1 from voice-2 per call."""
+    """Multi-host installations can tell which instance handled each call."""
     sink = _RecordingSink()
     observer = _observer(sink=sink)
-    monkeypatch.setenv("DOGRAH_INSTANCE", "voice-2")
+    monkeypatch.setenv("DOGRAH_INSTANCE", "api-2")
 
     observer.call_ended("completed", 1.0)
 
-    assert sink.first(ev.CALL_ENDED).detail["host"] == "voice-2"
+    assert sink.first(ev.CALL_ENDED).detail["host"] == "api-2"
 
 
 async def test_call_ended_host_falls_back_to_the_hostname(monkeypatch):
-    """A single VM (milo) has no DOGRAH_INSTANCE: the hostname identifies it."""
+    """Without DOGRAH_INSTANCE, the hostname identifies the host."""
     import socket
 
     sink = _RecordingSink()

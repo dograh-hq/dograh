@@ -2,9 +2,9 @@
 
 One row per observable fact about a call: who spoke, when the turn was
 released, whether the bot answered, why it did not. The names and the
-``detail`` keys defined here are a contract — they are what the analytics side
-(MILO) queries, and must remain stable across sink implementations. Renaming a
-key silently breaks a dashboard, so add rather than rename.
+``detail`` keys defined here are a contract — they are what downstream
+analytics queries, and must remain stable across sink implementations. Renaming
+a key silently breaks a dashboard, so add rather than rename.
 
 ``detail`` must stay small (~1 KB) and JSON-serialisable. It never carries
 audio or transcript text: for anything textual only the length is recorded.
@@ -58,13 +58,11 @@ CALL_ENDED = "call_ended"
 
 
 def host_name() -> str:
-    """Which host ran this pipeline.
+    """Which host ran this pipeline, reported as ``call_ended.detail.host``.
 
-    On the multi-host deployment (DograhOP) bootstrap renders ``DOGRAH_INSTANCE``
-    (``voice-1``, ``voice-2``, ...) into the environment; a single VM (milo) has
-    no such variable and the hostname identifies it just as well. MILO reads it
-    from ``call_ended.detail.host`` to compare latencies and outcomes per host,
-    which a single-server install never needed.
+    Multi-host installations set ``DOGRAH_INSTANCE`` to a stable instance name
+    so latencies and outcomes can be compared per host; otherwise the hostname
+    identifies it.
     """
     return os.environ.get("DOGRAH_INSTANCE") or socket.gethostname()
 

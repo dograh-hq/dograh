@@ -32,7 +32,7 @@ function BigQueryFields({ config, onChange, deploymentIdentityAvailable }: Desti
       <div className="space-y-2">
         <Label htmlFor="call-events-table">Table</Label>
         <Input id="call-events-table" placeholder="project.dataset.table" value={String(config.table ?? "")} onChange={(e) => update("table", e.target.value)} required />
-        <p className="text-sm text-muted-foreground">Use an existing table with the pipeline diagnostics schema.</p>
+        <p className="text-sm text-muted-foreground">Use an existing table with the call events schema.</p>
       </div>
       <div className="space-y-2">
         <Label htmlFor="call-events-auth">Authentication</Label>

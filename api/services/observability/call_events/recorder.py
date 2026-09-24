@@ -85,7 +85,7 @@ def _never_raises(method):
 
 
 class CallEventRecorder:
-    """Collect the legacy diagnostic contract through existing observation hooks."""
+    """Collect the call event contract through existing observation hooks."""
 
     def __init__(
         self,
@@ -474,9 +474,9 @@ class CallEventRecorder:
         e2e_ms, self._pending_e2e_ms = self._pending_e2e_ms, None
 
         detail: dict[str, Any] = {
-            # `risposta_ms` è la metrica che la dashboard MOSTRA; `e2e_ms` resta scritta
-            # accanto perché è il dato grezzo di pipecat e non si riscrive la storia.
-            "risposta_ms": _round_ms(_risposta_ms(breakdown)),
+            # Turn release to first TTS audio. `e2e_ms` stays alongside it as
+            # pipecat's raw measurement, which covers a different interval.
+            "turn_to_audio_ms": _round_ms(_turn_to_audio_ms(breakdown)),
             "e2e_ms": _round_ms(e2e_ms),
             "user_turn_ms": _round_ms(user_turn_ms),
             "stt_ttfb_ms": None,
@@ -775,30 +775,29 @@ def _class_name(obj: Any) -> str | None:
     return None if obj is None else type(obj).__name__
 
 
-def _risposta_ms(breakdown: Any) -> float | None:
-    """Risposta del bot: dal RILASCIO del turno al PRIMO byte di audio TTS, in ms.
+def _turn_to_audio_ms(breakdown: Any) -> float | None:
+    """Bot response: from the user turn RELEASE to the FIRST byte of TTS audio, in ms.
 
-    È la metrica end-to-end che la dashboard MILO pubblica, e differisce da `e2e_ms`
-    (pipecat, `on_latency_measured`) su entrambi i capi, di proposito:
+    Differs from `e2e_ms` (pipecat, `on_latency_measured`) at both ends, on purpose:
 
-      * parte dal rilascio del turno (`user_turn_start_time + user_turn_secs`) e non dal
-        silenzio dell'utente, quindi NON comprende la finestra di silenzio del VAD né
-        l'attesa della strategia di fine turno. Quelle due sono configurazione
-        deliberata — si cambiano con `stop_secs`, non ottimizzando la pipeline — e stanno
-        già pubblicate a parte come `user_turn_ms`;
-      * finisce al primo byte di audio prodotto dal TTS e non a `BotStartedSpeakingFrame`,
-        quindi NON comprende il buffer di riproduzione del trasporto. Misura quando il bot
-        è pronto a parlare, cioè l'unica parte del percorso che questo servizio governa.
+      * it starts at the turn release (`user_turn_start_time + user_turn_secs`), not at
+        user silence, so it EXCLUDES the VAD silence window and the end-of-turn
+        strategy wait. Those are deliberate configuration — changed through
+        `stop_secs`, not by optimizing the pipeline — and are reported separately as
+        `user_turn_ms`;
+      * it ends at the first byte of TTS audio, not at `BotStartedSpeakingFrame`, so it
+        EXCLUDES the transport's playback buffer. It measures when the bot is ready to
+        speak, the only part of the path this service controls.
 
-    Entrambi i capi vengono dal SOLO `breakdown`: `user_turn_start_time` e gli
-    `start_time` dei TTFB sono nella stessa base tempi (`time.time()`), quindi la
-    sottrazione è lecita. Se manca un capo il valore è `None` — non zero, e non
-    ripiegato su `e2e_ms`: due definizioni nella stessa colonna sono il modo di
-    pubblicare una media che misura quale misura era disponibile.
+    Both ends come from the `breakdown` ALONE: `user_turn_start_time` and the TTFB
+    `start_time`s share one time base (`time.time()`), so the subtraction is valid. If
+    either end is missing the value is `None` — not zero, and not a fallback to
+    `e2e_ms`: two definitions in one column publish an average of whichever
+    measurement happened to be available.
 
-    Con più TTFB di TTS nel ciclo (una riconnessione, o la finestra del saluto) vince il
-    PRIMO audio, che è quello che il cliente sente; le colonne per stadio tengono invece
-    il peggiore, perché lì la domanda è un'altra.
+    With several TTS TTFBs in the cycle (a reconnect, or the greeting window) the FIRST
+    audio wins, since that is what the caller hears; the per-stage columns keep the
+    worst instead, because they answer a different question.
     """
     start = getattr(breakdown, "user_turn_start_time", None)
     turn_secs = getattr(breakdown, "user_turn_secs", None)
@@ -806,23 +805,25 @@ def _risposta_ms(breakdown: Any) -> float | None:
         return None
     released = start + turn_secs
 
-    primo_audio = None
+    first_audio = None
     for metrics in getattr(breakdown, "ttfb", None) or []:
         if ttfb_kind(getattr(metrics, "processor", None)) != "tts":
             continue
-        inizio = getattr(metrics, "start_time", None)
-        durata = getattr(metrics, "duration_secs", None)
-        if not isinstance(inizio, (int, float)) or not isinstance(durata, (int, float)):
+        started = getattr(metrics, "start_time", None)
+        duration = getattr(metrics, "duration_secs", None)
+        if not isinstance(started, (int, float)) or not isinstance(
+            duration, (int, float)
+        ):
             continue
-        fine = inizio + durata
-        if primo_audio is None or fine < primo_audio:
-            primo_audio = fine
+        ended = started + duration
+        if first_audio is None or ended < first_audio:
+            first_audio = ended
 
-    # Un audio che precede il rilascio del turno non è una latenza negativa: è un TTFB
-    # del turno precedente rimasto nell'accumulatore (o un'interruzione). Si scarta.
-    if primo_audio is None or primo_audio < released:
+    # Audio that precedes the turn release is not a negative latency: it is a TTFB
+    # left in the accumulator from the previous turn (or an interruption). Discard it.
+    if first_audio is None or first_audio < released:
         return None
-    return (primo_audio - released) * 1000.0
+    return (first_audio - released) * 1000.0
 
 
 def _to_ms(seconds: float | None) -> float | None:

@@ -42,7 +42,7 @@ async def test_completed_call_exports_events_without_persisting_them(
             "enabled": True,
             "sink_type": "bigquery",
             "config": {
-                "table": "milo-506211.dograh.pipeline_diagnostics",
+                "table": "example-project.analytics.call_events",
                 "auth_mode": "application_default",
             },
         },

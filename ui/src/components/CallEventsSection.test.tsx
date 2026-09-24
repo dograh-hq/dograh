@@ -27,7 +27,7 @@ vi.mock("sonner", () => ({ toast: { success: mocks.success, error: mocks.error }
 const saved = {
   enabled: true,
   sink_type: "bigquery",
-  config: { table: "milo-506211.dograh.pipeline_diagnostics", auth_mode: "service_account", client_email: "test@milo-506211.iam.gserviceaccount.com", private_key: "********" },
+  config: { table: "example-project.analytics.call_events", auth_mode: "service_account", client_email: "test@example-project.iam.gserviceaccount.com", private_key: "********" },
 };
 
 beforeEach(() => {
@@ -66,11 +66,11 @@ describe("Call event organization settings", () => {
 
   it("saves only call events through preferences and refreshes the context", async () => {
     render(<CallEventsSection />);
-    fireEvent.change(screen.getByLabelText("Table"), { target: { value: "milo-506211.dograh.new_table" } });
+    fireEvent.change(screen.getByLabelText("Table"), { target: { value: "example-project.analytics.new_table" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocks.save).toHaveBeenCalledOnce());
     expect(mocks.save.mock.calls[0][0].body).toEqual({ call_events: {
-      enabled: true, sink_type: "bigquery", config: { ...saved.config, table: "milo-506211.dograh.new_table" },
+      enabled: true, sink_type: "bigquery", config: { ...saved.config, table: "example-project.analytics.new_table" },
     } });
     await waitFor(() => expect(mocks.org.refreshConfig).toHaveBeenCalledOnce());
     expect(mocks.success).toHaveBeenCalledWith("Call event settings saved");

@@ -142,7 +142,7 @@ export default function CampaignsPage() {
                                             >
                                                 <TableCell>{campaign.id}</TableCell>
                                                 <TableCell className="font-medium">{campaign.name}</TableCell>
-                                                <TableCell>{campaign.workflow_name}</TableCell>
+                                                <TableCell>{campaign.workflow_name}{(campaign.traffic_split?.variants.length ?? 1) > 1 && <span className="text-muted-foreground"> +{(campaign.traffic_split?.variants.length ?? 1) - 1}</span>}</TableCell>
                                                 <TableCell>
                                                     <Badge variant={getStateBadgeVariant(campaign.state)}>
                                                         {campaign.state}

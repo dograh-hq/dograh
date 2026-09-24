@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
+from loguru import logger
 from sqlalchemy import exists
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.future import select
@@ -91,11 +92,13 @@ class OrganizationClient(BaseDBClient):
 
                 # Only create API key if we actually created the organization
                 if was_created:
+                    org_id = organization.id
+
                     # Create a default API key for the new organization
                     _, key_hash, key_prefix = generate_api_key()
 
                     api_key = APIKeyModel(
-                        organization_id=organization.id,
+                        organization_id=org_id,
                         name="Default API Key",
                         key_hash=key_hash,
                         key_prefix=key_prefix,
@@ -107,7 +110,7 @@ class OrganizationClient(BaseDBClient):
 
                     try:
                         from api.services.plan_service import plan_service
-                        await plan_service.assign_organization_plan(organization.id, "simple_trial")
+                        await plan_service.assign_organization_plan(org_id, "simple_trial")
                     except Exception as e:
                         logger.warning("Could not auto-assign simple_trial plan: {}", e)
 

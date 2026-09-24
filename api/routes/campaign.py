@@ -1,7 +1,7 @@
 import json
 import re
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -41,6 +41,33 @@ from api.services.telephony.outbound_readiness import (
 from api.utils.common import get_backend_endpoints
 
 router = APIRouter(prefix="/campaign")
+
+QUEUED_RUNS_MIGRATION_STATEMENTS = [
+    "ALTER TABLE queued_runs ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ",
+    "ALTER TABLE queued_runs ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0",
+    "ALTER TABLE queued_runs ADD COLUMN IF NOT EXISTS parent_queued_run_id INTEGER",
+    "ALTER TABLE queued_runs ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ",
+    "ALTER TABLE queued_runs ADD COLUMN IF NOT EXISTS retry_reason VARCHAR",
+]
+
+_QUEUED_RUNS_MIGRATIONS_APPLIED = False
+
+
+async def _ensure_queued_runs_columns():
+    global _QUEUED_RUNS_MIGRATIONS_APPLIED
+    if _QUEUED_RUNS_MIGRATIONS_APPLIED:
+        return
+    try:
+        async with db_client.async_session() as session:
+            for sql in QUEUED_RUNS_MIGRATION_STATEMENTS:
+                try:
+                    await session.execute(text(sql))
+                except Exception as ex:
+                    logger.debug(f"Queued runs migration note: {ex}")
+            await session.commit()
+            _QUEUED_RUNS_MIGRATIONS_APPLIED = True
+    except Exception as e:
+        logger.warning(f"Could not execute queued runs column migrations: {e}")
 
 
 async def _get_org_concurrent_limit(organization_id: int) -> int:
@@ -489,6 +516,7 @@ async def create_campaign(
     user: UserModel = Depends(get_user),
 ) -> CampaignResponse:
     """Create a new campaign"""
+    await _ensure_queued_runs_columns()
     # Verify workflow exists and belongs to organization or is a builtin template
     workflow = None
     workflow_id = request.workflow_id
@@ -819,6 +847,13 @@ async def create_campaign(
     cfg_name = await _get_telephony_configuration_name(
         campaign.telephony_configuration_id, user.selected_organization_id
     )
+    try:
+        fresh_campaign = await db_client.get_campaign(campaign.id, user.selected_organization_id)
+        if fresh_campaign:
+            campaign = fresh_campaign
+    except Exception:
+        pass
+
     return _build_campaign_response(
         campaign,
         workflow_name,
@@ -2307,6 +2342,7 @@ async def get_campaign_contacts(
     user: UserModel = Depends(get_user),
 ) -> Dict[str, Any]:
     """Retrieve all contacts and numbers assigned to this campaign along with their execution status."""
+    await _ensure_queued_runs_columns()
     from api.routes.contacts import ensure_table
     await ensure_table()
 
@@ -2345,7 +2381,7 @@ async def get_campaign_contacts(
         qr_res = await session.execute(
             text(
                 """
-                SELECT id, source_uuid, state, created_at, claimed_at, processed_at, context_variables
+                SELECT id, source_uuid, state, created_at, processed_at, context_variables
                 FROM queued_runs
                 WHERE campaign_id = :campaign_id
                 ORDER BY id ASC

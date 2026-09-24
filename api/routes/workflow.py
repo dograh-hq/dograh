@@ -1870,19 +1870,30 @@ class ImportBuiltinAgentRequest(BaseModel):
 
 def _format_agent_item(w: WorkflowModel) -> dict:
     definition = w.workflow_definition or {}
-    nodes = definition.get("nodes", [])
+    if isinstance(definition, str):
+        try:
+            definition = json.loads(definition)
+        except Exception:
+            definition = {}
+    nodes = definition.get("nodes", []) if isinstance(definition, dict) else []
     agent_data = {}
     for n in nodes:
         if isinstance(n, dict) and n.get("type") in ("agent", "startCall", "agentNode"):
             d = n.get("data", {})
-            agent_data = {
-                **d,
-                "first_message": d.get("first_message") or d.get("greeting") or "",
-                "system_prompt": d.get("system_prompt") or d.get("prompt") or "",
-            }
+            if isinstance(d, dict):
+                agent_data = {
+                    **d,
+                    "first_message": d.get("first_message") or d.get("greeting") or "",
+                    "system_prompt": d.get("system_prompt") or d.get("prompt") or "",
+                }
             break
 
     raw_vars = w.builtin_variables or []
+    if isinstance(raw_vars, str):
+        try:
+            raw_vars = json.loads(raw_vars)
+        except Exception:
+            raw_vars = []
     formatted_vars = []
     existing_keys = set()
     if isinstance(raw_vars, list):
@@ -1921,6 +1932,13 @@ def _format_agent_item(w: WorkflowModel) -> dict:
                 "placeholder": f"Enter {k.replace('_', ' ')}",
             })
 
+    goal = w.builtin_conversion_goal or {}
+    if isinstance(goal, str):
+        try:
+            goal = json.loads(goal)
+        except Exception:
+            goal = {"goal": goal}
+
     return {
         "id": w.id,
         "workflow_uuid": w.workflow_uuid,
@@ -1930,7 +1948,7 @@ def _format_agent_item(w: WorkflowModel) -> dict:
         "description": w.builtin_description or "",
         "is_default": bool(w.is_builtin),
         "variables": formatted_vars,
-        "conversion_goal": w.builtin_conversion_goal or {},
+        "conversion_goal": goal,
         "tested_by_admin": bool(w.tested_by_admin),
         "tested_at": w.tested_at.isoformat() if w.tested_at else None,
         "call_type": agent_data.get("call_type", "outbound"),
@@ -2067,21 +2085,56 @@ async def publish_builtin_agent(
             )
 
         workflow.is_builtin = True
-        workflow.builtin_category = request.category
-        workflow.builtin_badge = request.badge
-        workflow.builtin_description = request.description
-        workflow.builtin_variables = request.variables
-        workflow.builtin_conversion_goal = request.conversion_goal
+        workflow.status = WorkflowStatus.ACTIVE.value
+        workflow.builtin_category = request.category or "Sales & Outreach"
+        workflow.builtin_badge = request.badge or "Official Template"
+        workflow.builtin_description = request.description or ""
+        workflow.builtin_variables = request.variables or []
+        workflow.builtin_conversion_goal = request.conversion_goal or {}
         workflow.tested_by_admin = True
         if not workflow.tested_at:
             workflow.tested_at = datetime.now()
 
+        # Ensure released definition exists and is current
+        if not workflow.released_definition_id:
+            def_stmt = (
+                select(WorkflowDefinitionModel)
+                .where(WorkflowDefinitionModel.workflow_id == workflow.id)
+                .order_by(WorkflowDefinitionModel.id.desc())
+            )
+            def_res = await session.execute(def_stmt)
+            existing_def = def_res.scalars().first()
+            if existing_def:
+                workflow.released_definition_id = existing_def.id
+                existing_def.is_current = True
+                existing_def.status = "published"
+                if not existing_def.published_at:
+                    existing_def.published_at = datetime.now()
+            else:
+                wf_def_row = WorkflowDefinitionModel(
+                    workflow_id=workflow.id,
+                    workflow_json=workflow.workflow_definition or {},
+                    is_current=True,
+                    status="published",
+                    version_number=1,
+                    published_at=datetime.now(),
+                    workflow_configurations=workflow.workflow_configurations or {},
+                    template_context_variables=workflow.template_context_variables or {},
+                )
+                session.add(wf_def_row)
+                await session.flush()
+                workflow.released_definition_id = wf_def_row.id
+
+        wf_name = workflow.name
+        wf_id = workflow.id
+        wf_cat = workflow.builtin_category
+
         await session.commit()
         return {
             "status": "success",
-            "message": f"Agent '{workflow.name}' published as platform built-in template.",
-            "workflow_id": workflow.id,
-            "category": workflow.builtin_category,
+            "message": f"Agent '{wf_name}' published as platform built-in template.",
+            "workflow_id": wf_id,
+            "category": wf_cat,
         }
 
 
@@ -2099,9 +2152,10 @@ async def unpublish_builtin_agent(
         if not workflow:
             raise HTTPException(status_code=404, detail="Agent not found")
 
+        wf_name = workflow.name
         workflow.is_builtin = False
         await session.commit()
-        return {"status": "success", "message": f"Agent '{workflow.name}' unpublished from built-in catalog."}
+        return {"status": "success", "message": f"Agent '{wf_name}' unpublished from built-in catalog."}
 
 
 @router.post("/builtin")
@@ -2165,13 +2219,17 @@ async def create_builtin_agent(
             is_current=True,
             status="published",
             version_number=1,
-            description="Initial version",
+            published_at=datetime.now(),
             workflow_configurations={},
+            template_context_variables={},
         )
         session.add(wf_def_row)
+        await session.flush()
+        new_workflow.released_definition_id = wf_def_row.id
+
+        formatted_result = _format_agent_item(new_workflow)
         await session.commit()
-        await session.refresh(new_workflow)
-        return _format_agent_item(new_workflow)
+        return formatted_result
 
 
 @router.delete("/builtin/{workflow_id}")
@@ -2214,12 +2272,13 @@ async def import_builtin_agent(
 
         import copy
 
+        source_name = source.name
         cloned_definition = copy.deepcopy(source.workflow_definition or {})
         for node in cloned_definition.get("nodes", []):
             if node.get("type") == "trigger":
                 node.setdefault("data", {})["trigger_path"] = str(uuid.uuid4())
 
-        new_name = request.name or f"{source.name} (My Copy)"
+        new_name = request.name or f"{source_name} (My Copy)"
         new_workflow = WorkflowModel(
             name=new_name,
             workflow_uuid=str(uuid.uuid4()),
@@ -2240,21 +2299,23 @@ async def import_builtin_agent(
             workflow_json=cloned_definition,
             template_context_variables=copy.deepcopy(source.template_context_variables or {}),
             workflow_configurations=copy.deepcopy(source.workflow_configurations or {}),
-            call_disposition_codes=copy.deepcopy(source.call_disposition_codes or {}),
-            is_draft=True,
             is_current=True,
-            version=1,
-            author_id=user.id,
+            status="published",
+            version_number=1,
+            published_at=datetime.now(),
         )
         session.add(new_def)
+        await session.flush()
+        new_workflow.released_definition_id = new_def.id
+        new_id = new_workflow.id
+
         await session.commit()
-        await session.refresh(new_workflow)
 
         return {
             "status": "success",
-            "message": f"Successfully imported '{source.name}' into your agents!",
-            "workflow_id": new_workflow.id,
-            "name": new_workflow.name,
+            "message": f"Successfully imported '{source_name}' into your agents!",
+            "workflow_id": new_id,
+            "name": new_name,
         }
 
 

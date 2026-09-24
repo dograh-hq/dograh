@@ -301,8 +301,10 @@ function RenderWorkflow({
     }, [router, searchParams, workflowId]);
 
     const handleSelectVersion = useCallback((version: WorkflowVersionResponse) => {
-        navigateToVersion(version.status === 'draft' ? null : version.version_number);
-    }, [navigateToVersion]);
+        const isCurrentVersion = version.status === 'draft'
+            || (version.status === 'published' && !hasDraft);
+        navigateToVersion(isCurrentVersion ? null : version.version_number);
+    }, [hasDraft, navigateToVersion]);
 
     // Determine if we are viewing a historical (non-current) version.
     // The "current" version is the draft if one exists, otherwise the published version.

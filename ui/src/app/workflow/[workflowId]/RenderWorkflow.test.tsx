@@ -7,6 +7,7 @@ import type { WorkflowVersionResponse } from '@/client/types.gen';
 import RenderWorkflow from './RenderWorkflow';
 
 const mocks = vi.hoisted(() => ({
+    query: 'version=3&source=campaign',
     push: vi.fn(),
     versions: vi.fn(),
     save: vi.fn(),
@@ -20,7 +21,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@xyflow/react/dist/style.css', () => ({}));
 vi.mock('next/navigation', () => ({
     useRouter: () => ({ push: mocks.push }),
-    useSearchParams: () => new URLSearchParams('version=3&source=campaign'),
+    useSearchParams: () => new URLSearchParams(mocks.query),
 }));
 vi.mock('@/client', () => ({
     getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet: mocks.versions,
@@ -68,6 +69,7 @@ const version = (number: number, status: string): WorkflowVersionResponse => ({
 
 beforeEach(() => {
     vi.clearAllMocks();
+    mocks.query = 'version=3&source=campaign';
     mocks.versions.mockResolvedValue({ data: [version(21, 'draft'), version(20, 'published')] });
 });
 
@@ -91,4 +93,22 @@ it('updates shareable URLs from history and clears only the version when returni
     expect(mocks.push).toHaveBeenCalledWith('/workflow/12?version=20&source=campaign', { scroll: false });
     fireEvent.click(screen.getByRole('button', { name: 'Back to draft' }));
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/workflow/12?source=campaign', { scroll: false }));
+});
+
+it.each(['current', 'historical'])('selects the editable published version from the %s view when no draft exists', async view => {
+    mocks.query = view === 'current' ? 'source=campaign' : 'version=3&source=campaign';
+    mocks.versions.mockResolvedValue({ data: [version(20, 'published'), version(3, 'archived')] });
+    render(<RenderWorkflow
+        workflowId={12}
+        initialWorkflowName="Agent"
+        initialVersionNumber={20}
+        initialVersionStatus="published"
+        initialSelectedVersion={view === 'historical' ? version(3, 'archived') : undefined}
+        user={{ id: '1' }}
+    />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^v20/ }));
+
+    expect(mocks.push).toHaveBeenCalledWith('/workflow/12?source=campaign', { scroll: false });
 });

@@ -14,9 +14,19 @@ from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     OutputAudioRawFrame,
-    SpeechBoundaryFrame,
     StopFrame,
 )
+
+try:
+    from pipecat.frames.frames import SpeechBoundaryFrame
+except (ImportError, AttributeError):
+    from dataclasses import dataclass
+    from pipecat.frames.frames import ControlFrame
+
+    @dataclass
+    class SpeechBoundaryFrame(ControlFrame):
+        speech_id: str
+        beginning: bool
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 

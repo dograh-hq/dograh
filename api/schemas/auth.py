@@ -23,6 +23,7 @@ class UserResponse(BaseModel):
     id: int
     email: str | None
     name: str | None = None
+    phone: str | None = None
     organization_id: int | None = None
     provider_id: str | None = None
 

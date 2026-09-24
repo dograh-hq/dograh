@@ -247,7 +247,20 @@ async def get_user_with_selected_organization(
     user: Annotated[UserModel, Depends(get_user)],
 ) -> UserModel:
     if not user.selected_organization_id:
-        raise HTTPException(status_code=400, detail="No organization selected")
+        from api.db.models import organization_users_association
+        from sqlalchemy import select
+        async with db_client.async_session() as session:
+            assoc_res = await session.execute(
+                select(organization_users_association.c.organization_id).where(
+                    organization_users_association.c.user_id == user.id
+                )
+            )
+            first_org_id = assoc_res.scalar()
+        if first_org_id:
+            await db_client.update_user_selected_organization(user.id, first_org_id)
+            user.selected_organization_id = first_org_id
+        else:
+            raise HTTPException(status_code=400, detail="No organization selected")
     return user
 
 
@@ -278,6 +291,35 @@ async def _handle_oss_auth(authorization: str | None) -> UserModel:
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    # Auto-resolve selected_organization_id if missing
+    if not user.selected_organization_id:
+        from api.db.models import organization_users_association
+        from sqlalchemy import select
+        async with db_client.async_session() as session:
+            assoc_res = await session.execute(
+                select(organization_users_association.c.organization_id).where(
+                    organization_users_association.c.user_id == user.id
+                )
+            )
+            first_org_id = assoc_res.scalar()
+
+        if first_org_id:
+            await db_client.update_user_selected_organization(user.id, first_org_id)
+            user.selected_organization_id = first_org_id
+        else:
+            org_provider_id = f"org_{user.provider_id}"
+            organization, _ = await db_client.get_or_create_organization_by_provider_id(
+                org_provider_id=org_provider_id, user_id=user.id
+            )
+            await db_client.add_user_to_organization(user.id, organization.id)
+            await db_client.update_user_selected_organization(user.id, organization.id)
+            user.selected_organization_id = organization.id
+            try:
+                from api.services.plan_service import plan_service
+                await plan_service.assign_organization_plan(organization.id, "simple_trial")
+            except Exception as e:
+                logger.warning("Could not auto-assign simple_trial: {}", e)
 
     # Deliberately outside the try above: a provisioning failure must not be
     # reported to the user as an expired token.

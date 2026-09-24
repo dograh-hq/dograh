@@ -1,8 +1,14 @@
 from datetime import datetime, timedelta
-from typing import List, Literal, Optional, TypedDict, Union
+import hashlib
+import json
+from typing import Annotated, List, Literal, Optional, TypedDict, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
+import redis.asyncio as aioredis
+
+from api.constants import REDIS_URL
 
 from api.db import db_client
 from api.db.models import (
@@ -19,7 +25,7 @@ from api.schemas.workflow_configurations import (
     get_default_call_disposition_options,
     get_default_workflow_configurations,
 )
-from api.services.auth.depends import get_user
+from api.services.auth.depends import get_user, get_user_with_selected_organization
 from api.services.configuration.ai_model_configuration import (
     convert_legacy_ai_model_configuration_to_v2,
     get_resolved_ai_model_configuration,
@@ -462,6 +468,12 @@ class VoiceInfo(BaseModel):
     preview_url: Optional[str] = None
 
 
+class SupportedLanguage(BaseModel):
+    code: str
+    name: str
+    flag: Optional[str] = "🌐"
+
+
 class VoiceFacets(BaseModel):
     """Distinct selector values across a provider's full voice catalog."""
 
@@ -474,6 +486,68 @@ class VoicesResponse(BaseModel):
     provider: str
     voices: List[VoiceInfo]
     facets: Optional[VoiceFacets] = None
+    supported_languages: List[SupportedLanguage] = []
+
+
+PROVIDER_SUPPORTED_LANGUAGES: dict[str, list[dict]] = {
+    "sarvam": [
+        {"code": "hi-IN", "name": "Hindi", "flag": "🇮🇳"},
+        {"code": "en-IN", "name": "Indian English", "flag": "🇮🇳"},
+        {"code": "bn-IN", "name": "Bengali", "flag": "🇮🇳"},
+        {"code": "ta-IN", "name": "Tamil", "flag": "🇮🇳"},
+        {"code": "te-IN", "name": "Telugu", "flag": "🇮🇳"},
+        {"code": "mr-IN", "name": "Marathi", "flag": "🇮🇳"},
+        {"code": "gu-IN", "name": "Gujarati", "flag": "🇮🇳"},
+        {"code": "kn-IN", "name": "Kannada", "flag": "🇮🇳"},
+        {"code": "pa-IN", "name": "Punjabi", "flag": "🇮🇳"},
+        {"code": "ml-IN", "name": "Malayalam", "flag": "🇮🇳"},
+        {"code": "od-IN", "name": "Odia", "flag": "🇮🇳"},
+    ],
+    "cartesia": [
+        {"code": "en", "name": "English", "flag": "🇺🇸"},
+        {"code": "hi", "name": "Hindi", "flag": "🇮🇳"},
+        {"code": "es", "name": "Spanish", "flag": "🇪🇸"},
+        {"code": "fr", "name": "French", "flag": "🇫🇷"},
+        {"code": "de", "name": "German", "flag": "🇩🇪"},
+        {"code": "ja", "name": "Japanese", "flag": "🇯🇵"},
+        {"code": "pt", "name": "Portuguese", "flag": "🇧🇷"},
+        {"code": "zh", "name": "Chinese", "flag": "🇨🇳"},
+    ],
+    "elevenlabs": [
+        {"code": "en", "name": "English", "flag": "🇺🇸"},
+        {"code": "hi", "name": "Hindi", "flag": "🇮🇳"},
+        {"code": "es", "name": "Spanish", "flag": "🇪🇸"},
+        {"code": "fr", "name": "French", "flag": "🇫🇷"},
+        {"code": "de", "name": "German", "flag": "🇩🇪"},
+        {"code": "it", "name": "Italian", "flag": "🇮🇹"},
+        {"code": "pt", "name": "Portuguese", "flag": "🇧🇷"},
+        {"code": "pl", "name": "Polish", "flag": "🇵🇱"},
+        {"code": "ja", "name": "Japanese", "flag": "🇯🇵"},
+        {"code": "ar", "name": "Arabic", "flag": "🇦🇪"},
+    ],
+    "deepgram": [
+        {"code": "en", "name": "English (US)", "flag": "🇺🇸"},
+        {"code": "en-GB", "name": "English (UK)", "flag": "🇬🇧"},
+        {"code": "en-IE", "name": "English (Ireland)", "flag": "🇮🇪"},
+    ],
+    "openai": [
+        {"code": "en", "name": "English", "flag": "🇺🇸"},
+        {"code": "hi", "name": "Hindi", "flag": "🇮🇳"},
+        {"code": "es", "name": "Spanish", "flag": "🇪🇸"},
+        {"code": "fr", "name": "French", "flag": "🇫🇷"},
+        {"code": "de", "name": "German", "flag": "🇩🇪"},
+        {"code": "ja", "name": "Japanese", "flag": "🇯🇵"},
+    ],
+    "smallest": [
+        {"code": "en", "name": "English", "flag": "🇺🇸"},
+        {"code": "hi", "name": "Hindi", "flag": "🇮🇳"},
+    ],
+    "azure": [
+        {"code": "en-US", "name": "US English", "flag": "🇺🇸"},
+        {"code": "en-IN", "name": "Indian English", "flag": "🇮🇳"},
+        {"code": "hi-IN", "name": "Hindi", "flag": "🇮🇳"},
+    ],
+}
 
 
 PRESET_VOICE_CATALOG: dict[str, list[dict]] = {
@@ -553,6 +627,68 @@ PRESET_VOICE_CATALOG: dict[str, list[dict]] = {
 }
 
 MPS_VOICE_PROVIDERS = {"elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"}
+VOICE_CACHE_TTL = 86400  # 24 hours
+
+_VOICE_REDIS_CLIENT: Optional[aioredis.Redis] = None
+
+
+async def _get_voice_redis() -> Optional[aioredis.Redis]:
+    """Get or initialize singleton Redis client for voice caching."""
+    global _VOICE_REDIS_CLIENT
+    if _VOICE_REDIS_CLIENT is None:
+        try:
+            _VOICE_REDIS_CLIENT = await aioredis.from_url(REDIS_URL, decode_responses=True)
+        except Exception as e:
+            logger.warning("Could not connect to Redis for voice caching: {}", e)
+            return None
+    return _VOICE_REDIS_CLIENT
+
+
+async def _get_optional_user(
+    authorization: Annotated[str | None, Header()] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+) -> Optional[UserModel]:
+    """Graceful user resolution for public voice catalogs."""
+    if not authorization and not x_api_key:
+        return None
+    try:
+        return await get_user(authorization, x_api_key)
+    except Exception:
+        return None
+
+
+@router.get("/configurations/voices/default")
+async def get_default_voices(
+    model: Optional[str] = None,
+    language: Optional[str] = None,
+    q: Optional[str] = None,
+    gender: Optional[str] = None,
+    accent: Optional[str] = None,
+    user: Optional[UserModel] = Depends(_get_optional_user),
+) -> VoicesResponse:
+    """
+    Get available voices for the admin's configured default TTS provider.
+    Automatically resolves the default master provider set by the platform admin.
+    """
+    admin_provider = "cartesia"
+    try:
+        from api.services.platform_keys import get_default_platform_provider
+        default_result = get_default_platform_provider("tts")
+        if default_result and default_result[0]:
+            admin_provider = default_result[0].lower()
+    except Exception as e:
+        logger.debug("Could not resolve default platform TTS provider: {}", e)
+        admin_provider = DEFAULT_SERVICE_PROVIDERS.get("tts", "cartesia").lower()
+
+    return await get_voices(
+        provider=admin_provider,
+        model=model,
+        language=language,
+        q=q,
+        gender=gender,
+        accent=accent,
+        user=user,
+    )
 
 
 @router.get("/configurations/voices/{provider}")
@@ -563,10 +699,27 @@ async def get_voices(
     q: Optional[str] = None,
     gender: Optional[str] = None,
     accent: Optional[str] = None,
-    user: UserModel = Depends(get_user),
+    user: Optional[UserModel] = Depends(_get_optional_user),
 ) -> VoicesResponse:
-    """Get available voices for a TTS provider."""
-    normalized_provider = provider.lower()
+    """Get available voices for a TTS provider with Redis caching."""
+    normalized_provider = str(provider).lower()
+
+    # Build unique cache key
+    cache_key_elements = f"{normalized_provider}:{model or ''}:{language or ''}:{q or ''}:{gender or ''}:{accent or ''}"
+    cache_key_hash = hashlib.md5(cache_key_elements.encode("utf-8")).hexdigest()
+    redis_cache_key = f"voices:cache:{normalized_provider}:{cache_key_hash}"
+
+    redis_client = await _get_voice_redis()
+    if redis_client:
+        try:
+            cached_data = await redis_client.get(redis_cache_key)
+            if cached_data:
+                cached_dict = json.loads(cached_data)
+                return VoicesResponse(**cached_dict)
+        except Exception as e:
+            logger.warning("Redis voice cache read error: {}", e)
+
+    response_to_cache: Optional[VoicesResponse] = None
 
     if normalized_provider in MPS_VOICE_PROVIDERS:
         try:
@@ -577,12 +730,12 @@ async def get_voices(
                 q=q,
                 gender=gender,
                 accent=accent,
-                organization_id=user.selected_organization_id,
-                created_by=user.provider_id,
+                organization_id=user.selected_organization_id if user else None,
+                created_by=user.provider_id if user else None,
             )
             raw_voices = result.get("voices", [])
             if raw_voices:
-                return VoicesResponse(
+                response_to_cache = VoicesResponse(
                     provider=result.get("provider", provider),
                     voices=[VoiceInfo(**v) for v in raw_voices],
                     facets=result.get("facets"),
@@ -590,39 +743,231 @@ async def get_voices(
         except Exception:
             pass
 
-    # Fallback to catalog presets
-    candidates = PRESET_VOICE_CATALOG.get(normalized_provider, [])
-    filtered = []
-    q_lower = q.lower().strip() if q else None
-    gender_lower = gender.lower().strip() if gender else None
-    accent_lower = accent.lower().strip() if accent else None
-    language_lower = language.lower().strip() if language else None
+    if not response_to_cache:
+        # Fallback to catalog presets
+        candidates = PRESET_VOICE_CATALOG.get(normalized_provider, [])
+        filtered = []
+        q_lower = q.lower().strip() if q else None
+        gender_lower = gender.lower().strip() if gender else None
+        accent_lower = accent.lower().strip() if accent else None
+        language_lower = language.lower().strip() if language else None
 
-    for item in candidates:
-        if q_lower and not (
-            q_lower in item.get("name", "").lower()
-            or q_lower in item.get("voice_id", "").lower()
-            or q_lower in item.get("description", "").lower()
-        ):
-            continue
-        if gender_lower and gender_lower != "__all__" and item.get("gender", "").lower() != gender_lower:
-            continue
-        if accent_lower and accent_lower != "__all__" and item.get("accent", "").lower() != accent_lower:
-            continue
-        if language_lower and language_lower != "__all__" and item.get("language", "").lower() != language_lower:
-            continue
-        filtered.append(VoiceInfo(**item))
+        for item in candidates:
+            if q_lower and not (
+                q_lower in item.get("name", "").lower()
+                or q_lower in item.get("voice_id", "").lower()
+                or q_lower in item.get("description", "").lower()
+            ):
+                continue
+            if gender_lower and gender_lower != "__all__" and item.get("gender", "").lower() != gender_lower:
+                continue
+            if accent_lower and accent_lower != "__all__" and item.get("accent", "").lower() != accent_lower:
+                continue
+            if language_lower and language_lower != "__all__" and item.get("language", "").lower() != language_lower:
+                continue
+            filtered.append(VoiceInfo(**item))
 
-    # If q was for a specific voice ID that is not in the preset catalog, return a synthetic VoiceInfo
-    if q and not filtered:
-        filtered.append(VoiceInfo(voice_id=q, name=q, description=f"{provider} voice ID"))
+        # If q was for a specific voice ID that is not in the preset catalog, return a synthetic VoiceInfo
+        if q and not filtered:
+            filtered.append(VoiceInfo(voice_id=q, name=q, description=f"{provider} voice ID"))
 
-    genders = sorted(list({item["gender"] for item in candidates if item.get("gender")}))
-    accents = sorted(list({item["accent"] for item in candidates if item.get("accent")}))
-    languages = sorted(list({item["language"] for item in candidates if item.get("language")}))
+        genders = sorted(list({item["gender"] for item in candidates if item.get("gender")}))
+        accents = sorted(list({item["accent"] for item in candidates if item.get("accent")}))
+        languages = sorted(list({item["language"] for item in candidates if item.get("language")}))
 
-    return VoicesResponse(
-        provider=provider,
-        voices=filtered,
-        facets=VoiceFacets(genders=genders, accents=accents, languages=languages),
+        response_to_cache = VoicesResponse(
+            provider=provider,
+            voices=filtered,
+            facets=VoiceFacets(genders=genders, accents=accents, languages=languages),
+        )
+
+    if response_to_cache:
+        raw_supp = PROVIDER_SUPPORTED_LANGUAGES.get(
+            normalized_provider, [{"code": "en", "name": "English", "flag": "🌐"}]
+        )
+        response_to_cache.supported_languages = [SupportedLanguage(**l) for l in raw_supp]
+
+    # Cache into Redis
+    if redis_client and response_to_cache and response_to_cache.voices:
+        try:
+            await redis_client.set(
+                redis_cache_key,
+                response_to_cache.model_dump_json(),
+                ex=VOICE_CACHE_TTL,
+            )
+        except Exception as e:
+            logger.warning("Redis voice cache write error: {}", e)
+
+    return response_to_cache
+
+
+# ---------------------------------------------------------------------------
+# Organization Settings & Profile Endpoints
+# ---------------------------------------------------------------------------
+
+class OrganizationCallingPreferences(BaseModel):
+    calling_hours: str = "10:00 – 19:00"
+    language: str = "English + Hindi"
+    voice: str = "Ananya (female)"
+    record_calls: bool = True
+
+
+class OrganizationNotifications(BaseModel):
+    campaign_completed: bool = True
+    low_balance: bool = True
+    payment_receipts: bool = True
+    call_failures: bool = False
+
+
+class OrganizationSettingsResponse(BaseModel):
+    id: int
+    name: str
+    industry: Optional[str] = "Real estate"
+    website: Optional[str] = ""
+    phone: Optional[str] = ""
+    address: Optional[str] = ""
+    gstin: Optional[str] = ""
+    calling_preferences: OrganizationCallingPreferences
+    notifications: OrganizationNotifications
+    email: Optional[str] = ""
+    subscription_tier: Optional[str] = "simple_trial"
+    created_at: Optional[str] = None
+
+
+class OrganizationSettingsUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    industry: Optional[str] = None
+    website: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    gstin: Optional[str] = None
+    calling_preferences: Optional[OrganizationCallingPreferences] = None
+    notifications: Optional[OrganizationNotifications] = None
+
+
+@router.get("/organization", response_model=OrganizationSettingsResponse)
+async def get_user_organization_settings(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Retrieve settings and profile for the user's selected organization."""
+    org_id = user.selected_organization_id
+    org = await db_client.get_organization_by_id(org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    biz_config = await db_client.get_configuration(org_id, "BUSINESS_PROFILE")
+    biz_data = biz_config.value if biz_config and isinstance(biz_config.value, dict) else {}
+
+    call_config = await db_client.get_configuration(org_id, "CALLING_PREFERENCES")
+    call_data = call_config.value if call_config and isinstance(call_config.value, dict) else {}
+
+    notif_config = await db_client.get_configuration(org_id, "NOTIFICATION_SETTINGS")
+    notif_data = notif_config.value if notif_config and isinstance(notif_config.value, dict) else {}
+
+    return OrganizationSettingsResponse(
+        id=org.id,
+        name=biz_data.get("name") or org.provider_id or "My Workspace",
+        industry=biz_data.get("industry", "Real estate"),
+        website=biz_data.get("website", ""),
+        phone=biz_data.get("phone", ""),
+        address=biz_data.get("address", ""),
+        gstin=biz_data.get("gstin", ""),
+        calling_preferences=OrganizationCallingPreferences(
+            calling_hours=call_data.get("calling_hours", "10:00 – 19:00"),
+            language=call_data.get("language", "English + Hindi"),
+            voice=call_data.get("voice", "Ananya (female)"),
+            record_calls=call_data.get("record_calls", True),
+        ),
+        notifications=OrganizationNotifications(
+            campaign_completed=notif_data.get("campaign_completed", True),
+            low_balance=notif_data.get("low_balance", True),
+            payment_receipts=notif_data.get("payment_receipts", True),
+            call_failures=notif_data.get("call_failures", False),
+        ),
+        email=user.email or "",
+        subscription_tier=getattr(org, "subscription_tier", "simple_trial") or "simple_trial",
+        created_at=org.created_at.isoformat() if org.created_at else None,
     )
+
+
+@router.patch("/organization", response_model=OrganizationSettingsResponse)
+async def update_user_organization_settings(
+    request: OrganizationSettingsUpdateRequest,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Update settings and business profile for the user's selected organization."""
+    from api.db.models import OrganizationModel
+    from sqlalchemy import update
+
+    org_id = user.selected_organization_id
+    org = await db_client.get_organization_by_id(org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # 1. Update company / provider_id if provided
+    if request.name and request.name.strip():
+        new_name = request.name.strip()
+        async with db_client.async_session() as session:
+            stmt = update(OrganizationModel).where(OrganizationModel.id == org_id).values(provider_id=new_name)
+            await session.execute(stmt)
+            await session.commit()
+        org.provider_id = new_name
+
+    # 2. Update BUSINESS_PROFILE
+    biz_config = await db_client.get_configuration(org_id, "BUSINESS_PROFILE")
+    biz_data = biz_config.value if biz_config and isinstance(biz_config.value, dict) else {}
+
+    if request.name is not None:
+        biz_data["name"] = request.name
+    if request.industry is not None:
+        biz_data["industry"] = request.industry
+    if request.website is not None:
+        biz_data["website"] = request.website
+    if request.phone is not None:
+        biz_data["phone"] = request.phone
+    if request.address is not None:
+        biz_data["address"] = request.address
+    if request.gstin is not None:
+        biz_data["gstin"] = request.gstin.upper()
+
+    await db_client.upsert_configuration(org_id, "BUSINESS_PROFILE", biz_data)
+
+    # 3. Update CALLING_PREFERENCES if provided
+    call_config = await db_client.get_configuration(org_id, "CALLING_PREFERENCES")
+    call_data = call_config.value if call_config and isinstance(call_config.value, dict) else {}
+    if request.calling_preferences is not None:
+        call_data = request.calling_preferences.model_dump()
+        await db_client.upsert_configuration(org_id, "CALLING_PREFERENCES", call_data)
+
+    # 4. Update NOTIFICATION_SETTINGS if provided
+    notif_config = await db_client.get_configuration(org_id, "NOTIFICATION_SETTINGS")
+    notif_data = notif_config.value if notif_config and isinstance(notif_config.value, dict) else {}
+    if request.notifications is not None:
+        notif_data = request.notifications.model_dump()
+        await db_client.upsert_configuration(org_id, "NOTIFICATION_SETTINGS", notif_data)
+
+    return OrganizationSettingsResponse(
+        id=org.id,
+        name=biz_data.get("name") or org.provider_id or "My Workspace",
+        industry=biz_data.get("industry", "Real estate"),
+        website=biz_data.get("website", ""),
+        phone=biz_data.get("phone", ""),
+        address=biz_data.get("address", ""),
+        gstin=biz_data.get("gstin", ""),
+        calling_preferences=OrganizationCallingPreferences(
+            calling_hours=call_data.get("calling_hours", "10:00 – 19:00"),
+            language=call_data.get("language", "English + Hindi"),
+            voice=call_data.get("voice", "Ananya (female)"),
+            record_calls=call_data.get("record_calls", True),
+        ),
+        notifications=OrganizationNotifications(
+            campaign_completed=notif_data.get("campaign_completed", True),
+            low_balance=notif_data.get("low_balance", True),
+            payment_receipts=notif_data.get("payment_receipts", True),
+            call_failures=notif_data.get("call_failures", False),
+        ),
+        email=user.email or "",
+        subscription_tier=getattr(org, "subscription_tier", "simple_trial") or "simple_trial",
+        created_at=org.created_at.isoformat() if org.created_at else None,
+    )
+

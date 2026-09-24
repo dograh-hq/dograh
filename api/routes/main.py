@@ -1,9 +1,12 @@
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from loguru import logger
 from pydantic import BaseModel
+
+from api.db.models import UserModel
+from api.services.auth.depends import get_user_with_selected_organization
 
 from api.routes.agent_stream import router as agent_stream_router
 from api.routes.auth import router as auth_router
@@ -34,6 +37,7 @@ from api.routes.webrtc_signaling import router as webrtc_signaling_router
 from api.routes.workflow import router as workflow_router
 from api.routes.workflow_embed import router as workflow_embed_router
 from api.routes.leads import router as leads_router
+from api.routes.contacts import router as contacts_router
 from api.routes.workflow_recording import router as workflow_recording_router
 from api.routes.workflow_text_chat import router as workflow_text_chat_router
 from api.services.integrations import all_routers
@@ -44,6 +48,7 @@ router = APIRouter(
 )
 
 router.include_router(leads_router)
+router.include_router(contacts_router)
 router.include_router(dashboard_router)
 router.include_router(telephony_router)
 router.include_router(superuser_router)
@@ -76,6 +81,35 @@ router.include_router(agent_stream_router)
 
 for _integration_router in all_routers():
     router.include_router(_integration_router)
+
+
+@router.get("/organization_usage")
+@router.get("/organization_usage/")
+async def get_legacy_organization_usage(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    from api.services.plan_service import plan_service
+
+    org_id = user.selected_organization_id
+    if not org_id:
+        return {
+            "balance_usd": 0.0,
+            "total_minutes": 0,
+            "used_minutes": 0.0,
+            "minutes_remaining": 0.0,
+        }
+    limits = await plan_service.get_effective_limits(org_id)
+    total_minutes = (
+        limits.included_minutes
+        if limits.included_minutes > 0
+        else int(limits.wallet_balance_usd / 0.125)
+    )
+    return {
+        "balance_usd": round(limits.wallet_balance_usd, 4),
+        "total_minutes": total_minutes,
+        "used_minutes": round(limits.monthly_minutes_used, 2),
+        "minutes_remaining": round(limits.minutes_remaining, 2),
+    }
 
 
 class HealthResponse(BaseModel):
@@ -300,3 +334,7 @@ def prometheus_metrics(
         content=runtime.render(),
         headers={"Content-Type": CONTENT_TYPE_LATEST, "Cache-Control": "no-store"},
     )
+
+# Reload trigger for updated routes
+
+

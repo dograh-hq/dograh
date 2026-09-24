@@ -19,13 +19,23 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
-    SpeechBoundaryFrame,
     TextFrame,
     TTSAudioRawFrame,
     TTSSpeakFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
 )
+
+try:
+    from pipecat.frames.frames import SpeechBoundaryFrame
+except (ImportError, AttributeError):
+    from dataclasses import dataclass
+    from pipecat.frames.frames import ControlFrame
+
+    @dataclass
+    class SpeechBoundaryFrame(ControlFrame):
+        speech_id: str
+        beginning: bool
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (

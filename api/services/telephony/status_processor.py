@@ -145,12 +145,62 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
                 workflow_run.campaign_id, is_failure=False
             )
 
-        if workflow_run.state != WorkflowRunState.COMPLETED.value:
-            await db_client.update_workflow_run(
-                run_id=workflow_run_id,
-                is_completed=True,
-                state=WorkflowRunState.COMPLETED.value,
+        dur = _duration_seconds(status.duration)
+        u_info = dict(workflow_run.usage_info or {})
+        if dur > 0 or "call_duration_seconds" not in u_info:
+            u_info["call_duration_seconds"] = dur
+
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id,
+            is_completed=True,
+            state=WorkflowRunState.COMPLETED.value,
+            usage_info=u_info,
+        )
+
+        if workflow_run.queued_run_id:
+            await db_client.update_queued_run(
+                queued_run_id=workflow_run.queued_run_id,
+                state="processed",
+                processed_at=datetime.now(UTC),
             )
+
+        if dur > 0:
+            try:
+                org_id = None
+                if workflow_run.campaign_id:
+                    try:
+                        from api.db.models import CampaignModel
+                        from sqlalchemy.future import select
+                        async with db_client.async_session() as session:
+                            c_res = await session.execute(
+                                select(CampaignModel.organization_id).where(
+                                    CampaignModel.id == workflow_run.campaign_id
+                                )
+                            )
+                            org_id = c_res.scalar_one_or_none()
+                    except Exception:
+                        pass
+                if not org_id:
+                    org_id = await db_client.get_organization_id_by_workflow_run_id(
+                        workflow_run_id
+                    )
+
+                if org_id:
+                    from api.services.plan_service import plan_service
+                    limits = await plan_service.get_effective_limits(org_id)
+                    rate = limits.overage_rate_per_minute_usd or 0.10
+                    billing_res = await plan_service.record_run_billing(
+                        organization_id=org_id,
+                        duration_seconds=dur,
+                        rate_per_min=rate,
+                    )
+                    logger.info(
+                        f"[run {workflow_run_id}] Deducted usage for {dur}s call on org {org_id}: {billing_res}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"[run {workflow_run_id}] Failed to deduct usage: {e}"
+                )
 
     elif normalized_status in TERMINAL_NOT_CONNECTED_STATUSES:
         logger.warning(

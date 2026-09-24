@@ -163,7 +163,7 @@ async def get_telephony_provider_by_id(
 
 async def get_telephony_provider_for_run(
     workflow_run: WorkflowRunModel,
-    organization_id: int,
+    organization_id: int | None = None,
 ) -> TelephonyProvider:
     """Resolve the provider for a given workflow run.
 
@@ -173,6 +173,25 @@ async def get_telephony_provider_for_run(
     default config so legacy runs created before the multi-config migration
     still resolve.
     """
+    if not organization_id:
+        if workflow_run.campaign_id:
+            try:
+                from api.db.models import CampaignModel
+                from sqlalchemy.future import select
+                async with db_client.async_session() as session:
+                    res = await session.execute(
+                        select(CampaignModel.organization_id).where(
+                            CampaignModel.id == workflow_run.campaign_id
+                        )
+                    )
+                    organization_id = res.scalar_one_or_none()
+            except Exception:
+                pass
+        if not organization_id:
+            organization_id = await db_client.get_organization_id_by_workflow_run_id(
+                workflow_run.id
+            )
+
     cfg_id = (workflow_run.initial_context or {}).get("telephony_configuration_id")
     if cfg_id is not None:
         return await get_telephony_provider_by_id(cfg_id, organization_id)

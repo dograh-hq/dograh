@@ -92,13 +92,37 @@ def _ensure_workflow_is_active(workflow) -> None:
         raise HTTPException(status_code=404, detail="Workflow is not active")
 
 
-def _get_execution_user_id(workflow) -> int:
-    if workflow.user_id is None:
-        raise HTTPException(
-            status_code=409,
-            detail="Workflow has no execution owner",
+async def _get_execution_user_id(workflow, fallback_user_id: int | None = None) -> int:
+    """Return user_id for workflow run execution, with optional fallback.
+    
+    Bootstrapped or template-imported workflows may have user_id=None.
+    Falls back to fallback_user_id and backfills the row for future calls.
+    """
+    if workflow.user_id is not None:
+        return workflow.user_id
+    if fallback_user_id is not None:
+        logger.warning(
+            f"Workflow {workflow.id} has no execution owner; "
+            f"falling back to user {fallback_user_id} and backfilling."
         )
-    return workflow.user_id
+        try:
+            from sqlalchemy import update as sa_update
+            async with db_client.async_session() as session:
+                stmt = (
+                    sa_update(type(workflow))
+                    .where(type(workflow).id == workflow.id)
+                    .values(user_id=fallback_user_id)
+                )
+                await session.execute(stmt)
+                await session.commit()
+            workflow.user_id = fallback_user_id
+        except Exception as e:
+            logger.error(f"Failed to backfill workflow.user_id: {e}")
+        return fallback_user_id
+    raise HTTPException(
+        status_code=409,
+        detail="Workflow has no execution owner",
+    )
 
 
 async def _get_workflow_definition_for_execution(workflow, *, use_draft: bool) -> dict:
@@ -190,7 +214,9 @@ async def _execute_resolved_target(
     api_key_created_by: int | None,
 ) -> TriggerCallResponse:
     """Shared execution path once the target workflow has been resolved."""
-    execution_user_id = _get_execution_user_id(target.workflow)
+    execution_user_id = await _get_execution_user_id(
+        target.workflow, fallback_user_id=api_key_created_by
+    )
 
     # An explicit config remains authoritative. Legacy callers that omit it
     # get the first active configuration that passes outbound pre-flight.
@@ -494,3 +520,4 @@ async def initiate_call_test_by_workflow_uuid(
         use_draft=True,
         target_resolver=_resolve_workflow_uuid_target,
     )
+

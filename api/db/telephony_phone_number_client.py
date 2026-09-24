@@ -456,6 +456,14 @@ class TelephonyPhoneNumberClient(BaseDBClient):
         Dedicated numbers are visible if unassigned OR if assigned to this organization.
         """
         async with self.async_session() as session:
+            # 1. Check all numbers currently claimed / active in this organization's workspace
+            claimed_addresses_stmt = select(TelephonyPhoneNumberModel.address_normalized).where(
+                TelephonyPhoneNumberModel.organization_id == organization_id,
+                TelephonyPhoneNumberModel.is_active == True,
+            )
+            claimed_addresses = set((await session.execute(claimed_addresses_stmt)).scalars().all())
+
+            # 2. Select platform inventory numbers
             stmt = (
                 select(TelephonyPhoneNumberModel, TelephonyConfigurationModel)
                 .join(
@@ -464,11 +472,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     == TelephonyConfigurationModel.id,
                 )
                 .where(
-                    or_(
-                        TelephonyPhoneNumberModel.is_platform_inventory == True,
-                        TelephonyPhoneNumberModel.organization_id == organization_id,
-                        TelephonyPhoneNumberModel.assigned_organization_id == organization_id,
-                    ),
+                    TelephonyPhoneNumberModel.is_platform_inventory == True,
                     TelephonyPhoneNumberModel.is_active == True,
                 )
                 .order_by(
@@ -481,12 +485,25 @@ class TelephonyPhoneNumberClient(BaseDBClient):
 
             output = []
             for num, config in rows:
-                is_shared = num.pool_type == "shared_trial"
-                is_assigned = (num.assigned_organization_id is not None) or (num.organization_id == organization_id)
-                is_assigned_to_current = (num.assigned_organization_id == organization_id) or (num.organization_id == organization_id)
+                is_shared_trial = num.pool_type == "shared_trial"
+                is_shared_multi_org = num.pool_type == "shared_multi_org"
 
-                # If dedicated and assigned to someone else, hide it
-                if not is_shared and is_assigned and not is_assigned_to_current:
+                # Check if this specific organization has claimed this number
+                is_claimed_by_you = (
+                    num.address_normalized in claimed_addresses
+                    or num.assigned_organization_id == organization_id
+                    or is_shared_trial
+                )
+
+                # Dedicated numbers assigned to another organization
+                is_assigned_to_other = (
+                    not is_shared_trial
+                    and not is_shared_multi_org
+                    and num.assigned_organization_id is not None
+                    and num.assigned_organization_id != organization_id
+                )
+
+                if is_assigned_to_other:
                     continue
 
                 output.append(
@@ -496,8 +513,8 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                         "carrier": config.provider,
                         "pool_type": num.pool_type,
                         "monthly_price_cents": num.monthly_price_cents,
-                        "in_use": not is_shared and is_assigned,
-                        "is_claimed_by_you": is_assigned_to_current,
+                        "in_use": is_claimed_by_you if is_shared_multi_org else (not is_shared_trial and (num.assigned_organization_id is not None)),
+                        "is_claimed_by_you": is_claimed_by_you,
                         "country_code": num.country_code,
                         "telephony_configuration_id": num.telephony_configuration_id,
                     }
@@ -520,6 +537,20 @@ class TelephonyPhoneNumberClient(BaseDBClient):
             result = await session.execute(stmt)
             rows = result.all()
 
+            from sqlalchemy import func
+            claimed_counts_stmt = (
+                select(
+                    TelephonyPhoneNumberModel.address_normalized,
+                    func.count(TelephonyPhoneNumberModel.id).label("claim_count")
+                )
+                .where(
+                    TelephonyPhoneNumberModel.is_platform_inventory == False,
+                    TelephonyPhoneNumberModel.is_active == True,
+                )
+                .group_by(TelephonyPhoneNumberModel.address_normalized)
+            )
+            claimed_counts = dict((await session.execute(claimed_counts_stmt)).all())
+
             return [
                 {
                     "id": num.id,
@@ -530,6 +561,7 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                     "pool_type": num.pool_type,
                     "monthly_price_cents": num.monthly_price_cents,
                     "assigned_organization_id": num.assigned_organization_id,
+                    "claimed_count": claimed_counts.get(num.address_normalized, 1 if num.assigned_organization_id else 0),
                     "is_active": num.is_active,
                     "created_at": num.created_at.isoformat() if num.created_at else None,
                 }
@@ -548,12 +580,22 @@ class TelephonyPhoneNumberClient(BaseDBClient):
             if not num or not num.is_platform_inventory:
                 raise ValueError("Platform number not found")
 
-            if num.pool_type != "shared_trial" and num.assigned_organization_id is not None:
-                if num.assigned_organization_id != organization_id:
+            # Dedicated numbers: only one organization can claim
+            if num.pool_type not in ("shared_trial", "shared_multi_org"):
+                if num.assigned_organization_id is not None and num.assigned_organization_id != organization_id:
                     raise ValueError("This number has already been claimed by another organization")
+                num.assigned_organization_id = organization_id
 
-            # Mark inventory number assigned
-            num.assigned_organization_id = organization_id
+            # Multi-org shared numbers: track claimed orgs in metadata without exclusive lock
+            if num.pool_type == "shared_multi_org":
+                meta = dict(num.extra_metadata or {})
+                claimed_orgs = list(meta.get("claimed_org_ids", []))
+                if organization_id not in claimed_orgs:
+                    claimed_orgs.append(organization_id)
+                    meta["claimed_org_ids"] = claimed_orgs
+                    num.extra_metadata = meta
+                if num.assigned_organization_id is None:
+                    num.assigned_organization_id = organization_id
 
             # Also check if organization already has a linked platform config, or clone/bind one
             source_config = await session.get(

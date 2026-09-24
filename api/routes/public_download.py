@@ -25,7 +25,7 @@ async def download_workflow_artifact(
     token: str,
     artifact_type: str,
     inline: bool = Query(
-        default=False, description="Display inline in browser instead of download"
+        default=True, description="Display inline in browser instead of download"
     ),
 ):
     """Download a workflow recording or transcript via public access token.

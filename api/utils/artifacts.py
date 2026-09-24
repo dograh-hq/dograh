@@ -8,4 +8,4 @@ def artifact_url(
 ) -> str | None:
     if not token:
         return fallback
-    return f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow/{token}/{artifact}"
+    return f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow/{token}/{artifact}?inline=true"

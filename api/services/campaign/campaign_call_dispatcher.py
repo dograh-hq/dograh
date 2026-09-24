@@ -241,8 +241,17 @@ class CampaignCallDispatcher:
                 "caller_number": from_number,
                 "called_number": phone_number,
                 "direction": "outbound",
+                "provider": provider.PROVIDER_NAME,
+                "organization_id": campaign.organization_id,
                 "telephony_configuration_id": campaign.telephony_configuration_id,
             }
+            if campaign.orchestrator_metadata:
+                if campaign.orchestrator_metadata.get("voice"):
+                    initial_context["voice"] = campaign.orchestrator_metadata["voice"]
+                if campaign.orchestrator_metadata.get("voice_id"):
+                    initial_context["voice_id"] = campaign.orchestrator_metadata["voice_id"]
+                if campaign.orchestrator_metadata.get("tts_provider"):
+                    initial_context["tts_provider"] = campaign.orchestrator_metadata["tts_provider"]
             run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
             workflow_run = await db_client.create_workflow_run(
                 name=f"WR-CAMPAIGN-{campaign.id}-{queued_run.id}",

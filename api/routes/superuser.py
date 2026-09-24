@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 
 from api.db import db_client
@@ -538,7 +538,7 @@ async def delete_master_key(
 class StockNumberItem(BaseModel):
     address: str
     country_code: Optional[str] = "US"
-    pool_type: str = "dedicated"  # 'dedicated' or 'shared_trial'
+    pool_type: str = "dedicated"  # 'dedicated', 'shared_trial', or 'shared_multi_org'
     monthly_price_cents: int = 0
     label: Optional[str] = None
 
@@ -841,14 +841,15 @@ async def get_superadmin_overview_metrics(
 
 @router.get("/plans")
 async def list_subscription_plans_admin(
+    response: Response,
     category: Optional[str] = Query(None, description="Optional plan category: 'simple' or 'developer'"),
+    include_inactive: bool = Query(True, description="Whether to include inactive plans"),
     current_user: UserModel = Depends(get_superuser),
 ):
     """List all subscription plans for superadmin management."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     from api.services.plan_service import plan_service, normalize_plan_features
-    # Ensure all default plans exist in database
-    await plan_service.ensure_default_plans()
-    plans = await plan_service.list_plans(include_inactive=True, category=category)
+    plans = await plan_service.list_plans(include_inactive=include_inactive, category=category)
     return [
         {
             "id": p.id,
@@ -885,7 +886,7 @@ async def save_subscription_plan_admin(
     from api.db.models import SubscriptionPlanModel
     from sqlalchemy import select
 
-    async with db_client.get_async_session() as session:
+    async with db_client.async_session() as session:
         stmt = select(SubscriptionPlanModel).where(SubscriptionPlanModel.slug == request.slug)
         res = await session.execute(stmt)
         plan = res.scalars().first()
@@ -927,7 +928,7 @@ async def delete_subscription_plan_admin(
     from api.db.models import SubscriptionPlanModel, OrganizationModel
     from sqlalchemy import select
 
-    async with db_client.get_async_session() as session:
+    async with db_client.async_session() as session:
         stmt = select(SubscriptionPlanModel).where(SubscriptionPlanModel.slug == slug)
         res = await session.execute(stmt)
         plan = res.scalars().first()
@@ -1044,7 +1045,7 @@ async def set_organization_plan_admin(
         )
 
         if request.custom_price_per_second_usd is not None:
-            async with db_client.get_async_session() as session:
+            async with db_client.async_session() as session:
                 from sqlalchemy import update
                 from api.db.models import OrganizationModel
                 stmt = (

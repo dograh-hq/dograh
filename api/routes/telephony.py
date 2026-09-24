@@ -71,15 +71,45 @@ class InitiateCallRequest(BaseModel):
     # Optional caller-ID phone number to dial out from. Must belong to the
     # resolved telephony configuration; otherwise the provider picks one.
     from_phone_number_id: int | None = None
+    call_origin: str | None = None
+    voice: str | None = None
+    voice_id: str | None = None
+    tts_provider: str | None = None
 
 
-def _get_execution_user_id(workflow) -> int:
-    if workflow.user_id is None:
-        raise HTTPException(
-            status_code=409,
-            detail="Workflow has no execution owner",
+async def _get_execution_user_id(workflow, fallback_user_id: int | None = None) -> int:
+    """Return the user_id that should own workflow run execution.
+    
+    Bootstrapped or template-imported workflows may have user_id=None.
+    In that case we fall back to the authenticated caller and backfill
+    the workflow row so future calls work without a fallback.
+    """
+    if workflow.user_id is not None:
+        return workflow.user_id
+    if fallback_user_id is not None:
+        logger.warning(
+            f"Workflow {workflow.id} has no execution owner; "
+            f"falling back to requesting user {fallback_user_id} and backfilling."
         )
-    return workflow.user_id
+        # Backfill so future calls don't need the fallback
+        try:
+            from sqlalchemy import update as sa_update
+            async with db_client.async_session() as session:
+                stmt = (
+                    sa_update(type(workflow))
+                    .where(type(workflow).id == workflow.id)
+                    .values(user_id=fallback_user_id)
+                )
+                await session.execute(stmt)
+                await session.commit()
+            workflow.user_id = fallback_user_id
+        except Exception as e:
+            logger.error(f"Failed to backfill workflow.user_id: {e}")
+        return fallback_user_id
+    raise HTTPException(
+        status_code=409,
+        detail="Workflow has no execution owner",
+    )
 
 
 @router.post(
@@ -114,25 +144,27 @@ async def initiate_call(
         provider = await get_telephony_provider_by_id(
             telephony_configuration_id, user.selected_organization_id
         )
-    except OutboundSetupIncompleteError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except OutboundConfigurationNotFoundError as e:
-        detail = (
-            "telephony_configuration_not_found"
-            if request.telephony_configuration_id is not None
-            else "telephony_not_configured"
-        )
-        raise HTTPException(status_code=400, detail=detail) from e
-    except ValueError as e:
-        detail = (
-            "telephony_configuration_not_found"
-            if request.telephony_configuration_id is not None
-            else "telephony_not_configured"
-        )
-        raise HTTPException(
-            status_code=400,
-            detail=detail,
-        ) from e
+    except (OutboundSetupIncompleteError, OutboundConfigurationNotFoundError, ValueError):
+        # Attempt to auto-sync shared trial platform telephony for this organization
+        try:
+            from api.services.telephony.shared_trial_sync import sync_shared_trial_telephony_for_org
+            if user.selected_organization_id:
+                await sync_shared_trial_telephony_for_org(user.selected_organization_id)
+            telephony_configuration_id = await resolve_outbound_configuration_id(
+                request.telephony_configuration_id,
+                user.selected_organization_id,
+                db=db_client,
+            )
+            provider = await get_telephony_provider_by_id(
+                telephony_configuration_id, user.selected_organization_id
+            )
+        except Exception as retry_err:
+            detail = (
+                "telephony_configuration_not_found"
+                if request.telephony_configuration_id is not None
+                else "telephony_not_configured"
+            )
+            raise HTTPException(status_code=400, detail=detail) from retry_err
 
     # Validate provider is configured
     if not provider.validate_config():
@@ -153,8 +185,10 @@ async def initiate_call(
         request.workflow_id, organization_id=user.selected_organization_id
     )
     if not workflow:
+        workflow = await db_client.get_workflow_by_id(request.workflow_id)
+    if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    execution_user_id = _get_execution_user_id(workflow)
+    execution_user_id = await _get_execution_user_id(workflow, fallback_user_id=user.id)
 
     # Determine the workflow run mode based on provider type
     workflow_run_mode = provider.PROVIDER_NAME
@@ -188,21 +222,33 @@ async def initiate_call(
 
     try:
         if not workflow_run_id:
+            call_origin = request.call_origin or "caller_test"
+            prefix = "CAMP" if call_origin == "campaign_test" else "CALLER"
             numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
-            workflow_run_name = f"WR-TEL-OUT-{numeric_suffix:08d}"
+            workflow_run_name = f"WR-TEST-{prefix}-{numeric_suffix:08d}"
+            init_ctx = {
+                "phone_number": phone_number,
+                "called_number": phone_number,
+                "direction": "outbound",
+                "provider": provider.PROVIDER_NAME,
+                "telephony_configuration_id": telephony_configuration_id,
+                "call_origin": call_origin,
+            }
+            if request.voice:
+                init_ctx["voice"] = request.voice
+            if request.voice_id:
+                init_ctx["voice_id"] = request.voice_id
+            if request.tts_provider:
+                init_ctx["tts_provider"] = request.tts_provider
             run_inputs = await prepare_workflow_run_inputs(
                 db_client,
                 workflow,
-                initial_context={
-                    "phone_number": phone_number,
-                    "called_number": phone_number,
-                    "direction": "outbound",
-                    "provider": provider.PROVIDER_NAME,
-                    "telephony_configuration_id": telephony_configuration_id,
-                },
+                initial_context=init_ctx,
                 use_draft=True,
                 include_template_context=True,
             )
+            if isinstance(run_inputs.initial_context, dict):
+                run_inputs.initial_context["call_origin"] = call_origin
             workflow_run = await db_client.create_workflow_run(
                 workflow_run_name,
                 workflow.id,
@@ -716,7 +762,11 @@ async def _handle_telephony_websocket(
 
         if workflow_run.initial_context:
             provider_type = workflow_run.initial_context.get("provider")
-            logger.info(f"Extracted provider_type: {provider_type}")
+        if not provider_type and workflow_run.gathered_context:
+            provider_type = workflow_run.gathered_context.get("provider")
+        if not provider_type and workflow_run.mode and workflow_run.mode != WorkflowRunMode.SMALLWEBRTC.value:
+            provider_type = workflow_run.mode
+        logger.info(f"Extracted provider_type: {provider_type}")
 
         if (
             workflow_run.mode == WorkflowRunMode.SMALLWEBRTC.value
@@ -754,8 +804,14 @@ async def _handle_telephony_websocket(
             f"WebSocket connected for {provider_type} provider, workflow_run {workflow_run_id}"
         )
 
+        effective_org_id = organization_id or workflow.organization_id
+        if not effective_org_id:
+            effective_org_id = await db_client.get_organization_id_by_workflow_run_id(
+                workflow_run.id
+            )
+
         provider = await get_telephony_provider_for_run(
-            workflow_run, workflow.organization_id
+            workflow_run, effective_org_id
         )
 
         # Verify the provider matches what was stored
@@ -777,7 +833,7 @@ async def _handle_telephony_websocket(
 
         # Delegate to provider-specific handler
         await provider.handle_websocket(
-            websocket, workflow_id, organization_id, workflow_run_id
+            websocket, workflow_id, effective_org_id, workflow_run_id
         )
 
     except WebSocketDisconnect as e:
@@ -1316,3 +1372,4 @@ def _mount_provider_routers() -> None:
 
 
 _mount_provider_routers()
+

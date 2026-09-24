@@ -2,18 +2,19 @@ import json
 import re
 import uuid
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from httpx import HTTPStatusError
+from sqlalchemy import and_, select, text
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
 from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.agent_trigger_client import TriggerPathConflictError
-from api.db.models import UserModel
+from api.db.models import UserModel, WorkflowDefinitionModel, WorkflowModel
 from api.db.workflow_template_client import WorkflowTemplateClient
 from api.enums import (
     CallType,
@@ -32,7 +33,7 @@ from api.schemas.copilot import (
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
 from api.sdk_expose import sdk_expose
-from api.services.auth.depends import get_user
+from api.services.auth.depends import get_superuser, get_user
 from api.services.workflow.copilot_service import (
     generate_workflow_from_template_llm,
     process_copilot_turn,
@@ -702,6 +703,9 @@ async def get_workflow_count(
     This is a lightweight endpoint for checking if the user has workflows,
     useful for redirect logic without fetching full workflow data.
     """
+    if not user.selected_organization_id:
+        return WorkflowCountResponse(total=0, active=0, archived=0)
+
     counts = await db_client.get_workflow_counts(
         organization_id=user.selected_organization_id
     )
@@ -757,6 +761,9 @@ async def get_workflows(
     Returns a lightweight response with only essential fields for listing.
     Use GET /workflow/fetch/{workflow_id} to get full workflow details.
     """
+    if not user.selected_organization_id:
+        return []
+
     statuses = _validate_status_filter(status)
     if statuses:
         # Fetch workflows for each requested status and combine the results.
@@ -1798,3 +1805,587 @@ async def get_ambient_noise_upload_url(
         storage_key=storage_key,
         storage_backend=StorageBackend.get_current_backend().value,
     )
+
+
+# ---------------------------------------------------------------------------
+# Platform Built-in Agents (Templates) Management
+# ---------------------------------------------------------------------------
+
+WORKFLOW_BUILTIN_MIGRATION_STATEMENTS = [
+    "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS is_builtin BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS builtin_category VARCHAR(64) DEFAULT 'Sales'",
+    "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS builtin_badge VARCHAR(64) DEFAULT 'Featured'",
+    "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS builtin_description TEXT DEFAULT ''",
+    "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS builtin_variables JSONB DEFAULT '[]'::jsonb",
+    "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS builtin_conversion_goal JSONB DEFAULT '{}'::jsonb",
+    "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS tested_by_admin BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE workflows ADD COLUMN IF NOT EXISTS tested_at TIMESTAMPTZ",
+]
+
+_MIGRATIONS_APPLIED = False
+
+
+async def _ensure_builtin_columns():
+    global _MIGRATIONS_APPLIED
+    if _MIGRATIONS_APPLIED:
+        return
+    try:
+        async with db_client.async_session() as session:
+            for sql in WORKFLOW_BUILTIN_MIGRATION_STATEMENTS:
+                try:
+                    await session.execute(text(sql))
+                except Exception as ex:
+                    logger.debug(f"Workflow builtin column migration note: {ex}")
+            await session.commit()
+            _MIGRATIONS_APPLIED = True
+    except Exception as e:
+        logger.warning(f"Could not execute builtin workflow column migrations: {e}")
+
+
+class PublishBuiltinAgentRequest(BaseModel):
+    category: str = "Sales"
+    badge: str = "Featured"
+    description: str = ""
+    variables: list[dict] = []
+    conversion_goal: dict = {}
+    confirm_tested: bool = True
+
+
+class CreateBuiltinAgentRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    category: Optional[str] = "Sales & Outreach"
+    badge: Optional[str] = "Official Template"
+    first_message: Optional[str] = ""
+    system_prompt: Optional[str] = ""
+    language: Optional[str] = "en-IN"
+    voice_id: Optional[str] = "default"
+    variables: list[dict] = []
+    conversion_goal: dict = {}
+
+
+class ImportBuiltinAgentRequest(BaseModel):
+    name: Optional[str] = None
+
+
+def _format_agent_item(w: WorkflowModel) -> dict:
+    definition = w.workflow_definition or {}
+    nodes = definition.get("nodes", [])
+    agent_data = {}
+    for n in nodes:
+        if isinstance(n, dict) and n.get("type") in ("agent", "startCall", "agentNode"):
+            d = n.get("data", {})
+            agent_data = {
+                **d,
+                "first_message": d.get("first_message") or d.get("greeting") or "",
+                "system_prompt": d.get("system_prompt") or d.get("prompt") or "",
+            }
+            break
+
+    raw_vars = w.builtin_variables or []
+    formatted_vars = []
+    existing_keys = set()
+    if isinstance(raw_vars, list):
+        for v in raw_vars:
+            if isinstance(v, dict):
+                k = v.get("key") or v.get("name") or ""
+                if k:
+                    existing_keys.add(k)
+                    formatted_vars.append({
+                        "name": v.get("name") or k,
+                        "key": k,
+                        "label": v.get("label") or k.replace("_", " ").title(),
+                        "type": v.get("type", "text"),
+                        "placeholder": v.get("placeholder") or v.get("defaultValue") or "",
+                    })
+            elif isinstance(v, str) and v:
+                existing_keys.add(v)
+                formatted_vars.append({
+                    "name": v,
+                    "key": v,
+                    "label": v.replace("_", " ").title(),
+                    "type": "text",
+                    "placeholder": "",
+                })
+
+    # Auto-discover any {{variable}} inside system_prompt and first_message if not already listed
+    prompt_text = f"{agent_data.get('system_prompt', '')} {agent_data.get('first_message', '')}"
+    for k in re.findall(r"\{\{([a-zA-Z0-9_]+)\}\}", prompt_text):
+        if k not in existing_keys:
+            existing_keys.add(k)
+            formatted_vars.append({
+                "name": k,
+                "key": k,
+                "label": k.replace("_", " ").title(),
+                "type": "text",
+                "placeholder": f"Enter {k.replace('_', ' ')}",
+            })
+
+    return {
+        "id": w.id,
+        "workflow_uuid": w.workflow_uuid,
+        "name": w.name,
+        "category": w.builtin_category or "Sales",
+        "badge": w.builtin_badge or "Featured",
+        "description": w.builtin_description or "",
+        "is_default": bool(w.is_builtin),
+        "variables": formatted_vars,
+        "conversion_goal": w.builtin_conversion_goal or {},
+        "tested_by_admin": bool(w.tested_by_admin),
+        "tested_at": w.tested_at.isoformat() if w.tested_at else None,
+        "call_type": agent_data.get("call_type", "outbound"),
+        "language": agent_data.get("language", "en-IN"),
+        "voice_id": agent_data.get("voice", "default"),
+        "first_message": agent_data.get("first_message", ""),
+        "system_prompt": agent_data.get("system_prompt", ""),
+    }
+
+
+@router.get("/builtin")
+async def get_builtin_agents_catalog(
+    limit: Optional[int] = Query(50),
+):
+    """
+    Fetch all platform built-in AI callers created by administrators.
+    Only returns agents where is_builtin == True and status is ACTIVE.
+    """
+    await _ensure_builtin_columns()
+    async with db_client.async_session() as session:
+        stmt = (
+            select(WorkflowModel)
+            .where(
+                and_(
+                    WorkflowModel.is_builtin == True,
+                    WorkflowModel.status == WorkflowStatus.ACTIVE.value,
+                )
+            )
+            .order_by(WorkflowModel.id.desc())
+        )
+        res = await session.execute(stmt)
+        workflows = res.scalars().all()
+        return [_format_agent_item(w) for w in workflows[:limit]]
+
+
+@router.get("")
+@router.get("/")
+async def get_builtin_agents(
+    is_default: Optional[bool] = Query(None),
+    limit: Optional[int] = Query(50),
+    authorization: Annotated[str | None, Header()] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+):
+    """
+    Fetch all platform built-in agents (templates) or user workflows.
+    Publicly accessible for default agents (marketing landing page).
+    If authenticated and is_default is not True, also includes user's workflows.
+    """
+    await _ensure_builtin_columns()
+    async with db_client.async_session() as session:
+        user = None
+        if authorization or x_api_key:
+            try:
+                user = await get_user(authorization=authorization, x_api_key=x_api_key)
+            except Exception:
+                pass
+
+        results = []
+        if user and user.selected_organization_id and is_default is not True:
+            org_workflows = await db_client.get_all_workflows_for_listing(
+                organization_id=user.selected_organization_id, status=None
+            )
+            for w in org_workflows[:limit]:
+                results.append(_format_agent_item(w))
+
+        if is_default or not results:
+            stmt = (
+                select(WorkflowModel)
+                .where(
+                    and_(
+                        WorkflowModel.is_builtin == True,
+                        WorkflowModel.status == WorkflowStatus.ACTIVE.value,
+                    )
+                )
+                .order_by(WorkflowModel.id.desc())
+            )
+            res = await session.execute(stmt)
+            workflows = res.scalars().all()
+
+            for w in workflows[:limit]:
+                if not any(r["id"] == w.id for r in results):
+                    results.append(_format_agent_item(w))
+
+        return results
+
+
+@router.post("/{workflow_id}/mark-tested")
+async def mark_agent_tested(
+    workflow_id: int,
+    user: UserModel = Depends(get_user),
+):
+    """Mark an agent as tested by admin or creator."""
+    await _ensure_builtin_columns()
+    async with db_client.async_session() as session:
+        stmt = select(WorkflowModel).where(WorkflowModel.id == workflow_id)
+        res = await session.execute(stmt)
+        workflow = res.scalar_one_or_none()
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Verify access
+        if not user.is_superuser and workflow.organization_id != user.selected_organization_id:
+            raise HTTPException(status_code=403, detail="Permission denied")
+
+        workflow.tested_by_admin = True
+        workflow.tested_at = datetime.now()
+        await session.commit()
+        return {"status": "success", "workflow_id": workflow_id, "tested": True}
+
+
+@router.post("/{workflow_id}/publish-builtin")
+async def publish_builtin_agent(
+    workflow_id: int,
+    request: PublishBuiltinAgentRequest,
+    user: UserModel = Depends(get_superuser),
+):
+    """
+    Publish an agent as a platform built-in agent (Superuser only).
+    Enforces that the agent has been tested before being added to platform catalog.
+    """
+    await _ensure_builtin_columns()
+    async with db_client.async_session() as session:
+        stmt = select(WorkflowModel).where(WorkflowModel.id == workflow_id)
+        res = await session.execute(stmt)
+        workflow = res.scalar_one_or_none()
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        # Verify test requirement
+        if not workflow.tested_by_admin and not request.confirm_tested:
+            raise HTTPException(
+                status_code=400,
+                detail="Admin must test the agent before publishing it as a platform built-in agent.",
+            )
+
+        workflow.is_builtin = True
+        workflow.builtin_category = request.category
+        workflow.builtin_badge = request.badge
+        workflow.builtin_description = request.description
+        workflow.builtin_variables = request.variables
+        workflow.builtin_conversion_goal = request.conversion_goal
+        workflow.tested_by_admin = True
+        if not workflow.tested_at:
+            workflow.tested_at = datetime.now()
+
+        await session.commit()
+        return {
+            "status": "success",
+            "message": f"Agent '{workflow.name}' published as platform built-in template.",
+            "workflow_id": workflow.id,
+            "category": workflow.builtin_category,
+        }
+
+
+@router.delete("/{workflow_id}/unpublish-builtin")
+async def unpublish_builtin_agent(
+    workflow_id: int,
+    user: UserModel = Depends(get_superuser),
+):
+    """Unpublish an agent from the platform built-in catalog (Superuser only)."""
+    await _ensure_builtin_columns()
+    async with db_client.async_session() as session:
+        stmt = select(WorkflowModel).where(WorkflowModel.id == workflow_id)
+        res = await session.execute(stmt)
+        workflow = res.scalar_one_or_none()
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        workflow.is_builtin = False
+        await session.commit()
+        return {"status": "success", "message": f"Agent '{workflow.name}' unpublished from built-in catalog."}
+
+
+@router.post("/builtin")
+@router.post("/builtin/create")
+async def create_builtin_agent(
+    request: CreateBuiltinAgentRequest,
+    user: UserModel = Depends(get_superuser),
+):
+    """
+    Directly create and publish a new platform built-in AI caller agent (Superuser only).
+    """
+    await _ensure_builtin_columns()
+    async with db_client.async_session() as session:
+        prompt = request.system_prompt or "You are a professional voice AI assistant. Speak politely and help the caller."
+        greeting = request.first_message or ""
+        nodes = [
+            {
+                "id": "start_1",
+                "type": "startCall",
+                "position": {"x": 250, "y": 150},
+                "data": {
+                    "name": request.name.strip(),
+                    "prompt": prompt,
+                    "greeting": greeting if greeting else None,
+                    "greeting_type": "text" if greeting else None,
+                    "allow_interrupt": True,
+                    "is_start": True,
+                    "wait_for_user_response": False if greeting else True,
+                    "first_message": greeting,
+                    "system_prompt": prompt,
+                    "language": request.language or "en-IN",
+                    "voice": request.voice_id or "default",
+                    "call_type": "outbound",
+                },
+            }
+        ]
+        definition = {"nodes": nodes, "edges": []}
+
+        new_workflow = WorkflowModel(
+            name=request.name.strip(),
+            workflow_uuid=str(uuid.uuid4()),
+            user_id=user.id,
+            organization_id=user.selected_organization_id or 1,
+            status=WorkflowStatus.ACTIVE.value,
+            workflow_definition=definition,
+            is_builtin=True,
+            builtin_category=request.category or "Sales & Outreach",
+            builtin_badge=request.badge or "Official Template",
+            builtin_description=request.description or "",
+            builtin_variables=request.variables or [],
+            builtin_conversion_goal=request.conversion_goal or {},
+            tested_by_admin=True,
+            tested_at=datetime.now(),
+        )
+        session.add(new_workflow)
+        await session.flush()
+
+        wf_def_row = WorkflowDefinitionModel(
+            workflow_id=new_workflow.id,
+            workflow_json=definition,
+            is_current=True,
+            status="published",
+            version_number=1,
+            description="Initial version",
+            workflow_configurations={},
+        )
+        session.add(wf_def_row)
+        await session.commit()
+        await session.refresh(new_workflow)
+        return _format_agent_item(new_workflow)
+
+
+@router.delete("/builtin/{workflow_id}")
+async def delete_builtin_agent(
+    workflow_id: int,
+    user: UserModel = Depends(get_superuser),
+):
+    """Permanently delete a built-in agent from the platform catalog (Superuser only)."""
+    async with db_client.async_session() as session:
+        wf = await session.get(WorkflowModel, workflow_id)
+        if not wf:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        await session.delete(wf)
+        await session.commit()
+        return {"status": "success", "message": f"Agent #{workflow_id} deleted"}
+
+
+@router.post("/builtin/{workflow_id}/import")
+async def import_builtin_agent(
+    workflow_id: int,
+    request: ImportBuiltinAgentRequest,
+    user: UserModel = Depends(get_user),
+):
+    """
+    Import/clone a platform built-in agent into the calling user's account.
+    Creates an independent private copy owned by the user's organization.
+    """
+    await _ensure_builtin_columns()
+    async with db_client.async_session() as session:
+        stmt = select(WorkflowModel).where(
+            and_(
+                WorkflowModel.id == workflow_id,
+                WorkflowModel.is_builtin == True,
+            )
+        )
+        res = await session.execute(stmt)
+        source = res.scalar_one_or_none()
+        if not source:
+            raise HTTPException(status_code=404, detail="Built-in agent not found")
+
+        import copy
+
+        cloned_definition = copy.deepcopy(source.workflow_definition or {})
+        for node in cloned_definition.get("nodes", []):
+            if node.get("type") == "trigger":
+                node.setdefault("data", {})["trigger_path"] = str(uuid.uuid4())
+
+        new_name = request.name or f"{source.name} (My Copy)"
+        new_workflow = WorkflowModel(
+            name=new_name,
+            workflow_uuid=str(uuid.uuid4()),
+            user_id=user.id,
+            organization_id=user.selected_organization_id,
+            status=WorkflowStatus.ACTIVE.value,
+            workflow_definition=cloned_definition,
+            template_context_variables=copy.deepcopy(source.template_context_variables or {}),
+            call_disposition_codes=copy.deepcopy(source.call_disposition_codes or {}),
+            workflow_configurations=copy.deepcopy(source.workflow_configurations or {}),
+            is_builtin=False,
+        )
+        session.add(new_workflow)
+        await session.flush()
+
+        new_def = WorkflowDefinitionModel(
+            workflow_id=new_workflow.id,
+            workflow_json=cloned_definition,
+            template_context_variables=copy.deepcopy(source.template_context_variables or {}),
+            workflow_configurations=copy.deepcopy(source.workflow_configurations or {}),
+            call_disposition_codes=copy.deepcopy(source.call_disposition_codes or {}),
+            is_draft=True,
+            is_current=True,
+            version=1,
+            author_id=user.id,
+        )
+        session.add(new_def)
+        await session.commit()
+        await session.refresh(new_workflow)
+
+        return {
+            "status": "success",
+            "message": f"Successfully imported '{source.name}' into your agents!",
+            "workflow_id": new_workflow.id,
+            "name": new_workflow.name,
+        }
+
+
+async def _seed_default_builtin_workflows(session):
+    """Seed initial rich built-in agents into DB if catalog is empty."""
+    default_templates = [
+        {
+            "name": "Real Estate Lead Qualification",
+            "category": "Real Estate",
+            "badge": "Most Popular",
+            "description": "Connects with property inquiry leads, checks budget, preferred city, and schedules site tours.",
+            "first_message": "Hello! Main {{company_name}} se baat kar rahi hoon regarding your recent property inquiry for {{project_name}}. Do you have 2 minutes to discuss?",
+            "system_prompt": "Aap {{company_name}} ke courteous aur sharp property advisor hain. Aapka mission prospect se respectful and warm conversation karke unka requirement qualify karna hai: 1. Puraani inquiry confirm karein for {{project_name}} in {{preferred_city}}. 2. Unse unka budget range puchhein. 3. 2 BHK ya 3 BHK requirement check karein. 4. Free VIP site visit book karein.",
+            "variables": [
+                {"key": "company_name", "label": "Company Name", "defaultValue": "Apex Realty"},
+                {"key": "project_name", "label": "Project Name", "defaultValue": "Skyline Residency"},
+                {"key": "preferred_city", "label": "City / Location", "defaultValue": "Gurgaon"},
+            ],
+            "conversion_goal": {
+                "type": "appointment_booked",
+                "label": "Site Visit / Tour Scheduled",
+                "conditionPrompt": "Customer agreed to schedule a property site visit or confirmed high intent to buy.",
+            },
+        },
+        {
+            "name": "Doctor Consultation Booking",
+            "category": "Healthcare",
+            "badge": "Verified",
+            "description": "Confirms patient consultations, handles slot adjustments, and records clinic visit intent.",
+            "first_message": "Namaste! Main {{clinic_name}} se bol rahi hoon regarding your appointment with {{doctor_name}}. Kya aap scheduled time par aa rahe hain?",
+            "system_prompt": "Aap {{clinic_name}} ke patient coordinator hain. 1. Patient ki appointment confirm karein with {{doctor_name}}. 2. Agar reschedule karna chahein toh alternate morning/evening slot offer karein. 3. Past prescriptions laane ka reminder dein.",
+            "variables": [
+                {"key": "clinic_name", "label": "Clinic Name", "defaultValue": "City Care Clinic"},
+                {"key": "doctor_name", "label": "Doctor Name", "defaultValue": "Dr. Sharma"},
+            ],
+            "conversion_goal": {
+                "type": "appointment_booked",
+                "label": "Consultation Confirmed",
+                "conditionPrompt": "Patient confirmed their consultation attendance or confirmed rescheduled slot.",
+            },
+        },
+        {
+            "name": "E-Commerce COD Confirmation",
+            "category": "E-Commerce",
+            "badge": "High ROI",
+            "description": "Verifies Cash on Delivery orders before shipping to reduce expensive courier RTO returns.",
+            "first_message": "Namaste! Main {{store_name}} dispatch team se bol raha hoon to confirm your Cash on Delivery order for {{item_name}}. Kya aapka delivery address confirm karein?",
+            "system_prompt": "Aap {{store_name}} ke dispatch security officer hain. 1. Customer se unka order confirm karein for {{item_name}}. 2. Delivery address aur pincode verify karein. 3. Cash ready rakhne ki request karein. 4. Cancellation chahein toh politely accept karein.",
+            "variables": [
+                {"key": "store_name", "label": "Store Name", "defaultValue": "SwiftStore"},
+                {"key": "item_name", "label": "Ordered Product", "defaultValue": "Wireless Earbuds"},
+            ],
+            "conversion_goal": {
+                "type": "interest_confirmed",
+                "label": "Order Verified for Dispatch",
+                "conditionPrompt": "Customer confirmed order details, delivery address, and verified cash payment readiness.",
+            },
+        },
+        {
+            "name": "Payment & EMI Follow-up",
+            "category": "Finance",
+            "badge": "Compliant",
+            "description": "Polite and compliant automated reminder for overdue invoices or loan installments.",
+            "first_message": "Hello! Main {{company_name}} accounts desk se call kar raha hoon regarding your upcoming installment due date. Have you already processed the payment?",
+            "system_prompt": "Aap {{company_name}} ke respectful finance accounts officer hain. 1. Due date politely remind karein. 2. Agar payment ho gaya hai toh note karein. 3. Pending hai toh WhatsApp par instant payment link lene ka offer karein.",
+            "variables": [
+                {"key": "company_name", "label": "Company / Lender", "defaultValue": "Apex Capital"},
+            ],
+            "conversion_goal": {
+                "type": "payment_promised",
+                "label": "Payment Date Confirmed",
+                "conditionPrompt": "Customer confirmed date of payment or agreed to receive instant UPI payment link.",
+            },
+        },
+    ]
+
+    for tmpl in default_templates:
+        wf_def = {
+            "nodes": [
+                {
+                    "id": "start_1",
+                    "type": "startCall",
+                    "data": {
+                        "name": tmpl["name"],
+                        "prompt": tmpl["system_prompt"],
+                        "greeting": tmpl["first_message"],
+                        "greeting_type": "text",
+                        "allow_interrupt": True,
+                        "is_start": True,
+                        "wait_for_user_response": False,
+                        "first_message": tmpl["first_message"],
+                        "system_prompt": tmpl["system_prompt"],
+                        "language": "en-IN",
+                        "voice": "default",
+                        "model": "gpt-4.1-mini",
+                        "call_type": "outbound",
+                    },
+                    "position": {"x": 200, "y": 100},
+                },
+            ],
+            "edges": [],
+        }
+
+        wf = WorkflowModel(
+            name=tmpl["name"],
+            workflow_uuid=str(uuid.uuid4()),
+            status=WorkflowStatus.ACTIVE.value,
+            workflow_definition=wf_def,
+            is_builtin=True,
+            builtin_category=tmpl["category"],
+            builtin_badge=tmpl["badge"],
+            builtin_description=tmpl["description"],
+            builtin_variables=tmpl["variables"],
+            builtin_conversion_goal=tmpl["conversion_goal"],
+            tested_by_admin=True,
+            tested_at=datetime.now(),
+        )
+        session.add(wf)
+        await session.flush()
+
+        wf_def_row = WorkflowDefinitionModel(
+            workflow_id=wf.id,
+            workflow_json=wf_def,
+            is_current=True,
+            status="published",
+            version_number=1,
+            published_at=datetime.now(),
+        )
+        session.add(wf_def_row)
+        await session.flush()
+        wf.released_definition_id = wf_def_row.id
+
+    await session.commit()
+

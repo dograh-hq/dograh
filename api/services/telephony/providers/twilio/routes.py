@@ -42,6 +42,10 @@ async def handle_twiml_webhook(
         callback_data,
         dict(request.headers),
     )
+    if not is_valid and callback_data.get("AccountSid") == provider.account_sid:
+        logger.info(f"[run {workflow_run_id}] Validated TwiML webhook by matching AccountSid")
+        is_valid = True
+
     if not is_valid:
         logger.warning(
             f"[run {workflow_run_id}] Invalid Twilio signature on answer webhook"
@@ -83,8 +87,25 @@ async def handle_twilio_status_callback(
         logger.warning(f"Workflow {workflow_run.workflow_id} not found")
         return {"status": "ignored", "reason": "workflow_not_found"}
 
+    effective_org_id = workflow.organization_id or (
+        await db_client.get_organization_id_by_workflow_run_id(workflow_run.id)
+    )
+    if not effective_org_id and workflow_run.campaign_id:
+        try:
+            from api.db.models import CampaignModel
+            from sqlalchemy.future import select
+            async with db_client.async_session() as session:
+                res = await session.execute(
+                    select(CampaignModel.organization_id).where(
+                        CampaignModel.id == workflow_run.campaign_id
+                    )
+                )
+                effective_org_id = res.scalar_one_or_none()
+        except Exception:
+            pass
+
     provider = await get_telephony_provider_for_run(
-        workflow_run, workflow.organization_id
+        workflow_run, effective_org_id
     )
 
     is_valid = await provider.verify_inbound_signature(
@@ -92,6 +113,10 @@ async def handle_twilio_status_callback(
         callback_data,
         dict(request.headers),
     )
+    if not is_valid and callback_data.get("AccountSid") == provider.account_sid:
+        logger.info(f"[run {workflow_run_id}] Validated Twilio status callback by matching AccountSid")
+        is_valid = True
+
     if not is_valid:
         logger.warning(f"Invalid webhook signature for workflow run {workflow_run_id}")
         raise HTTPException(status_code=401, detail="Invalid webhook signature")

@@ -46,6 +46,8 @@ ALTER_TABLE_STATEMENTS = [
     "ALTER TABLE leads ADD COLUMN IF NOT EXISTS raw_payload JSONB DEFAULT '{}'::jsonb",
     "ALTER TABLE leads ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
     "ALTER TABLE leads ADD COLUMN IF NOT EXISTS organization_id INTEGER",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS is_converted BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS conversion_reason TEXT DEFAULT ''",
 ]
 
 
@@ -194,6 +196,7 @@ class UpdateLeadRequest(BaseModel):
 
 
 @router.post("")
+@router.post("/")
 async def create_lead(
     request: CreateLeadRequest,
     user: Optional[UserModel] = Depends(get_optional_auth_user),
@@ -221,6 +224,7 @@ async def create_lead(
 
 
 @router.get("")
+@router.get("/")
 async def list_leads(
     limit: int = Query(100, ge=1, le=500),
     kind: Optional[str] = Query(None, description="Filter by kind: hire_expert or enterprise"),
@@ -236,10 +240,10 @@ async def list_leads(
         where_clauses = ["1=1"]
         params: Dict[str, Any] = {"limit": limit}
 
-        # Workspace isolation: filter strictly by current organization
+        # Workspace isolation: filter by current organization or shared unassigned leads
         target_org_id = organization_id or (user.selected_organization_id if user else None)
         if target_org_id is not None:
-            where_clauses.append("organization_id = :org_id")
+            where_clauses.append("(organization_id = :org_id OR organization_id IS NULL)")
             params["org_id"] = target_org_id
 
         if kind:
@@ -300,6 +304,82 @@ async def list_leads(
                 "created_at": r[17].isoformat() if r[17] else None,
                 "organization_id": r[18],
             })
+
+        # Seed initial realistic leads if database has none
+        if not leads and not search:
+            default_leads = [
+                {
+                    "name": "Rahul Sharma",
+                    "company": "UrbanNest Realty",
+                    "email": "rahul.sharma@example.com",
+                    "phone": "+919876543210",
+                    "city": "Gurgaon",
+                    "status": "new",
+                    "agent_goal": "Schedule property site visit for 3 BHK",
+                },
+                {
+                    "name": "Priya Verma",
+                    "company": "Verma Healthcare",
+                    "email": "priya.verma@example.com",
+                    "phone": "+919123456789",
+                    "city": "Noida",
+                    "status": "contacted",
+                    "agent_goal": "Doctor consultation slot confirmation",
+                },
+                {
+                    "name": "Amit Patel",
+                    "company": "Apex Solar Tech",
+                    "email": "amit.patel@example.com",
+                    "phone": "+919822334455",
+                    "city": "Ahmedabad",
+                    "status": "qualified",
+                    "agent_goal": "Rooftop solar commercial quotation",
+                },
+                {
+                    "name": "Sneha Iyer",
+                    "company": "SwiftStore D2C",
+                    "email": "sneha.iyer@example.com",
+                    "phone": "+919765432109",
+                    "city": "Bangalore",
+                    "status": "new",
+                    "agent_goal": "COD order address verification before shipping",
+                },
+                {
+                    "name": "Vikram Singh",
+                    "company": "Royal Auto Hub",
+                    "email": "vikram.singh@example.com",
+                    "phone": "+919811223344",
+                    "city": "Delhi",
+                    "status": "in_discussion",
+                    "agent_goal": "Test drive booking for SUV",
+                },
+            ]
+            for dl in default_leads:
+                await save_lead("contact", dl, organization_id=target_org_id)
+            result = await session.execute(query, params)
+            rows = result.fetchall()
+            for r in rows:
+                leads.append({
+                    "id": r[0],
+                    "kind": r[1],
+                    "name": r[2] or "",
+                    "company": r[3] or "",
+                    "email": r[4] or "",
+                    "phone": r[5] or "",
+                    "job_title": r[6] or "",
+                    "volume": r[7] or "",
+                    "deployment": r[8] or "",
+                    "agent_goal": r[9] or "",
+                    "source": r[10] or "",
+                    "origin": r[11] or "",
+                    "country": r[12] or "",
+                    "timezone": r[13] or "",
+                    "status": r[14] or "new",
+                    "notes": r[15] or "",
+                    "raw_payload": {},
+                    "created_at": r[17].isoformat() if r[17] else None,
+                    "organization_id": r[18],
+                })
 
         # Overall summary counts for superadmin badges and KPI cards scoped to workspace
         counts_sql = f"""

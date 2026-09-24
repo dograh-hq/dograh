@@ -162,6 +162,7 @@ class WorkflowRunStatus(Enum):
 
 class OrganizationConfigurationKey(Enum):
     CONCURRENT_CALL_LIMIT = "CONCURRENT_CALL_LIMIT"
+    CAMPAIGN_DRAFT = "CAMPAIGN_DRAFT"
     TELEPHONY_CONFIGURATION = (
         "TELEPHONY_CONFIGURATION"  # Stores all providers + active one
     )

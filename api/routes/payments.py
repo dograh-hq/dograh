@@ -33,10 +33,13 @@ class PaymentConfigResponse(BaseModel):
 
 
 class CreatePaymentOrderRequest(BaseModel):
-    amount_usd: float = Field(
-        ...,
-        gt=0.0,
-        description="Amount in USD to add to organization wallet balance (min $1.00)",
+    amount_usd: Optional[float] = Field(
+        None,
+        description="Amount in USD to add to organization wallet balance",
+    )
+    amount_inr: Optional[float] = Field(
+        None,
+        description="Amount in INR to add to organization wallet balance",
     )
 
 
@@ -128,10 +131,17 @@ async def create_razorpay_order(
             detail="No organization selected",
         )
 
-    if request.amount_usd < 1.0:
+    usd_rate = get_usd_to_inr_rate()
+    if request.amount_inr is not None and request.amount_inr > 0:
+        amount_usd = round(request.amount_inr / usd_rate, 4)
+        subtotal_inr = round(float(request.amount_inr), 2)
+    elif request.amount_usd is not None and request.amount_usd > 0:
+        amount_usd = float(request.amount_usd)
+        subtotal_inr = round(amount_usd * usd_rate, 2)
+    else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Minimum recharge amount is $1.00 USD",
+            detail="A valid amount_inr or amount_usd is required",
         )
 
     # Fetch organization details for display name
@@ -139,9 +149,7 @@ async def create_razorpay_order(
     org_name = getattr(org, "name", None) or f"Organization #{organization_id}"
 
     # Calculate INR conversion and GST using dynamic platform rates
-    usd_rate = get_usd_to_inr_rate()
     gst = get_gst_percentage()
-    subtotal_inr = round(request.amount_usd * usd_rate, 2)
     gst_amount_inr = round(subtotal_inr * (gst / 100.0), 2)
     total_inr = round(subtotal_inr + gst_amount_inr, 2)
     amount_paise = int(round(total_inr * 100))
@@ -158,7 +166,7 @@ async def create_razorpay_order(
         "user_id": str(user.id),
         "user_email": str(user.email or ""),
         "purpose": "calling_wallet_recharge",
-        "amount_usd": str(request.amount_usd),
+        "amount_usd": str(amount_usd),
         "usd_to_inr_rate": str(usd_rate),
         "subtotal_inr": str(subtotal_inr),
         "gst_percentage": str(gst),
@@ -180,7 +188,7 @@ async def create_razorpay_order(
     await payment_client.create_pending_transaction(
         organization_id=organization_id,
         user_id=user.id,
-        amount_usd=request.amount_usd,
+        amount_usd=amount_usd,
         amount_inr=total_inr,
         receipt=receipt,
         razorpay_order_id=razorpay_order_id,
@@ -195,7 +203,7 @@ async def create_razorpay_order(
         subtotal_inr=subtotal_inr,
         gst_amount_inr=gst_amount_inr,
         gst_percentage=gst,
-        amount_usd=request.amount_usd,
+        amount_usd=amount_usd,
         usd_to_inr_rate=usd_rate,
         currency="INR",
         receipt=receipt,

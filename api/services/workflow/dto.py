@@ -1090,6 +1090,68 @@ class ReactFlowDTO(BaseModel):
     nodes: List[RFNodeDTO]
     edges: List[RFEdgeDTO]
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_callio_nodes(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        nodes = data.get("nodes")
+        if not isinstance(nodes, list) or not nodes:
+            return data
+
+        has_start_call = any(
+            isinstance(n, dict) and n.get("type") == "startCall" for n in nodes
+        )
+        if has_start_call:
+            return data
+
+        agent_node = next(
+            (n for n in nodes if isinstance(n, dict) and n.get("type") in ("agent", "agentNode")),
+            None,
+        )
+        if not agent_node:
+            agent_node = next(
+                (n for n in nodes if isinstance(n, dict) and n.get("type") != "trigger"),
+                None,
+            )
+
+        if agent_node:
+            d = agent_node.get("data", {}) if isinstance(agent_node.get("data"), dict) else {}
+            prompt = (
+                d.get("prompt")
+                or d.get("system_prompt")
+                or "You are a professional voice AI assistant. Help the caller with their questions politely and concisely."
+            )
+            greeting = d.get("greeting") or d.get("first_message") or ""
+            name = d.get("name") or "Start Call"
+
+            pos = agent_node.get("position")
+            if not isinstance(pos, dict):
+                pos = {"x": 100, "y": 100}
+
+            normalized_start_node = {
+                "id": str(agent_node.get("id") or "start_1"),
+                "type": "startCall",
+                "position": pos,
+                "data": {
+                    "name": name,
+                    "prompt": prompt,
+                    "greeting": greeting if greeting else None,
+                    "greeting_type": "text" if greeting else None,
+                    "allow_interrupt": True,
+                    "is_start": True,
+                    "wait_for_user_response": False if greeting else True,
+                    "first_message": greeting,
+                    "system_prompt": prompt,
+                },
+            }
+            new_data = dict(data)
+            new_data["nodes"] = [normalized_start_node]
+            new_data["edges"] = []
+            return new_data
+
+        return data
+
     @model_validator(mode="after")
     def _referential_integrity(self):
         node_ids = {n.id for n in self.nodes}

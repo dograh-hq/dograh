@@ -1908,6 +1908,46 @@ async def get_my_organization_subscription(
     from api.services.plan_service import plan_service, normalize_plan_features
 
     org_id = user.selected_organization_id
+
+    # Auto-reconcile any paid plan transactions that were verified on payment gateway
+    try:
+        from api.db.models import PaymentTransactionModel
+        from sqlalchemy import select, desc
+        import json
+
+        async with db_client.async_session() as session:
+            stmt = (
+                select(PaymentTransactionModel)
+                .where(
+                    PaymentTransactionModel.organization_id == org_id,
+                    PaymentTransactionModel.status == "paid",
+                )
+                .order_by(desc(PaymentTransactionModel.id))
+                .limit(5)
+            )
+            res = await session.execute(stmt)
+            paid_txs = res.scalars().all()
+            for tx in paid_txs:
+                notes = tx.notes if isinstance(tx.notes, dict) else (json.loads(tx.notes) if tx.notes else {})
+                if notes.get("purpose") == "plan_subscription_purchase" and notes.get("plan_slug"):
+                    target_slug = notes["plan_slug"]
+                    current_org = await db_client.get_organization_by_id(org_id)
+                    if current_org and current_org.subscription_tier != target_slug:
+                        logger.info(
+                            "Auto-reconciling paid plan upgrade '{}' for org {} from tx {}",
+                            target_slug,
+                            org_id,
+                            tx.id,
+                        )
+                        await plan_service.assign_organization_plan(
+                            organization_id=org_id,
+                            plan_slug=target_slug,
+                            reset_minutes_used=True,
+                        )
+                        break
+    except Exception as exc:
+        logger.warning("Auto-reconciliation check error: {}", exc)
+
     limits = await plan_service.get_effective_limits(org_id)
     org = await db_client.get_organization_by_id(org_id)
     workflow_count = await db_client.get_workflow_count(org_id)

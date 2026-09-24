@@ -27,18 +27,24 @@ class CampaignRunnerService:
                 f"Campaign must be in 'created' state to start, current state: {campaign.state}"
             )
 
-        # Redial campaigns have queued_runs pre-seeded from the parent campaign,
+        # Redial and direct campaigns have queued_runs pre-seeded,
         # so skip source sync and transition straight to 'running'.
         is_redial = bool(
             (campaign.orchestrator_metadata or {}).get("parent_campaign_id")
         )
-        if is_redial:
+        is_direct = bool(
+            campaign.source_type == "direct"
+            or (campaign.source_id and campaign.source_id.startswith("direct_"))
+            or (campaign.total_rows and campaign.total_rows > 0)
+        )
+        if is_redial or is_direct:
             now = datetime.now(UTC)
             await db_client.update_campaign(
                 campaign_id=campaign_id,
                 state="running",
                 started_at=now,
                 source_last_synced_at=now,
+                source_sync_status="completed",
             )
             publisher = await get_campaign_event_publisher()
             await publisher.publish_sync_completed(
@@ -47,7 +53,22 @@ class CampaignRunnerService:
                 source_type=campaign.source_type,
                 source_id=campaign.source_id,
             )
-            logger.info(f"Redial campaign {campaign_id} started, source sync skipped")
+            # Directly dispatch batch in background event loop
+            import asyncio
+            from api.services.campaign.campaign_call_dispatcher import (
+                campaign_call_dispatcher,
+            )
+            asyncio.create_task(
+                campaign_call_dispatcher.process_batch(campaign_id)
+            )
+
+            try:
+                await enqueue_job(FunctionNames.PROCESS_CAMPAIGN_BATCH, campaign_id)
+            except Exception as e:
+                logger.warning(f"Could not enqueue to ARQ: {e}")
+            logger.info(
+                f"Direct/Redial campaign {campaign_id} started, source sync skipped"
+            )
             return
 
         # Update campaign state to syncing

@@ -383,7 +383,12 @@ async def _run_pipeline_telephony_impl(
     )
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    set_current_org_id(workflow.organization_id)
+    effective_org_id = organization_id or workflow.organization_id
+    if not effective_org_id:
+        effective_org_id = await db_client.get_organization_id_by_workflow_run_id(
+            workflow_run_id
+        )
+    set_current_org_id(effective_org_id)
 
     ambient_noise_config = None
     if workflow.workflow_configurations:
@@ -396,7 +401,7 @@ async def _run_pipeline_telephony_impl(
     # from the right config row. Falls back to None for legacy runs (transports
     # then resolve the org's default config).
     workflow_run = await db_client.get_workflow_run(
-        workflow_run_id, organization_id=organization_id
+        workflow_run_id, organization_id=effective_org_id
     )
     if not workflow_run:
         raise HTTPException(status_code=404, detail="Workflow run not found")
@@ -416,9 +421,13 @@ async def _run_pipeline_telephony_impl(
         get_effective_ai_model_configuration_for_workflow,
     )
 
-    run_configs = workflow_run.definition.workflow_configurations or {}
+    run_configs = (
+        (workflow_run.definition.workflow_configurations or {})
+        if (workflow_run and getattr(workflow_run, "definition", None) and workflow_run.definition.workflow_configurations)
+        else (workflow.workflow_configurations or {})
+    )
     user_config = await get_effective_ai_model_configuration_for_workflow(
-        organization_id=workflow.organization_id,
+        organization_id=effective_org_id,
         workflow_configurations=run_configs,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
@@ -430,7 +439,7 @@ async def _run_pipeline_telephony_impl(
         websocket,
         workflow_run_id,
         audio_config,
-        workflow.organization_id,
+        effective_org_id,
         ambient_noise_config=ambient_noise_config,
         telephony_configuration_id=telephony_configuration_id,
         is_realtime=is_realtime,
@@ -447,7 +456,7 @@ async def _run_pipeline_telephony_impl(
             audio_config=audio_config,
             workflow_run=workflow_run,
             resolved_user_config=user_config,
-            organization_id=organization_id,
+            organization_id=effective_org_id,
             provider_call_id=call_id,
         )
     except Exception as e:
@@ -678,10 +687,10 @@ async def _run_pipeline_impl(
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
-    # Use the run's pinned definition for graph + configs (not the workflow's current)
-    run_definition = workflow_run.definition
-    run_workflow_json = run_definition.workflow_json
-    run_configs = run_definition.workflow_configurations or {}
+    # Use the run's pinned definition for graph + configs (fallback to workflow's current)
+    run_definition = getattr(workflow_run, "definition", None) or getattr(workflow, "definition", None)
+    run_workflow_json = run_definition.workflow_json if run_definition else getattr(workflow, "workflow_json", {})
+    run_configs = (run_definition.workflow_configurations if run_definition else getattr(workflow, "workflow_configurations", {})) or {}
 
     # Extract configurations from the version's workflow_configurations
     max_call_duration_seconds = DEFAULT_MAX_CALL_DURATION_SECONDS

@@ -654,6 +654,9 @@ class CampaignClient(BaseDBClient):
                         "cost_info": format_public_cost_info(
                             run.cost_info, run.usage_info
                         ),
+                        "usage_info": run.usage_info,
+                        "annotations": run.annotations,
+                        "logs": run.logs,
                         "definition_id": run.definition_id,
                         "initial_context": run.initial_context,
                         "gathered_context": run.gathered_context,

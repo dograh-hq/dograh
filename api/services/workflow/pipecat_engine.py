@@ -17,9 +17,20 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     FunctionCallResultProperties,
-    SpeechBoundaryFrame,
     UserIdleTimeoutUpdateFrame,
 )
+
+try:
+    from pipecat.frames.frames import SpeechBoundaryFrame
+except (ImportError, AttributeError):
+    from dataclasses import dataclass
+    from pipecat.frames.frames import ControlFrame
+
+    @dataclass
+    class SpeechBoundaryFrame(ControlFrame):
+        speech_id: str
+        beginning: bool
+
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams

@@ -619,6 +619,16 @@ class WorkflowModel(Base):
         JSON, nullable=False, default=dict, server_default=text("'{}'::json")
     )
     price_per_second = Column(Float, nullable=True)
+    # Built-in Platform Template Fields
+    is_builtin = Column(Boolean, default=False, server_default=text("false"), nullable=False)
+    builtin_category = Column(String(64), nullable=True, default="Sales")
+    builtin_badge = Column(String(64), nullable=True, default="Featured")
+    builtin_description = Column(Text, nullable=True, default="")
+    builtin_variables = Column(JSON, nullable=False, default=list, server_default=text("'[]'::json"))
+    builtin_conversion_goal = Column(JSON, nullable=False, default=dict, server_default=text("'{}'::json"))
+    tested_by_admin = Column(Boolean, default=False, server_default=text("false"), nullable=False)
+    tested_at = Column(DateTime(timezone=True), nullable=True)
+
     runs = relationship("WorkflowRunModel", back_populates="workflow")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 

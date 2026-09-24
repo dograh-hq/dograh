@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy import func, update
+from sqlalchemy import func, or_, update
 from sqlalchemy.future import select
 from sqlalchemy.orm import load_only, selectinload
 
@@ -325,7 +325,11 @@ class WorkflowClient(BaseDBClient):
                 )
                 .where(
                     WorkflowDefinitionModel.id == definition_id,
-                    WorkflowModel.organization_id == organization_id,
+                    or_(
+                        WorkflowModel.organization_id == organization_id,
+                        WorkflowModel.is_builtin.is_(True),
+                        WorkflowModel.organization_id.is_(None),
+                    ),
                 )
             )
             return result.scalar_one_or_none() or {}
@@ -364,9 +368,14 @@ class WorkflowClient(BaseDBClient):
     async def get_all_workflows(
         self, user_id: int = None, organization_id: int = None, status: str = None
     ) -> list[WorkflowModel]:
+        if not organization_id and not user_id:
+            return []
+
         async with self.async_session() as session:
             query = select(WorkflowModel).options(
                 selectinload(WorkflowModel.current_definition)
+            ).where(
+                WorkflowModel.is_builtin.is_(False)
             )
 
             if organization_id:
@@ -453,6 +462,9 @@ class WorkflowClient(BaseDBClient):
         Returns:
             List of WorkflowModel with only id, name, status, created_at loaded
         """
+        if not organization_id:
+            return []
+
         async with self.async_session() as session:
             query = select(WorkflowModel).options(
                 load_only(
@@ -463,10 +475,10 @@ class WorkflowClient(BaseDBClient):
                     WorkflowModel.folder_id,
                     WorkflowModel.workflow_uuid,
                 )
+            ).where(
+                WorkflowModel.organization_id == organization_id,
+                WorkflowModel.is_builtin.is_(False),
             )
-
-            if organization_id:
-                query = query.where(WorkflowModel.organization_id == organization_id)
 
             if status:
                 query = query.where(WorkflowModel.status == status)
@@ -483,14 +495,17 @@ class WorkflowClient(BaseDBClient):
         Returns:
             Dict with 'total', 'active', 'archived' counts
         """
+        if not organization_id:
+            return {"total": 0, "active": 0, "archived": 0}
+
         async with self.async_session() as session:
             query = select(
                 WorkflowModel.status,
                 func.count(WorkflowModel.id).label("count"),
+            ).where(
+                WorkflowModel.organization_id == organization_id,
+                WorkflowModel.is_builtin.is_(False),
             )
-
-            if organization_id:
-                query = query.where(WorkflowModel.organization_id == organization_id)
 
             query = query.group_by(WorkflowModel.status)
 
@@ -555,11 +570,23 @@ class WorkflowClient(BaseDBClient):
             )
 
             if organization_id:
-                # Filter by organization_id when provided
-                query = query.where(WorkflowModel.organization_id == organization_id)
+                from sqlalchemy import or_
+                query = query.where(
+                    or_(
+                        WorkflowModel.organization_id == organization_id,
+                        WorkflowModel.is_builtin.is_(True),
+                        WorkflowModel.organization_id.is_(None),
+                    )
+                )
             elif user_id:
-                # Fallback to user_id for backwards compatibility
-                query = query.where(WorkflowModel.user_id == user_id)
+                from sqlalchemy import or_
+                query = query.where(
+                    or_(
+                        WorkflowModel.user_id == user_id,
+                        WorkflowModel.is_builtin.is_(True),
+                        WorkflowModel.organization_id.is_(None),
+                    )
+                )
 
             result = await session.execute(query)
             return result.scalars().first()

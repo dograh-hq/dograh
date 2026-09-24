@@ -33,6 +33,7 @@ class UpdateFolderRequest(CreateFolderRequest):
     pass
 
 
+@router.get("")
 @router.get("/")
 async def list_folders(
     user: UserModel = Depends(get_user),
@@ -46,6 +47,7 @@ async def list_folders(
     ]
 
 
+@router.post("")
 @router.post("/")
 async def create_folder(
     request: CreateFolderRequest,

@@ -3371,6 +3371,12 @@ export type HttpApiConfig = {
     body_template?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Body Format
+     *
+     * Encoding of the POST, PUT, and PATCH request body: 'json' sends application/json, 'form' sends application/x-www-form-urlencoded.
+     */
+    body_format?: 'json' | 'form';
 };
 
 /**
@@ -6844,10 +6850,11 @@ export type ToolTestResponse = {
  * That keeps the routing decision in the one place the model already reasons
  * about, and leaves nothing to configure here but where the call goes.
  *
- * Everything about how a handoff sounds is fixed: the caller hears a ringer
- * while the next agent is prepared, and that agent opens with its own
- * configured greeting. Only the handover line is configurable, because it is
- * caller-facing and Dograh runs in more than one language.
+ * Most of how a handoff sounds is fixed: the caller hears a ringer while the
+ * next agent is prepared. The handover line is configurable because it is
+ * caller-facing and Dograh runs in more than one language, and so is whether
+ * the next agent opens with its greeting, because an agent that greets
+ * callers on its own number should not re-introduce itself mid-conversation.
  */
 export type TransferAgentConfig = {
     /**
@@ -6862,6 +6869,12 @@ export type TransferAgentConfig = {
      * Spoken by the current agent, in its own voice, before the caller is handed over. Supports template variables. Leave empty to hand over without saying anything.
      */
     message?: string;
+    /**
+     * Play Greeting
+     *
+     * Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
+     */
+    play_greeting?: boolean;
 };
 
 /**

@@ -3,7 +3,7 @@ title: "Transfer to Agent"
 description: "Hand a live call from one Dograh agent to another, carrying a handover note so the caller never repeats themselves."
 ---
 
-The Transfer to Agent tool hands the caller from the agent they are talking to over to another Dograh agent, without dropping the call. The caller stays on the same call throughout: they hear a short handover line, then a ringer, then the next agent's own greeting.
+The Transfer to Agent tool hands the caller from the agent they are talking to over to another Dograh agent, without dropping the call. The caller stays on the same call throughout: they hear a short handover line, then a ringer, then the next agent picks up.
 
 Use this tool to split one phone number across several focused agents — a router that picks a language or a department, a specialist that handles billing, a closer that takes payment — instead of building one large agent that tries to do everything.
 
@@ -26,7 +26,7 @@ If the caller should end up talking to a person, use Call Transfer. If they shou
 2. The current agent speaks the configured handover message in its own voice.
 3. The caller hears a ringer while Dograh prepares the destination agent.
 4. In parallel, Dograh compacts the conversation so far into a handover note.
-5. The destination agent takes over and opens at its **Start Call** node, playing that node's greeting.
+5. The destination agent takes over at its **Start Call** node. By default it plays that node's greeting. With **Play greeting** turned off, it skips the greeting and opens with a reply based on the handover note.
 
 The agent that called the tool does not speak again after the tool fires. Dograh suppresses its next generation deliberately, because the caller is already hearing the handover message and the ringer, and the agent is being handed off regardless of what it would have said.
 
@@ -46,10 +46,11 @@ Because context travels with the caller, the destination agent should not re-ask
 
 ## Configuration
 
-A Transfer to Agent tool has only two settings, because everything about how a handoff sounds is fixed.
+A Transfer to Agent tool has three settings. Everything else about how a handoff sounds is fixed.
 
 - **Agent** (`workflow_id`, required) — the id of the Dograh agent to transfer to. It must belong to the same organization.
 - **Handover message** (`message`) — spoken by the current agent, in its own voice, just before the handover. Supports [template variables](/voice-agent/template-variables). Maximum 500 characters. Defaults to "Let me connect you with the right person. One moment please." Leave it empty to hand over without saying anything.
+- **Play greeting** (`play_greeting`, default `true`) — whether the destination agent opens with its Start Call greeting. Turn it off when the destination should continue the conversation rather than introduce itself, for example an agent that greets callers on its own phone number but is also a transfer target. It then opens with a reply generated from the handover note.
 
 Set the handover message in the language the destination agent speaks. The default is English, which will sound wrong in front of a Portuguese or Spanish agent.
 

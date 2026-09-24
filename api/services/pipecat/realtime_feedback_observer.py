@@ -42,6 +42,7 @@ from api.services.pipecat.realtime_feedback_events import (
 )
 
 if TYPE_CHECKING:
+    from api.services.observability.call_events.recorder import CallEventRecorder
     from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
     from api.services.pipecat.transcript_log_coordinator import (
         TranscriptLogCoordinator,
@@ -94,6 +95,7 @@ class RealtimeFeedbackObserver(BaseObserver):
         ws_sender: Callable[[dict], Awaitable[None]],
         logs_buffer: Optional["InMemoryLogsBuffer"] = None,
         selected_visit: Callable[[], str | None] | None = None,
+        call_event_recorder: "CallEventRecorder | None" = None,
     ):
         """
         Args:
@@ -106,6 +108,7 @@ class RealtimeFeedbackObserver(BaseObserver):
         self._ws_sender = ws_sender
         self._logs_buffer = logs_buffer
         self._selected_visit = selected_visit
+        self._call_event_recorder = call_event_recorder
         self._frames_seen: set[int] = set()
 
     async def log_speech(self, text: str):
@@ -114,6 +117,10 @@ class RealtimeFeedbackObserver(BaseObserver):
 
     async def on_push_frame(self, data: FramePushed):
         """Process frames and send relevant ones to the client."""
+        # Diagnostics has its own schema, filtering and buffer. Capture raw
+        # facts before RTF filtering/deduplication or WebSocket delivery.
+        if self._call_event_recorder is not None:
+            await self._call_event_recorder.on_push_frame(data)
         frame = data.frame
         frame_direction = data.direction
         source = data.source

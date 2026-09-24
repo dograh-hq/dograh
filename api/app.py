@@ -72,6 +72,11 @@ async def lifespan(app: FastAPI):
         set_worker_sync_manager(sync_manager)
 
         from api.services.observability import loop_exceptions, loop_lag, metrics
+        from api.services.observability.call_events import (
+            delivery as call_event_delivery,
+        )
+
+        call_event_delivery.start()
 
         # Event-loop lag gauge — per-pod saturation signal read off
         # /health/active-calls during autoscaling load tests.
@@ -85,6 +90,7 @@ async def lifespan(app: FastAPI):
             yield  # Run app
         finally:
             logger.info("Starting graceful shutdown...")
+            await call_event_delivery.shutdown()
             try:
                 await sync_manager.stop()
             finally:

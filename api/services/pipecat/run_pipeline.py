@@ -1180,11 +1180,27 @@ async def _run_pipeline_impl(
     engine.call_worker = task
     engine.set_transport_output(transport.output())
 
+    from api.services.observability.call_events.runtime import create_session
+
+    call_events_session = await create_session(
+        organization_id=workflow.organization_id,
+        run_id=workflow_run_id,
+        workflow_id=workflow_id,
+        engine=engine,
+    )
+    if call_events_session is not None:
+        call_events_session.attach(
+            task, user_context_aggregator, call_monitor_processor
+        )
+
     # Share frame-ID deduplication across the call and all agent workers.
     feedback_observer = RealtimeFeedbackObserver(
         ws_sender=ws_sender,
         logs_buffer=in_memory_logs_buffer,
         selected_visit=lambda: engine.selected_visit_id,
+        call_event_recorder=call_events_session.recorder
+        if call_events_session
+        else None,
     )
     task.add_observer(feedback_observer)
     engine.greeting.log_generated_speech = feedback_observer.log_speech
@@ -1287,6 +1303,7 @@ async def _run_pipeline_impl(
         answer_supervisor=answer_supervisor,
         user_provider_id=user_provider_id,
         integration_runtime_sessions=integration_runtime_sessions,
+        call_events_session=call_events_session,
         include_transcript_end_timestamps=include_transcript_end_timestamps,
     )
 
@@ -1303,6 +1320,18 @@ async def _run_pipeline_impl(
         # scopes opened by MCPClient.start() in engine.initialize() are
         # task-affine; this finally runs in the same task as initialize(),
         # whereas engine.cleanup() runs in a pipecat event-handler task.
+        if call_events_session is not None:
+            # Fallback for cancellation or failures in unrelated completion
+            # work. Normal completion already sealed this session.
+            try:
+                await call_events_session.finish()
+            except (Exception, asyncio.CancelledError) as exc:
+                # Diagnostic failures must not skip MCP or observer cleanup.
+                logger.warning(
+                    "Error finalizing call events during cleanup for workflow run {} ({})",
+                    workflow_run_id,
+                    type(exc).__name__,
+                )
         await engine.close_mcp_sessions()
         await feedback_observer.cleanup()
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

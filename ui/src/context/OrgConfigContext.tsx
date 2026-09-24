@@ -4,7 +4,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, u
 
 import { client } from '@/client/client.gen';
 import { getCurrentOrganizationContextApiV1OrganizationsContextGet, getPreferencesApiV1OrganizationsPreferencesGet, getUserConfigurationsApiV1UserConfigurationsUserGet } from '@/client/sdk.gen';
-import type { OrganizationContextResponse, OrganizationPreferences, UserConfigurationRequestResponseSchema } from '@/client/types.gen';
+import type { OrganizationContextResponse, OrganizationPreferencesResponse, UserConfigurationRequestResponseSchema } from '@/client/types.gen';
 import { setupAuthInterceptor } from '@/lib/apiClient';
 import { detailFromError } from '@/lib/apiError';
 import type { AuthUser } from '@/lib/auth';
@@ -29,7 +29,7 @@ interface OrgConfigContextType {
     permissions: TeamPermission[];
     user: AuthUser | null;
     organizationPricing: OrganizationPricing | null;
-    organizationPreferences: OrganizationPreferences | null;
+    organizationPreferences: OrganizationPreferencesResponse | null;
     externalPbxIntegrationsEnabled: boolean;
 }
 
@@ -55,7 +55,7 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<Error | null>(null);
     const [organizationPricing, setOrganizationPricing] = useState<OrganizationPricing | null>(null);
-    const [organizationPreferences, setOrganizationPreferences] = useState<OrganizationPreferences | null>(null);
+    const [organizationPreferences, setOrganizationPreferences] = useState<OrganizationPreferencesResponse | null>(null);
     const [permissions, setPermissions] = useState<TeamPermission[]>([]);
 
     const auth = useAuth();

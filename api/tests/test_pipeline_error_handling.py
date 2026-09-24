@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -7,6 +8,9 @@ from pipecat.pipeline.worker import ProcessorUnusablePolicy
 from pipecat.utils.enums import EndTaskReason
 from pipecat.utils.errors import ErrorCategory
 
+from api.enums import WorkflowRunState
+from api.schemas.call_events import CallEventsSettings
+from api.services.observability.call_events.runtime import CallEventsSession
 from api.services.pipecat import event_handlers, pipeline_builder
 from api.services.pipecat.event_handlers import register_event_handlers
 from api.services.pipecat.termination_funnel_processor import (
@@ -62,6 +66,7 @@ def campaign_call(monkeypatch):
     monkeypatch.setattr(event_handlers.circuit_breaker, "record_and_evaluate", breaker)
     funnel = TerminationFunnelProcessor()
     transcript_log_coordinator = SimpleNamespace(flush=AsyncMock())
+    call_events_session = SimpleNamespace(finish=AsyncMock())
     register_event_handlers(
         task=task,
         transport=_EventSource(),
@@ -74,6 +79,7 @@ def campaign_call(monkeypatch):
             generate_transcript_text=lambda **kwargs: "",
         ),
         transcript_log_coordinator=transcript_log_coordinator,
+        call_events_session=call_events_session,
         pipeline_metrics_aggregator=SimpleNamespace(
             get_all_usage_metrics_serialized=dict
         ),
@@ -86,6 +92,7 @@ def campaign_call(monkeypatch):
         breaker=breaker,
         funnel=funnel,
         transcript_log_coordinator=transcript_log_coordinator,
+        call_events_session=call_events_session,
     )
 
 
@@ -170,6 +177,43 @@ async def test_failure_accounting_error_does_not_abort_finalization(campaign_cal
     call.task.wait_for_observers.assert_awaited_once()
     call.transcript_log_coordinator.flush.assert_awaited_once()
     call.engine.cleanup.assert_awaited_once()
+    event_handlers.notify_campaign_call_completed.assert_awaited_once_with(42, 88)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["finish", "recorder_cleanup"])
+@pytest.mark.parametrize("error_type", [RuntimeError, asyncio.CancelledError])
+async def test_diagnostics_failure_cannot_abort_call_completion(
+    campaign_call, failure_stage, error_type
+):
+    call = campaign_call
+    if failure_stage == "recorder_cleanup":
+        # Exercise the real session: cleanup fails in _finish and, for ordinary
+        # exceptions, fails again in finish's recovery branch.
+        session = CallEventsSession(
+            settings=CallEventsSettings(enabled=True, sink_type="bigquery"),
+            organization_id=7,
+            run_id=88,
+            workflow_id=1,
+            engine=call.engine,
+        )
+        session.recorder.cleanup = AsyncMock(side_effect=error_type("cleanup failed"))
+        call.call_events_session.finish.side_effect = session.finish
+    else:
+        call.call_events_session.finish.side_effect = error_type("finalization failed")
+
+    await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+
+    call.call_events_session.finish.assert_awaited_once()
+    call.engine.cleanup.assert_awaited_once()
+    completed_updates = [
+        invocation.kwargs
+        for invocation in event_handlers.db_client.update_workflow_run.await_args_list
+        if invocation.kwargs.get("is_completed")
+    ]
+    assert len(completed_updates) == 1
+    assert completed_updates[0]["run_id"] == 88
+    assert completed_updates[0]["state"] == WorkflowRunState.COMPLETED.value
     event_handlers.notify_campaign_call_completed.assert_awaited_once_with(42, 88)
 
 

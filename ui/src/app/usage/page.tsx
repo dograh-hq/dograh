@@ -239,7 +239,7 @@ export default function UsagePage() {
         setPreferencesLoading(true);
         try {
             const response = await getPreferencesApiV1OrganizationsPreferencesGet();
-            const nextPreferences = response.data || {};
+            const nextPreferences: OrganizationPreferences = response.data || {};
             setPreferences(nextPreferences);
             setSelectedTimezone(nextPreferences.timezone || localTimezone);
         } catch (error) {
@@ -290,7 +290,6 @@ export default function UsagePage() {
             const tzValue = typeof timezone === 'string' ? timezone : timezone.value;
             const response = await savePreferencesApiV1OrganizationsPreferencesPut({
                 body: {
-                    ...preferences,
                     timezone: tzValue,
                 },
             });

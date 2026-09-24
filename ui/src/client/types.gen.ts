@@ -1066,6 +1066,7 @@ export type CampaignProgressResponse = {
  * CampaignResponse
  */
 export type CampaignResponse = {
+    traffic_split?: TrafficSplitResponse | null;
     /**
      * Id
      */
@@ -1205,6 +1206,20 @@ export type CampaignSourceDownloadResponse = {
      * Expires In
      */
     expires_in: number;
+};
+
+/**
+ * CampaignTrafficStatsResponse
+ */
+export type CampaignTrafficStatsResponse = {
+    /**
+     * Total Attempts
+     */
+    total_attempts: number;
+    /**
+     * Variants
+     */
+    variants: Array<TrafficVariantStats>;
 };
 
 /**
@@ -1580,7 +1595,8 @@ export type CreateCampaignRequest = {
     /**
      * Workflow Id
      */
-    workflow_id: number;
+    workflow_id?: number | null;
+    traffic_split?: TrafficSplitRequest | null;
     /**
      * Source Type
      */
@@ -6905,6 +6921,154 @@ export type ToolTestResponse = {
 };
 
 /**
+ * TrafficDefinitionStats
+ */
+export type TrafficDefinitionStats = {
+    /**
+     * Definition Id
+     */
+    definition_id: number | null;
+    /**
+     * Version Number
+     */
+    version_number: number | null;
+    /**
+     * Attempts
+     */
+    attempts: number;
+};
+
+/**
+ * TrafficSplitRequest
+ */
+export type TrafficSplitRequest = {
+    /**
+     * Variants
+     */
+    variants: Array<TrafficVariantRequest>;
+};
+
+/**
+ * TrafficSplitResponse
+ */
+export type TrafficSplitResponse = {
+    /**
+     * Revision
+     */
+    revision: number;
+    /**
+     * Variants
+     */
+    variants: Array<TrafficVariantResponse>;
+};
+
+/**
+ * TrafficVariantRequest
+ */
+export type TrafficVariantRequest = {
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+    /**
+     * Workflow Definition Id
+     */
+    workflow_definition_id?: number | null;
+    /**
+     * Weight
+     */
+    weight: number;
+};
+
+/**
+ * TrafficVariantResponse
+ */
+export type TrafficVariantResponse = {
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+    /**
+     * Workflow Definition Id
+     */
+    workflow_definition_id?: number | null;
+    /**
+     * Weight
+     */
+    weight: number;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Workflow Name
+     */
+    workflow_name: string;
+    /**
+     * Version Number
+     */
+    version_number?: number | null;
+};
+
+/**
+ * TrafficVariantStats
+ */
+export type TrafficVariantStats = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+    /**
+     * Workflow Name
+     */
+    workflow_name: string;
+    /**
+     * Workflow Definition Id
+     */
+    workflow_definition_id: number | null;
+    /**
+     * Version Number
+     */
+    version_number: number | null;
+    /**
+     * Target Weight
+     */
+    target_weight: number | null;
+    /**
+     * Attempts
+     */
+    attempts?: number;
+    /**
+     * Completed
+     */
+    completed?: number;
+    /**
+     * Actual Percentage
+     */
+    actual_percentage?: number;
+    /**
+     * States
+     */
+    states?: {
+        [key: string]: number;
+    };
+    /**
+     * Outcomes
+     */
+    outcomes?: {
+        [key: string]: number;
+    };
+    /**
+     * Definitions
+     */
+    definitions?: Array<TrafficDefinitionStats>;
+};
+
+/**
  * TransferAgentConfig
  *
  * Configuration for Transfer Agent tools.
@@ -7272,6 +7436,7 @@ export type UltravoxRealtimeLlmConfiguration = {
  * UpdateCampaignRequest
  */
 export type UpdateCampaignRequest = {
+    traffic_split?: TrafficSplitRequest | null;
     /**
      * Name
      */
@@ -8146,6 +8311,14 @@ export type WorkflowRunResponseSchema = {
      */
     workflow_id: number;
     /**
+     * Workflow Name
+     */
+    workflow_name?: string | null;
+    /**
+     * Version Number
+     */
+    version_number?: number | null;
+    /**
      * Name
      */
     name: string;
@@ -8542,6 +8715,28 @@ export type WorkflowVersionResponse = {
     template_context_variables?: {
         [key: string]: unknown;
     } | null;
+};
+
+/**
+ * WorkflowVersionSummaryResponse
+ */
+export type WorkflowVersionSummaryResponse = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Version Number
+     */
+    version_number: number | null;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Published At
+     */
+    published_at: string | null;
 };
 
 /**
@@ -9522,6 +9717,52 @@ export type GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponses = {
 
 export type GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponse = GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponses[keyof GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponses];
 
+export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/version-summaries';
+};
+
+export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetError = GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetErrors[keyof GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetErrors];
+
+export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetResponses = {
+    /**
+     * Response Get Workflow Version Summaries Api V1 Workflow  Workflow Id  Version Summaries Get
+     *
+     * Successful Response
+     */
+    200: Array<WorkflowVersionSummaryResponse>;
+};
+
+export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetResponse = GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetResponses[keyof GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetResponses];
+
 export type GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetData = {
     body?: never;
     headers?: {
@@ -9549,6 +9790,14 @@ export type GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetData = {
          * Offset
          */
         offset?: number;
+        /**
+         * Version Number
+         */
+        version_number?: number | null;
+        /**
+         * Status
+         */
+        status?: 'draft' | 'published' | 'archived' | null;
     };
     url: '/api/v1/workflow/{workflow_id}/versions';
 };
@@ -10955,6 +11204,50 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses = {
 };
 
 export type GetVoicesApiV1UserConfigurationsVoicesProviderGetResponse = GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses[keyof GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses];
+
+export type GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Campaign Id
+         */
+        campaign_id: number;
+    };
+    query?: never;
+    url: '/api/v1/campaign/{campaign_id}/traffic-stats';
+};
+
+export type GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetError = GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetErrors[keyof GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetErrors];
+
+export type GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CampaignTrafficStatsResponse;
+};
+
+export type GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetResponse = GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetResponses[keyof GetCampaignTrafficStatsApiV1CampaignCampaignIdTrafficStatsGetResponses];
 
 export type CreateCampaignApiV1CampaignCreatePostData = {
     body: CreateCampaignRequest;

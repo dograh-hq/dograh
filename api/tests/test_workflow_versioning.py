@@ -109,6 +109,73 @@ async def workflow_with_v1(db_session, org_and_user):
 # ---------------------------------------------------------------------------
 
 
+class TestVersionLinkQueries:
+    async def test_exact_and_latest_published_skip_newer_draft(
+        self, db_session, workflow_with_v1, test_client_factory
+    ):
+        workflow, user = workflow_with_v1
+        await db_session.save_workflow_draft(
+            workflow.id,
+            workflow_definition=GRAPH_V2,
+            workflow_configurations=CONFIG_V2,
+            template_context_variables=TEMPLATE_VARS_V2,
+        )
+        await db_session.publish_workflow_draft(workflow.id)
+        await db_session.save_workflow_draft(workflow.id, workflow_definition=GRAPH_V3)
+
+        async with test_client_factory(user) as client:
+            exact = await client.get(
+                f"/api/v1/workflow/{workflow.id}/versions",
+                params={"version_number": 1, "limit": 1},
+            )
+            latest = await client.get(
+                f"/api/v1/workflow/{workflow.id}/versions",
+                params={"status": "published", "limit": 1},
+            )
+            missing = await client.get(
+                f"/api/v1/workflow/{workflow.id}/versions",
+                params={"version_number": 999, "limit": 1},
+            )
+        assert exact.status_code == latest.status_code == missing.status_code == 200
+        assert len(exact.json()) == len(latest.json()) == 1
+        assert exact.json()[0]["version_number"] == 1
+        assert exact.json()[0]["workflow_json"] == GRAPH_V1
+        assert latest.json()[0]["version_number"] == 2
+        assert latest.json()[0]["workflow_json"] == GRAPH_V2
+        assert latest.json()[0]["workflow_configurations"] == CONFIG_V2
+        assert latest.json()[0]["template_context_variables"] == TEMPLATE_VARS_V2
+        assert missing.json() == []
+
+    async def test_filtered_versions_remain_organization_scoped(
+        self, workflow_with_v1, test_client_factory
+    ):
+        from types import SimpleNamespace
+
+        workflow, user = workflow_with_v1
+        other_user = SimpleNamespace(
+            selected_organization_id=user.selected_organization_id + 1
+        )
+        async with test_client_factory(other_user) as client:
+            response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/versions",
+                params={"version_number": 1, "limit": 1},
+            )
+        assert response.status_code == 404
+
+    @pytest.mark.parametrize(
+        "params", [{"version_number": 0}, {"version_number": -1}, {"status": "invalid"}]
+    )
+    async def test_invalid_version_filters_are_rejected(
+        self, workflow_with_v1, test_client_factory, params
+    ):
+        workflow, user = workflow_with_v1
+        async with test_client_factory(user) as client:
+            response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/versions", params=params
+            )
+        assert response.status_code == 422
+
+
 class TestWorkflowCreation:
     async def test_create_workflow_produces_published_v1(
         self, db_session, org_and_user

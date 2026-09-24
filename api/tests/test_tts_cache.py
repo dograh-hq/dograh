@@ -828,6 +828,130 @@ async def test_minimax_late_failure_never_hits_cache(cache, minimax_server):
     assert not cache.backend.entries
 
 
+async def test_minimax_retries_cache_misses_without_premature_context_expiry(
+    cache, aiohttp_client, monkeypatch
+):
+    from pipecat.services.minimax import tts as minimax
+
+    monkeypatch.setattr(minimax, "_RETRY_BASE_DELAY_S", 0.04)
+    monkeypatch.setattr(minimax, "_RETRY_JITTER_S", 0)
+    calls = []
+
+    async def handler(request):
+        calls.append(await request.json())
+        if len(calls) < 3:
+            return web.json_response({"base_resp": {"status_code": 1002}})
+        return web.Response(
+            body=(
+                b"data:"
+                + json.dumps({"data": {"audio": PCM.hex(), "status": 1}}).encode()
+                + b'\n\ndata:{"data":{"status":2}}\n\n'
+            )
+        )
+
+    app = web.Application()
+    app.router.add_post("/tts", handler)
+    client = await aiohttp_client(app)
+    # Backoffs exceed this audio-context timeout. Three completed syntheses
+    # select a cache entry, and the fourth utterance replays it without HTTP.
+    down, up = await play(
+        cache, str(client.make_url("/tts")), ["Hello."] * 4, stop_frame_timeout_s=0.03
+    )
+    assert len(calls) == 5
+    assert all(call == calls[0] for call in calls)
+    assert not any(isinstance(frame, ErrorFrame) for frame in down + up)
+    assert b"".join(f.audio for f in down if isinstance(f, TTSAudioRawFrame)) == PCM * 4
+    usage = [
+        metric
+        for frame in down
+        if isinstance(frame, MetricsFrame)
+        for metric in frame.data
+        if isinstance(metric, TTSUsageMetricsData)
+    ]
+    assert sum(metric.value for metric in usage) == len("Hello.") * 3
+    assert len(cache.backend.entries) == 1
+    assert cache.capture_bytes == 0
+
+
+async def test_interruption_cancels_minimax_backoff_and_next_turn_can_speak(
+    cache, aiohttp_client, monkeypatch
+):
+    from pipecat.services.minimax import tts as minimax
+
+    monkeypatch.setattr(minimax, "_RETRY_BASE_DELAY_S", 0.5)
+    calls = []
+
+    async def handler(request):
+        text = (await request.json())["text"]
+        calls.append(text)
+        if text == "Slow.":
+            return web.json_response({"base_resp": {"status_code": 1002}})
+        return web.Response(
+            body=(
+                b"data:"
+                + json.dumps({"data": {"audio": PCM.hex(), "status": 1}}).encode()
+                + b'\n\ndata:{"data":{"status":2}}\n\n'
+            )
+        )
+
+    app = web.Application()
+    app.router.add_post("/tts", handler)
+    client = await aiohttp_client(app)
+    async with asyncio.timeout(5):
+        down, up = await play(
+            cache,
+            str(client.make_url("/tts")),
+            ["Slow.", SleepFrame(sleep=0.1), InterruptionFrame(), "Hello."],
+        )
+    assert calls == ["Slow.", "Hello."]
+    assert not any(isinstance(frame, ErrorFrame) for frame in down + up)
+    assert b"".join(f.audio for f in down if isinstance(f, TTSAudioRawFrame)) == PCM
+    assert not cache.backend.entries
+    assert len(cache.backend.candidates) == 1
+    assert cache.capture_bytes == 0
+
+
+async def test_exhausted_minimax_retries_leave_the_next_utterance_usable(
+    cache, aiohttp_client, monkeypatch
+):
+    from pipecat.services.minimax import tts as minimax
+
+    monkeypatch.setattr(minimax, "_RETRY_BASE_DELAY_S", 0.01)
+    monkeypatch.setattr(minimax, "_RETRY_JITTER_S", 0)
+    calls = []
+
+    async def handler(request):
+        text = (await request.json())["text"]
+        calls.append(text)
+        if text == "Fail.":
+            return web.json_response({"base_resp": {"status_code": 1002}})
+        return web.Response(
+            body=(
+                b"data:"
+                + json.dumps({"data": {"audio": PCM.hex(), "status": 1}}).encode()
+                + b'\n\ndata:{"data":{"status":2}}\n\n'
+            )
+        )
+
+    app = web.Application()
+    app.router.add_post("/tts", handler)
+    client = await aiohttp_client(app)
+    down, up = await play(
+        cache,
+        str(client.make_url("/tts")),
+        ["Fail.", "Hello."],
+        stop_frame_timeout_s=0.05,
+    )
+    assert calls == ["Fail."] * 3 + ["Hello."]
+    errors = [frame for frame in down + up if isinstance(frame, ErrorFrame)]
+    assert sum("MiniMax TTS error: 1002" in frame.error for frame in errors) == 1
+    assert all(not frame.fatal for frame in errors)
+    assert b"".join(f.audio for f in down if isinstance(f, TTSAudioRawFrame)) == PCM
+    assert not cache.backend.entries
+    assert len(cache.backend.candidates) == 1
+    assert cache.capture_bytes == 0
+
+
 async def test_minimax_identity_and_ineligible_token_mode(cache, minimax_server):
     url, calls = minimax_server
     await play(cache, url, ["Hello."])
@@ -893,7 +1017,7 @@ async def test_minimax_delayed_http_and_redis_preserve_playback_order(
 
     The local HTTP server emits distinct PCM per sentence and delays cache
     misses. Long delays cross the default three-second audio-context timeout;
-    a delayed first byte on sentence one also reports a recoverable error.
+    a delayed first byte must remain attached to its pending audio context.
     """
     sentences = ["First sentence.", "Second sentence.", "Third sentence."]
     # 160 ms per sentence, aligned to the transport's 40 ms audio chunks.
@@ -1010,14 +1134,7 @@ async def test_minimax_delayed_http_and_redis_preserve_playback_order(
                 )
 
     errors = [frame for frame in down + up if isinstance(frame, ErrorFrame)]
-    if delay_at == "headers" and delay_seconds > 3 and 1 not in cached_sentences:
-        # The idle context expires before the first audio arrives. Its error is
-        # reported upstream, but late audio recreates the context in this turn.
-        assert len(errors) == 1
-        assert errors[0].error.endswith("completed with no audio")
-        assert not errors[0].fatal
-    else:
-        assert not errors
+    assert not errors
     assert bytes(output.audio) == audio[1] + audio[2] + audio[3]
     assert [
         frame.text.strip() for frame in down if isinstance(frame, TTSTextFrame)

@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from api.services.configuration.registry import (
     REGISTRY,
@@ -123,3 +123,35 @@ class ModelProviderProfileResponse(BaseModel):
 
 class ModelProviderProfilesResponse(BaseModel):
     profiles: list[ModelProviderProfileResponse]
+
+
+class CallServiceOverride(BaseModel):
+    """Per-call override for one service: a saved profile plus field tweaks.
+
+    ``profile`` names a saved provider profile. Any additional keys override
+    that profile's non-secret settings for this call only (for example
+    ``model`` or ``voice``). Credentials, ``provider`` and endpoint URLs are
+    not accepted here: create a separate profile for those.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    profile: str
+
+    @field_validator("profile")
+    @classmethod
+    def _check_profile(cls, value: str) -> str:
+        return validate_profile_name(value)
+
+
+class CallModelOverrides(BaseModel):
+    """Model overrides for a single call, selecting saved provider profiles."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    llm: CallServiceOverride | None = None
+    tts: CallServiceOverride | None = None
+    stt: CallServiceOverride | None = None
+    realtime: CallServiceOverride | None = None
+    # Force speech-to-speech on or off. Defaults to on when ``realtime`` is set.
+    is_realtime: bool | None = None

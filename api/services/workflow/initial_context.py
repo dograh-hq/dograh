@@ -5,6 +5,10 @@ from typing import Any
 
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 
+# Validated per-call model overrides (saved provider profile names and
+# non-secret field tweaks), set only by the trigger endpoints.
+RUN_MODEL_OVERRIDES_CONTEXT_KEY = "call_model_overrides"
+
 # These values describe or authorize the run itself. External context may add
 # prompt variables, but it must never supply or replace run-owned metadata.
 RESERVED_INITIAL_CONTEXT_KEYS = frozenset(
@@ -13,6 +17,7 @@ RESERVED_INITIAL_CONTEXT_KEYS = frozenset(
         "call_id",
         "provider",
         "runtime_configuration",
+        RUN_MODEL_OVERRIDES_CONTEXT_KEY,
         MPS_CORRELATION_ID_CONTEXT_KEY,
     }
 )

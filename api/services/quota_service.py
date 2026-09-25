@@ -23,6 +23,9 @@ from api.errors.failure import (
 from api.services.configuration.ai_model_configuration import (
     get_effective_ai_model_configuration_for_workflow,
 )
+from api.services.configuration.call_model_overrides import (
+    apply_run_model_overrides,
+)
 from api.services.configuration.registry import ServiceProviders
 from api.services.managed_model_services import (
     MPS_CORRELATION_ID_CONTEXT_KEY,
@@ -738,6 +741,7 @@ async def authorize_workflow_run_start(
         # draft on every save, which can carry a different service key than
         # the definition the run will actually use.
         workflow_configurations = workflow.workflow_configurations
+        run_initial_context = None
         if workflow_run_id is not None:
             # As with the owner lookup, a DB read failure falls through to the
             # outer fail-closed handler; only a genuinely missing/mismatched run
@@ -757,6 +761,7 @@ async def authorize_workflow_run_start(
                     error_code="workflow_run_not_found",
                     error_message="Workflow run not found",
                 )
+            run_initial_context = getattr(workflow_run, "initial_context", None)
             if workflow_run.definition is not None:
                 workflow_configurations = (
                     workflow_run.definition.workflow_configurations
@@ -776,6 +781,9 @@ async def authorize_workflow_run_start(
         user_config = await get_effective_ai_model_configuration_for_workflow(
             organization_id=organization_id,
             workflow_configurations=workflow_configurations,
+        )
+        user_config = await apply_run_model_overrides(
+            user_config, organization_id, run_initial_context
         )
 
         if DEPLOYMENT_MODE != "oss":

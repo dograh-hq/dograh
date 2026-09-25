@@ -1,0 +1,45 @@
+---
+title: "Saved Providers"
+description: "Save several named provider configurations and pick one per API call"
+---
+
+The **AI Models Configuration** page holds your default LLM, voice, transcriber, or speech-to-speech provider. **Saved providers** lets you keep additional provider configurations next to that default, each with its own API key and settings. They are used by [per-call model overrides](/voice-agent/api-trigger#override-models-for-one-call), so an API caller can choose a provider by name without ever sending a credential.
+
+## Add a saved provider
+
+1. Open **AI Models Configuration** and scroll to **Saved providers**.
+2. Click **Add provider**.
+3. Enter a **Name**, choose the **Service** (LLM, Voice, Transcriber, or Speech to Speech), then pick the provider and fill in its settings and API key.
+4. Click **Save provider**. Dograh checks the credentials with the provider before saving, the same way it does for the default configuration.
+
+Names are unique within a service and use 1 to 48 lowercase letters, digits, `-` or `_`. A name cannot be changed after it is created. To rename a provider, delete it and add it again.
+
+Several saved providers can use the same provider, for example two OpenAI accounts or an EU and a US ElevenLabs endpoint:
+
+| Service | Name | Provider | Notes |
+|---|---|---|---|
+| LLM | `openai-prod` | OpenAI | production account, `gpt-4.1-mini` |
+| LLM | `openai-cheap` | OpenAI | separate account, `gpt-4.1-nano` |
+| Voice | `eleven-eu` | ElevenLabs | EU endpoint, voice `Rachel` |
+| Voice | `eleven-us` | ElevenLabs | US endpoint, voice `Adam` |
+
+<Note>
+The Dograh-managed provider cannot be saved here. It is chosen in the default configuration. Embeddings are also configured only in the default configuration.
+</Note>
+
+## Edit or delete
+
+Use the pencil icon to change a saved provider. Leave the API key field as it is to keep the stored key. Deleting a saved provider does not affect calls already finished, but a call that has been triggered with that name and not yet started will fail.
+
+## API
+
+Saved providers are managed under `/api/v1/organizations/model-configurations/v2/profiles` and always return API keys masked.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/profiles` | List saved providers |
+| `POST` | `/profiles` | Create one (`name`, `service`, `config`) |
+| `PUT` | `/profiles/{service}/{name}` | Replace a saved provider's `config` |
+| `DELETE` | `/profiles/{service}/{name}` | Delete a saved provider |
+
+`service` is one of `llm`, `tts`, `stt`, or `realtime`.

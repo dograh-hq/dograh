@@ -18,6 +18,16 @@ from api.services.call_concurrency import (
     CallConcurrencyLimitError,
     call_concurrency,
 )
+from api.schemas.model_provider_profiles import CallModelOverrides
+from api.services.configuration.ai_model_configuration import (
+    get_effective_ai_model_configuration_for_workflow,
+)
+from api.services.configuration.call_model_overrides import (
+    CallOverrideError,
+    apply_call_model_overrides,
+    missing_services,
+    validate_call_overrides,
+)
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony.factory import get_telephony_provider_by_id
 from api.services.telephony.outbound_readiness import (
@@ -25,8 +35,14 @@ from api.services.telephony.outbound_readiness import (
     OutboundSetupIncompleteError,
     resolve_outbound_configuration_id,
 )
-from api.services.workflow.initial_context import merge_external_initial_context
-from api.services.workflow.run_creation import prepare_workflow_run_inputs
+from api.services.workflow.initial_context import (
+    RUN_MODEL_OVERRIDES_CONTEXT_KEY,
+    merge_external_initial_context,
+)
+from api.services.workflow.run_creation import (
+    definition_to_run,
+    prepare_workflow_run_inputs,
+)
 from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.common import get_backend_endpoints
 
@@ -43,6 +59,11 @@ class TriggerCallRequest(BaseModel):
     telephony_configuration_id: int | None = None
     # Optional active caller ID in the resolved telephony configuration.
     from_phone_number_id: int | None = None
+    # Optional per-call model overrides. Each service names a saved provider
+    # profile (Models page > Saved providers) plus optional non-secret field
+    # tweaks, e.g. {"tts": {"profile": "eleven-eu", "voice": "Rachel"}}.
+    # Credentials are never accepted here.
+    model_overrides: CallModelOverrides | None = None
 
 
 class TriggerCallResponse(BaseModel):
@@ -181,6 +202,48 @@ async def _resolve_workflow_uuid_target(
     )
 
 
+async def _validate_model_overrides(
+    target: ResolvedAgentTarget,
+    overrides: CallModelOverrides,
+    *,
+    use_draft: bool,
+) -> dict | None:
+    """Validate per-call overrides against saved profiles before dialling.
+
+    Returns the secret-free dict to store on the run, or ``None`` when no
+    override was requested. Raises 422 when the overrides are invalid or would
+    leave the call without a runnable model configuration.
+    """
+    try:
+        stored = await validate_call_overrides(target.organization_id, overrides)
+        if not stored:
+            return None
+
+        definition = await definition_to_run(
+            db_client, target.workflow, use_draft=use_draft
+        )
+        workflow_configurations = (
+            getattr(definition, "workflow_configurations", None)
+            or target.workflow.workflow_configurations
+        )
+        base = await get_effective_ai_model_configuration_for_workflow(
+            organization_id=target.organization_id,
+            workflow_configurations=workflow_configurations,
+        )
+        effective = await apply_call_model_overrides(
+            base, target.organization_id, stored
+        )
+        missing = missing_services(effective)
+        if missing:
+            raise CallOverrideError(
+                "model_overrides leave the call without a "
+                f"{', '.join(missing)} configuration; add a profile for it"
+            )
+    except CallOverrideError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return stored
+
+
 async def _execute_resolved_target(
     target: ResolvedAgentTarget,
     request: TriggerCallRequest,
@@ -191,6 +254,12 @@ async def _execute_resolved_target(
 ) -> TriggerCallResponse:
     """Shared execution path once the target workflow has been resolved."""
     execution_user_id = _get_execution_user_id(target.workflow)
+
+    stored_model_overrides = None
+    if request.model_overrides is not None:
+        stored_model_overrides = await _validate_model_overrides(
+            target, request.model_overrides, use_draft=use_draft
+        )
 
     # An explicit config remains authoritative. Legacy callers that omit it
     # get the first active configuration that passes outbound pre-flight.
@@ -266,6 +335,8 @@ async def _execute_resolved_target(
     initial_context = merge_external_initial_context(
         initial_context, request.initial_context
     )
+    if stored_model_overrides:
+        initial_context[RUN_MODEL_OVERRIDES_CONTEXT_KEY] = stored_model_overrides
     # The destination describes the actual call and must not be overridden by
     # caller-supplied context.
     initial_context["called_number"] = request.phone_number

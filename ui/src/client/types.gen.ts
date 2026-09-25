@@ -929,6 +929,40 @@ export type CallEventsSettings = {
 };
 
 /**
+ * CallModelOverrides
+ *
+ * Model overrides for a single call, selecting saved provider profiles.
+ */
+export type CallModelOverrides = {
+    llm?: CallServiceOverride | null;
+    tts?: CallServiceOverride | null;
+    stt?: CallServiceOverride | null;
+    realtime?: CallServiceOverride | null;
+    /**
+     * Is Realtime
+     */
+    is_realtime?: boolean | null;
+};
+
+/**
+ * CallServiceOverride
+ *
+ * Per-call override for one service: a saved profile plus field tweaks.
+ *
+ * ``profile`` names a saved provider profile. Any additional keys override
+ * that profile's non-secret settings for this call only (for example
+ * ``model`` or ``voice``). Credentials, ``provider`` and endpoint URLs are
+ * not accepted here: create a separate profile for those.
+ */
+export type CallServiceOverride = {
+    /**
+     * Profile
+     */
+    profile: string;
+    [key: string]: unknown;
+};
+
+/**
  * CallType
  */
 export type CallType = 'inbound' | 'outbound';
@@ -7306,6 +7340,7 @@ export type TriggerCallRequest = {
      * From Phone Number Id
      */
     from_phone_number_id?: number | null;
+    model_overrides?: CallModelOverrides | null;
 };
 
 /**

@@ -1,7 +1,7 @@
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import Float, String, cast, func
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -544,3 +544,87 @@ class WorkflowRunClient(BaseDBClient):
                 .limit(1)
             )
             return result.scalars().first()
+
+    async def list_voice_runs_for_workflow(
+        self,
+        workflow_id: int,
+        organization_id: int,
+        limit: int = 10,
+        min_duration_seconds: float = 30.0,
+        disposition_filter: Optional[str] = None,
+    ) -> List[dict]:
+        """Return completed voice runs for a workflow, scoped to an org.
+
+        Excludes text-chat modes and incomplete runs. Results are ordered
+        newest-first.
+
+        Returns dicts with: id, run_id (Axiom key), call_type,
+        duration_seconds, disposition, created_at, transcript_url,
+        storage_backend.
+        """
+        async with self.async_session() as session:
+            query = (
+                select(WorkflowRunModel)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.workflow_id == workflow_id,
+                    WorkflowModel.organization_id == organization_id,
+                    WorkflowRunModel.is_completed == True,
+                    WorkflowRunModel.mode.notin_(["textchat", "chat"]),
+                )
+            )
+
+            if min_duration_seconds > 0:
+                query = query.where(
+                    cast(
+                        WorkflowRunModel.usage_info.op("->>")(
+                            "call_duration_seconds"
+                        ),
+                        Float,
+                    )
+                    >= min_duration_seconds
+                )
+
+            if disposition_filter:
+                query = query.where(
+                    func.replace(
+                        func.replace(
+                            cast(
+                                WorkflowRunModel.gathered_context[
+                                    "mapped_call_disposition"
+                                ],
+                                String,
+                            ),
+                            '"',
+                            "",
+                        ),
+                        "'",
+                        "",
+                    )
+                    == disposition_filter
+                )
+
+            result = await session.execute(
+                query.order_by(WorkflowRunModel.created_at.desc()).limit(limit)
+            )
+            rows = result.scalars().all()
+
+            return [
+                {
+                    "id": run.id,
+                    "run_id": (run.extra or {}).get("run_id"),
+                    "call_type": run.call_type,
+                    "duration_seconds": (run.usage_info or {}).get(
+                        "call_duration_seconds"
+                    ),
+                    "disposition": (run.gathered_context or {}).get(
+                        "mapped_call_disposition"
+                    ),
+                    "created_at": (
+                        run.created_at.isoformat() if run.created_at else None
+                    ),
+                    "transcript_url": run.transcript_url,
+                    "storage_backend": run.storage_backend,
+                }
+                for run in rows
+            ]

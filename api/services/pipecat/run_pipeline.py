@@ -299,6 +299,7 @@ def _create_realtime_user_turn_config(provider: str, model: str | None = None):
     if provider in {
         ServiceProviders.OPENAI_REALTIME.value,
         ServiceProviders.AZURE_REALTIME.value,
+        ServiceProviders.YANDEX_REALTIME.value,
     }:
         # OpenAI-compatible Realtime services already emit speaking-state frames
         # and interruption events from the provider, so the aggregator should

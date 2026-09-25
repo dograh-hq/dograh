@@ -16,3 +16,9 @@ For locally deployed or self-hosted LLMs, Dograh also supports OpenAI-compatible
 If you don't find a model in the drop down, you can always add a model manually.
 
 ![Select Models from DropDown](../images/add_model_manually.png)
+
+## OpenRouter provider routing
+
+By default OpenRouter spreads requests across every provider that serves a model, weighted toward the cheapest. For voice agents that can add noticeable latency, because each turn may land on a slower provider.
+
+Use **Provider order** to list the OpenRouter provider slugs to try first, in order, one slug per entry (for example, `groq`). The slugs are shown on each model's page on OpenRouter. If none of the listed providers is available, OpenRouter falls back to its other providers, so calls keep working.

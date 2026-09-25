@@ -64,6 +64,7 @@ class UserConfigurationValidator:
             ServiceProviders.AWS_NOVA_SONIC.value: self._check_aws_bedrock_api_key,
             ServiceProviders.ASSEMBLYAI.value: self._check_assemblyai_api_key,
             ServiceProviders.GLADIA.value: self._check_gladia_api_key,
+            ServiceProviders.SONIOX.value: self._check_soniox_api_key,
             ServiceProviders.RIME.value: self._check_rime_api_key,
             ServiceProviders.MINIMAX.value: self._check_minimax_api_key,
             ServiceProviders.SMALLEST.value: self._check_smallest_api_key,
@@ -504,6 +505,31 @@ class UserConfigurationValidator:
 
     def _check_gladia_api_key(self, model: str, api_key: str) -> bool:
         return True
+
+    def _check_soniox_api_key(self, model: str, api_key: str) -> bool:
+        try:
+            response = httpx.get(
+                "https://api.soniox.com/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            return True
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (401, 403):
+                raise ValueError(
+                    "Invalid Soniox API key. The key was rejected by the Soniox API. "
+                    "Please verify that your API key is correct and active."
+                ) from exc
+            raise ValueError(
+                "The Soniox API returned an error while validating the API key. "
+                "Please try again later."
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ValueError(
+                "Could not connect to the Soniox API. Please check your network "
+                "connection and try again."
+            ) from exc
 
     def _check_rime_api_key(self, model: str, api_key: str) -> bool:
         return True

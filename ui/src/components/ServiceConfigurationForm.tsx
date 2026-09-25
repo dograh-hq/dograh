@@ -113,6 +113,11 @@ export interface ServiceConfigurationFormProps {
      * Leave undefined to keep the user-controllable toggle (legacy + overrides).
      */
     forceRealtime?: boolean;
+    /**
+     * Renders and saves a single service (no tabs, no realtime toggle). Used to
+     * edit one saved provider profile. `onSave` receives `{ [onlyService]: config }`.
+     */
+    onlyService?: ServiceSegment;
 }
 
 function getProviderDisplayName(
@@ -166,6 +171,7 @@ export function ServiceConfigurationForm({
     configurationDefaults,
     initialConfig,
     forceRealtime,
+    onlyService,
 }: ServiceConfigurationFormProps) {
     const [apiError, setApiError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
@@ -516,7 +522,9 @@ export function ServiceConfigurationForm({
         setIsSaving(true);
 
         try {
-            if (mode === 'override') {
+            if (onlyService) {
+                await onSave({ [onlyService]: buildServiceConfig(onlyService, data) });
+            } else if (mode === 'override') {
                 // Build model_overrides for enabled services only
                 const modelOverrides: Record<string, unknown> = {};
                 const services = isRealtime ? ["realtime", "llm"] : ["llm", "tts", "stt"];
@@ -938,7 +946,7 @@ export function ServiceConfigurationForm({
     return (
         <form onSubmit={handleSubmit(onSubmit)}>
             {/* Realtime toggle — hidden when the parent locks the mode (v2 tabs) */}
-            {forceRealtime === undefined && (
+            {forceRealtime === undefined && !onlyService && (
                 <div className="flex items-center justify-between mb-4 p-4 border rounded-lg">
                     <div>
                         <Label htmlFor="realtime-toggle" className="text-sm font-medium">
@@ -958,22 +966,26 @@ export function ServiceConfigurationForm({
 
             <Card>
                 <CardContent className="pt-6">
-                    <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full">
-                        <TabsList className="grid w-full mb-6" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, 1fr)` }}>
-                            {visibleTabs.map(({ key, label }) => (
-                                <TabsTrigger key={key} value={key}>
-                                    {label}
-                                </TabsTrigger>
-                            ))}
-                        </TabsList>
+                    {onlyService ? (
+                        renderServiceFields(onlyService)
+                    ) : (
+                        <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full">
+                            <TabsList className="grid w-full mb-6" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, 1fr)` }}>
+                                {visibleTabs.map(({ key, label }) => (
+                                    <TabsTrigger key={key} value={key}>
+                                        {label}
+                                    </TabsTrigger>
+                                ))}
+                            </TabsList>
 
-                        {visibleTabs.map(({ key, label }) => (
-                            <TabsContent key={key} value={key} className="mt-0">
-                                {mode === 'override' && renderOverrideToggle(key, label)}
-                                {(mode === 'global' || enabledOverrides[key]) && renderServiceFields(key)}
-                            </TabsContent>
-                        ))}
-                    </Tabs>
+                            {visibleTabs.map(({ key, label }) => (
+                                <TabsContent key={key} value={key} className="mt-0">
+                                    {mode === 'override' && renderOverrideToggle(key, label)}
+                                    {(mode === 'global' || enabledOverrides[key]) && renderServiceFields(key)}
+                                </TabsContent>
+                            ))}
+                        </Tabs>
+                    )}
                 </CardContent>
             </Card>
 

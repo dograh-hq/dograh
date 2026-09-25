@@ -79,3 +79,45 @@ describe("OpenAI speech model selection", () => {
         expect(onSave.mock.calls[0][0].realtime).not.toHaveProperty("backend_model");
     });
 });
+
+describe("single-service mode (saved provider profiles)", () => {
+    const ttsDefaults: ServiceConfigurationDefaults = {
+        llm: {}, stt: {}, embeddings: {}, realtime: {},
+        default_providers: { tts: "deepgram" },
+        tts: {
+            deepgram: {
+                title: "Deepgram",
+                properties: {
+                    provider: { default: "deepgram" },
+                    model: { default: "aura-2", examples: ["aura-2"] },
+                    api_key: { type: "string" },
+                },
+            },
+        },
+    };
+
+    it("renders one service without tabs and saves only that service", async () => {
+        const onSave = vi.fn();
+        render(
+            <ServiceConfigurationForm
+                mode="global"
+                onlyService="tts"
+                configurationDefaults={ttsDefaults}
+                initialConfig={{ tts: { provider: "deepgram", api_key: "dg-key", model: "aura-2" } }}
+                submitLabel="Save provider"
+                onSave={onSave}
+            />,
+        );
+
+        await screen.findByDisplayValue("dg-key");
+        expect(screen.queryByRole("tab")).toBeNull();
+        expect(screen.queryByText("Realtime Mode")).toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: "Save provider" }));
+
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        const saved = onSave.mock.calls[0][0];
+        expect(Object.keys(saved)).toEqual(["tts"]);
+        expect(saved.tts).toMatchObject({ provider: "deepgram", api_key: ["dg-key"], model: "aura-2" });
+    });
+});

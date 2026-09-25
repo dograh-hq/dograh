@@ -4230,6 +4230,70 @@ export type ModelConfigurationPricingResponse = {
 };
 
 /**
+ * ModelProviderProfileCreateRequest
+ */
+export type ModelProviderProfileCreateRequest = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Service
+     */
+    service: 'llm' | 'tts' | 'stt' | 'realtime';
+    /**
+     * Config
+     */
+    config: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * ModelProviderProfileResponse
+ *
+ * A profile as returned to clients: secrets are masked.
+ */
+export type ModelProviderProfileResponse = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Service
+     */
+    service: 'llm' | 'tts' | 'stt' | 'realtime';
+    /**
+     * Config
+     */
+    config: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * ModelProviderProfileUpdateRequest
+ */
+export type ModelProviderProfileUpdateRequest = {
+    /**
+     * Config
+     */
+    config: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * ModelProviderProfilesResponse
+ */
+export type ModelProviderProfilesResponse = {
+    /**
+     * Profiles
+     */
+    profiles: Array<ModelProviderProfileResponse>;
+};
+
+/**
  * MoveWorkflowToFolderRequest
  *
  * Move a workflow into a folder, or to "Uncategorized" when null.
@@ -13797,6 +13861,180 @@ export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses = 
 };
 
 export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponse = GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses[keyof GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses];
+
+export type ListModelProviderProfilesApiV1OrganizationsModelConfigurationsV2ProfilesGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/model-configurations/v2/profiles';
+};
+
+export type ListModelProviderProfilesApiV1OrganizationsModelConfigurationsV2ProfilesGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListModelProviderProfilesApiV1OrganizationsModelConfigurationsV2ProfilesGetError = ListModelProviderProfilesApiV1OrganizationsModelConfigurationsV2ProfilesGetErrors[keyof ListModelProviderProfilesApiV1OrganizationsModelConfigurationsV2ProfilesGetErrors];
+
+export type ListModelProviderProfilesApiV1OrganizationsModelConfigurationsV2ProfilesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ModelProviderProfilesResponse;
+};
+
+export type ListModelProviderProfilesApiV1OrganizationsModelConfigurationsV2ProfilesGetResponse = ListModelProviderProfilesApiV1OrganizationsModelConfigurationsV2ProfilesGetResponses[keyof ListModelProviderProfilesApiV1OrganizationsModelConfigurationsV2ProfilesGetResponses];
+
+export type CreateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesPostData = {
+    body: ModelProviderProfileCreateRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/model-configurations/v2/profiles';
+};
+
+export type CreateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesPostError = CreateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesPostErrors[keyof CreateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesPostErrors];
+
+export type CreateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesPostResponses = {
+    /**
+     * Successful Response
+     */
+    201: ModelProviderProfileResponse;
+};
+
+export type CreateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesPostResponse = CreateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesPostResponses[keyof CreateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesPostResponses];
+
+export type DeleteModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNameDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Service
+         */
+        service: 'llm' | 'tts' | 'stt' | 'realtime';
+        /**
+         * Name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/organizations/model-configurations/v2/profiles/{service}/{name}';
+};
+
+export type DeleteModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNameDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNameDeleteError = DeleteModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNameDeleteErrors[keyof DeleteModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNameDeleteErrors];
+
+export type DeleteModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNameDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNameDeleteResponse = DeleteModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNameDeleteResponses[keyof DeleteModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNameDeleteResponses];
+
+export type UpdateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNamePutData = {
+    body: ModelProviderProfileUpdateRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Service
+         */
+        service: 'llm' | 'tts' | 'stt' | 'realtime';
+        /**
+         * Name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/organizations/model-configurations/v2/profiles/{service}/{name}';
+};
+
+export type UpdateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNamePutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNamePutError = UpdateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNamePutErrors[keyof UpdateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNamePutErrors];
+
+export type UpdateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNamePutResponses = {
+    /**
+     * Successful Response
+     */
+    200: ModelProviderProfileResponse;
+};
+
+export type UpdateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNamePutResponse = UpdateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNamePutResponses[keyof UpdateModelProviderProfileApiV1OrganizationsModelConfigurationsV2ProfilesServiceNamePutResponses];
 
 export type GetSignedUrlApiV1S3SignedUrlGetData = {
     body?: never;

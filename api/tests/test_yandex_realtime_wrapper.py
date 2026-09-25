@@ -44,3 +44,36 @@ async def test_connect_authenticates_with_api_key_header(monkeypatch):
         uri=service.base_url,
         additional_headers={"Authorization": "Api-Key test-key"},
     )
+
+
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.services.configuration.registry import YandexRealtimeLLMConfiguration
+from api.services.pipecat.service_factory import create_realtime_llm_service
+
+
+def test_factory_creates_dograh_yandex_realtime_service():
+    effective_config = EffectiveAIModelConfiguration(
+        is_realtime=True,
+        realtime=YandexRealtimeLLMConfiguration(
+            provider="yandex_realtime",
+            api_key="yandex-key",
+            folder_id="b1gxxxxxxxxxxxxxxxxx",
+            model="speech-realtime-deepseek-v4-flash/latest",
+            voice="masha",
+        ),
+    )
+
+    service = create_realtime_llm_service(
+        effective_config,
+        audio_config=SimpleNamespace(),
+    )
+
+    assert isinstance(service, DograhYandexRealtimeLLMService)
+    assert service._settings.model == (
+        "gpt://b1gxxxxxxxxxxxxxxxxx/speech-realtime-deepseek-v4-flash/latest"
+    )
+    assert service.base_url == (
+        "wss://ai.api.cloud.yandex.net/v1/realtime/openai"
+        "?model=gpt://b1gxxxxxxxxxxxxxxxxx/speech-realtime-deepseek-v4-flash/latest"
+    )
+    assert service._settings.session_properties.audio.output.voice == "masha"

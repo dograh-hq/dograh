@@ -1460,6 +1460,35 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 ),
             ),
         )
+    elif provider == ServiceProviders.YANDEX_REALTIME.value:
+        from api.services.pipecat.realtime.yandex_realtime import (
+            DograhYandexRealtimeLLMService,
+        )
+        from pipecat.services.openai.realtime.events import (
+            AudioConfiguration,
+            AudioInput,
+            AudioOutput,
+            InputAudioTranscription,
+            SessionProperties,
+        )
+
+        model_uri = f"gpt://{realtime_config.folder_id}/{model}"
+        return DograhYandexRealtimeLLMService(
+            api_key=api_key,
+            settings=DograhYandexRealtimeLLMService.Settings(
+                model=model_uri,
+                session_properties=SessionProperties(
+                    audio=AudioConfiguration(
+                        input=AudioInput(
+                            transcription=InputAudioTranscription(),
+                        ),
+                        output=AudioOutput(
+                            voice=voice or "masha",
+                        ),
+                    ),
+                ),
+            ),
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid realtime LLM provider {provider}"

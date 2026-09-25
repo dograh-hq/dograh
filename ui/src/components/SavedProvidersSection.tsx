@@ -306,7 +306,7 @@ export function SavedProvidersSection({ defaults }: SavedProvidersSectionProps) 
                         <DialogTitle>Delete saved provider</DialogTitle>
                         <DialogDescription>
                             {dialog?.kind === "delete"
-                                ? `"${dialog.profile.name}" will be removed. API calls that reference it will be rejected.`
+                                ? `"${dialog.profile.name}" will be removed. Workflows and API calls that use it will fail until you choose another provider.`
                                 : ""}
                         </DialogDescription>
                     </DialogHeader>

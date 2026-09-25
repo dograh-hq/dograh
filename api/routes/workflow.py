@@ -29,11 +29,16 @@ from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.configuration.ai_model_configuration import (
     WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY,
+    WORKFLOW_MODEL_PROFILE_SELECTION_KEY,
     check_for_masked_keys_in_ai_model_configuration_v2,
     compile_ai_model_configuration_v2,
     convert_legacy_ai_model_configuration_to_v2,
     get_resolved_ai_model_configuration,
     merge_ai_model_configuration_v2_secrets,
+)
+from api.services.configuration.call_model_overrides import (
+    CallOverrideError,
+    validate_workflow_profile_selection,
 )
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.masking import (
@@ -1288,6 +1293,27 @@ async def update_workflow(
                     **workflow_configurations,
                     "model_overrides": enriched_overrides,
                 }
+
+        # Saved providers chosen for this workflow are stored by name only.
+        if (
+            workflow_configurations
+            and WORKFLOW_MODEL_PROFILE_SELECTION_KEY in workflow_configurations
+        ):
+            try:
+                profile_selection = await validate_workflow_profile_selection(
+                    user.selected_organization_id, workflow_configurations
+                )
+            except CallOverrideError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            workflow_configurations = {
+                key: value
+                for key, value in workflow_configurations.items()
+                if key != WORKFLOW_MODEL_PROFILE_SELECTION_KEY
+            }
+            if profile_selection:
+                workflow_configurations[WORKFLOW_MODEL_PROFILE_SELECTION_KEY] = (
+                    profile_selection
+                )
 
         # Reject upfront if any new trigger path collides with another
         # workflow's trigger — keeps the workflow record from

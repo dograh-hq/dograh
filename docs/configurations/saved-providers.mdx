@@ -27,9 +27,18 @@ Several saved providers can use the same provider, for example two OpenAI accoun
 The Dograh-managed provider cannot be saved here. It is chosen in the default configuration. Embeddings are also configured only in the default configuration.
 </Note>
 
+## Use a saved provider in a workflow
+
+Open the agent's **Settings**, go to **Model Overrides**, and use the **Saved providers** block. Each service (LLM, Voice, Transcriber, Speech to Speech) can be left on **Use default** or set to one of your saved providers.
+
+- Only the name is stored on the agent. The API key is read from the saved provider when a call starts, so rotating a key on the AI Models Configuration page updates every agent that uses it.
+- The selection is saved on the agent's draft. **Test calls** from the editor use it right away. Publish the agent to apply it to live calls.
+- The order is: organization configuration, then the agent's own model override (if enabled), then the saved providers chosen here, then any per-call [`model_overrides`](/voice-agent/api-trigger#override-models-for-one-call).
+- Choosing a Speech to Speech provider switches the agent to speech-to-speech for those calls.
+
 ## Edit or delete
 
-Use the pencil icon to change a saved provider. Leave the API key field as it is to keep the stored key. Deleting a saved provider does not affect calls already finished, but a call that has been triggered with that name and not yet started will fail.
+Use the pencil icon to change a saved provider. Leave the API key field as it is to keep the stored key. Deleting a saved provider does not affect calls already finished. An agent or API call that still refers to the deleted name fails when a call starts, so choose another provider first.
 
 ## API
 

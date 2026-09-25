@@ -163,6 +163,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     external_pbx_lead_headers: string[];  // Extra lead fields to capture from the inbound INVITE
     model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
     model_configuration_v2_override?: OrganizationAiModelConfigurationV2;  // Full v2 model configuration override
+    model_profile_selection?: Record<string, { profile: string } & Record<string, unknown>>;  // Saved providers chosen per service (by name)
     [key: string]: unknown;  // Allow additional properties for future configurations
 };
 

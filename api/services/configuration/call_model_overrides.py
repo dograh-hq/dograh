@@ -24,15 +24,24 @@ from api.schemas.model_provider_profiles import (
     parse_profile_config,
 )
 from api.services.configuration.ai_model_configuration import (
+    WORKFLOW_MODEL_PROFILE_SELECTION_KEY,
     get_effective_ai_model_configuration_for_workflow,
 )
 from api.services.configuration.masking import SERVICE_SECRET_FIELDS
+from api.services.configuration.profile_selection import (
+    CallOverrideError,
+    expand_profile_section,
+    apply_profile_selection,
+)
 from api.services.configuration.provider_profiles import (
     ProfileNotFoundError,
     get_profile,
 )
 from api.services.configuration.registry import REGISTRY, ServiceType
 from api.services.workflow.initial_context import RUN_MODEL_OVERRIDES_CONTEXT_KEY
+
+# Re-exported: callers and tests import the historical names from here.
+apply_call_model_overrides = apply_profile_selection
 
 # Fields a caller may never override per call: credentials, the provider
 # itself, and endpoint URLs (validated only when a profile is saved).
@@ -41,22 +50,6 @@ _FORBIDDEN_FIELDS = frozenset(SERVICE_SECRET_FIELDS) | {
     "base_url",
     "endpoint",
 }
-
-
-class CallOverrideError(ValueError):
-    """The requested overrides cannot be applied (maps to HTTP 422)."""
-
-
-async def _expanded_service_config(
-    organization_id: int, service: str, section: dict[str, Any]
-) -> dict[str, Any]:
-    name = section["profile"]
-    try:
-        profile = await get_profile(organization_id, service, name)
-    except ProfileNotFoundError as exc:
-        raise CallOverrideError(f"No saved {service} profile named '{name}'") from exc
-    fields = {key: value for key, value in section.items() if key != "profile"}
-    return {**profile.config, **fields}
 
 
 def _check_field_names(service: str, section: dict[str, Any], provider: str) -> None:
@@ -102,7 +95,7 @@ async def validate_call_overrides(
         try:
             parse_profile_config(
                 service,
-                await _expanded_service_config(organization_id, service, section),
+                await expand_profile_section(organization_id, service, section),
             )
         except (ValueError, ValidationError) as exc:
             raise CallOverrideError(f"{service}: {_first_error(exc)}") from exc
@@ -119,35 +112,6 @@ def _first_error(exc: Exception) -> str:
         location = ".".join(str(part) for part in error["loc"])
         return f"{location}: {error['msg']}" if location else error["msg"]
     return str(exc.args[0]) if exc.args else str(exc)
-
-
-async def apply_call_model_overrides(
-    base: EffectiveAIModelConfiguration,
-    organization_id: int,
-    stored: dict[str, Any] | None,
-) -> EffectiveAIModelConfiguration:
-    """Return ``base`` with the stored per-call overrides applied.
-
-    Each overridden service is *replaced* by the profile's config (with the
-    call's field tweaks), never merged into the default: merging could pair a
-    profile's API key with a different endpoint from the default config.
-    """
-    if not stored:
-        return base
-
-    effective = base.model_copy(deep=True)
-    for service in PROFILE_SERVICES:
-        section = stored.get(service)
-        if not section:
-            continue
-        config = await _expanded_service_config(organization_id, service, section)
-        setattr(effective, service, parse_profile_config(service, config))
-
-    if stored.get("is_realtime") is not None:
-        effective.is_realtime = bool(stored["is_realtime"])
-    elif stored.get("realtime"):
-        effective.is_realtime = True
-    return effective
 
 
 def missing_services(effective: EffectiveAIModelConfiguration) -> list[str]:
@@ -191,3 +155,41 @@ async def get_effective_ai_model_configuration_for_run(
         workflow_configurations=workflow_configurations,
     )
     return await apply_run_model_overrides(base, organization_id, run_initial_context)
+
+
+async def validate_workflow_profile_selection(
+    organization_id: int, workflow_configurations: dict
+) -> dict[str, Any] | None:
+    """Validate the saved-provider selection inside ``workflow_configurations``.
+
+    Returns the normalised, credential-free selection to store, or ``None``
+    when nothing is selected. Raises :class:`CallOverrideError` for unknown
+    profiles, forbidden or unknown fields, or a selection that leaves the
+    workflow without a runnable model configuration.
+    """
+    raw = workflow_configurations.get(WORKFLOW_MODEL_PROFILE_SELECTION_KEY)
+    if not raw:
+        return None
+    try:
+        overrides = CallModelOverrides.model_validate(raw)
+    except ValidationError as exc:
+        raise CallOverrideError(_first_error(exc)) from exc
+
+    stored = await validate_call_overrides(organization_id, overrides)
+    if not stored:
+        return None
+
+    effective = await get_effective_ai_model_configuration_for_workflow(
+        organization_id=organization_id,
+        workflow_configurations={
+            **workflow_configurations,
+            WORKFLOW_MODEL_PROFILE_SELECTION_KEY: stored,
+        },
+    )
+    missing = missing_services(effective)
+    if missing:
+        raise CallOverrideError(
+            "The selected saved providers leave the workflow without a "
+            f"{', '.join(missing)} configuration; select or configure one"
+        )
+    return stored

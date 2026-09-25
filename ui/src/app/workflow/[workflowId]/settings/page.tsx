@@ -37,6 +37,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { type WorkflowProfileSelection,WorkflowSavedProviders } from "@/components/WorkflowSavedProviders";
 import { SETTINGS_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 import { UnsavedChangesProvider, useUnsavedChanges, useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
@@ -1459,6 +1460,17 @@ function WorkflowModelOverridesSection({
         toast.success(`Model override saved. ${PUBLISH_WORKFLOW_REMINDER}`);
     };
 
+    const saveProfileSelection = async (selection: WorkflowProfileSelection) => {
+        const nextConfigurations = { ...workflowConfigurations };
+        if (Object.keys(selection).length > 0) {
+            nextConfigurations.model_profile_selection = selection;
+        } else {
+            delete nextConfigurations.model_profile_selection;
+        }
+        await onSave(nextConfigurations, workflowName);
+        toast.success("Saved providers updated on the draft. Test calls use them now. " + PUBLISH_WORKFLOW_REMINDER);
+    };
+
     const removeV2Override = async () => {
         setIsRemovingOverride(true);
         try {
@@ -1560,6 +1572,11 @@ function WorkflowModelOverridesSection({
                                 )}
                             </div>
                         )}
+
+                        <WorkflowSavedProviders
+                            selection={workflowConfigurations.model_profile_selection as WorkflowProfileSelection | undefined}
+                            onSave={saveProfileSelection}
+                        />
                     </>
                 )}
             </CardContent>

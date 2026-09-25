@@ -61,6 +61,15 @@ from api.services.configuration.options import (
     SMALLEST_TTS_PRO_VOICES,
     SMALLEST_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
+    YANDEX_EMBEDDING_MODELS,
+    YANDEX_MODELS,
+    YANDEX_REALTIME_API_VERSIONS,
+    YANDEX_REALTIME_MODELS,
+    YANDEX_REALTIME_VOICES,
+    YANDEX_SPEECH_REGIONS,
+    YANDEX_SPEECH_STT_LANGUAGES,
+    YANDEX_SPEECH_TTS_LANGUAGES,
+    YANDEX_SPEECH_TTS_VOICES
 )
 from api.services.configuration.options.google import (
     GOOGLE_VERTEX_DEFAULT_LOCATION,
@@ -113,6 +122,8 @@ class ServiceProviders(str, Enum):
     XAI = "xai"
     LMNT = "lmnt"
     SPEECHIFY = "speechify"
+    YANDEX = "yandex"
+    YANDEX_REALTIME = "yandex_realtime"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -148,6 +159,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.XAI,
         ServiceProviders.LMNT,
         ServiceProviders.SPEECHIFY,
+        ServiceProviders.YANDEX_REALTIME,
     ]
     api_key: str | list[str]
 
@@ -384,6 +396,16 @@ AWS_NOVA_SONIC_PROVIDER_MODEL_CONFIG = provider_model_config(
         "https://docs.aws.amazon.com/nova/latest/nova2-userguide/"
         "sonic-getting-started.html"
     ),
+)
+YANDEX_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Yandex LLM OpenAI-Compatible",
+    description="Yandex AiStudio",
+    provider_docs_url="https://aistudio.yandex.ru/en/docs/ai-studio/api/",
+)
+YANDEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Yandex RealtimeAPI",
+    description="Yandex Realtime API — low-latency speech-to-speech conversations.",
+    provider_docs_url="https://aistudio.yandex.ru/ru/docs/ai-studio/operations/agents/create-voice-agent",
 )
 
 OPENAI_MODELS = [
@@ -695,6 +717,20 @@ class SarvamLLMConfiguration(BaseLLMConfiguration):
         ),
     )
 
+
+@register_llm
+class YandexLLMService(BaseLLMConfiguration):
+    model_config = YANDEX_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.YANDEX] = ServiceProviders.YANDEX
+    model: str = Field(
+        default=YANDEX_MODELS[0],
+        description="OpenAI chat model to use.",
+        json_schema_extra={"examples": YANDEX_MODELS, "allow_custom_input": False},
+    )
+    base_url: str = Field(
+        default="https://ai.api.cloud.yandex.net/v1",
+        description="Do not override this",
+    )
 
 OPENAI_REALTIME_MODELS = [
     "gpt-live-1",
@@ -1078,6 +1114,39 @@ class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
         },
     )
 
+@register_service(ServiceType.REALTIME)
+class YandexRealtimeLLMConfiguration(BaseLLMConfiguration):
+    model_config = YANDEX_REALTIME_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.YANDEX_REALTIME] = ServiceProviders.YANDEX_REALTIME
+    model: str = Field(
+        default=YANDEX_REALTIME_MODELS[0],
+        description="Yandex realtime model name.",
+        json_schema_extra={
+            "examples": YANDEX_REALTIME_MODELS,
+            "allow_custom_input": False,
+        },
+    )
+    folder_id: str = Field(
+        description=(
+            "Yandex Cloud folder ID that owns the realtime model (used to "
+            "build the gpt://<folder_id>/<model> model URI)."
+        ),
+    )
+    voice: str = Field(
+        default=YANDEX_REALTIME_VOICES[0],
+        description="Voice the model speaks in.",
+        json_schema_extra={
+            "examples": YANDEX_REALTIME_VOICES,
+            "allow_custom_input": False,
+        },
+    )
+    api_version: str = Field(
+        default="v1",
+        description="Yandex protocol version",
+        json_schema_extra={
+            "examples": YANDEX_REALTIME_API_VERSIONS,
+        },
+    )
 
 REALTIME_PROVIDERS = {
     ServiceProviders.OPENAI_REALTIME.value,
@@ -1087,6 +1156,7 @@ REALTIME_PROVIDERS = {
     ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
     ServiceProviders.AZURE_REALTIME.value,
     ServiceProviders.AWS_NOVA_SONIC.value,
+    ServiceProviders.YANDEX_REALTIME.value,
 }
 
 
@@ -1105,6 +1175,7 @@ LLMConfig = Annotated[
         HuggingFaceLLMConfiguration,
         MiniMaxLLMConfiguration,
         SarvamLLMConfiguration,
+        YandexLLMService,
     ],
     Field(discriminator="provider"),
 ]
@@ -1118,6 +1189,7 @@ RealtimeConfig = Annotated[
         GoogleVertexRealtimeLLMConfiguration,
         AzureRealtimeLLMConfiguration,
         AWSNovaSonicRealtimeLLMConfiguration,
+        YandexRealtimeLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]

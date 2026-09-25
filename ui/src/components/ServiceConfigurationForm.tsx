@@ -25,6 +25,7 @@ interface SchemaProperty {
     type?: string;
     default?: string | number | boolean;
     anyOf?: SchemaProperty[];
+    items?: SchemaProperty;
     minimum?: number;
     maximum?: number;
     enum?: string[];
@@ -51,7 +52,7 @@ export interface ProviderSchema {
 }
 
 interface FormValues {
-    [key: string]: string | number | boolean;
+    [key: string]: string | number | boolean | string[];
 }
 
 export interface ServiceConfigurationDefaults {
@@ -146,6 +147,16 @@ function getSchemaDropdownOptions(
     }
 
     return dropdownOptions;
+}
+
+function getOptionDisplayName(field: string, value: string): string {
+    if (field === "language" || field === "language_hints") {
+        return LANGUAGE_DISPLAY_NAMES[value] || value;
+    }
+    if (field === "voice") {
+        return VOICE_DISPLAY_NAMES[value] || value.charAt(0).toUpperCase() + value.slice(1);
+    }
+    return value;
 }
 
 function getNumberSchema(schema: SchemaProperty | undefined): SchemaProperty | undefined {
@@ -269,7 +280,7 @@ export function ServiceConfigurationForm({
                 setIsRealtime(true);
             }
 
-            const defaultValues: Record<string, string | number | boolean> = {};
+            const defaultValues: Record<string, string | number | boolean | string[]> = {};
             const selectedProviders: Record<ServiceSegment, string> = {
                 llm: pickDefaultProvider("llm", defaultsData.llm),
                 tts: pickDefaultProvider("tts", defaultsData.tts),
@@ -324,7 +335,7 @@ export function ServiceConfigurationForm({
                                 }
                             }
                         } else if (field !== "provider") {
-                            defaultValues[`${service}_${field}`] = value as string | number | boolean;
+                            defaultValues[`${service}_${field}`] = value as string | number | boolean | string[];
                         }
                     });
                     selectedProviders[service] = src.provider as string;
@@ -461,7 +472,7 @@ export function ServiceConfigurationForm({
         if (!providerName) return;
 
         const currentValues = getValues();
-        const preservedValues: Record<string, string | number | boolean> = {};
+        const preservedValues: Record<string, string | number | boolean | string[]> = {};
 
         Object.keys(currentValues).forEach(key => {
             if (!key.startsWith(`${service}_`)) {
@@ -506,6 +517,10 @@ export function ServiceConfigurationForm({
             if (field === "api_key" || field === "provider") return;
             const fieldSchema = schemas?.[service]?.[serviceProviders[service]]?.properties[field];
             if (!isVisibleForModel(fieldSchema, data[`${service}_model`] as string)) return;
+            if (Array.isArray(value)) {
+                config[field] = value.map(item => item.trim()).filter(item => item.length > 0);
+                return;
+            }
             config[field] = value as string | number;
         });
         return config;
@@ -633,7 +648,7 @@ export function ServiceConfigurationForm({
                             const actualFieldSchema = fieldSchema?.$ref && providerSchema.$defs
                                 ? providerSchema.$defs[fieldSchema.$ref.split('/').pop() || '']
                                 : fieldSchema;
-                            const fullWidth = actualFieldSchema?.multiline;
+                            const fullWidth = actualFieldSchema?.multiline || actualFieldSchema?.type === "array";
                             return (
                                 <div key={field} className={`space-y-2 ${fullWidth ? "col-span-2" : ""}`}>
                                     <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
@@ -732,6 +747,66 @@ export function ServiceConfigurationForm({
         );
     };
 
+    const renderListInput = (service: ServiceSegment, field: string, options: string[] | undefined) => {
+        const fieldKey = `${service}_${field}`;
+        const values = (watch(fieldKey) as string[] | undefined) ?? [];
+        const setValues = (next: string[]) => setValue(fieldKey, next, { shouldDirty: true });
+
+        // A fixed set of choices is a multi-select, kept in the order the options are listed.
+        if (options && options.length > 0) {
+            return (
+                <div className="grid grid-cols-3 gap-2">
+                    {options.map(option => {
+                        const id = `${fieldKey}-${option}`;
+                        return (
+                            <div key={option} className="flex items-center space-x-2">
+                                <Checkbox
+                                    id={id}
+                                    checked={values.includes(option)}
+                                    onCheckedChange={(checked) => setValues(
+                                        options.filter(o => o === option ? checked === true : values.includes(o)),
+                                    )}
+                                />
+                                <Label htmlFor={id} className="text-sm font-normal cursor-pointer">
+                                    {getOptionDisplayName(field, option)}
+                                </Label>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        }
+
+        // Free-form entries keep the order they were added in.
+        return (
+            <div className="space-y-2">
+                {values.map((value, index) => (
+                    <div key={index} className="flex gap-2">
+                        <Input
+                            type="text"
+                            placeholder={`Enter ${field.replace(/_/g, ' ')}`}
+                            value={value}
+                            onChange={(e) => setValues(values.map((v, i) => i === index ? e.target.value : v))}
+                        />
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="shrink-0"
+                            aria-label="Remove"
+                            onClick={() => setValues(values.filter((_, i) => i !== index))}
+                        >
+                            <X className="h-4 w-4" />
+                        </Button>
+                    </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={() => setValues([...values, ""])}>
+                    <Plus className="h-4 w-4 mr-1" /> Add
+                </Button>
+            </div>
+        );
+    };
+
     const renderFieldInput = (service: ServiceSegment, field: string, providerSchema: ProviderSchema) => {
         const schema = providerSchema.properties[field];
         const actualSchema = schema.$ref && providerSchema.$defs
@@ -742,6 +817,10 @@ export function ServiceConfigurationForm({
             watch(`${service}_model`) as string | undefined,
         );
         const numberSchema = getNumberSchema(actualSchema);
+
+        if (actualSchema?.type === "array") {
+            return renderListInput(service, field, dropdownOptions);
+        }
 
         if (service === "tts" && field === "voice" && !actualSchema?.allow_custom_input) {
             if (!dropdownOptions) {
@@ -830,16 +909,6 @@ export function ServiceConfigurationForm({
         }
 
         if (dropdownOptions && dropdownOptions.length > 0) {
-            const getDisplayName = (value: string) => {
-                if (field === "language") {
-                    return LANGUAGE_DISPLAY_NAMES[value] || value;
-                }
-                if (field === "voice") {
-                    return VOICE_DISPLAY_NAMES[value] || value.charAt(0).toUpperCase() + value.slice(1);
-                }
-                return value;
-            };
-
             return (
                 <Select
                     value={watch(`${service}_${field}`) as string || ""}
@@ -854,7 +923,7 @@ export function ServiceConfigurationForm({
                     <SelectContent>
                         {dropdownOptions.map((value: string) => (
                             <SelectItem key={value} value={value}>
-                                {getDisplayName(value)}
+                                {getOptionDisplayName(field, value)}
                             </SelectItem>
                         ))}
                     </SelectContent>

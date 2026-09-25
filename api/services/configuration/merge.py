@@ -65,6 +65,17 @@ def _merge_service_secret_fields(
     return incoming_cfg
 
 
+def merge_service_secrets(incoming_cfg: dict, existing_cfg: dict) -> dict:
+    """Restore stored secrets into ``incoming_cfg`` for a single service config.
+
+    Masked or omitted secrets are taken from ``existing_cfg`` when the provider
+    is unchanged. Used for saved provider profiles.
+    """
+    return _merge_service_secret_fields(
+        incoming_cfg, existing_cfg, preserve_missing=True
+    )
+
+
 def merge_user_configurations(
     existing: EffectiveAIModelConfiguration, incoming_partial: Dict[str, dict]
 ) -> EffectiveAIModelConfiguration:

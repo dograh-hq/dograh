@@ -135,6 +135,13 @@ def _mask_service(service_cfg: Optional[ServiceConfig]) -> Optional[Dict[str, An
     return data
 
 
+def mask_service_config(
+    service_cfg: Optional[ServiceConfig],
+) -> Optional[Dict[str, Any]]:
+    """Public wrapper: dump a single service config with its secrets masked."""
+    return _mask_service(service_cfg)
+
+
 def mask_user_config(config: EffectiveAIModelConfiguration) -> Dict[str, Any]:
     """Return a JSON-serialisable dict of *config* with every api_key masked."""
 

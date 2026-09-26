@@ -81,8 +81,8 @@ export function SipConnectivityCard({
           <div className="space-y-1">
             <CardTitle>SIP connectivity</CardTitle>
             <CardDescription>
-              The endpoints to give your SIP carrier or PBX. Pick a region to see
-              the addresses that region uses.
+              The endpoints to give your SIP carrier or PBX through CALMOS. Pick a
+              region to see the addresses that region uses.
             </CardDescription>
           </div>
           <CollapsibleTrigger asChild>
@@ -125,7 +125,7 @@ export function SipConnectivityCard({
               <div className="border-b bg-muted/20 p-4">
                 <h3 className="font-semibold">Inbound</h3>
                 <p className="text-sm text-muted-foreground">
-                  Route calls to {details.provider_display_name}/Dograh using this
+                  Route calls to {details.provider_display_name}/CALMOS using this
                   SIP endpoint.
                 </p>
               </div>
@@ -164,7 +164,7 @@ export function SipConnectivityCard({
               <div className="border-b bg-muted/20 p-4">
                 <h3 className="font-semibold">Outbound</h3>
                 <p className="text-sm text-muted-foreground">
-                  Send calls from {details.provider_display_name}/Dograh to your SIP
+                  Send calls from {details.provider_display_name}/CALMOS to your SIP
                   carrier or PBX.
                 </p>
               </div>

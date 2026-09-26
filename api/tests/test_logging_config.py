@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from pipecat.utils.run_context import run_id_var
 
-from api.logging_config import enrich_log_record
+from api.logging_config import enrich_log_record, redact_access_log_message
 
 
 def _record(level: int, extra: dict | None = None) -> dict:
@@ -71,3 +71,15 @@ def test_warning_only_gets_run_context():
     enrich_log_record(record)
 
     assert record["extra"] == {"run_id": None}
+
+
+def test_access_log_redacts_websocket_query_token():
+    message = (
+        'WebSocket /api/v1/sakinah/simulations/example/audio?token=secret.jwt '
+        '[accepted]'
+    )
+
+    assert redact_access_log_message(message) == (
+        'WebSocket /api/v1/sakinah/simulations/example/audio?token=[REDACTED] '
+        '[accepted]'
+    )

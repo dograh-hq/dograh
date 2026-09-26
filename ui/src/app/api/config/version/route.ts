@@ -56,10 +56,21 @@ export async function GET() {
       turnEnabled = Boolean(data.turn_enabled);
       forceTurnRelay = Boolean(data.force_turn_relay);
       tunnelUrl = data.tunnel_url ?? null;
+      // A localhost / 127.0.0.1 endpoint is the server's own loopback and is
+      // NOT reachable from a browser. Treat it as unset so the client falls
+      // back to same-origin (which reaches the backend via the reverse proxy).
+      // Without this, a deployment where BACKEND_API_ENDPOINT defaults to
+      // http://localhost:8000 breaks browser login and avatar loads.
+      const rawEndpoint =
+        typeof data.backend_api_endpoint === "string"
+          ? data.backend_api_endpoint.trim()
+          : "";
+      const isLoopbackEndpoint = /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(
+        rawEndpoint,
+      );
       backendApiEndpoint =
-        typeof data.backend_api_endpoint === "string" &&
-        data.backend_api_endpoint.length > 0
-          ? trimTrailingSlash(data.backend_api_endpoint)
+        rawEndpoint.length > 0 && !isLoopbackEndpoint
+          ? trimTrailingSlash(rawEndpoint)
           : null;
       backendStatus = "reachable";
       backendMessage = null;

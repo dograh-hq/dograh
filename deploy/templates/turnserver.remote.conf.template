@@ -5,9 +5,13 @@
 listening-port=3478
 tls-listening-port=5349
 
-# Relay port range
-min-port=49152
-max-port=49200
+# Relay port range (rendered from env by the Dograh init renderer).
+# NOTE: 49152-49200 collides with Windows' dynamic excluded port ranges
+# (Hyper-V/WinNAT reservations that shift across reboots), which silently
+# breaks port publishing on Docker Desktop for Windows. 50100-50148 sits in
+# a reliably free gap.
+min-port=__DOGRAH_TURN_MIN_PORT__
+max-port=__DOGRAH_TURN_MAX_PORT__
 
 # Network - external IP / host for NAT traversal
 external-ip=__DOGRAH_TURN_EXTERNAL_IP__

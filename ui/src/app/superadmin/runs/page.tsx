@@ -30,6 +30,7 @@ import { ActiveFilter } from '@/types/filters';
 
 interface WorkflowRun {
     id: number;
+    call_id?: string | null;
     name: string;
     workflow_id: number;
     workflow_name?: string;
@@ -498,6 +499,7 @@ export default function RunsPage() {
                                                                 recordingUrl={run.recording_url}
                                                                 transcriptUrl={run.transcript_url}
                                                                 runId={run.id}
+                                                                callId={run.call_id}
                                                                 onOpenPreview={mediaPreview.openPreview}
                                                                 onSelect={setSelectedRowId}
                                                             />

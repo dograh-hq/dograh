@@ -10,6 +10,7 @@ import { AuthShell } from "@/components/auth/AuthShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { detailFromError } from "@/lib/apiError";
 
 export function LoginForm({ signupEnabled }: { signupEnabled: boolean }) {
   const [email, setEmail] = useState("");
@@ -22,21 +23,24 @@ export function LoginForm({ signupEnabled }: { signupEnabled: boolean }) {
 
     try {
       const res = await loginApiV1AuthLoginPost({
-        body: { email, password },
+        body: { email: email.trim().toLowerCase(), password },
       });
 
       if (res.error || !res.data) {
-        const detail = (res.error as { detail?: string })?.detail;
-        toast.error(detail || "Login failed");
+        toast.error(detailFromError(res.error, "Login failed"));
         return;
       }
 
       // Set httpOnly cookies via server route
-      await fetch("/api/auth/session", {
+      const sessionResponse = await fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: res.data.token, user: res.data.user }),
       });
+      if (!sessionResponse.ok) {
+        toast.error("Login succeeded but the local session could not be created");
+        return;
+      }
 
       window.location.href = "/after-sign-in";
     } catch {
@@ -64,6 +68,7 @@ export function LoginForm({ signupEnabled }: { signupEnabled: boolean }) {
             placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username"
             required
           />
         </div>
@@ -75,6 +80,7 @@ export function LoginForm({ signupEnabled }: { signupEnabled: boolean }) {
             placeholder="Enter your password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
             required
           />
         </div>

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { EmbeddedVoiceTester } from "./EmbeddedVoiceTester";
@@ -23,6 +24,20 @@ vi.mock("../../run/[runId]/components", () => ({
     ApiKeyErrorDialog: () => null,
     ConnectionStatus: () => null,
     WorkflowConfigErrorDialog: () => null,
+}));
+
+// The avatar panel resolves the auto-start gate from an async avatar-config
+// fetch. These tests protect the baseline audio-only auto-start contract, so
+// mock the panel as "no avatar for this run" (resolves the gate immediately),
+// keeping the assertions synchronous and independent of avatar behavior.
+vi.mock("@/components/avatar/SpatialAvatarPanel", () => ({
+    SpatialAvatarPanel: ({ onAvatarWillDrive }: { onAvatarWillDrive?: (willDrive: boolean) => void }) => {
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        React.useEffect(() => {
+            onAvatarWillDrive?.(false);
+        }, [onAvatarWillDrive]);
+        return null;
+    },
 }));
 
 type BackendStatus = "reachable" | "unreachable";

@@ -42,6 +42,38 @@
         }
       },
       "required": ["mode"]
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "spatialrealAppId": { "type": "string" },
+        "spatialrealAvatarId": { "type": "string" },
+        "spatialrealRegion": {
+          "type": "string",
+          "enum": ["us-west", "ap-northeast"]
+        },
+        "spatialrealMode": {
+          "type": "string",
+          "enum": ["sdk", "host", "off"]
+        },
+        "spatialrealConsoleEndpoint": { "type": "string" },
+        "spatialrealIngressEndpoint": { "type": "string" },
+        "spatialrealTokenTtl": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
+        },
+        "spatialrealMaxSessions": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "properties": {
+        "spatialrealApiKey": { "type": "string" }
+      }
     }
   },
   "required": ["database", "redis", "storage", "exposure"]

@@ -1,0 +1,21 @@
+services:
+  api:
+    image: local/dograh-api:1.46.0.4.2.D
+    platform: linux/amd64
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      SAKINAH_SESSIONS_DIR: /app/data/sakinah-sessions
+      ENABLE_AWS_S3_SECONDARY: "false"
+    volumes:
+      - ./data/sakinah-sessions:/app/data/sakinah-sessions
+
+  ui:
+    image: local/dograh-ui:1.46.0.4.2.D
+    platform: linux/amd64
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ui/Dockerfile

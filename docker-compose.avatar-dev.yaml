@@ -1,0 +1,19 @@
+# Dev overlay: run the FULL fork api tree mounted over the upstream image
+# (the fork's python-level code is image-compatible; only host-mode avatar
+# needs the avatarkit pip package from the locally built image). Points the
+# api at the fork-migrated database (dograh_fork) — the original `postgres`
+# db was migrated by the upstream image to a revision the fork's alembic
+# chain does not contain, so the two schemas must not share a database.
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.ui-build.yaml \
+#     -f docker-compose.avatar-dev.yaml --profile tunnel up -d
+services:
+  # The debian-based coturn:4.8.0 image is corrupted in this Docker install
+  # (exec format error on its entrypoint); the alpine build works.
+  coturn:
+    image: coturn/coturn:4.8-alpine
+  api:
+    volumes:
+      - ./api:/app/api
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/dograh_fork"

@@ -31,3 +31,6 @@ node_modules/
 .superpowers/
 docs/superpowers/
 .gstack/
+
+# Sakinah runtime session data and archives (local only - repo is public)
+/data/

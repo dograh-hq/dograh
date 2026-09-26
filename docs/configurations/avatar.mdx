@@ -1,0 +1,86 @@
+---
+title: "Avatar (SpatialReal)"
+description: "Show a lip-synced digital avatar during browser calls, driven by the bot's speech in real time"
+---
+
+Dograh can render a **SpatialReal (AvatarKit)** avatar alongside browser voice
+calls. The avatar is animated from the bot's speech audio and rendered
+on-device in the browser (WebGL/WebGPU), so it adds only ~10–20 KB/s of
+animation data rather than a video stream.
+
+## Environment variables
+
+Set these on the `api` service (see `docker-compose.yaml`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `SPATIALREAL_APP_ID` | — | App ID from SpatialReal Studio. Public-safe. |
+| `SPATIALREAL_API_KEY` | — | Secret API key. Never leaves the backend; the browser only receives short-lived session tokens minted via `/api/v1/avatar/session`. |
+| `SPATIALREAL_AVATAR_ID` | — | Deployment-default avatar. Workflows can override it. |
+| `SPATIALREAL_REGION` | `us-west` | `us-west` or `ap-northeast`. Sets the console + ingress endpoints. |
+| `SPATIALREAL_MODE` | `sdk` | Driving mode: `sdk`, `host`, or `off` (kill switch). |
+| `SPATIALREAL_TOKEN_TTL` | `43200` | Session token TTL in seconds (SpatialReal caps at 24 h). |
+| `SPATIALREAL_MAX_SESSIONS` | `10` | Max concurrent host-mode sessions. Beyond the cap, calls proceed audio-only. |
+
+## Driving modes
+
+- **`sdk` (browser-driven).** The browser taps the incoming WebRTC bot audio,
+  downsamples it to 16 kHz PCM16, and streams it to SpatialReal directly. No
+  avatar dependencies on the backend. Slightly higher avatar latency.
+- **`host` (server-driven).** The backend taps bot audio inside the Pipecat
+  pipeline (works for both TTS and speech-to-speech providers), streams it to
+  SpatialReal via the `avatarkit` server SDK, and relays the returned encoded
+  audio + animation messages to the browser over
+  `/api/v1/ws/avatar/{workflow_run_id}`. Lower latency, exact interruption
+  sync. Requires `avatarkit[opus]` and `libopus0` (already in the API image).
+
+## Per-workflow configuration
+
+Each workflow's **Settings → General → Avatar** section stores an
+`avatar_configuration` block in `workflow_configurations`:
+
+```json
+{ "enabled": true, "avatar_id": null, "mode": null }
+```
+
+`avatar_id` and `mode` fall back to the deployment env defaults when null.
+Workflows that have never saved the block follow the deployment default
+(env-driven); once saved, the workflow's `enabled` flag rules.
+
+## Failure behavior
+
+The avatar can never break a call. Any failure (token mint, ingress
+connection, relay WebSocket, rendering) un-mutes the normal WebRTC audio path
+and hides the avatar. Lifecycle telemetry (`avatar_session_started` /
+`avatar_session_failed` / `avatar_session_closed`, with duration and
+first-animation latency) is emitted via PostHog when configured.
+
+## Relay wire format (host mode)
+
+Binary WebSocket frames carry a 2-byte header followed by an opaque
+server-SDK payload relayed verbatim:
+
+- byte 0 — message type: `0x01` encoded audio (Ogg Opus), `0x02` animation frames
+- byte 1 — flags: bit 0 set on the final message of a conversation round
+- bytes 2+ — payload for `yieldAudioData` / `yieldFramesData`
+
+JSON text frames on the same socket carry control events:
+`avatar-ready`, `avatar-interrupted`, `avatar-error`.
+
+## Remote deployments
+
+The relay WebSocket must be proxied like the signaling WebSocket (same nginx
+`location` pattern with upgrade headers). No TURN involvement — the relay is
+a plain WebSocket to the API, not WebRTC media.
+
+For Kubernetes and AWS deployments, keep `SPATIALREAL_API_KEY` in a Kubernetes
+Secret or external secret provider. The Helm chart accepts the non-secret
+settings under `config.spatialreal*` and the API key through
+`secrets.spatialrealApiKey`. For production, prefer `secrets.existingSecret`
+and provide a Secret containing `SPATIALREAL_API_KEY`; do not commit a values
+override containing the real key.
+
+<Note>
+If the API key has ever been shared in chats, tickets, or logs, rotate it in
+SpatialReal Studio (Studio → API Keys) and update `.env`.
+</Note>

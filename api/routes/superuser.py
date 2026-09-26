@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 from typing import List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -37,6 +38,7 @@ class ImpersonateResponse(BaseModel):
 
 class SuperuserWorkflowRunResponse(BaseModel):
     id: int
+    call_id: UUID | None
     name: str
     workflow_id: int
     workflow_name: Optional[str]

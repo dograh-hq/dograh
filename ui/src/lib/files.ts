@@ -6,6 +6,10 @@ import { getSignedUrlApiV1S3SignedUrlGet } from "@/client/sdk.gen";
 export async function downloadFile(url: string | null) {
     if (!url) return;
 
+    // Open a harmless target synchronously while this click still counts as a
+    // user gesture. Safari can block a new window opened only after awaiting
+    // the authenticated signed-URL request.
+    const target = window.open("about:blank", "_blank");
     try {
         const response = await getSignedUrlApiV1S3SignedUrlGet({
             query: {
@@ -13,10 +17,17 @@ export async function downloadFile(url: string | null) {
             },
         });
 
-        if (response.data?.url) {
-            window.open(response.data.url, '_blank');
+        if (response.error || !response.data?.url) {
+            target?.close();
+            return;
         }
+        // Artifact signed URLs now use Content-Disposition: attachment. A
+        // pre-opened target preserves Safari's user-gesture requirement while
+        // letting the storage response control the download filename/type.
+        if (target && !target.closed) target.location.href = response.data.url;
+        else window.location.assign(response.data.url);
     } catch (error) {
+        target?.close();
         console.error('Error downloading file:', error);
     }
 }

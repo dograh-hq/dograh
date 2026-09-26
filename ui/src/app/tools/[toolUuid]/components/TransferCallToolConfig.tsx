@@ -307,7 +307,7 @@ export function TransferCallToolConfig({
                                     <Label>Dynamic Transfer Resolver</Label>
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                    Dograh sends the resolved argument dictionary to this endpoint. The endpoint must return transfer_context.destination and may return transfer_context.custom_message.{" "}
+                                    CALMOS sends the resolved argument dictionary to this endpoint. The endpoint must return transfer_context.destination and may return transfer_context.custom_message.{" "}
                                     <a
                                         href={`${DOCS_BASE}/voice-agent/tools/call-transfer#dynamic-resolver-response`}
                                         target="_blank"
@@ -328,7 +328,7 @@ export function TransferCallToolConfig({
                                     showValidation
                                 />
                                 <Label className="text-xs text-muted-foreground">
-                                    Dograh sends a POST request with the resolved argument dictionary.
+                                    CALMOS sends a POST request with the resolved argument dictionary.
                                 </Label>
                             </div>
 
@@ -366,7 +366,7 @@ export function TransferCallToolConfig({
                                     rows={2}
                                 />
                                 <Label className="text-xs text-muted-foreground">
-                                    Spoken while Dograh waits for the resolver response.
+                                    Spoken while CALMOS waits for the resolver response.
                                 </Label>
                             </div>
 
@@ -392,7 +392,7 @@ export function TransferCallToolConfig({
                             <div className="grid gap-2 pt-4 border-t">
                                 <Label>Preset Parameters</Label>
                                 <p className="text-xs text-muted-foreground">
-                                    Add values Dograh injects at runtime. These are not exposed to the LLM and can use templates like {`{{initial_context.state}}`} or {`{{gathered_context.state}}`}.{" "}
+                                    Add values CALMOS injects at runtime. These are not exposed to the LLM and can use templates like {`{{initial_context.state}}`} or {`{{gathered_context.state}}`}.{" "}
                                     <a
                                         href={`${DOCS_BASE}/voice-agent/tools/call-transfer#dynamic-resolver-request`}
                                         target="_blank"

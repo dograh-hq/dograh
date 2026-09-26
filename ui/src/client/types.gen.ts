@@ -405,6 +405,69 @@ export type AutoscaleMetricResponse = {
 };
 
 /**
+ * AvatarConfigResponse
+ *
+ * Whether the avatar feature is configured, and in which driving mode.
+ */
+export type AvatarConfigResponse = {
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Mode
+     */
+    mode: string;
+};
+
+/**
+ * AvatarConfigurationDefaults
+ *
+ * Per-workflow SpatialReal avatar settings.
+ *
+ * ``avatar_id`` and ``mode`` fall back to the deployment-wide SPATIALREAL_*
+ * env defaults when unset; ``enabled`` opts the workflow into the avatar.
+ */
+export type AvatarConfigurationDefaults = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Avatar Id
+     */
+    avatar_id?: string | null;
+    /**
+     * Mode
+     */
+    mode?: 'sdk' | 'host' | null;
+};
+
+/**
+ * AvatarSessionResponse
+ *
+ * Client-side configuration for an AvatarKit SDK-mode session.
+ */
+export type AvatarSessionResponse = {
+    /**
+     * App Id
+     */
+    app_id: string;
+    /**
+     * Avatar Id
+     */
+    avatar_id: string;
+    /**
+     * Session Token
+     */
+    session_token: string;
+    /**
+     * Expires At
+     */
+    expires_at: number;
+};
+
+/**
  * Azure OpenAI
  */
 export type AzureLlmService = {
@@ -835,6 +898,16 @@ export type BatchRecordingUploadResponseSchema = {
 };
 
 /**
+ * Body_preview_bulk_scenarios_api_v1_sakinah_scenarios_bulk_import_preview_post
+ */
+export type BodyPreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPost = {
+    /**
+     * Files
+     */
+    files: Array<Blob | File>;
+};
+
+/**
  * Body_transcribe_audio_api_v1_workflow_recordings_transcribe_post
  */
 export type BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost = {
@@ -846,6 +919,104 @@ export type BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost = {
      * Language
      */
     language?: string;
+};
+
+/**
+ * BulkScenarioImportCommitRequest
+ */
+export type BulkScenarioImportCommitRequest = {
+    /**
+     * Preview Token
+     */
+    preview_token: string;
+    /**
+     * Duplicate Policy
+     */
+    duplicate_policy?: 'skip_existing' | 'replace_existing' | 'import_as_new';
+    /**
+     * Item Indexes
+     */
+    item_indexes?: Array<number> | null;
+};
+
+/**
+ * BulkScenarioImportItemResponse
+ */
+export type BulkScenarioImportItemResponse = {
+    /**
+     * Item Index
+     */
+    item_index: number;
+    /**
+     * Source Filename
+     */
+    source_filename: string;
+    /**
+     * Scenario Title
+     */
+    scenario_title?: string | null;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Validation Status
+     */
+    validation_status: string;
+    /**
+     * Validation Error
+     */
+    validation_error?: string | null;
+    /**
+     * Existing Scenario Id
+     */
+    existing_scenario_id?: string | null;
+    /**
+     * Scenario Id
+     */
+    scenario_id?: string | null;
+};
+
+/**
+ * BulkScenarioImportResponse
+ */
+export type BulkScenarioImportResponse = {
+    /**
+     * Preview Token
+     */
+    preview_token?: string | null;
+    /**
+     * Files Detected
+     */
+    files_detected: number;
+    /**
+     * Valid
+     */
+    valid: number;
+    /**
+     * Invalid
+     */
+    invalid: number;
+    /**
+     * Duplicates
+     */
+    duplicates: number;
+    /**
+     * Already Existing
+     */
+    already_existing: number;
+    /**
+     * Imported
+     */
+    imported?: number;
+    /**
+     * Failed
+     */
+    failed?: number;
+    /**
+     * Items
+     */
+    items: Array<BulkScenarioImportItemResponse>;
 };
 
 /**
@@ -896,6 +1067,42 @@ export type CallDispositionOption = {
      * Business criteria for selecting this disposition.
      */
     description: string;
+};
+
+/**
+ * CallReplayResponse
+ */
+export type CallReplayResponse = {
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Agent Run Id
+     */
+    agent_run_id: number;
+    /**
+     * Recording Signed Url
+     */
+    recording_signed_url?: string | null;
+    /**
+     * Expires In
+     */
+    expires_in: number;
+    /**
+     * Transcript
+     */
+    transcript?: string | null;
+    /**
+     * Utterances
+     */
+    utterances?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Recordings
+     */
+    recordings?: Array<RecordingReplayTrack>;
 };
 
 /**
@@ -1650,6 +1857,54 @@ export type CreateServiceKeyResponse = {
 };
 
 /**
+ * CreateSessionRequest
+ */
+export type CreateSessionRequest = {
+    /**
+     * Scenario
+     */
+    scenario: string;
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Scenario Id
+     */
+    scenario_id?: string | null;
+    /**
+     * Scenario Name
+     */
+    scenario_name?: string | null;
+};
+
+/**
+ * CreateSessionResponse
+ */
+export type CreateSessionResponse = {
+    /**
+     * Session Id
+     */
+    session_id: string;
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+    /**
+     * Workflow Run Id
+     */
+    workflow_run_id: number;
+    /**
+     * Call Id
+     */
+    call_id: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+};
+
+/**
  * CreateTextChatSessionRequest
  */
 export type CreateTextChatSessionRequest = {
@@ -1765,6 +2020,10 @@ export type CreateWorkflowRunResponse = {
      * Id
      */
     id: number;
+    /**
+     * Call Id
+     */
+    call_id: string;
     /**
      * Workflow Id
      */
@@ -2643,6 +2902,10 @@ export type EmbedTokenResponse = {
      * Embed Script
      */
     embed_script: string;
+    /**
+     * Embed Iframe
+     */
+    embed_iframe: string;
 };
 
 /**
@@ -2705,6 +2968,40 @@ export type EndCallToolDefinition = {
      * End Call configuration.
      */
     config: EndCallConfig;
+};
+
+/**
+ * EndSessionRequest
+ */
+export type EndSessionRequest = {
+    /**
+     * Turns
+     */
+    turns: Array<TranscriptTurn>;
+    /**
+     * Ended At
+     */
+    ended_at?: string | null;
+    /**
+     * Timings
+     */
+    timings?: {
+        [key: string]: number;
+    } | null;
+};
+
+/**
+ * EndSessionResponse
+ */
+export type EndSessionResponse = {
+    /**
+     * Session Id
+     */
+    session_id: string;
+    /**
+     * Saved
+     */
+    saved: boolean;
 };
 
 /**
@@ -5218,6 +5515,20 @@ export type RecordingListResponseSchema = {
 };
 
 /**
+ * RecordingReplayTrack
+ */
+export type RecordingReplayTrack = {
+    /**
+     * Track
+     */
+    track: string;
+    /**
+     * Signed Url
+     */
+    signed_url: string;
+};
+
+/**
  * RecordingResponseSchema
  *
  * Response schema for a single recording.
@@ -5535,6 +5846,108 @@ export type SipTransportDetails = {
 };
 
 /**
+ * SakinahRunListResponse
+ */
+export type SakinahRunListResponse = {
+    /**
+     * Runs
+     */
+    runs: Array<SakinahRunResponse>;
+};
+
+/**
+ * SakinahRunResponse
+ */
+export type SakinahRunResponse = {
+    /**
+     * Session Id
+     */
+    session_id: string;
+    /**
+     * Agent Id
+     */
+    agent_id: number;
+    /**
+     * Run Id
+     */
+    run_id: number;
+    /**
+     * Service User Agent Id
+     */
+    service_user_agent_id?: number | null;
+    /**
+     * Service User Run Id
+     */
+    service_user_run_id?: number | null;
+    /**
+     * Scenario
+     */
+    scenario: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Experiment Mode
+     */
+    experiment_mode?: string | null;
+    /**
+     * Transcript
+     */
+    transcript?: string | null;
+    /**
+     * Transcript Url
+     */
+    transcript_url?: string | null;
+    /**
+     * Conversation
+     */
+    conversation: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Preview Data
+     */
+    preview_data: {
+        [key: string]: unknown;
+    };
+    /**
+     * Recording Url
+     */
+    recording_url?: string | null;
+    /**
+     * Recording File Reference
+     */
+    recording_file_reference: {
+        [key: string]: unknown;
+    };
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     */
+    ended_at?: string | null;
+    /**
+     * Calm Turns
+     */
+    calm_turns: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Timings
+     */
+    timings: {
+        [key: string]: unknown;
+    };
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
  * Sarvam
  */
 export type SarvamLlmConfiguration = {
@@ -5622,6 +6035,188 @@ export type SarvamTtsConfiguration = {
      * Speech speed multiplier.
      */
     speed?: number;
+};
+
+/**
+ * ScenarioListResponse
+ */
+export type ScenarioListResponse = {
+    /**
+     * Scenarios
+     */
+    scenarios: Array<ScenarioResponse>;
+};
+
+/**
+ * ScenarioResponse
+ */
+export type ScenarioResponse = {
+    /**
+     * Title
+     */
+    title?: string;
+    /**
+     * Category
+     */
+    category?: string;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    /**
+     * Mode
+     */
+    mode?: 'structured' | 'freestyle';
+    /**
+     * Persona
+     */
+    persona?: string;
+    /**
+     * Age
+     */
+    age?: string;
+    /**
+     * Gender
+     */
+    gender?: string;
+    /**
+     * Language
+     */
+    language?: string;
+    /**
+     * Emotion
+     */
+    emotion?: string;
+    /**
+     * Communication Style
+     */
+    communication_style?: string;
+    /**
+     * Initial Information
+     */
+    initial_information?: string;
+    /**
+     * Hidden Information
+     */
+    hidden_information?: string;
+    /**
+     * Disclosure
+     */
+    disclosure?: string;
+    /**
+     * Behaviour
+     */
+    behaviour?: string;
+    /**
+     * Background
+     */
+    background?: string;
+    /**
+     * Additional Factors
+     */
+    additional_factors?: string;
+    /**
+     * Notes
+     */
+    notes?: string;
+    /**
+     * Freestyle Prompt
+     */
+    freestyle_prompt?: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Sequence
+     */
+    sequence: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * ScenarioWriteRequest
+ */
+export type ScenarioWriteRequest = {
+    /**
+     * Title
+     */
+    title?: string;
+    /**
+     * Category
+     */
+    category?: string;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    /**
+     * Mode
+     */
+    mode?: 'structured' | 'freestyle';
+    /**
+     * Persona
+     */
+    persona?: string;
+    /**
+     * Age
+     */
+    age?: string;
+    /**
+     * Gender
+     */
+    gender?: string;
+    /**
+     * Language
+     */
+    language?: string;
+    /**
+     * Emotion
+     */
+    emotion?: string;
+    /**
+     * Communication Style
+     */
+    communication_style?: string;
+    /**
+     * Initial Information
+     */
+    initial_information?: string;
+    /**
+     * Hidden Information
+     */
+    hidden_information?: string;
+    /**
+     * Disclosure
+     */
+    disclosure?: string;
+    /**
+     * Behaviour
+     */
+    behaviour?: string;
+    /**
+     * Background
+     */
+    background?: string;
+    /**
+     * Additional Factors
+     */
+    additional_factors?: string;
+    /**
+     * Notes
+     */
+    notes?: string;
+    /**
+     * Freestyle Prompt
+     */
+    freestyle_prompt?: string;
 };
 
 /**
@@ -5750,6 +6345,80 @@ export type SignupRequest = {
      * Name
      */
     name?: string | null;
+};
+
+/**
+ * SimulationAgentInfo
+ */
+export type SimulationAgentInfo = {
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+    /**
+     * Workflow Run Id
+     */
+    workflow_run_id: number;
+};
+
+/**
+ * SimulationResponse
+ */
+export type SimulationResponse = {
+    /**
+     * Simulation Id
+     */
+    simulation_id: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Stop Reason
+     */
+    stop_reason?: string | null;
+    /**
+     * Error
+     */
+    error?: string | null;
+    /**
+     * Scenario
+     */
+    scenario: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     */
+    ended_at?: string | null;
+    /**
+     * Turn Count
+     */
+    turn_count: number;
+    /**
+     * Experiment Mode
+     */
+    experiment_mode: 'baseline' | 'scores_only' | 'scores_and_trends' | 'full_calm_prompt';
+    /**
+     * Calm Scores
+     */
+    calm_scores?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Calm Trend
+     */
+    calm_trend?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Agents
+     */
+    agents: {
+        [key: string]: SimulationAgentInfo;
+    };
 };
 
 /**
@@ -5987,6 +6656,32 @@ export type SpeechmaticsSttConfiguration = {
 };
 
 /**
+ * StartSimulationRequest
+ */
+export type StartSimulationRequest = {
+    /**
+     * Scenario
+     */
+    scenario: string;
+    /**
+     * Scenario Id
+     */
+    scenario_id?: string | null;
+    /**
+     * Scenario Name
+     */
+    scenario_name?: string | null;
+    /**
+     * Max Duration Seconds
+     */
+    max_duration_seconds?: number | null;
+    /**
+     * Experiment Mode
+     */
+    experiment_mode?: 'baseline' | 'scores_only' | 'scores_and_trends' | 'full_calm_prompt';
+};
+
+/**
  * SuperuserWorkflowRunResponse
  */
 export type SuperuserWorkflowRunResponse = {
@@ -5994,6 +6689,10 @@ export type SuperuserWorkflowRunResponse = {
      * Id
      */
     id: number;
+    /**
+     * Call Id
+     */
+    call_id: string | null;
     /**
      * Name
      */
@@ -6683,6 +7382,28 @@ export type ToolTestResponse = {
      * Duration Ms
      */
     duration_ms: number;
+};
+
+/**
+ * TranscriptTurn
+ */
+export type TranscriptTurn = {
+    /**
+     * Role
+     */
+    role: 'user' | 'sakinah';
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Final
+     */
+    final: boolean;
+    /**
+     * Timestamp
+     */
+    timestamp: string;
 };
 
 /**
@@ -7714,6 +8435,7 @@ export type WorkflowConfigurationDefaults = {
      * External Pbx Lead Headers
      */
     external_pbx_lead_headers?: Array<string>;
+    avatar_configuration?: AvatarConfigurationDefaults;
     [key: string]: unknown;
 };
 
@@ -8006,6 +8728,98 @@ export type WorkflowRunResponseSchema = {
     annotations?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Call Id
+     */
+    call_id?: string | null;
+    /**
+     * Scenario Id
+     */
+    scenario_id?: string | null;
+    /**
+     * Scenario Name
+     */
+    scenario_name?: string | null;
+    /**
+     * Service User Id
+     */
+    service_user_id?: string | null;
+    /**
+     * Caller Identifier
+     */
+    caller_identifier?: string | null;
+    /**
+     * Telephone Number
+     */
+    telephone_number?: string | null;
+    /**
+     * Direction
+     */
+    direction?: string | null;
+    /**
+     * Started At
+     */
+    started_at?: string | null;
+    /**
+     * Connected At
+     */
+    connected_at?: string | null;
+    /**
+     * Ended At
+     */
+    ended_at?: string | null;
+    /**
+     * Duration Seconds
+     */
+    duration_seconds?: number | null;
+    /**
+     * Call Status
+     */
+    call_status?: string | null;
+    /**
+     * Telephony Provider
+     */
+    telephony_provider?: string | null;
+    /**
+     * Model Provider
+     */
+    model_provider?: string | null;
+    /**
+     * Stt Provider
+     */
+    stt_provider?: string | null;
+    /**
+     * Tts Provider
+     */
+    tts_provider?: string | null;
+    /**
+     * Avatar Provider
+     */
+    avatar_provider?: string | null;
+    /**
+     * Recording Object Key
+     */
+    recording_object_key?: string | null;
+    /**
+     * Recording Duration Seconds
+     */
+    recording_duration_seconds?: number | null;
+    /**
+     * Recording Format
+     */
+    recording_format?: string | null;
+    /**
+     * Recording Size Bytes
+     */
+    recording_size_bytes?: number | null;
+    /**
+     * Full Transcript
+     */
+    full_transcript?: string | null;
+    /**
+     * Termination Reason
+     */
+    termination_reason?: string | null;
 };
 
 /**
@@ -8186,6 +9000,64 @@ export type WorkflowRunUsageResponse = {
      * Gathered Context
      */
     gathered_context?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Call Id
+     */
+    call_id?: string | null;
+    /**
+     * Agent Run Id
+     */
+    agent_run_id?: number | null;
+    /**
+     * Service User Id
+     */
+    service_user_id?: string | null;
+    /**
+     * Service User Label
+     */
+    service_user_label?: string | null;
+    /**
+     * Scenario Id
+     */
+    scenario_id?: string | null;
+    /**
+     * Scenario Name
+     */
+    scenario_name?: string | null;
+    /**
+     * Call Status
+     */
+    call_status?: string | null;
+    /**
+     * Started At
+     */
+    started_at?: string | null;
+    /**
+     * Connected At
+     */
+    connected_at?: string | null;
+    /**
+     * Ended At
+     */
+    ended_at?: string | null;
+    /**
+     * Calm Score
+     */
+    calm_score?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Safety Score
+     */
+    safety_score?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Clinical Evaluation
+     */
+    clinical_evaluation?: {
         [key: string]: unknown;
     } | null;
     /**
@@ -9822,6 +10694,58 @@ export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses = {
 
 export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponse = GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses[keyof GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses];
 
+export type AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Run Id
+         */
+        run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/runs/{run_id}/storage-audit';
+};
+
+export type AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetError = AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetErrors[keyof AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetErrors];
+
+export type AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetResponses = {
+    /**
+     * Response Audit Workflow Run Storage Api V1 Workflow  Workflow Id  Runs  Run Id  Storage Audit Get
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetResponse = AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetResponses[keyof AuditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGetResponses];
+
 export type DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetData = {
     body?: never;
     headers?: {
@@ -11283,6 +12207,55 @@ export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetResponses = {
      */
     200: unknown;
 };
+
+export type GetCallReplayApiV1CallHistoryCallIdReplayGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Call Id
+         */
+        call_id: string;
+    };
+    query?: {
+        /**
+         * Expires In
+         */
+        expires_in?: number;
+    };
+    url: '/api/v1/call-history/{call_id}/replay';
+};
+
+export type GetCallReplayApiV1CallHistoryCallIdReplayGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCallReplayApiV1CallHistoryCallIdReplayGetError = GetCallReplayApiV1CallHistoryCallIdReplayGetErrors[keyof GetCallReplayApiV1CallHistoryCallIdReplayGetErrors];
+
+export type GetCallReplayApiV1CallHistoryCallIdReplayGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CallReplayResponse;
+};
+
+export type GetCallReplayApiV1CallHistoryCallIdReplayGetResponse = GetCallReplayApiV1CallHistoryCallIdReplayGetResponses[keyof GetCallReplayApiV1CallHistoryCallIdReplayGetResponses];
 
 export type ListCredentialsApiV1CredentialsGetData = {
     body?: never;
@@ -14059,6 +15032,548 @@ export type GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponses = {
 
 export type GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponse = GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponses[keyof GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponses];
 
+export type ListScenariosApiV1SakinahScenariosGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Search
+         */
+        search?: string | null;
+    };
+    url: '/api/v1/sakinah/scenarios';
+};
+
+export type ListScenariosApiV1SakinahScenariosGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListScenariosApiV1SakinahScenariosGetError = ListScenariosApiV1SakinahScenariosGetErrors[keyof ListScenariosApiV1SakinahScenariosGetErrors];
+
+export type ListScenariosApiV1SakinahScenariosGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ScenarioListResponse;
+};
+
+export type ListScenariosApiV1SakinahScenariosGetResponse = ListScenariosApiV1SakinahScenariosGetResponses[keyof ListScenariosApiV1SakinahScenariosGetResponses];
+
+export type CreateScenarioApiV1SakinahScenariosPostData = {
+    body: ScenarioWriteRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/sakinah/scenarios';
+};
+
+export type CreateScenarioApiV1SakinahScenariosPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateScenarioApiV1SakinahScenariosPostError = CreateScenarioApiV1SakinahScenariosPostErrors[keyof CreateScenarioApiV1SakinahScenariosPostErrors];
+
+export type CreateScenarioApiV1SakinahScenariosPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ScenarioResponse;
+};
+
+export type CreateScenarioApiV1SakinahScenariosPostResponse = CreateScenarioApiV1SakinahScenariosPostResponses[keyof CreateScenarioApiV1SakinahScenariosPostResponses];
+
+export type DeleteScenarioApiV1SakinahScenariosScenarioIdDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Scenario Id
+         */
+        scenario_id: string;
+    };
+    query?: never;
+    url: '/api/v1/sakinah/scenarios/{scenario_id}';
+};
+
+export type DeleteScenarioApiV1SakinahScenariosScenarioIdDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteScenarioApiV1SakinahScenariosScenarioIdDeleteError = DeleteScenarioApiV1SakinahScenariosScenarioIdDeleteErrors[keyof DeleteScenarioApiV1SakinahScenariosScenarioIdDeleteErrors];
+
+export type DeleteScenarioApiV1SakinahScenariosScenarioIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteScenarioApiV1SakinahScenariosScenarioIdDeleteResponse = DeleteScenarioApiV1SakinahScenariosScenarioIdDeleteResponses[keyof DeleteScenarioApiV1SakinahScenariosScenarioIdDeleteResponses];
+
+export type UpdateScenarioApiV1SakinahScenariosScenarioIdPutData = {
+    body: ScenarioWriteRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Scenario Id
+         */
+        scenario_id: string;
+    };
+    query?: never;
+    url: '/api/v1/sakinah/scenarios/{scenario_id}';
+};
+
+export type UpdateScenarioApiV1SakinahScenariosScenarioIdPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateScenarioApiV1SakinahScenariosScenarioIdPutError = UpdateScenarioApiV1SakinahScenariosScenarioIdPutErrors[keyof UpdateScenarioApiV1SakinahScenariosScenarioIdPutErrors];
+
+export type UpdateScenarioApiV1SakinahScenariosScenarioIdPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: ScenarioResponse;
+};
+
+export type UpdateScenarioApiV1SakinahScenariosScenarioIdPutResponse = UpdateScenarioApiV1SakinahScenariosScenarioIdPutResponses[keyof UpdateScenarioApiV1SakinahScenariosScenarioIdPutResponses];
+
+export type PreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPostData = {
+    body: BodyPreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPost;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/sakinah/scenarios/bulk-import/preview';
+};
+
+export type PreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPostError = PreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPostErrors[keyof PreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPostErrors];
+
+export type PreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: BulkScenarioImportResponse;
+};
+
+export type PreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPostResponse = PreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPostResponses[keyof PreviewBulkScenariosApiV1SakinahScenariosBulkImportPreviewPostResponses];
+
+export type CommitBulkScenariosApiV1SakinahScenariosBulkImportCommitPostData = {
+    body: BulkScenarioImportCommitRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/sakinah/scenarios/bulk-import/commit';
+};
+
+export type CommitBulkScenariosApiV1SakinahScenariosBulkImportCommitPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CommitBulkScenariosApiV1SakinahScenariosBulkImportCommitPostError = CommitBulkScenariosApiV1SakinahScenariosBulkImportCommitPostErrors[keyof CommitBulkScenariosApiV1SakinahScenariosBulkImportCommitPostErrors];
+
+export type CommitBulkScenariosApiV1SakinahScenariosBulkImportCommitPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: BulkScenarioImportResponse;
+};
+
+export type CommitBulkScenariosApiV1SakinahScenariosBulkImportCommitPostResponse = CommitBulkScenariosApiV1SakinahScenariosBulkImportCommitPostResponses[keyof CommitBulkScenariosApiV1SakinahScenariosBulkImportCommitPostResponses];
+
+export type ListSakinahRunsApiV1SakinahRunsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/sakinah/runs';
+};
+
+export type ListSakinahRunsApiV1SakinahRunsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListSakinahRunsApiV1SakinahRunsGetError = ListSakinahRunsApiV1SakinahRunsGetErrors[keyof ListSakinahRunsApiV1SakinahRunsGetErrors];
+
+export type ListSakinahRunsApiV1SakinahRunsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SakinahRunListResponse;
+};
+
+export type ListSakinahRunsApiV1SakinahRunsGetResponse = ListSakinahRunsApiV1SakinahRunsGetResponses[keyof ListSakinahRunsApiV1SakinahRunsGetResponses];
+
+export type GetSakinahRunApiV1SakinahRunsSessionIdGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/sakinah/runs/{session_id}';
+};
+
+export type GetSakinahRunApiV1SakinahRunsSessionIdGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetSakinahRunApiV1SakinahRunsSessionIdGetError = GetSakinahRunApiV1SakinahRunsSessionIdGetErrors[keyof GetSakinahRunApiV1SakinahRunsSessionIdGetErrors];
+
+export type GetSakinahRunApiV1SakinahRunsSessionIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SakinahRunResponse;
+};
+
+export type GetSakinahRunApiV1SakinahRunsSessionIdGetResponse = GetSakinahRunApiV1SakinahRunsSessionIdGetResponses[keyof GetSakinahRunApiV1SakinahRunsSessionIdGetResponses];
+
+export type CreateSessionApiV1SakinahSessionsPostData = {
+    body: CreateSessionRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/sakinah/sessions';
+};
+
+export type CreateSessionApiV1SakinahSessionsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateSessionApiV1SakinahSessionsPostError = CreateSessionApiV1SakinahSessionsPostErrors[keyof CreateSessionApiV1SakinahSessionsPostErrors];
+
+export type CreateSessionApiV1SakinahSessionsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: CreateSessionResponse;
+};
+
+export type CreateSessionApiV1SakinahSessionsPostResponse = CreateSessionApiV1SakinahSessionsPostResponses[keyof CreateSessionApiV1SakinahSessionsPostResponses];
+
+export type EndSessionApiV1SakinahSessionsSessionIdEndPostData = {
+    body: EndSessionRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/sakinah/sessions/{session_id}/end';
+};
+
+export type EndSessionApiV1SakinahSessionsSessionIdEndPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type EndSessionApiV1SakinahSessionsSessionIdEndPostError = EndSessionApiV1SakinahSessionsSessionIdEndPostErrors[keyof EndSessionApiV1SakinahSessionsSessionIdEndPostErrors];
+
+export type EndSessionApiV1SakinahSessionsSessionIdEndPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: EndSessionResponse;
+};
+
+export type EndSessionApiV1SakinahSessionsSessionIdEndPostResponse = EndSessionApiV1SakinahSessionsSessionIdEndPostResponses[keyof EndSessionApiV1SakinahSessionsSessionIdEndPostResponses];
+
+export type StartSimulationApiV1SakinahSimulationsPostData = {
+    body: StartSimulationRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/sakinah/simulations';
+};
+
+export type StartSimulationApiV1SakinahSimulationsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StartSimulationApiV1SakinahSimulationsPostError = StartSimulationApiV1SakinahSimulationsPostErrors[keyof StartSimulationApiV1SakinahSimulationsPostErrors];
+
+export type StartSimulationApiV1SakinahSimulationsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: SimulationResponse;
+};
+
+export type StartSimulationApiV1SakinahSimulationsPostResponse = StartSimulationApiV1SakinahSimulationsPostResponses[keyof StartSimulationApiV1SakinahSimulationsPostResponses];
+
+export type StopSimulationApiV1SakinahSimulationsSimulationIdStopPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Simulation Id
+         */
+        simulation_id: string;
+    };
+    query?: never;
+    url: '/api/v1/sakinah/simulations/{simulation_id}/stop';
+};
+
+export type StopSimulationApiV1SakinahSimulationsSimulationIdStopPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StopSimulationApiV1SakinahSimulationsSimulationIdStopPostError = StopSimulationApiV1SakinahSimulationsSimulationIdStopPostErrors[keyof StopSimulationApiV1SakinahSimulationsSimulationIdStopPostErrors];
+
+export type StopSimulationApiV1SakinahSimulationsSimulationIdStopPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: SimulationResponse;
+};
+
+export type StopSimulationApiV1SakinahSimulationsSimulationIdStopPostResponse = StopSimulationApiV1SakinahSimulationsSimulationIdStopPostResponses[keyof StopSimulationApiV1SakinahSimulationsSimulationIdStopPostResponses];
+
+export type GetSimulationApiV1SakinahSimulationsSimulationIdGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Simulation Id
+         */
+        simulation_id: string;
+    };
+    query?: never;
+    url: '/api/v1/sakinah/simulations/{simulation_id}';
+};
+
+export type GetSimulationApiV1SakinahSimulationsSimulationIdGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetSimulationApiV1SakinahSimulationsSimulationIdGetError = GetSimulationApiV1SakinahSimulationsSimulationIdGetErrors[keyof GetSimulationApiV1SakinahSimulationsSimulationIdGetErrors];
+
+export type GetSimulationApiV1SakinahSimulationsSimulationIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SimulationResponse;
+};
+
+export type GetSimulationApiV1SakinahSimulationsSimulationIdGetResponse = GetSimulationApiV1SakinahSimulationsSimulationIdGetResponses[keyof GetSimulationApiV1SakinahSimulationsSimulationIdGetResponses];
+
 export type GetTurnCredentialsApiV1TurnCredentialsGetData = {
     body?: never;
     headers?: {
@@ -14097,6 +15612,94 @@ export type GetTurnCredentialsApiV1TurnCredentialsGetResponses = {
 };
 
 export type GetTurnCredentialsApiV1TurnCredentialsGetResponse = GetTurnCredentialsApiV1TurnCredentialsGetResponses[keyof GetTurnCredentialsApiV1TurnCredentialsGetResponses];
+
+export type GetAvatarConfigApiV1AvatarConfigGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Workflow Run Id
+         */
+        workflow_run_id?: number | null;
+    };
+    url: '/api/v1/avatar/config';
+};
+
+export type GetAvatarConfigApiV1AvatarConfigGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetAvatarConfigApiV1AvatarConfigGetError = GetAvatarConfigApiV1AvatarConfigGetErrors[keyof GetAvatarConfigApiV1AvatarConfigGetErrors];
+
+export type GetAvatarConfigApiV1AvatarConfigGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: AvatarConfigResponse;
+};
+
+export type GetAvatarConfigApiV1AvatarConfigGetResponse = GetAvatarConfigApiV1AvatarConfigGetResponses[keyof GetAvatarConfigApiV1AvatarConfigGetResponses];
+
+export type CreateAvatarSessionApiV1AvatarSessionPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Workflow Run Id
+         */
+        workflow_run_id?: number | null;
+    };
+    url: '/api/v1/avatar/session';
+};
+
+export type CreateAvatarSessionApiV1AvatarSessionPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateAvatarSessionApiV1AvatarSessionPostError = CreateAvatarSessionApiV1AvatarSessionPostErrors[keyof CreateAvatarSessionApiV1AvatarSessionPostErrors];
+
+export type CreateAvatarSessionApiV1AvatarSessionPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AvatarSessionResponse;
+};
+
+export type CreateAvatarSessionApiV1AvatarSessionPostResponse = CreateAvatarSessionApiV1AvatarSessionPostResponses[keyof CreateAvatarSessionApiV1AvatarSessionPostResponses];
 
 export type OptionsInitApiV1PublicEmbedInitOptionsData = {
     body?: never;
@@ -14274,6 +15877,134 @@ export type OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOpt
 export type OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsError = OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsErrors[keyof OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsErrors];
 
 export type OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenGetData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/avatar/config/{session_token}';
+};
+
+export type GetPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenGetError = GetPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenGetErrors[keyof GetPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenGetErrors];
+
+export type GetPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OptionsPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/avatar/config/{session_token}';
+};
+
+export type OptionsPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenOptionsError = OptionsPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenOptionsErrors[keyof OptionsPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenOptionsErrors];
+
+export type OptionsPublicAvatarConfigApiV1PublicEmbedAvatarConfigSessionTokenOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OptionsPublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/avatar/session/{session_token}';
+};
+
+export type OptionsPublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsPublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenOptionsError = OptionsPublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenOptionsErrors[keyof OptionsPublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenOptionsErrors];
+
+export type OptionsPublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type CreatePublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenPostData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/avatar/session/{session_token}';
+};
+
+export type CreatePublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreatePublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenPostError = CreatePublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenPostErrors[keyof CreatePublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenPostErrors];
+
+export type CreatePublicAvatarSessionApiV1PublicEmbedAvatarSessionSessionTokenPostResponses = {
     /**
      * Successful Response
      */

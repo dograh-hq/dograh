@@ -4,8 +4,8 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 
-# Install Python and build dependencies for native modules
-# This helps with ARM64 builds and native module compilation
+# Install Python and build dependencies for native modules. Buildx supplies the
+# target platform, so native modules are compiled for the requested image arch.
 RUN apk add --no-cache python3 make g++ libc6-compat
 
 # Copy package files
@@ -41,10 +41,18 @@ ENV NEXT_TELEMETRY_DISABLED="1"
 ENV NEXT_PUBLIC_CHATWOOT_URL="https://chat.dograh.com"
 ENV NEXT_PUBLIC_CHATWOOT_TOKEN="3fkFx2mCEjNHjM9gaNc4A82X"
 ENV BACKEND_URL="http://api:8000"
+# Browser→API base URL, baked in at build (NEXT_PUBLIC_*). Empty by default so
+# same-origin deployments (server behind a proxy) are unaffected; set it for
+# split-origin setups like local dev where the browser must reach the API on a
+# different port (e.g. http://localhost:8000).
+ARG NEXT_PUBLIC_BACKEND_URL=""
+ENV NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL}"
 
 # Build the application with standalone mode
-# Increase Node.js heap size to prevent out-of-memory errors during build
-ENV NODE_OPTIONS="--max-old-space-size=4096"
+# Keep the build heap configurable so constrained Docker builders can complete
+# the Next.js type-check phase without exhausting the builder's memory.
+ARG NODE_OPTIONS="--max-old-space-size=4096"
+ENV NODE_OPTIONS="${NODE_OPTIONS}"
 RUN npm run build && \
     rm -rf /tmp/* /root/.npm /root/.next/cache
 

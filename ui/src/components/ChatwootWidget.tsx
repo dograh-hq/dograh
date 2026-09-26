@@ -35,9 +35,12 @@ const isBuilderPath = (pathname: string) =>
 
 export default function ChatwootWidget() {
   const pathname = usePathname();
+  // Never show the support chat on standalone/embeddable avatar pages.
+  const isEmbed = pathname?.startsWith("/embed");
 
   // Load the Chatwoot SDK exactly once for the lifetime of the app.
   useEffect(() => {
+    if (isEmbed) return;
     // Don't initialize if environment variables are not set
     if (!CHATWOOT_BASE_URL || !CHATWOOT_WEBSITE_TOKEN) {
       console.warn("Chatwoot not configured: Missing NEXT_PUBLIC_CHATWOOT_URL or NEXT_PUBLIC_CHATWOOT_TOKEN");

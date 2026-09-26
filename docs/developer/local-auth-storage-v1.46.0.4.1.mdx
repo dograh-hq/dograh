@@ -1,0 +1,82 @@
+---
+title: "CALMOS v1.46.0.4.1 local auth and storage verification"
+description: "Local-only authentication and persistence checks for the verification release."
+---
+
+v1.46.0.4.1 is an authentication and storage verification release. It is not
+an AWS storage migration release and does not enable S3 dual-write.
+
+## Local authentication
+
+Use the canonical browser origin `http://localhost:3010`. The browser reaches
+the local API at `http://localhost:8000`; the API reaches Postgres at the
+Compose service name `postgres`.
+
+Local email/password users are stored in Postgres tables `users`,
+`organizations`, and `organization_users`. Passwords are bcrypt hashes in
+`users.password_hash`; JWTs are signed by the API's local `OSS_JWT_SECRET`.
+Redis is used by background/runtime services, not as the source of truth for
+local user credentials or completed runs.
+
+Signup creates the user, organization, membership, selected organization, and
+local JWT through the normal application API. Local smoke addresses ending in
+`.test` are accepted only when `AUTH_PROVIDER=local`; hosted auth keeps the
+standard reserved-domain validation.
+
+Provision the two repeatable local accounts without committing passwords:
+
+```bash
+export SMOKE_TEST_USER_PASSWORD='choose-a-local-password'
+export SMOKE_TEST_SECOND_USER_PASSWORD='choose-another-local-password'
+./scripts/provision_local_smoke_users.sh
+./scripts/smoke_local.sh
+```
+
+The helper uses `smokescreen.local@example.test` and
+`testuser.local@example.test` by default and calls the normal signup/login
+endpoints. Password values are not stored in the repository or sent to AWS.
+
+## Local storage
+
+The local topology is:
+
+```text
+Browser -> UI -> API -> local Postgres / local Redis / local MinIO
+```
+
+Postgres stores users, organizations, workflows and workflow definitions,
+workflow runs, utterances, recording metadata, call scores, Sakinah scenarios,
+and Sakinah run summaries. Transcript text is retained in run fields and
+utterance rows; when an artifact is produced, the transcript object is also
+stored in MinIO.
+
+MinIO uses the `voice-audio` bucket and the Compose volume
+`dograh_minio-data`. Recording keys follow the current artifact convention:
+`recordings/{YYYY}/{MM}/{service_user_id}/{call_id}/call.wav`,
+`user.wav`, and `assistant.wav`. Transcript keys use the matching prefix under
+`transcripts/.../transcript.txt`. Recording metadata, size, and SHA-256 are
+stored in the `recordings` table when available.
+
+The active local Compose volumes are `dograh_postgres_data`,
+`dograh_redis_data`, and `dograh_minio-data`. Redis is transient runtime,
+cache, queue, and coordination state; completed relational and object data
+survives Redis restart.
+
+## Auditing a run
+
+The authenticated endpoint used by Agent Run Details is:
+
+```text
+GET /api/v1/workflow/{workflow_id}/runs/{run_id}/storage-audit
+```
+
+It is read-only and uses the normal DB client and storage abstraction. It
+verifies the run, transcript, recording metadata, object existence, object
+size, and audit-time SHA-256 where the backend supports download. Results use
+`verified`, `missing`, `pending`, `not_expected`, `not_configured`, or
+`unknown`; an initialized run with no expected audio is `not_expected`.
+
+Local runtime configuration must keep `ENABLE_AWS_S3=false`, `DATABASE_URL`
+pointing to `postgres`, `REDIS_URL` pointing to `redis`, and MinIO at
+`minio:9000`. AWS/RDS/S3/Supabase configuration is not active in the local
+stack.

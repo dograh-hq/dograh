@@ -582,18 +582,41 @@ async def simulation_audio(
 
     await websocket.accept()
     queue = simulation.subscribe_audio()
+    frame_count = 0
+    byte_count = 0
+    logger.info(
+        "simulation_audio_ws_connected simulation_id={} user_id={}",
+        simulation_id,
+        user.id,
+    )
     try:
         while True:
             chunk = await queue.get()
             if chunk is None:  # end-of-stream sentinel from finalize
                 break
             await websocket.send_bytes(chunk)
+            frame_count += 1
+            byte_count += len(chunk)
+            if frame_count == 1 or frame_count % 50 == 0:
+                logger.info(
+                    "simulation_audio_frame simulation_id={} sequence={} bytes={} total_bytes={}",
+                    simulation_id,
+                    frame_count,
+                    len(chunk),
+                    byte_count,
+                )
     except WebSocketDisconnect:
         pass
     except Exception as e:
         logger.debug(f"Simulation audio WS error for {simulation_id}: {e}")
     finally:
         simulation.unsubscribe_audio(queue)
+        logger.info(
+            "simulation_audio_ws_closed simulation_id={} frames={} total_bytes={}",
+            simulation_id,
+            frame_count,
+            byte_count,
+        )
         if websocket.application_state == WebSocketState.CONNECTED:
             try:
                 await websocket.close()

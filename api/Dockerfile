@@ -59,17 +59,18 @@ RUN npm ci --omit=dev && npm cache clean --force
 # Stage 3: Static ffmpeg binary (avoids apt ffmpeg pulling mesa/libllvm for
 # hardware acceleration we don't use server-side).
 #
-# Source: BtbN/FFmpeg-Builds, served from GitHub's release-assets CDN (fast,
-# highly available, multi-arch). We pin a specific build for reproducibility,
-# but to a *month-end* autobuild tag — not a daily one. BtbN prunes daily
+# Source: BtbN/FFmpeg-Builds, served from GitHub's release-assets CDN. The
+# production image is deliberately AMD64-only; Buildx must be invoked with
+# --platform linux/amd64. We pin a specific build for reproducibility, but to a
+# *month-end* autobuild tag — not a daily one. BtbN prunes daily
 # autobuilds after ~2 weeks (the previous pin was a daily tag and started
 # 404ing once GC'd), but keeps one month-end snapshot per month long-term
-# (~2 years back). A dated tag's assets are immutable, so the per-arch sha256
+# (~2 years back). A dated tag's assets are immutable, so the AMD64 sha256
 # below never rots: builds stay reproducible AND integrity-verified.
 #
 # To upgrade ffmpeg: bump BTBN_TAG + BTBN_REV to a newer month-end autobuild
-# and refresh the two sha256s. No download needed — read tag, revision and
-# per-asset sha256 straight from the GitHub release-asset metadata:
+# and refresh the AMD64 sha256. No download needed — read tag, revision and
+# the asset sha256 straight from the GitHub release-asset metadata:
 #   gh api repos/BtbN/FFmpeg-Builds/releases/tags/<tag> \
 #     --jq '.assets[] | select(.name|test("(linux64|linuxarm64)-gpl\\.tar\\.xz$")) | "\(.name) \(.digest)"'
 #
@@ -88,9 +89,7 @@ RUN set -eu ; \
     case "${TARGETARCH}" in \
       amd64) btbn_arch=linux64 ; \
              sha256=ee052121296e6479325e09c6097d48e72a4af472d18c2b94388b5405dcde6cce ;; \
-      arm64) btbn_arch=linuxarm64 ; \
-             sha256=e97545305043794cdf7b698d713e29291464e0c35bb8e0f3ff1f62e4c56eedd6 ;; \
-      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2 ; exit 1 ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}; production images must be linux/amd64" >&2 ; exit 1 ;; \
     esac ; \
     url="https://github.com/BtbN/FFmpeg-Builds/releases/download/${BTBN_TAG}/ffmpeg-${BTBN_REV}-${btbn_arch}-gpl.tar.xz" ; \
     mkdir -p /tmp/ffmpeg ; cd /tmp/ffmpeg ; \

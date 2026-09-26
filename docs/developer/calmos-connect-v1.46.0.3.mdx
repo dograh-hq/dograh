@@ -1,0 +1,202 @@
+---
+title: "CALMOS Connect v1.46.0.3 persistence"
+description: "Operate CALMOS call history, private recordings, caller identity, and Sakinah memory on PostgreSQL and S3."
+---
+
+# CALMOS Connect v1.46.0.3 persistence
+
+Version 1.46.0.3 keeps Dograh `workflow_runs` as the canonical Agent Run and
+call-history record. It does not add an `agent_runs` table or a second transcript
+system. PostgreSQL owns operational metadata and text; S3 or MinIO owns audio and
+large archive objects.
+
+## Schema
+
+Migration `c4a81f0e2b7d_calmos_connect_persistence_hardening.py` is additive and
+preserves existing rows.
+
+The release reuses these tables:
+
+- `workflow_runs`, extended with caller state and identifier linkage, provider
+  call ID, transcript object key, and latency metrics;
+- `utterances`, `recordings`, `call_scores`, and `call_events`;
+- `service_users`, extended with lifecycle timestamps, status, and the
+  `memory_enabled` control;
+- `memories` and `memory_sources`, including the existing `vector(1536)`
+  embedding and cosine index;
+- `sakinah_runs`, only for simulation-specific summary data.
+
+It adds:
+
+- `caller_identifiers`, containing organization-scoped keyed hashes and explicit
+  verification state. Telephone number is never the service-user primary key;
+- `privacy_permissions`, an append-only permission and provenance ledger;
+- `audit_events`, including successful replay and artifact-URL issuance.
+
+Existing unkeyed caller hashes are retained as `sha256_v1` compatibility rows.
+When that caller is next observed, the service creates an `hmac_sha256_v1` row
+without needing a plaintext database backfill.
+
+The migration runs `CREATE EXTENSION IF NOT EXISTS vector`. Your managed
+PostgreSQL service must make pgvector available before you migrate. PostgreSQL 17
+and pgvector 0.8.x are validated locally; the existing IVFFlat cosine index is
+retained.
+
+## Caller and memory flow
+
+Before Sakinah's first substantive response, the API resolves the incoming
+identifier with a two-second safety timeout and returns one of `UNKNOWN`,
+`FIRST_TIME`, `RECOGNISED`, or `VERIFIED`.
+
+Caller ID is candidate matching only. `VERIFIED` requires a verification result
+already stored by a trusted backend verification flow; workflow/template context
+cannot elevate identity. A recognised but unverified caller may receive a privacy-safe
+welcome using the stored preferred name, but its permitted low/normal-sensitivity
+memories are internal context only and cannot be verbally referenced. Verified callers
+still receive only active, unexpired memories whose
+per-memory permissions allow the intended use.
+
+The memory service is the only conversational access boundary. The LLM cannot
+query transcript history. It receives a bounded context containing caller state,
+permission decisions, and relevant memories. `memory_use` and `memory_storage`
+permission denials override the service-user default. Completion-time extraction
+runs through ARQ and stores only durable, validated facts with run and utterance
+provenance.
+
+## Private object storage
+
+Set the existing S3 backend to write private objects in London:
+
+```dotenv
+ENABLE_AWS_S3=true
+AWS_REGION=eu-west-2
+AWS_RECORDINGS_BUCKET=your-private-recordings-bucket
+S3_SERVER_SIDE_ENCRYPTION=aws:kms
+# S3_KMS_KEY_ID=your-customer-managed-key-id
+```
+
+Do not put AWS access keys in the application `.env`. Attach an IAM role to the
+API and worker runtime. Keep S3 Block Public Access enabled.
+
+New keys use only opaque IDs:
+
+```text
+recordings/{year}/{month}/{service_user_id}/{call_id}/call.wav
+recordings/{year}/{month}/{service_user_id}/{call_id}/user.wav
+recordings/{year}/{month}/{service_user_id}/{call_id}/assistant.wav
+transcripts/{year}/{month}/{service_user_id}/{call_id}/transcript.txt
+```
+
+Anonymous calls use the literal non-PII segment `anonymous`. PostgreSQL stores
+object keys, not permanent S3 URLs. Authenticated replay returns server-generated
+GET URLs valid for 60–900 seconds and records the access in `audit_events`.
+
+For MinIO, production defaults to private access. Keep:
+
+```dotenv
+MINIO_ALLOW_ANONYMOUS=false
+```
+
+The API removes an anonymous policy left by an older image and uses public-host
+presigned GET and PUT URLs. `MINIO_ALLOW_ANONYMOUS=true` is a local-development
+compatibility option only.
+
+## Caller identifier secret
+
+Configure a stable HMAC key:
+
+```dotenv
+CALLER_IDENTIFIER_HASH_KEY=generate-a-long-random-secret
+```
+
+Generate this independently from authentication keys. Do not rotate it without a
+planned identifier re-key process. For compatibility, the service falls back to
+the existing `OSS_JWT_SECRET` when the dedicated value is absent.
+
+## MinIO to S3 migration
+
+Keep MinIO running and configure both the source MinIO variables and destination
+AWS variables. Leave `S3_ENDPOINT_URL` unset when the destination is AWS. Start
+with the default read-only pass:
+
+```bash
+set -a
+source api/.env
+set +a
+python -m scripts.migrate_minio_to_s3
+```
+
+The report distinguishes referenced and unreferenced objects and shows what
+would be copied. To execute:
+
+```bash
+set -a
+source api/.env
+set +a
+python -m scripts.migrate_minio_to_s3 --execute
+```
+
+The tool enumerates MinIO, preserves each key, calculates SHA-256, and compares
+the destination bytes. It updates each `recordings` row after that object's
+verified copy and updates a `workflow_runs` backend only after all artifacts
+referenced by the run are verified. Reruns skip byte-identical objects. It
+reports failures and never deletes MinIO objects.
+
+## IAM permissions
+
+Scope the API and worker role to the recordings bucket and required prefixes:
+
+- `s3:PutObject` for recording and transcript uploads;
+- `s3:GetObject` for replay and integrity verification;
+- `s3:AbortMultipartUpload` for interrupted large-artifact transfers;
+- `kms:Encrypt`, `kms:Decrypt`, and `kms:GenerateDataKey` when you use a
+  customer-managed KMS key.
+
+The MinIO migration needs the same S3 permissions. Bucket administration and
+public-policy changes are infrastructure responsibilities and are not performed
+by this release.
+
+## Local deployment
+
+Use the repository's existing services and migration commands:
+
+```bash
+./scripts/migrate.sh
+docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml up -d --build
+```
+
+For private local MinIO, keep `MINIO_ALLOW_ANONYMOUS=false`. Restart both the API
+and ARQ worker after migration so the persistence and memory jobs use the new
+schema.
+
+## AWS deployment requirements
+
+Before deployment, confirm:
+
+- RDS supports pgvector and the database URL requires TLS;
+- the RDS security group accepts only the application runtime security group;
+- the private S3 bucket is in `eu-west-2` with Block Public Access enabled;
+- API and worker runtimes have the IAM permissions above through roles;
+- `CALLER_IDENTIFIER_HASH_KEY` is stored in your secret manager;
+- migrations complete before you start v1.46.0.3 API and worker processes.
+
+This release does not provision or change AWS infrastructure.
+
+## Rollback
+
+For an application rollback, stop v1.46.0.3 workers and deploy the previous image
+while leaving the additive schema in place. Existing legacy fields remain
+readable. Do not reverse copied objects; MinIO has not been deleted.
+
+For a schema rollback, first snapshot PostgreSQL and preserve both object stores,
+then run:
+
+```bash
+cd api
+alembic downgrade b9e0c3a5d7f1
+```
+
+That downgrade removes `caller_identifiers`, `privacy_permissions`, and
+`audit_events`. It synthesizes non-PII compatibility hashes for service users
+created after the upgrade, but an older application will not recognise those
+callers until they are observed again. Prefer the application-only rollback.

@@ -1,12 +1,14 @@
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
 
+from api.services.call_persistence import persist_workflow_run_call_data
 from api.services.telephony.external_pbx_writeback import (
     sync_external_pbx_call_record,
 )
 from api.services.workflow_run_billing import (
     report_completed_workflow_run_platform_usage,
 )
+from api.tasks.function_names import FunctionNames
 from api.tasks.run_integrations import run_integrations_post_workflow_run
 
 
@@ -28,6 +30,31 @@ async def process_workflow_completion(
     set_current_run_id(run_id)
 
     logger.info(f"Processing workflow completion for run {workflow_run_id}")
+
+    # Project the canonical workflow run into durable utterance, score, and
+    # memory records inside the worker. This keeps PostgreSQL work off the live
+    # call teardown path while ensuring integrations see the completed snapshot.
+    try:
+        await persist_workflow_run_call_data(_ctx, workflow_run_id)
+    except Exception as e:
+        logger.error(
+            "Error persisting completed call data for workflow {} ({})",
+            workflow_run_id,
+            type(e).__name__,
+        )
+        try:
+            from api.tasks.arq import enqueue_job
+
+            await enqueue_job(
+                FunctionNames.PERSIST_CALL_DATA,
+                workflow_run_id,
+                _job_id=f"persist-call-data-{workflow_run_id}",
+            )
+        except Exception:
+            logger.error(
+                "Unable to enqueue call data retry for workflow {}",
+                workflow_run_id,
+            )
 
     # Run integrations including QA analysis (after uploads are complete)
     try:

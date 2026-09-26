@@ -1,12 +1,15 @@
 from loguru import logger
 
 from api.constants import (
-    ENABLE_AWS_S3,
+    ENABLE_AWS_S3_PRIMARY,
+    ENABLE_AWS_S3_SECONDARY,
     ENVIRONMENT,
     MINIO_ACCESS_KEY,
+    MINIO_ALLOW_ANONYMOUS,
     MINIO_BUCKET,
     MINIO_ENDPOINT,
     MINIO_PUBLIC_ENDPOINT,
+    MINIO_REGION,
     MINIO_SECRET_KEY,
     MINIO_SECURE,
     S3_ADDRESSING_STYLE,
@@ -47,6 +50,8 @@ def get_storage_for_backend(backend: str) -> BaseFileSystem:
             bucket_name=MINIO_BUCKET,
             secure=MINIO_SECURE,
             public_endpoint=MINIO_PUBLIC_ENDPOINT,
+            allow_anonymous_access=MINIO_ALLOW_ANONYMOUS,
+            region=MINIO_REGION,
         )
 
     # Code 1: AWS S3 implementation (cloud deployments)
@@ -92,7 +97,12 @@ if ENVIRONMENT == Environment.TEST.value:
 else:
     _backend = StorageBackend.get_current_backend()
     logger.info(
-        f"Initializing storage backend: {_backend.name} (value: {_backend.value}, ENABLE_AWS_S3={ENABLE_AWS_S3})"
+        "Initializing storage backend: {} (value: {}, "
+        "ENABLE_AWS_S3_PRIMARY={}, ENABLE_AWS_S3_SECONDARY={})",
+        _backend.name,
+        _backend.value,
+        ENABLE_AWS_S3_PRIMARY,
+        ENABLE_AWS_S3_SECONDARY,
     )
     storage_fs = get_storage_for_backend(_backend.value)
 

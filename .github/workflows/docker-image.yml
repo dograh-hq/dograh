@@ -72,9 +72,6 @@ jobs:
           - name: linux/amd64
             runner: ubuntu-24.04
             short: amd64
-          - name: linux/arm64
-            runner: ubuntu-24.04-arm
-            short: arm64
     runs-on: ${{ matrix.platform.runner }}
     steps:
       - name: Free Disk Space
@@ -109,123 +106,58 @@ jobs:
           username: ${{ secrets.GHCR_USERNAME }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      - name: Build and push by digest
-        id: build
+      - name: Build for architecture verification
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
           platforms: ${{ matrix.platform.name }}
-          outputs: 'type=image,"name=${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service.name }},${{ env.REGISTRY_GHCR }}/${{ secrets.GHCR_USERNAME }}/${{ matrix.service.name }}",push-by-digest=true,name-canonical=true,push=true'
+          load: true
+          tags: local/${{ matrix.service.name }}:verify-${{ needs.prepare.outputs.short_sha }}
           cache-from: type=gha,scope=${{ matrix.service.name }}-${{ matrix.platform.short }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}-${{ matrix.platform.short }}
 
-      - name: Export digest
-        run: |
-          mkdir -p "/tmp/digests/${{ matrix.service.name }}"
-          echo "${{ steps.build.outputs.digest }}" | sed 's/^sha256://' > "/tmp/digests/${{ matrix.service.name }}/${{ matrix.platform.short }}"
-
-      - name: Upload digest
-        uses: actions/upload-artifact@v4
-        with:
-          name: digest-${{ matrix.service.name }}-${{ matrix.platform.short }}
-          path: /tmp/digests/${{ matrix.service.name }}/${{ matrix.platform.short }}
-          retention-days: 1
-
-  merge:
-    needs:
-      - prepare
-      - build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download API digests
-        uses: actions/download-artifact@v4
-        with:
-          pattern: digest-dograh-api-*
-          merge-multiple: true
-          path: /tmp/digests/dograh-api
-
-      - name: Download UI digests
-        uses: actions/download-artifact@v4
-        with:
-          pattern: digest-dograh-ui-*
-          merge-multiple: true
-          path: /tmp/digests/dograh-ui
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to DockerHub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY_GHCR }}
-          username: ${{ secrets.GHCR_USERNAME }}
-          password: ${{ secrets.GHCR_TOKEN }}
-
-      - name: Create manifest lists
+      - name: Verify image architecture
         env:
-          DH_NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
-          GH_NAMESPACE: ${{ env.REGISTRY_GHCR }}/${{ secrets.GHCR_USERNAME }}
+          IMAGE: local/${{ matrix.service.name }}:verify-${{ needs.prepare.outputs.short_sha }}
+        run: |
+          architecture="$(docker image inspect "$IMAGE" --format '{{.Architecture}}')"
+          os="$(docker image inspect "$IMAGE" --format '{{.Os}}')"
+          test "$architecture" = amd64
+          test "$os" = linux
+
+      - name: Push verified image tags
+        env:
+          IMAGE: local/${{ matrix.service.name }}:verify-${{ needs.prepare.outputs.short_sha }}
+          DH_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service.name }}
+          GH_IMAGE: ${{ env.REGISTRY_GHCR }}/${{ secrets.GHCR_USERNAME }}/${{ matrix.service.name }}
           VERSION: ${{ needs.prepare.outputs.version }}
           SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
           PUSH_LATEST: ${{ needs.prepare.outputs.push_latest }}
         run: |
-          inspect_digests() {
-            service="$1"
-            digest_dir="/tmp/digests/$service"
-            dh_image="$DH_NAMESPACE/$service"
-            gh_image="$GH_NAMESPACE/$service"
+          tags=("$VERSION" "$SHORT_SHA")
+          if [ "$PUSH_LATEST" = "true" ]; then
+            tags+=(latest)
+          fi
 
-            for digest_file in "$digest_dir"/*; do
-              digest="$(cat "$digest_file")"
-              docker buildx imagetools inspect "$dh_image@sha256:$digest" >/dev/null
-              docker buildx imagetools inspect "$gh_image@sha256:$digest" >/dev/null
+          for image in "$DH_IMAGE" "$GH_IMAGE"; do
+            for tag in "${tags[@]}"; do
+              docker tag "$IMAGE" "$image:$tag"
+              docker push "$image:$tag"
             done
-          }
-
-          create_manifests() {
-            service="$1"
-            digest_dir="/tmp/digests/$service"
-            dh_image="$DH_NAMESPACE/$service"
-            gh_image="$GH_NAMESPACE/$service"
-
-            dh_refs=$(printf "${dh_image}@sha256:%s " $(cat "$digest_dir"/*))
-            gh_refs=$(printf "${gh_image}@sha256:%s " $(cat "$digest_dir"/*))
-
-            dh_tags=(-t "$dh_image:$VERSION" -t "$dh_image:$SHORT_SHA")
-            gh_tags=(-t "$gh_image:$VERSION" -t "$gh_image:$SHORT_SHA")
-
-            if [ "$PUSH_LATEST" = "true" ]; then
-              dh_tags+=(-t "$dh_image:latest")
-              gh_tags+=(-t "$gh_image:latest")
-            fi
-
-            docker buildx imagetools create "${dh_tags[@]}" $dh_refs
-            docker buildx imagetools create "${gh_tags[@]}" $gh_refs
-          }
-
-          inspect_digests dograh-api
-          inspect_digests dograh-ui
-          create_manifests dograh-api
-          create_manifests dograh-ui
+          done
 
   notify:
     needs:
       - prepare
-      - merge
+      - build
     if: always()
     runs-on: ubuntu-latest
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Slack success
-        if: needs.merge.result == 'success' && env.SLACK_WEBHOOK_URL != ''
+        if: needs.build.result == 'success' && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |
@@ -234,7 +166,7 @@ jobs:
             }
 
       - name: Slack failure
-        if: needs.merge.result != 'success' && env.SLACK_WEBHOOK_URL != ''
+        if: needs.build.result != 'success' && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |

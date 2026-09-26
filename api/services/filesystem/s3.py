@@ -4,6 +4,8 @@ import aioboto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+from api.constants import S3_KMS_KEY_ID, S3_SERVER_SIDE_ENCRYPTION
+
 from .base import AsyncReadable, BaseFileSystem
 
 
@@ -59,10 +61,26 @@ class S3FileSystem(BaseFileSystem):
 
     async def acreate_file(self, file_path: str, content: AsyncReadable) -> bool:
         try:
+            put_kwargs = {
+                "Bucket": self.bucket_name,
+                "Key": file_path,
+                "Body": await content.read(),
+            }
+            # Keep recordings private and encrypted at rest.  ``aws:kms`` uses
+            # the S3-managed KMS key when no customer key was supplied; a
+            # customer-managed key can be selected with S3_KMS_KEY_ID.
+            # A custom endpoint may be an S3-compatible service rather than
+            # AWS. Do not send AWS KMS headers there by default; operators can
+            # opt into a compatible server-side encryption value explicitly.
+            if S3_SERVER_SIDE_ENCRYPTION and (
+                not self.endpoint_url
+                or S3_SERVER_SIDE_ENCRYPTION != "aws:kms"
+            ):
+                put_kwargs["ServerSideEncryption"] = S3_SERVER_SIDE_ENCRYPTION
+            if S3_KMS_KEY_ID and not self.endpoint_url:
+                put_kwargs["SSEKMSKeyId"] = S3_KMS_KEY_ID
             async with self.session.client("s3", **self._client_kwargs()) as s3_client:
-                await s3_client.put_object(
-                    Bucket=self.bucket_name, Key=file_path, Body=await content.read()
-                )
+                await s3_client.put_object(**put_kwargs)
             return True
         except ClientError:
             return False

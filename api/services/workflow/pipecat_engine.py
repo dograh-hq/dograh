@@ -851,6 +851,8 @@ class PipecatEngine:
             await db_client.update_workflow_run(
                 run_id=self._workflow_run_id,
                 gathered_context=self._gathered_context,
+                termination_reason=reason,
+                call_status="ending",
             )
         except Exception as exc:
             # Call teardown must never be held hostage by an enrichment write.

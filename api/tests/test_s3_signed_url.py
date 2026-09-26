@@ -30,3 +30,9 @@ def test_known_org_scoped_keys_extract_org_id():
 
 def test_unknown_numeric_prefix_is_not_treated_as_org_scoped():
     assert _extract_org_id_from_key("unknown/42/file.wav") is None
+
+
+def test_calmos_year_month_recording_keys_use_database_authorization():
+    key = "recordings/2026/09/service-user-1/call-1/call.wav"
+    assert _extract_org_id_from_key(key) is None
+    assert _extract_legacy_workflow_run_id(key) is None

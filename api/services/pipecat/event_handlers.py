@@ -1,10 +1,13 @@
 import asyncio
+from datetime import UTC, datetime
 
 from loguru import logger
 
+from api.constants import RECORD_CALLS
 from api.db import db_client
 from api.enums import PostHogEvent, WorkflowRunState
 from api.services.campaign.circuit_breaker import circuit_breaker
+from api.services.call_persistence import persist_call_data_with_retry
 from api.services.integrations import IntegrationRuntimeSession
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_playback import play_audio_loop
@@ -102,6 +105,16 @@ def register_event_handlers(
         "initial_response_triggered": False,
     }
 
+    async def mark_call_connected() -> None:
+        try:
+            await db_client.update_workflow_run(
+                workflow_run_id,
+                connected_at=datetime.now(UTC),
+                call_status="connected",
+            )
+        except Exception:
+            logger.warning("Unable to persist connected timestamp for workflow run {}", workflow_run_id)
+
     async def maybe_trigger_initial_response():
         """Start the conversation after both pipeline_started and client_connected events.
 
@@ -163,6 +176,18 @@ def register_event_handlers(
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.
             await engine.set_node(engine.workflow.start_node_id)
+
+            # Callers can mark a run as a listener that must not speak first
+            # (e.g. the service-user side of an AI-to-AI simulation, which
+            # should only answer once it hears the other agent). The LLM then
+            # runs for the first time when the first user turn arrives.
+            if engine._call_context_vars.get("suppress_initial_greeting"):
+                logger.info(
+                    f"Skipping initial greeting for workflow run {workflow_run_id} "
+                    "(suppress_initial_greeting set)"
+                )
+                return
+
             await engine.queue_node_opening(
                 node_id=engine.workflow.start_node_id,
                 previous_node_id=None,
@@ -173,6 +198,7 @@ def register_event_handlers(
     async def on_client_connected(_transport, _participant):
         logger.debug("In on_client_connected callback handler")
         await audio_buffer.start_recording()
+        asyncio.create_task(mark_call_connected())
         ready_state["client_connected"] = True
         await maybe_trigger_initial_response()
 
@@ -339,9 +365,9 @@ def register_event_handlers(
 
         usage_info = pipeline_metrics_aggregator.get_all_usage_metrics_serialized()
 
-        logger.debug(
-            f"Usage metrics: {usage_info}, Gathered context: {gathered_context}"
-        )
+        # Do not log gathered_context: it can contain caller-provided or
+        # clinically sensitive values. Structured persistence owns that data.
+        logger.debug("Collected usage metrics for workflow run {}", workflow_run_id)
 
         await db_client.update_workflow_run(
             run_id=workflow_run_id,
@@ -349,6 +375,7 @@ def register_event_handlers(
             gathered_context=gathered_context,
             is_completed=True,
             state=WorkflowRunState.COMPLETED.value,
+            termination_reason=gathered_context.get("termination_reason"),
         )
 
         asyncio.create_task(
@@ -385,6 +412,7 @@ def register_event_handlers(
         # to cross a process/host boundary via temp files. Must complete
         # before the completion job is enqueued so QA and webhooks see the
         # artifacts in storage.
+        transcript_text = None
         try:
             mixed_audio_wav = None
             user_audio_wav = None
@@ -418,11 +446,34 @@ def register_event_handlers(
                 bot_audio_wav=bot_audio_wav,
                 transcript_text=transcript_text,
             )
+            if (workflow_run.initial_context or {}).get("session_id") or (
+                workflow_run.initial_context or {}
+            ).get("simulation_id"):
+                await db_client.sync_sakinah_run_artifacts(workflow_run_id)
         except Exception as e:
             logger.error(f"Error uploading call artifacts: {e}", exc_info=True)
 
         # Combined task: runs integrations (including QA), then calculates
         # cost (so QA token usage is captured in usage_info)
+        # Durable utterances/scores/memory extraction are deliberately detached
+        # from call teardown. S3/RDS outages must not prolong or terminate a
+        # live audio session; the retry queue provides a second safety net.
+        try:
+            feedback_events = (
+                in_memory_logs_buffer.get_events()
+                if not in_memory_logs_buffer.is_empty
+                else None
+            )
+        except Exception:
+            feedback_events = None
+        asyncio.create_task(
+            persist_call_data_with_retry(
+                workflow_run_id,
+                events=feedback_events,
+                transcript_text=transcript_text,
+            )
+        )
+
         await enqueue_job(
             FunctionNames.PROCESS_WORKFLOW_COMPLETION,
             workflow_run_id,
@@ -442,7 +493,7 @@ def register_audio_data_handler(
 
     @audio_buffer.event_handler("on_audio_data")
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
-        if not audio:
+        if not RECORD_CALLS or not audio:
             return
 
         try:
@@ -454,6 +505,8 @@ def register_audio_data_handler(
     async def on_track_audio_data(
         buffer, user_audio, bot_audio, sample_rate, num_channels
     ):
+        if not RECORD_CALLS:
+            return
         try:
             if user_audio:
                 await in_memory_buffers.user.append(user_audio)

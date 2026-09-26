@@ -96,8 +96,16 @@ MINIO_BUCKET = os.getenv("MINIO_BUCKET", "voice-audio")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
 # AWS S3 Configuration
-S3_BUCKET = os.environ.get("S3_BUCKET")
-S3_REGION = os.environ.get("S3_REGION", "us-east-1")
+AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("S3_REGION", "eu-west-2")
+# ``AWS_RECORDINGS_BUCKET`` is the white-label name. Keep ``S3_BUCKET`` as the
+# existing generic storage setting so existing deployments continue to work.
+AWS_RECORDINGS_BUCKET = os.environ.get("AWS_RECORDINGS_BUCKET")
+S3_BUCKET = AWS_RECORDINGS_BUCKET or os.environ.get("S3_BUCKET")
+S3_REGION = AWS_REGION
+S3_KMS_KEY_ID = os.environ.get("S3_KMS_KEY_ID") or None
+S3_SERVER_SIDE_ENCRYPTION = os.environ.get(
+    "S3_SERVER_SIDE_ENCRYPTION", "aws:kms"
+)
 # Optional overrides for S3-compatible backends (e.g. MinIO, rustfs, Ceph).
 # S3_ENDPOINT_URL: full URL of a custom S3 endpoint (e.g. "https://s3.example.com").
 #   Leave unset to use AWS's default endpoint resolution.
@@ -109,6 +117,18 @@ S3_REGION = os.environ.get("S3_REGION", "us-east-1")
 S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL")
 S3_SIGNATURE_VERSION = os.environ.get("S3_SIGNATURE_VERSION")
 S3_ADDRESSING_STYLE = os.environ.get("S3_ADDRESSING_STYLE")
+
+# Durable call and Sakinah memory persistence. These are intentionally
+# environment-driven so the call path remains usable in local/OSS installs
+# without AWS credentials.
+MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "true").lower() == "true"
+MEMORY_EMBEDDING_MODEL = os.getenv(
+    "MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"
+)
+MEMORY_EMBEDDING_DIMENSIONS = int(os.getenv("MEMORY_EMBEDDING_DIMENSIONS", "1536"))
+MEMORY_MAX_RESULTS = max(1, int(os.getenv("MEMORY_MAX_RESULTS", "5")))
+MEMORY_MIN_SIMILARITY = float(os.getenv("MEMORY_MIN_SIMILARITY", "0.72"))
+RECORD_CALLS = os.getenv("RECORD_CALLS", "true").lower() == "true"
 
 # Sentry configuration
 SENTRY_DSN = os.getenv("SENTRY_DSN")
@@ -136,6 +156,15 @@ TELEPHONY_WS_TOKEN_SECRET = os.getenv("TELEPHONY_WS_TOKEN_SECRET") or None
 TELEPHONY_WS_TOKEN_ENFORCE = (
     os.getenv("TELEPHONY_WS_TOKEN_ENFORCE", "false").lower() == "true"
 )
+
+# Directory where Sakinah scenario/simulation session JSONs are written.
+SAKINAH_SESSIONS_DIR = os.getenv("SAKINAH_SESSIONS_DIR", "/app/data/sakinah-sessions")
+
+# Number of uvicorn workers the deployment runs (set by the container
+# entrypoint / compose). The Sakinah simulation keeps in-process state, so
+# values > 1 break its status/stop/WebSocket routing until issue #4
+# (worker-sync) is resolved.
+FASTAPI_WORKERS = max(1, int(os.getenv("FASTAPI_WORKERS", "1") or "1"))
 
 # Logging configuration
 LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", None)
@@ -245,6 +274,10 @@ TURN_SECRET = os.getenv("TURN_SECRET")
 # Host browsers dial for TURN/ICE. Derives from PUBLIC_HOST; set explicitly only
 # when the TURN server runs on a separate host from the app.
 TURN_HOST = os.getenv("TURN_HOST") or PUBLIC_HOST or "localhost"
+# Docker Desktop local deployments can require a different name from the API
+# container than from the browser. The browser uses TURN_HOST; aiortc uses this
+# optional container-side name to reach the host-published TURN service.
+TURN_SERVER_HOST = os.getenv("TURN_SERVER_HOST") or ""
 TURN_PORT = int(os.getenv("TURN_PORT", "3478"))
 TURN_TLS_PORT = int(os.getenv("TURN_TLS_PORT", "5349"))
 TURN_CREDENTIAL_TTL = int(os.getenv("TURN_CREDENTIAL_TTL", "86400"))
@@ -259,3 +292,27 @@ OSS_JWT_SECRET = os.getenv("OSS_JWT_SECRET", "change-me-in-production")
 OSS_JWT_EXPIRY_HOURS = int(os.getenv("OSS_JWT_EXPIRY_HOURS", "720"))  # 30 days
 
 TUNER_BASE_URL = os.getenv("TUNER_BASE_URL", "https://api.usetuner.ai")
+
+# SpatialReal avatar engine (AvatarKit). The API key never leaves the backend;
+# the browser gets a short-lived session token minted via /avatar/session.
+SPATIALREAL_APP_ID = os.getenv("SPATIALREAL_APP_ID", "")
+SPATIALREAL_API_KEY = os.getenv("SPATIALREAL_API_KEY", "")
+SPATIALREAL_AVATAR_ID = os.getenv("SPATIALREAL_AVATAR_ID", "")
+SPATIALREAL_REGION = os.getenv("SPATIALREAL_REGION", "us-west")
+SPATIALREAL_CONSOLE_ENDPOINT = os.getenv(
+    "SPATIALREAL_CONSOLE_ENDPOINT",
+    f"https://console.{SPATIALREAL_REGION}.spatialwalk.cloud/v1/console",
+)
+# Session tokens are capped at 24h by SpatialReal; default to 12h.
+SPATIALREAL_TOKEN_TTL = int(os.getenv("SPATIALREAL_TOKEN_TTL", "43200"))
+# Avatar driving mode: "sdk" (browser streams audio to SpatialReal directly),
+# "host" (backend drives the avatar from inside the pipeline and relays
+# audio+animation to the browser), or "off".
+SPATIALREAL_MODE = os.getenv("SPATIALREAL_MODE", "sdk").lower()
+SPATIALREAL_INGRESS_ENDPOINT = os.getenv(
+    "SPATIALREAL_INGRESS_ENDPOINT",
+    f"wss://api.{SPATIALREAL_REGION}.spatialwalk.cloud/v2/driveningress",
+)
+# Max concurrent host-mode avatar sessions. Beyond the cap new runs proceed
+# audio-only (the avatar is refused, never the call).
+SPATIALREAL_MAX_SESSIONS = int(os.getenv("SPATIALREAL_MAX_SESSIONS", "10"))

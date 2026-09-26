@@ -7,7 +7,10 @@ from pydantic import BaseModel
 
 from api.routes.agent_stream import router as agent_stream_router
 from api.routes.auth import router as auth_router
+from api.routes.avatar import router as avatar_router
+from api.routes.avatar_stream import router as avatar_stream_router
 from api.routes.campaign import router as campaign_router
+from api.routes.call_history import router as call_history_router
 from api.routes.credentials import router as credentials_router
 from api.routes.folder import router as folder_router
 from api.routes.knowledge_base import router as knowledge_base_router
@@ -19,6 +22,7 @@ from api.routes.public_download import router as public_download_router
 from api.routes.public_embed import router as public_embed_router
 from api.routes.public_embed_chat import router as public_embed_chat_router
 from api.routes.reports import router as reports_router
+from api.routes.sakinah import router as sakinah_router
 from api.routes.s3_signed_url import router as s3_router
 from api.routes.service_keys import router as service_keys_router
 from api.routes.superuser import router as superuser_router
@@ -44,6 +48,7 @@ router.include_router(workflow_router)
 router.include_router(workflow_text_chat_router)
 router.include_router(user_router)
 router.include_router(campaign_router)
+router.include_router(call_history_router)
 router.include_router(credentials_router)
 router.include_router(tool_router)
 router.include_router(organization_router)
@@ -51,8 +56,11 @@ router.include_router(s3_router)
 router.include_router(service_keys_router)
 router.include_router(organization_usage_router)
 router.include_router(reports_router)
+router.include_router(sakinah_router)
 router.include_router(webrtc_signaling_router)
 router.include_router(turn_credentials_router)
+router.include_router(avatar_router)
+router.include_router(avatar_stream_router)
 router.include_router(public_embed_router)
 router.include_router(public_embed_chat_router)
 router.include_router(public_agent_router)

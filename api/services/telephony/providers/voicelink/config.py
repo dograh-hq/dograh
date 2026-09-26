@@ -31,11 +31,15 @@ class VoiceLinkConfigurationRequest(BaseModel):
     @classmethod
     def coerce_client_id(cls, value: object) -> str:
         text = "" if value is None else str(value).strip()
-        # ``isdecimal`` alone accepts non-ASCII digits (e.g. Arabic-Indic),
-        # which ``int()`` in the provider would then choke on or misread.
+        # ASCII 0-9 only: ``isdigit`` also accepts superscripts and
+        # ``isdecimal`` other scripts' digits, which the provider's ``int()``
+        # would reject or silently reinterpret.
         if not (text.isascii() and text.isdecimal()):
             raise ValueError("client_id must be a whole number")
-        return text
+        # Canonical form ("00123" -> "123"): VoiceLink stamps the plain number
+        # on inbound streams and the provider signs with ``int(client_id)``, so
+        # a padded value would match neither.
+        return str(int(text))
 
     api_base_url: str = Field(
         default=PRODUCTION_API_BASE_URL,

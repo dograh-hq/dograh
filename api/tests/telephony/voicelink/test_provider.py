@@ -29,6 +29,7 @@ from api.services.telephony.providers.voicelink.provider import VoiceLinkProvide
 DID = "+910000000000"
 CUSTOMER = "+910000000001"
 RUN_PIPELINE = "api.services.pipecat.run_pipeline.run_pipeline_telephony"
+MARK_FAILED = "api.services.workflow_run_failure.mark_workflow_run_failed"
 
 START_FRAME = json.dumps(
     {
@@ -507,10 +508,12 @@ def _stream_params(api_token="t", client_id=123, workflow_id=7) -> dict:
     return {"vl_token": token}
 
 
-async def _run_external(ws, db, params) -> AsyncMock:
+async def _run_external(ws, db, params) -> tuple[AsyncMock, AsyncMock]:
+    """Run the inbound handler; returns (run_pipeline, mark_workflow_run_failed)."""
     with (
         patch.object(provider_module, "db_client", db),
         patch(RUN_PIPELINE, new_callable=AsyncMock) as run_pipeline,
+        patch(MARK_FAILED, new_callable=AsyncMock) as mark_failed,
     ):
         await VoiceLinkProvider({}).handle_external_websocket(
             ws,
@@ -519,7 +522,7 @@ async def _run_external(ws, db, params) -> AsyncMock:
             workflow_run_id=42,
             params=params,
         )
-    return run_pipeline
+    return run_pipeline, mark_failed
 
 
 def _db_with_configs(*rows) -> MagicMock:
@@ -534,7 +537,7 @@ async def test_external_websocket_matches_config_by_client_id():
     ws = _websocket(START_FRAME)
     db = _db_with_configs(_config_row(1, 999), _config_row(2, 123))
 
-    run_pipeline = await _run_external(ws, db, _stream_params())
+    run_pipeline, mark_failed = await _run_external(ws, db, _stream_params())
 
     db.list_telephony_configurations_by_provider.assert_awaited_once_with(
         9, "voicelink"
@@ -546,6 +549,7 @@ async def test_external_websocket_matches_config_by_client_id():
     assert context["called_number"] == "910000000000"
     assert context["campaign"] == "test"
     assert run_pipeline.call_args.kwargs["call_id"] == "call-1"
+    mark_failed.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -553,11 +557,12 @@ async def test_external_websocket_rejects_unknown_account():
     ws = _websocket(START_FRAME)
     db = _db_with_configs(_config_row(1, 999))
 
-    run_pipeline = await _run_external(ws, db, _stream_params())
+    run_pipeline, mark_failed = await _run_external(ws, db, _stream_params())
 
     run_pipeline.assert_not_called()
     db.update_workflow_run.assert_not_called()
     assert ws.close.call_args.kwargs["code"] == 4400
+    mark_failed.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -566,11 +571,12 @@ async def test_external_websocket_rejects_config_without_client_id():
     ws = _websocket(START_FRAME)
     db = _db_with_configs(_config_row(5, None))
 
-    run_pipeline = await _run_external(ws, db, _stream_params())
+    run_pipeline, mark_failed = await _run_external(ws, db, _stream_params())
 
     run_pipeline.assert_not_called()
     db.update_workflow_run.assert_not_called()
     assert ws.close.call_args.kwargs["code"] == 4400
+    mark_failed.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -580,11 +586,12 @@ async def test_external_websocket_rejects_start_without_account_sid():
     ws = _websocket(json.dumps(frame))
     db = _db_with_configs(_config_row(2, 123))
 
-    run_pipeline = await _run_external(ws, db, _stream_params())
+    run_pipeline, mark_failed = await _run_external(ws, db, _stream_params())
 
     run_pipeline.assert_not_called()
     db.update_workflow_run.assert_not_called()
     assert ws.close.call_args.kwargs["code"] == 4400
+    mark_failed.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -607,11 +614,72 @@ async def test_external_websocket_rejects_invalid_stream_token(params):
     ws = _websocket(START_FRAME)
     db = _db_with_configs(_config_row(2, 123))
 
-    run_pipeline = await _run_external(ws, db, params)
+    run_pipeline, mark_failed = await _run_external(ws, db, params)
 
     run_pipeline.assert_not_called()
     db.update_workflow_run.assert_not_called()
     assert ws.close.call_args.kwargs["code"] == 4401
+    mark_failed.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_external_websocket_fails_run_on_bad_handshake():
+    # The agent-stream route has already created the run and marked it running.
+    ws = _websocket(json.dumps({"event": "media", "media": {"payload": ""}}))
+    db = _db_with_configs(_config_row(2, 123))
+
+    run_pipeline, mark_failed = await _run_external(ws, db, _stream_params())
+
+    run_pipeline.assert_not_called()
+    assert ws.close.call_args.kwargs["code"] == 4400
+    mark_failed.assert_awaited_once()
+    assert mark_failed.await_args.args[0] == 42
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stored_client_id", "account_sid"),
+    [
+        # Saved before config.py canonicalised ids; VoiceLink sends the plain id.
+        ("00123", "123"),
+        # A padded id on the stream still selects the same configuration.
+        ("123", "00123"),
+        ("00123", "00123"),
+    ],
+)
+async def test_external_websocket_matches_zero_padded_client_ids(
+    stored_client_id, account_sid
+):
+    frame = json.loads(START_FRAME)
+    frame["start"]["account_sid"] = account_sid
+    ws = _websocket(json.dumps(frame))
+    row = _config_row(2, None)
+    row.credentials["client_id"] = stored_client_id
+    db = _db_with_configs(row)
+    # Signed the way configure_inbound signs it: int client id on the provider.
+    params = _stream_params(client_id=123)
+
+    run_pipeline, mark_failed = await _run_external(ws, db, params)
+
+    ws.close.assert_not_called()
+    run_pipeline.assert_awaited_once()
+    mark_failed.assert_not_called()
+
+
+@pytest.mark.parametrize("raw", ["00123", "0123", " 00123 "])
+def test_config_canonicalises_zero_padded_client_id(raw):
+    assert (
+        VoiceLinkConfigurationRequest(api_token="t", client_id=raw).client_id == "123"
+    )
+
+
+def test_parse_status_callback_exposes_echoed_run_id():
+    webhook = json.loads(json.dumps(COMPLETED_WEBHOOK))
+    webhook["call"]["customParameters"]["workflow_run_id"] = 42
+    assert _provider().parse_status_callback(webhook)["workflow_run_id"] == "42"
+    assert (
+        _provider().parse_status_callback(COMPLETED_WEBHOOK)["workflow_run_id"] is None
+    )
 
 
 @pytest.mark.asyncio
@@ -631,10 +699,11 @@ async def test_external_websocket_accepts_url_written_by_configure_inbound():
     ws = _websocket(START_FRAME)
     db = _db_with_configs(_config_row(2, 123))
 
-    run_pipeline = await _run_external(ws, db, params)
+    run_pipeline, mark_failed = await _run_external(ws, db, params)
 
     ws.close.assert_not_called()
     run_pipeline.assert_awaited_once()
+    mark_failed.assert_not_called()
 
 
 # ------------------------------------------------------- webhook-first flow

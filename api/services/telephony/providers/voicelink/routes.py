@@ -21,6 +21,27 @@ from api.services.telephony.status_processor import (
 router = APIRouter()
 
 
+def _reject(workflow_run_id: int, why: str) -> HTTPException:
+    """One 401 for every authentication failure.
+
+    A missing run, a missing workflow and a bad token look identical to the
+    caller, so the endpoint cannot be used to probe which run ids exist.
+    """
+    logger.warning(f"[run {workflow_run_id}] VoiceLink status callback rejected: {why}")
+    return HTTPException(status_code=401, detail="Invalid webhook signature")
+
+
+def _same(expected: object, presented: object) -> bool:
+    if expected is None or presented is None:
+        return False
+    try:
+        return hmac.compare_digest(
+            str(expected).encode("utf-8"), str(presented).encode("utf-8")
+        )
+    except (TypeError, UnicodeError):
+        return False
+
+
 async def _parse_callback_body(request: Request) -> dict:
     # VoiceLink posts Call Event webhooks as JSON only.
     try:
@@ -51,11 +72,11 @@ async def handle_voicelink_status_callback(workflow_run_id: int, request: Reques
 
     workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
     if not workflow_run:
-        return {"status": "ignored", "reason": "workflow_run_not_found"}
+        raise _reject(workflow_run_id, "workflow run not found")
 
     workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
     if not workflow:
-        return {"status": "ignored", "reason": "workflow_not_found"}
+        raise _reject(workflow_run_id, "workflow not found")
 
     provider = await get_telephony_provider_for_run(
         workflow_run, workflow.organization_id
@@ -67,10 +88,7 @@ async def handle_voicelink_status_callback(workflow_run_id: int, request: Reques
         dict(request.headers),
     )
     if not is_valid:
-        logger.warning(
-            f"[run {workflow_run_id}] Invalid VoiceLink status callback auth"
-        )
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+        raise _reject(workflow_run_id, "invalid token")
 
     parsed = provider.parse_status_callback(callback_data)
     expected_call_id = None
@@ -78,25 +96,27 @@ async def handle_voicelink_status_callback(workflow_run_id: int, request: Reques
     if isinstance(gathered, dict):
         expected_call_id = gathered.get("call_id")
     presented = parsed.get("call_id") or ""
-    # Fail closed: the webhook's outboundQueueId must match the call id
-    # initiate_call recorded for this run.
-    if not expected_call_id or not presented:
-        logger.warning(
-            f"[run {workflow_run_id}] VoiceLink status missing call id binding "
-            f"expected={expected_call_id!r} got={presented!r}"
-        )
+    if not presented:
+        logger.warning(f"[run {workflow_run_id}] VoiceLink status has no call id")
         raise HTTPException(status_code=403, detail="Call id binding required")
-    try:
-        bound = hmac.compare_digest(
-            str(expected_call_id).encode("utf-8"),
-            str(presented).encode("utf-8"),
-        )
-    except (TypeError, UnicodeError):
-        bound = False
+
+    if expected_call_id:
+        # Normal case: the webhook's outboundQueueId must match the call id
+        # initiate_call recorded for this run.
+        bound = _same(expected_call_id, presented)
+        binding = "recorded call id"
+    else:
+        # Early case: VoiceLink can report a failure after accepting the lead
+        # but before Dograh persists its queue id. The URL token already proves
+        # this run; bind the event to it through the run id initiate_call put
+        # in the lead's custom parameters, which VoiceLink echoes back.
+        bound = _same(str(workflow_run_id), parsed.get("workflow_run_id"))
+        binding = "echoed run id"
     if not bound:
         logger.warning(
-            f"[run {workflow_run_id}] VoiceLink status call id mismatch "
-            f"expected={expected_call_id!r} got={presented!r}"
+            f"[run {workflow_run_id}] VoiceLink status not bound by {binding}: "
+            f"recorded={expected_call_id!r} call_id={presented!r} "
+            f"echoed_run={parsed.get('workflow_run_id')!r}"
         )
         raise HTTPException(status_code=403, detail="Call id mismatch")
 

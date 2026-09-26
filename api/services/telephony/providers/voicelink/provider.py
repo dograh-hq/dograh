@@ -96,6 +96,21 @@ def _sign(secret: str, message: str) -> str:
     ).hexdigest()
 
 
+def _canonical_client_id(value: Any) -> Optional[str]:
+    """Client id as VoiceLink stamps it: plain digits, no leading zeros.
+
+    Applied to both the stored id and the stream's ``account_sid`` so that
+    configurations saved before ``config.py`` canonicalised ids ("00123") still
+    match, and so every token is signed over the same text.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text.isascii() and text.isdecimal():
+        return str(int(text))
+    return text or None
+
+
 def _tokens_match(expected: str, presented: Optional[str]) -> bool:
     if not presented:
         return False
@@ -163,16 +178,18 @@ class VoiceLinkProvider(TelephonyProvider):
         never leaves Dograh. It does not expire, because VoiceLink stores the
         bot URL and reuses it for every call; rotating the API token therefore
         requires re-saving the phone number so :meth:`configure_inbound`
-        re-signs the URL. ``client_id`` is rendered with ``str`` so the int on
-        the provider and the text in stored credentials sign identically.
+        re-signs the URL. ``client_id`` is canonicalised so the int on the
+        provider and the text in stored credentials sign identically.
         """
-        return _sign(api_token, f"voicelink-stream:{client_id}:{workflow_id}")
+        client = _canonical_client_id(client_id)
+        return _sign(api_token, f"voicelink-stream:{client}:{workflow_id}")
 
     def _status_callback_token(self, workflow_run_id: int) -> str:
         """HMAC token proving a status callback URL was minted by this config."""
+        client = _canonical_client_id(self.client_id)
         return _sign(
             self.api_token or "",
-            f"voicelink-status:{self.client_id}:{workflow_run_id}",
+            f"voicelink-status:{client}:{workflow_run_id}",
         )
 
     def build_status_callback_url(
@@ -357,8 +374,15 @@ class VoiceLinkProvider(TelephonyProvider):
         custom = (call.custom_parameters if call else None) or {}
         call_id = custom.get("outboundQueueId") or (call.id if call else None)
         duration = call.duration_sec if call else None
+        # initiate_call puts the run id in the lead's custom parameters and
+        # VoiceLink echoes it back; the status route uses it to bind callbacks
+        # that arrive before the queue id is persisted on the run.
+        echoed_run_id = custom.get("workflow_run_id")
         return {
             "call_id": str(call_id) if call_id is not None else "",
+            "workflow_run_id": (
+                str(echoed_run_id) if echoed_run_id is not None else None
+            ),
             "status": status or status_raw,
             "from_number": call.from_number if call else None,
             "to_number": call.to_number if call else None,
@@ -461,12 +485,17 @@ class VoiceLinkProvider(TelephonyProvider):
         that :meth:`configure_inbound` signed into the bot URL with that
         configuration's API token; nothing is written and no pipeline starts
         without it.
+
+        The agent-stream route creates the run and marks it running before
+        calling this, so every rejection also completes the run as failed;
+        otherwise a rejected connection would leave it running forever.
         """
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         try:
             received = await self._receive_start(websocket, workflow_run_id)
             if received is None:
+                await self._fail_rejected_run(workflow_run_id, "invalid handshake")
                 return
             start_msg, start = received
 
@@ -479,6 +508,9 @@ class VoiceLinkProvider(TelephonyProvider):
                     f"{organization_id} for account_sid={start.account_sid}"
                 )
                 await websocket.close(code=4400, reason="Unknown VoiceLink account")
+                await self._fail_rejected_run(
+                    workflow_run_id, "unknown VoiceLink account"
+                )
                 return
 
             credentials = config.credentials or {}
@@ -496,6 +528,7 @@ class VoiceLinkProvider(TelephonyProvider):
                     f"{workflow_id} (telephony_configuration_id={config.id})"
                 )
                 await websocket.close(code=4401, reason="Invalid stream token")
+                await self._fail_rejected_run(workflow_run_id, "invalid stream token")
                 return
 
             builtin_context = {
@@ -569,16 +602,26 @@ class VoiceLinkProvider(TelephonyProvider):
         match. This only selects a configuration; the caller still has to
         authenticate the stream against it.
         """
-        if not account_sid:
+        wanted = _canonical_client_id(account_sid)
+        if not wanted:
             return None
         candidates = await db_client.list_telephony_configurations_by_provider(
             organization_id, self.PROVIDER_NAME
         )
         for cand in candidates:
-            client_id = (cand.credentials or {}).get("client_id")
-            if client_id is not None and str(client_id) == str(account_sid):
+            client_id = _canonical_client_id((cand.credentials or {}).get("client_id"))
+            if client_id is not None and client_id == wanted:
                 return cand
         return None
+
+    @staticmethod
+    async def _fail_rejected_run(workflow_run_id: int, reason: str) -> None:
+        """Complete a run whose inbound stream was rejected, as failed."""
+        from api.services.workflow_run_failure import mark_workflow_run_failed
+
+        await mark_workflow_run_failed(
+            workflow_run_id, f"VoiceLink stream rejected: {reason}"
+        )
 
     # ------------------------------------------------------------- automatic setup
     #

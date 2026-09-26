@@ -72,11 +72,23 @@ def _authed_request(provider: VoiceLinkProvider, payload, run_id: int = 42):
     return _json_request(payload, query_string=f"voicelink_auth={token}".encode())
 
 
-async def _call(request: Request, *, call_id="300735", provider=None):
-    workflow_run = SimpleNamespace(
-        id=42, workflow_id=7, gathered_context={"call_id": call_id}
-    )
-    workflow = SimpleNamespace(id=7, organization_id=9)
+_MISSING = object()
+
+
+async def _call(
+    request: Request,
+    *,
+    call_id="300735",
+    provider=None,
+    workflow_run=_MISSING,
+    workflow=_MISSING,
+):
+    if workflow_run is _MISSING:
+        workflow_run = SimpleNamespace(
+            id=42, workflow_id=7, gathered_context={"call_id": call_id}
+        )
+    if workflow is _MISSING:
+        workflow = SimpleNamespace(id=7, organization_id=9)
     with (
         patch(f"{ROUTES}.db_client") as db_client,
         patch(
@@ -158,15 +170,66 @@ async def test_rejects_webhook_for_another_call():
     process.assert_not_called()
 
 
+def _with_echoed_run_id(run_id) -> dict:
+    payload = json.loads(json.dumps(NO_ANSWER_WEBHOOK))
+    payload["call"]["customParameters"]["workflow_run_id"] = run_id
+    return payload
+
+
 @pytest.mark.asyncio
-async def test_rejects_when_run_has_no_call_id():
-    # Fail closed before initiate_call has recorded the call id.
+async def test_early_callback_is_bound_by_echoed_run_id():
+    # VoiceLink can report a failure after accepting the lead but before
+    # initiate-call has persisted the queue id on the run. The signed URL proves
+    # the run; the run id echoed from the lead's custom parameters binds it.
+    exc_or_result, process = await _call(
+        _authed_request(_provider(), _with_echoed_run_id(42)), call_id=None
+    )
+
+    assert exc_or_result == {"status": "success"}
+    status = process.await_args.args[1]
+    assert status.status is TelephonyCallStatus.NO_ANSWER
+    assert status.call_id == "300735"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        NO_ANSWER_WEBHOOK,  # no echoed run id at all
+        _with_echoed_run_id(43),  # echoed run id for a different run
+    ],
+)
+async def test_early_callback_without_matching_run_id_is_rejected(payload):
+    exc, process = await _call(_authed_request(_provider(), payload), call_id=None)
+
+    assert isinstance(exc, HTTPException)
+    assert exc.status_code == 403
+    process.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_recorded_call_id_still_wins_over_echoed_run_id():
+    # Once the queue id is persisted, the echoed run id alone is not enough.
     exc, process = await _call(
-        _authed_request(_provider(), NO_ANSWER_WEBHOOK), call_id=None
+        _authed_request(_provider(), _with_echoed_run_id(42)), call_id="999999"
     )
 
     assert isinstance(exc, HTTPException)
     assert exc.status_code == 403
+    process.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", [{"workflow_run": None}, {"workflow": None}])
+async def test_unknown_run_looks_like_a_bad_token(missing):
+    # Same 401 as an invalid token, so run ids cannot be enumerated.
+    exc, process = await _call(
+        _authed_request(_provider(), NO_ANSWER_WEBHOOK), **missing
+    )
+
+    assert isinstance(exc, HTTPException)
+    assert exc.status_code == 401
+    assert exc.detail == "Invalid webhook signature"
     process.assert_not_called()
 
 

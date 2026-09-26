@@ -29,7 +29,13 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from starlette.websockets import WebSocketState
 
-from api.constants import ENABLE_COTURN, ENVIRONMENT, FORCE_TURN_RELAY, SERVER_IP
+from api.constants import (
+    ENABLE_COTURN,
+    ENVIRONMENT,
+    FORCE_TURN_RELAY,
+    SERVER_IP,
+    TURN_SERVER_HOST,
+)
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import Environment, WorkflowRunMode
@@ -43,6 +49,7 @@ from api.routes.turn_credentials import (
     TURN_HOST,
     TURN_PORT,
     TURN_SECRET,
+    TURN_TLS_PORT,
     generate_turn_credentials,
 )
 from api.services.auth.depends import get_user_ws
@@ -240,6 +247,15 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
     Returns:
         List of RTCIceServer configurations for WebRTC peer connection.
     """
+    server_turn_host = TURN_SERVER_HOST or TURN_HOST
+    logger.info(
+        "WebRTC ICE configuration: "
+        f"environment={ENVIRONMENT} enable_coturn={ENABLE_COTURN} "
+        f"force_turn_relay={FORCE_TURN_RELAY} browser_turn_host={TURN_HOST!r} "
+        f"server_turn_host={server_turn_host!r} turn_port={TURN_PORT} "
+        f"turn_tls_port={TURN_TLS_PORT}"
+    )
+
     # A `stun:` entry can only yield srflx, never relay, so it cannot help a
     # relay-only connection — it only gathers a public IP that
     # filter_outbound_sdp() strips back out. Matches the client-side skip.
@@ -268,15 +284,20 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
     if TURN_SECRET and user_id:
         try:
             credentials = generate_turn_credentials(user_id)
+            server_uris = [
+                uri.replace(f":{TURN_HOST}:", f":{server_turn_host}:")
+                for uri in credentials["uris"]
+            ]
             servers.append(
                 RTCIceServer(
-                    urls=credentials["uris"],
+                    urls=server_uris,
                     username=credentials["username"],
                     credential=credentials["password"],
                 )
             )
             logger.info(
-                f"TURN server configured with time-limited credentials, TTL: {credentials['ttl']}s"
+                f"TURN server configured with time-limited credentials, "
+                f"TTL: {credentials['ttl']}s, server_uris={server_uris}"
             )
             return servers
         except Exception as e:
@@ -290,8 +311,8 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
         servers.append(
             RTCIceServer(
                 urls=[
-                    f"turn:{TURN_HOST}:{TURN_PORT}",
-                    f"turn:{TURN_HOST}:{TURN_PORT}?transport=tcp",
+                    f"turn:{server_turn_host}:{TURN_PORT}",
+                    f"turn:{server_turn_host}:{TURN_PORT}?transport=tcp",
                 ],
                 username=turn_username,
                 credential=turn_password,

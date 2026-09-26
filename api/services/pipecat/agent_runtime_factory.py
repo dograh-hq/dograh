@@ -76,6 +76,7 @@ class AgentRuntimeFactory:
         mps_correlation_id: str | None = None,
         on_agent_error: Callable[[AgentRuntime, Any], Any] | None = None,
         use_draft: bool = False,
+        calm_prompt_factory: Callable[[], Any] | None = None,
     ):
         self._on_agent_error = on_agent_error
         self._use_draft = use_draft
@@ -87,6 +88,7 @@ class AgentRuntimeFactory:
         self._fetch_recording_audio = fetch_recording_audio
         self._has_recordings = has_recordings
         self._mps_correlation_id = mps_correlation_id
+        self._calm_prompt_factory = calm_prompt_factory
 
     @property
     def organization_id(self) -> int:
@@ -257,6 +259,9 @@ class AgentRuntimeFactory:
             runtime.tts,
             generation_callbacks,
             recording_router=runtime.recording_router,
+            calm_prompt_processor=(
+                self._calm_prompt_factory() if self._calm_prompt_factory else None
+            ),
         )
         call_tracing_context = getattr(self._call_worker, "_tracing_context", None)
         if call_tracing_context is None:

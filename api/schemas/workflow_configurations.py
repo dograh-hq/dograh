@@ -121,6 +121,18 @@ class AmbientNoiseConfigurationDefaults(BaseModel):
     volume: float = 0.3
 
 
+class AvatarConfigurationDefaults(BaseModel):
+    """Per-workflow SpatialReal avatar settings.
+
+    ``avatar_id`` and ``mode`` fall back to the deployment-wide SPATIALREAL_*
+    env defaults when unset; ``enabled`` opts the workflow into the avatar.
+    """
+
+    enabled: bool = False
+    avatar_id: str | None = Field(default=None, max_length=128)
+    mode: Literal["sdk", "host"] | None = None
+
+
 class WorkflowConfigurationDefaults(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -171,6 +183,9 @@ class WorkflowConfigurationDefaults(BaseModel):
     external_pbx_lead_headers: list[ExternalPBXLeadHeader] = Field(
         default_factory=list,
         max_length=MAX_EXTERNAL_PBX_LEAD_HEADERS,
+    )
+    avatar_configuration: AvatarConfigurationDefaults = Field(
+        default_factory=AvatarConfigurationDefaults
     )
 
     @field_validator("turn_start_strategy", mode="before")

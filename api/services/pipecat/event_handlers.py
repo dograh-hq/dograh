@@ -9,6 +9,7 @@ from api.services.campaign.campaign_event_publisher import (
     notify_campaign_call_completed,
 )
 from api.services.campaign.circuit_breaker import circuit_breaker
+from api.services.call_persistence import persist_call_data_with_retry
 from api.services.integrations import IntegrationRuntimeSession
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_playback import play_audio_loop
@@ -190,6 +191,13 @@ def register_event_handlers(
             await engine.set_node(engine.active_agent.workflow.start_node_id)
             if answer_supervisor is not None:
                 await engine.handle_answer_supervision()
+                return
+            if engine._call_context_vars.get("suppress_initial_greeting"):
+                logger.info(
+                    "Skipping initial greeting for workflow run %s "
+                    "(suppress_initial_greeting set)",
+                    workflow_run_id,
+                )
                 return
             await engine.queue_node_opening(
                 node_id=engine.active_agent.workflow.start_node_id,
@@ -398,6 +406,7 @@ def register_event_handlers(
             gathered_context=gathered_context,
             is_completed=True,
             state=WorkflowRunState.COMPLETED.value,
+            termination_reason=gathered_context.get("termination_reason"),
         )
         await notify_campaign_call_completed(
             workflow_run.campaign_id if workflow_run else None, workflow_run_id
@@ -476,8 +485,28 @@ def register_event_handlers(
                 bot_audio_wav=bot_audio_wav,
                 transcript_text=transcript_text,
             )
+            if (workflow_run.initial_context or {}).get("session_id") or (
+                workflow_run.initial_context or {}
+            ).get("simulation_id"):
+                await db_client.sync_sakinah_run_artifacts(workflow_run_id)
         except Exception as e:
             logger.error(f"Error uploading call artifacts: {e}", exc_info=True)
+
+        try:
+            feedback_events = (
+                in_memory_logs_buffer.get_events()
+                if not in_memory_logs_buffer.is_empty
+                else None
+            )
+        except Exception:
+            feedback_events = None
+        asyncio.create_task(
+            persist_call_data_with_retry(
+                workflow_run_id,
+                events=feedback_events,
+                transcript_text=transcript_text,
+            )
+        )
 
         # Combined task: runs integrations (including QA), then calculates
         # cost (so QA token usage is captured in usage_info)

@@ -1,5 +1,6 @@
 """Service helpers for text-chat session lifecycle orchestration."""
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -24,6 +25,7 @@ from api.services.workflow.text_chat_runner import (
     normalize_text_chat_checkpoint,
 )
 from api.services.workflow_run_artifacts import upload_workflow_run_artifacts
+from api.services.call_persistence import persist_call_data_with_retry
 from api.tasks.function_names import FunctionNames
 from api.utils.transcript import generate_transcript_text
 
@@ -249,6 +251,13 @@ async def complete_text_chat_session(
         ) from e
 
     await _upload_text_chat_transcript(run_id, feedback_events)
+    asyncio.create_task(
+        persist_call_data_with_retry(
+            run_id,
+            events=feedback_events,
+            transcript_text=generate_transcript_text(feedback_events),
+        )
+    )
     await _enqueue_text_chat_completion(run_id)
 
     return await _reload_text_chat_session(run_id)
@@ -341,6 +350,13 @@ async def execute_pending_text_chat_turn(
 
     if execution.is_completed:
         await _upload_text_chat_transcript(run_id, feedback_events)
+        asyncio.create_task(
+            persist_call_data_with_retry(
+                run_id,
+                events=feedback_events,
+                transcript_text=generate_transcript_text(feedback_events),
+            )
+        )
         await _enqueue_text_chat_completion(run_id)
     else:
         await db_client.update_workflow_run(

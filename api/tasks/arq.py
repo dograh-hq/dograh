@@ -69,6 +69,10 @@ from api.tasks.text_chat_inactivity import (
 )
 from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
 from api.tasks.workflow_completion import process_workflow_completion
+from api.services.call_persistence import (
+    extract_workflow_run_memories,
+    persist_workflow_run_call_data,
+)
 
 
 class WorkerSettings:
@@ -80,6 +84,8 @@ class WorkerSettings:
         process_knowledge_base_document,
         deliver_webhook,
         complete_inactive_text_chat_session,
+        persist_workflow_run_call_data,
+        extract_workflow_run_memories,
     ]
     cron_jobs = [
         # Safety net for webhook deliveries whose ARQ job was lost (worker

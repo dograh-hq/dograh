@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func
@@ -49,6 +50,7 @@ class WorkflowRunClient(BaseDBClient):
         organization_id: int | None = None,
         definition_id: int | None = None,
         use_draft: bool = False,
+        call_id: str | None = None,
     ) -> WorkflowRunModel:
         """Create a run."""
         async with self.async_session() as session:
@@ -85,18 +87,37 @@ class WorkflowRunClient(BaseDBClient):
             # Get the current storage backend based on ENABLE_AWS_S3 flag
             current_backend = StorageBackend.get_current_backend()
 
+            initial_context = initial_context or {}
+            runtime_configuration = initial_context.get("runtime_configuration") or {}
             new_run = WorkflowRunModel(
                 name=name,
+                call_id=call_id or str(uuid.uuid4()),
                 workflow=workflow,
                 mode=mode,
                 definition_id=definition_id,
-                initial_context=initial_context or {},
+                initial_context=initial_context,
                 gathered_context=gathered_context or {},
                 logs=logs or {},
                 campaign_id=campaign_id,
                 queued_run_id=queued_run_id,
                 storage_backend=current_backend.value,
                 call_type=call_type.value,
+                scenario_id=initial_context.get("scenario_id"),
+                scenario_name=initial_context.get("scenario_name")
+                or initial_context.get("scenario"),
+                caller_identifier=initial_context.get("caller_number")
+                or initial_context.get("from_number"),
+                telephone_number=initial_context.get("phone_number")
+                or initial_context.get("called_number"),
+                direction=initial_context.get("direction") or call_type.value,
+                started_at=datetime.now(UTC),
+                call_status="initialized",
+                telephony_provider=initial_context.get("provider") or mode,
+                model_provider=runtime_configuration.get("llm_provider")
+                or runtime_configuration.get("realtime_provider"),
+                stt_provider=runtime_configuration.get("stt_provider"),
+                tts_provider=runtime_configuration.get("tts_provider"),
+                avatar_provider=runtime_configuration.get("avatar_provider"),
                 extra={"use_draft": use_draft},
             )
             session.add(new_run)

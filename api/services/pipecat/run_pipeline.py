@@ -171,6 +171,11 @@ def _create_answer_supervisor(
 
 
 def _create_user_mute_strategies(engine, answer_supervisor):
+    if engine._call_context_vars.get("suppress_initial_greeting"):
+        return [
+            FunctionCallUserMuteStrategy(),
+            CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
+        ]
     first_speech = (
         FirstSpeechUserMuteStrategy()
         if answer_supervisor is not None
@@ -588,6 +593,8 @@ async def _run_pipeline(
     workflow_run=None,
     resolved_user_config=None,
     organization_id: int | None = None,
+    calm_prompt_callback=None,
+    calm_response_callback=None,
 ) -> None:
     """Run the pipeline with active-call drain accounting."""
     register_worker_active_call(workflow_run_id)
@@ -603,6 +610,8 @@ async def _run_pipeline(
             workflow_run=workflow_run,
             resolved_user_config=resolved_user_config,
             organization_id=organization_id,
+            calm_prompt_callback=calm_prompt_callback,
+            calm_response_callback=calm_response_callback,
         )
     finally:
         try:
@@ -623,6 +632,8 @@ async def _run_pipeline_impl(
     resolved_user_config=None,
     organization_id: int | None = None,
     provider_call_id: str | None = None,
+    calm_prompt_callback=None,
+    calm_response_callback=None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -1115,6 +1126,41 @@ async def _run_pipeline_impl(
             )
         )
 
+    calm_prompt_factory = None
+    calm_prompt_processor = None
+    if calm_prompt_callback:
+        from api.services.sakinah.calm.frame_processor import CalmPromptProcessor
+
+        async def prepare_calm_prompt(context):
+            await calm_prompt_callback(engine, context)
+
+        def calm_prompt_factory():
+            return CalmPromptProcessor(prepare_calm_prompt)
+
+        if is_realtime:
+            calm_prompt_processor = calm_prompt_factory()
+
+    # Host-mode avatar sessions are an optional output tap. A provider failure
+    # must not interrupt normal voice calls, so the session manager reports an
+    # unavailable avatar to the relay and leaves this pipeline operational.
+    avatar_processor = None
+    from api.services.avatar import (
+        get_or_create_avatar_session,
+        resolve_avatar_settings,
+    )
+
+    avatar_settings = resolve_avatar_settings(run_configs)
+    if avatar_settings["enabled"] and avatar_settings["mode"] == "host":
+        avatar_session = await get_or_create_avatar_session(
+            workflow_run_id, avatar_id=avatar_settings["avatar_id"]
+        )
+        if avatar_session is not None and avatar_session.started:
+            from api.services.pipecat.avatar_output_processor import (
+                AvatarOutputProcessor,
+            )
+
+            avatar_processor = AvatarOutputProcessor(avatar_session=avatar_session)
+
     # Build the pipeline
     if is_realtime:
         pipeline = build_realtime_pipeline(
@@ -1132,6 +1178,8 @@ async def _run_pipeline_impl(
             ),
             pipeline_metrics_aggregator,
             termination_funnel,
+            calm_prompt_processor=calm_prompt_processor,
+            avatar_processor=avatar_processor,
         )
     else:
         pipeline = build_pipeline(
@@ -1153,6 +1201,7 @@ async def _run_pipeline_impl(
             pipeline_metrics_aggregator,
             termination_funnel,
             answer_supervisor=answer_supervisor,
+            avatar_processor=avatar_processor,
         )
 
     # Create pipeline task with audio configuration
@@ -1203,6 +1252,7 @@ async def _run_pipeline_impl(
             mps_correlation_id=mps_correlation_id,
             on_agent_error=engine.handle_agent_error,
             use_draft=bool(workflow_run.extra.get("use_draft")),
+            calm_prompt_factory=calm_prompt_factory,
         )
         engine.set_agent_factory(agent_factory)
         # The agent this call starts on. Its services were resolved above from
@@ -1265,6 +1315,12 @@ async def _run_pipeline_impl(
         user_context_aggregator,
         assistant_context_aggregator,
     )
+
+    if calm_response_callback:
+
+        @assistant_context_aggregator.event_handler("on_assistant_turn_stopped")
+        async def on_calm_assistant_turn_stopped(_aggregator, message):
+            await calm_response_callback(message.content)
 
     # Register event handlers — resolve provider_id for PostHog tracking
     if not user_provider_id:

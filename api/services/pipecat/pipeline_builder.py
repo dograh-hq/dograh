@@ -4,6 +4,7 @@ from loguru import logger
 
 from api.services.pipecat.agent_bridge import AGENT_EDGE_EXCLUDED_FRAMES, AgentWorker
 from api.services.pipecat.audio_config import AudioConfig
+from api.services.pipecat.audio_path_diagnostics import AudioPathDiagnosticsProcessor
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import (
     PipelineParams,
@@ -41,6 +42,7 @@ def build_pipeline(
     pipeline_metrics_aggregator,
     termination_funnel,
     answer_supervisor=None,
+    avatar_processor=None,
 ):
     """Build the call pipeline: everything that lives for the whole call.
 
@@ -68,6 +70,7 @@ def build_pipeline(
     processors = [
         transport.input(),  # Transport user input
         termination_funnel,
+        AudioPathDiagnosticsProcessor(stage="input"),
         stt,
     ]
 
@@ -84,6 +87,8 @@ def build_pipeline(
             call_duration_processor,
             *generation_stage,
             transport.output(),  # Transport bot output
+            AudioPathDiagnosticsProcessor(stage="output"),
+            *([avatar_processor] if avatar_processor else []),
             audio_buffer,  # AudioBufferProcessor - records both input and output audio
             assistant_context_aggregator,  # Assistant spoken responses
             pipeline_metrics_aggregator,
@@ -100,6 +105,7 @@ def build_agent_generation_pipeline(
     tts,
     generation_callback_processor,
     recording_router=None,
+    calm_prompt_processor=None,
 ):
     """Build the generation stage that runs in one agent visit's own worker.
 
@@ -107,7 +113,11 @@ def build_agent_generation_pipeline(
     aggregator and the output transport, so the frames arriving at the call
     pipeline's transport are the same as if this ran inline.
     """
-    processors = [llm, generation_callback_processor]
+    processors = [
+        *([calm_prompt_processor] if calm_prompt_processor else []),
+        llm,
+        generation_callback_processor,
+    ]
     if recording_router:
         processors.append(recording_router)
     processors.append(tts)
@@ -204,6 +214,8 @@ def build_realtime_pipeline(
     agent_generation_processor,
     pipeline_metrics_aggregator,
     termination_funnel,
+    calm_prompt_processor=None,
+    avatar_processor=None,
 ):
     """Build a pipeline for realtime (speech-to-speech) LLM services.
 
@@ -216,7 +228,9 @@ def build_realtime_pipeline(
     processors = [
         transport.input(),
         termination_funnel,
+        AudioPathDiagnosticsProcessor(stage="input"),
         user_context_aggregator,
+        *([calm_prompt_processor] if calm_prompt_processor else []),
         realtime_llm,
     ]
 
@@ -225,6 +239,8 @@ def build_realtime_pipeline(
             agent_generation_processor,
             call_duration_processor,
             transport.output(),
+            AudioPathDiagnosticsProcessor(stage="output"),
+            *([avatar_processor] if avatar_processor else []),
             audio_buffer,
             assistant_context_aggregator,
             pipeline_metrics_aggregator,

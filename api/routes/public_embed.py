@@ -202,6 +202,16 @@ async def build_public_embed_preflight_response(
         session_token = path[len(turn_credentials_prefix) :].split("/", 1)[0]
         return await _session_preflight_response(session_token, origin, "GET, OPTIONS")
 
+    avatar_prefix = f"{public_embed_prefix}/avatar/"
+    if path.startswith(avatar_prefix):
+        if requested_method.upper() not in ("GET", "POST"):
+            return Response(status_code=405)
+        remainder = path[len(avatar_prefix) :]
+        session_token = remainder.split("/", 2)[1] if "/" in remainder else ""
+        return await _session_preflight_response(
+            session_token, origin, "GET, POST, OPTIONS"
+        )
+
     chat_prefix = f"{public_embed_prefix}/chat/"
     if path.startswith(chat_prefix):
         if requested_method.upper() not in ("GET", "POST"):
@@ -430,10 +440,16 @@ async def initialize_embed_session(
             raise HTTPException(status_code=500, detail="Assistant failed to respond")
         chat_session = build_public_chat_session_response(text_session)
 
-    # Prepare configuration
+    # Prepare configuration. turn_enabled/force_turn_relay are required by the
+    # voice widget's WebRTC setup: without turn_enabled it never fetches TURN
+    # credentials (so the browser gathers no relay candidate and the media path
+    # can't establish behind NAT), and force_turn_relay tells it to gather relay
+    # candidates only — mirrors the values reported on /health.
     config = {
         "workflow_id": embed_token.workflow_id,
         "workflow_run_id": workflow_run.id,
+        "turn_enabled": _turn_credentials_available(),
+        "force_turn_relay": FORCE_TURN_RELAY,
         **(embed_token.settings or {}),
     }
 
@@ -568,4 +584,88 @@ async def options_turn_credentials(request: Request, session_token: str):
     # Browser preflights are handled by PublicEmbedCORSMiddleware before global CORS.
     return await _session_preflight_response(
         session_token, request.headers.get("origin", ""), "GET, OPTIONS"
+    )
+
+
+# ── SpatialReal avatar (public embed) ────────────────────────────────────────
+# Embed pages are untrusted third-party origins, so the SpatialReal session
+# token minted here is capped to the embed session's short lifetime rather
+# than the deployment-wide SPATIALREAL_TOKEN_TTL.
+
+EMBED_AVATAR_TOKEN_TTL = 3600  # seconds; matches the embed session's 1h expiry
+
+
+async def _resolve_avatar_settings_for_embed(session_token: str, origin: str) -> dict:
+    """Validate the embed session and resolve the workflow's avatar settings."""
+    from api.services.avatar import resolve_avatar_settings
+
+    try:
+        embed_session, embed_token = await resolve_embed_session(
+            session_token, origin
+        )
+    except (EmbedSessionNotFoundError, EmbedTokenNotFoundError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except EmbedSessionValidationError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    run_configs = None
+    workflow_run = await db_client.get_workflow_run(
+        embed_session.workflow_run_id,
+        organization_id=embed_token.organization_id,
+    )
+    if workflow_run is not None and workflow_run.definition is not None:
+        run_configs = workflow_run.definition.workflow_configurations
+    return resolve_avatar_settings(run_configs)
+
+
+@router.get("/avatar/config/{session_token}")
+async def get_public_avatar_config(
+    session_token: str, request: Request, response: Response
+):
+    """Avatar availability for an embed session (no auth; embed-token gated)."""
+    origin = get_request_origin(request)
+    settings = await _resolve_avatar_settings_for_embed(session_token, origin)
+    if origin:
+        _allow_embed_origin(response, origin)
+    return {"enabled": settings["enabled"], "mode": settings["mode"]}
+
+
+@router.post("/avatar/session/{session_token}")
+async def create_public_avatar_session(
+    session_token: str, request: Request, response: Response
+):
+    """Mint a short-lived SpatialReal session token for an embed session."""
+    import time as _time
+
+    from api.constants import SPATIALREAL_APP_ID
+    from api.routes.avatar import mint_spatialreal_token
+
+    origin = get_request_origin(request)
+    settings = await _resolve_avatar_settings_for_embed(session_token, origin)
+    if not settings["enabled"]:
+        raise HTTPException(status_code=503, detail="Avatar disabled for this agent")
+
+    expires_at = int(_time.time()) + EMBED_AVATAR_TOKEN_TTL
+    spatialreal_token = await mint_spatialreal_token(expires_at)
+    if origin:
+        _allow_embed_origin(response, origin)
+    return {
+        "app_id": SPATIALREAL_APP_ID,
+        "avatar_id": settings["avatar_id"],
+        "session_token": spatialreal_token,
+        "expires_at": expires_at,
+    }
+
+
+@router.options("/avatar/config/{session_token}")
+async def options_public_avatar_config(request: Request, session_token: str):
+    return await _session_preflight_response(
+        session_token, request.headers.get("origin", ""), "GET, OPTIONS"
+    )
+
+
+@router.options("/avatar/session/{session_token}")
+async def options_public_avatar_session(request: Request, session_token: str):
+    return await _session_preflight_response(
+        session_token, request.headers.get("origin", ""), "POST, OPTIONS"
     )

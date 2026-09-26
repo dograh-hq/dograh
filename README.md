@@ -8,6 +8,8 @@
 
 **The open-source, self-hostable alternative to Vapi & Retell** — build production voice agents with a visual workflow builder, test them in minutes, and let AI coding assistants help design and edit them through MCP.
 
+> **Sakinah distribution:** this checkout packages the compatible `v1.47.0.0` release, based on upstream Dograh `dograh-v1.47.0`. Deployment and local smoke-test instructions are maintained in the accompanying Sakinah deployment bundle.
+
 <p align="center">
   <a href="https://app.dograh.com">
     <img src="https://img.shields.io/badge/▶_Try_the_Cloud-app.dograh.com-2563eb?style=for-the-badge" alt="Try the Cloud">

@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.48.0 (2026-09-26)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: expose OTEL endpoint for telemetry by @a6kme in https://github.com/dograh-hq/dograh/pull/788
+* feat: enhance answer supervisor to listen even when playing initial greeting by @a6kme in https://github.com/dograh-hq/dograh/pull/790
+* feat: add tts caching for MiniMax TTS by @a6kme in https://github.com/dograh-hq/dograh/pull/796
+* feat(ui): config-driven event banner, SF Tech Week + Cloudonix by @sandeepvemu-dograh in https://github.com/dograh-hq/dograh/pull/801
+* feat: select median TTS cache audio from reserved candidates by @a6kme in https://github.com/dograh-hq/dograh/pull/803
+* feat: add canadacentral Azure Speech region by @paramedicspecialist in https://github.com/dograh-hq/dograh/pull/792
+* feat: allow editing markdown and text files in knowledge base by @a6kme in https://github.com/dograh-hq/dograh/pull/807
+* feat: form-encoded http tool bodies, transfer greeting toggle and transfer fixes by @a6kme in https://github.com/dograh-hq/dograh/pull/808
+* feat: add org-configured BigQuery call event exports by @a6kme in https://github.com/dograh-hq/dograh/pull/805
+* feat: add campaign traffic splits and workflow version links by @a6kme in https://github.com/dograh-hq/dograh/pull/810
+### Bug Fixes
+* fix: add multi locale in answer supervisor by @a6kme in https://github.com/dograh-hq/dograh/pull/782
+* fix: extract node variables when a text chat ends without a transition by @a6kme in https://github.com/dograh-hq/dograh/pull/783
+* fix: fix call response watchdog and user idle controller by @a6kme in https://github.com/dograh-hq/dograh/pull/802
+* fix: skip Telnyx recording lifecycle events instead of logging unexpected status updates by @a692570 in https://github.com/dograh-hq/dograh/pull/799
+* fix: set an Outbound Voice Profile on auto-created Telnyx Call Control Applications by @a692570 in https://github.com/dograh-hq/dograh/pull/797
+* fix: return a uniform 404 from the Telnyx events route so unsigned callers cannot enumerate run ids by @a692570 in https://github.com/dograh-hq/dograh/pull/798
+* fix: align Telnyx informational event skip list with the real event catalog by @a6kme in https://github.com/dograh-hq/dograh/pull/804
+* fix: adopt bounded MiniMax TTS retries by @a6kme in https://github.com/dograh-hq/dograh/pull/809
+* fix: seed Gemini Live node-transition context after reconnect settles by @chewwbaka in https://github.com/dograh-hq/dograh/pull/816
+### Documentation
+* docs(api): customMessage plays before tool execution, not after by @AAlexxis222 in https://github.com/dograh-hq/dograh/pull/722
+
+## New Contributors
+* @paramedicspecialist made their first contribution in https://github.com/dograh-hq/dograh/pull/792
+* @AAlexxis222 made their first contribution in https://github.com/dograh-hq/dograh/pull/722
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.47.0...dograh-v1.48.0
+
 ## 1.47.0 (2026-09-15)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

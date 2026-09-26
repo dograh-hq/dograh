@@ -194,9 +194,8 @@ def register_event_handlers(
                 return
             if engine._call_context_vars.get("suppress_initial_greeting"):
                 logger.info(
-                    "Skipping initial greeting for workflow run %s "
-                    "(suppress_initial_greeting set)",
-                    workflow_run_id,
+                    f"Skipping initial greeting for workflow run {workflow_run_id} "
+                    "(suppress_initial_greeting set)"
                 )
                 return
             await engine.queue_node_opening(

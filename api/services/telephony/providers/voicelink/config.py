@@ -9,6 +9,9 @@ UAT_API_BASE_URL = "https://voicelinkuat.elisiontec.com/api"
 
 ALLOWED_API_BASE_URLS = frozenset({PRODUCTION_API_BASE_URL, UAT_API_BASE_URL})
 
+# VoiceLink client ids are small integers; the cap rejects pasted garbage early.
+MAX_CLIENT_ID_DIGITS = 18
+
 
 class VoiceLinkConfigurationRequest(BaseModel):
     provider: Literal["voicelink"] = Field(default="voicelink")
@@ -32,14 +35,14 @@ class VoiceLinkConfigurationRequest(BaseModel):
     def coerce_client_id(cls, value: object) -> str:
         text = "" if value is None else str(value).strip()
         # ASCII 0-9 only: ``isdigit`` also accepts superscripts and
-        # ``isdecimal`` other scripts' digits, which the provider's ``int()``
-        # would reject or silently reinterpret.
+        # ``isdecimal`` other scripts' digits, which VoiceLink never sends.
         if not (text.isascii() and text.isdecimal()):
             raise ValueError("client_id must be a whole number")
+        if len(text) > MAX_CLIENT_ID_DIGITS:
+            raise ValueError(f"client_id must be at most {MAX_CLIENT_ID_DIGITS} digits")
         # Canonical form ("00123" -> "123"): VoiceLink stamps the plain number
-        # on inbound streams and the provider signs with ``int(client_id)``, so
-        # a padded value would match neither.
-        return str(int(text))
+        # on inbound streams, so a padded value would never match it.
+        return text.lstrip("0") or "0"
 
     api_base_url: str = Field(
         default=PRODUCTION_API_BASE_URL,

@@ -525,9 +525,42 @@ async def _run_external(ws, db, params) -> tuple[AsyncMock, AsyncMock]:
     return run_pipeline, mark_failed
 
 
+def _assert_closed_quietly(db: MagicMock, mark_failed: AsyncMock) -> None:
+    """A rejected stream completes its run with a plain update and nothing else.
+
+    ``mark_workflow_run_failed`` would also enqueue the org's post-run
+    integrations, which an unauthenticated caller must not be able to trigger.
+    """
+    mark_failed.assert_not_called()
+    db.update_workflow_run.assert_awaited_once()
+    kwargs = db.update_workflow_run.await_args.kwargs
+    assert kwargs["run_id"] == 42
+    assert kwargs["is_completed"] is True
+    assert kwargs["state"] == "completed"
+    # Nothing from the rejected stream is recorded as call context.
+    assert "initial_context" not in kwargs
+    assert kwargs["gathered_context"]["call_disposition"] == "error"
+    # Same fields mark_workflow_run_failed writes, so the UI shows it alike.
+    assert kwargs["gathered_context"]["mapped_call_disposition"] == "Mapped error"
+    assert kwargs["usage_info"] == {"call_duration_seconds": 0}
+
+
+@pytest.fixture(autouse=True)
+def _mapped_disposition():
+    # The org's disposition mapping is a real DB read; stub it for these tests.
+    with patch.object(
+        provider_module,
+        "map_disposition",
+        new_callable=AsyncMock,
+        return_value="Mapped error",
+    ):
+        yield
+
+
 def _db_with_configs(*rows) -> MagicMock:
     db = MagicMock()
     db.list_telephony_configurations_by_provider = AsyncMock(return_value=list(rows))
+    db.get_organization_id_by_workflow_run_id = AsyncMock(return_value=9)
     db.update_workflow_run = AsyncMock()
     return db
 
@@ -560,9 +593,8 @@ async def test_external_websocket_rejects_unknown_account():
     run_pipeline, mark_failed = await _run_external(ws, db, _stream_params())
 
     run_pipeline.assert_not_called()
-    db.update_workflow_run.assert_not_called()
     assert ws.close.call_args.kwargs["code"] == 4400
-    mark_failed.assert_awaited_once()
+    _assert_closed_quietly(db, mark_failed)
 
 
 @pytest.mark.asyncio
@@ -574,9 +606,8 @@ async def test_external_websocket_rejects_config_without_client_id():
     run_pipeline, mark_failed = await _run_external(ws, db, _stream_params())
 
     run_pipeline.assert_not_called()
-    db.update_workflow_run.assert_not_called()
     assert ws.close.call_args.kwargs["code"] == 4400
-    mark_failed.assert_awaited_once()
+    _assert_closed_quietly(db, mark_failed)
 
 
 @pytest.mark.asyncio
@@ -589,9 +620,8 @@ async def test_external_websocket_rejects_start_without_account_sid():
     run_pipeline, mark_failed = await _run_external(ws, db, _stream_params())
 
     run_pipeline.assert_not_called()
-    db.update_workflow_run.assert_not_called()
     assert ws.close.call_args.kwargs["code"] == 4400
-    mark_failed.assert_awaited_once()
+    _assert_closed_quietly(db, mark_failed)
 
 
 @pytest.mark.asyncio
@@ -617,9 +647,8 @@ async def test_external_websocket_rejects_invalid_stream_token(params):
     run_pipeline, mark_failed = await _run_external(ws, db, params)
 
     run_pipeline.assert_not_called()
-    db.update_workflow_run.assert_not_called()
     assert ws.close.call_args.kwargs["code"] == 4401
-    mark_failed.assert_awaited_once()
+    _assert_closed_quietly(db, mark_failed)
 
 
 @pytest.mark.asyncio
@@ -632,8 +661,7 @@ async def test_external_websocket_fails_run_on_bad_handshake():
 
     run_pipeline.assert_not_called()
     assert ws.close.call_args.kwargs["code"] == 4400
-    mark_failed.assert_awaited_once()
-    assert mark_failed.await_args.args[0] == 42
+    _assert_closed_quietly(db, mark_failed)
 
 
 @pytest.mark.asyncio
@@ -664,6 +692,123 @@ async def test_external_websocket_matches_zero_padded_client_ids(
     ws.close.assert_not_called()
     run_pipeline.assert_awaited_once()
     mark_failed.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("signing_token", "expected_config"), [("tok-a", 1), ("tok-b", 2)]
+)
+async def test_equivalent_client_ids_are_resolved_by_stream_token(
+    signing_token, expected_config
+):
+    # Two configurations for the same account ("00123" saved before ids were
+    # canonicalised, and "123"), each with its own API token. The stream token
+    # must pick the one that signed the bot URL, not whichever comes first.
+    padded = _config_row(1, None, api_token="tok-a")
+    padded.credentials["client_id"] = "00123"
+    plain = _config_row(2, "123", api_token="tok-b")
+    ws = _websocket(START_FRAME)
+    db = _db_with_configs(plain, padded)  # unordered on purpose
+
+    run_pipeline, mark_failed = await _run_external(
+        ws, db, _stream_params(api_token=signing_token, client_id=123)
+    )
+
+    ws.close.assert_not_called()
+    run_pipeline.assert_awaited_once()
+    mark_failed.assert_not_called()
+    context = db.update_workflow_run.call_args.kwargs["initial_context"]
+    assert context["telephony_configuration_id"] == expected_config
+
+
+@pytest.mark.asyncio
+async def test_oversized_account_sid_is_rejected_not_raised():
+    # int() raises on numbers past Python's digit limit; the lookup must treat a
+    # caller-supplied giant id as unknown instead of crashing the handler.
+    frame = json.loads(START_FRAME)
+    frame["start"]["account_sid"] = "9" * 5000
+    ws = _websocket(json.dumps(frame))
+    db = _db_with_configs(_config_row(2, 123))
+
+    run_pipeline, mark_failed = await _run_external(ws, db, _stream_params())
+
+    run_pipeline.assert_not_called()
+    assert ws.close.call_args.kwargs["code"] == 4400
+    _assert_closed_quietly(db, mark_failed)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["disconnect", "cancelled", "db_error"])
+async def test_error_before_pipeline_still_closes_run(failure):
+    # The run is already RUNNING; a caller who hangs up before ``start``, a
+    # worker shutdown mid-handshake, or a failed config lookup must not leave
+    # it running forever.
+    import asyncio
+
+    from starlette.websockets import WebSocketDisconnect
+
+    ws = _websocket(START_FRAME)
+    db = _db_with_configs(_config_row(2, 123))
+    if failure == "disconnect":
+        ws.receive_text = AsyncMock(side_effect=WebSocketDisconnect(1006))
+        expected = WebSocketDisconnect
+    elif failure == "cancelled":
+        ws.receive_text = AsyncMock(side_effect=asyncio.CancelledError())
+        expected = asyncio.CancelledError
+    else:
+        db.list_telephony_configurations_by_provider = AsyncMock(
+            side_effect=RuntimeError("db down")
+        )
+        expected = RuntimeError
+
+    with (
+        patch.object(provider_module, "db_client", db),
+        patch(RUN_PIPELINE, new_callable=AsyncMock) as run_pipeline,
+        patch(MARK_FAILED, new_callable=AsyncMock) as mark_failed,
+        pytest.raises(expected),
+    ):
+        await VoiceLinkProvider({}).handle_external_websocket(
+            ws, organization_id=9, workflow_id=7, workflow_run_id=42, params={}
+        )
+
+    run_pipeline.assert_not_called()
+    _assert_closed_quietly(db, mark_failed)
+
+
+@pytest.mark.asyncio
+async def test_error_after_pipeline_start_leaves_run_to_pipeline():
+    # Once the pipeline has started, the handler must not overwrite the run's
+    # outcome with a "rejected" disposition.
+    ws = _websocket(START_FRAME)
+    db = _db_with_configs(_config_row(2, 123))
+
+    with (
+        patch.object(provider_module, "db_client", db),
+        patch(RUN_PIPELINE, new_callable=AsyncMock, side_effect=RuntimeError("boom")),
+        patch(MARK_FAILED, new_callable=AsyncMock) as mark_failed,
+        pytest.raises(RuntimeError),
+    ):
+        await VoiceLinkProvider({}).handle_external_websocket(
+            ws,
+            organization_id=9,
+            workflow_id=7,
+            workflow_run_id=42,
+            params=_stream_params(),
+        )
+
+    mark_failed.assert_not_called()
+    # Only the authenticated context write, no closing write.
+    db.update_workflow_run.assert_awaited_once()
+    assert "initial_context" in db.update_workflow_run.await_args.kwargs
+
+
+def test_config_rejects_overlong_client_id():
+    with pytest.raises(ValidationError):
+        VoiceLinkConfigurationRequest(api_token="t", client_id="1" * 19)
+    assert (
+        VoiceLinkConfigurationRequest(api_token="t", client_id="1" * 18).client_id
+        == "1" * 18
+    )
 
 
 @pytest.mark.parametrize("raw", ["00123", "0123", " 00123 "])

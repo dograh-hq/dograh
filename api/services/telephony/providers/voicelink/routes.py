@@ -13,12 +13,16 @@ from pipecat.utils.run_context import set_current_run_id
 
 from api.db import db_client
 from api.services.telephony.factory import get_telephony_provider_for_run
+from api.services.telephony.providers.voicelink.provider import VoiceLinkProvider
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
 )
 
 router = APIRouter()
+
+# workflow_runs.id is a Postgres ``integer``.
+_MAX_RUN_ID = 2**31 - 1
 
 
 def _reject(workflow_run_id: int, why: str) -> HTTPException:
@@ -65,10 +69,10 @@ async def handle_voicelink_status_callback(workflow_run_id: int, request: Reques
     if not callback_data:
         return {"status": "ignored", "reason": "malformed_body"}
 
-    logger.info(
-        f"[run {workflow_run_id}] VoiceLink status callback: "
-        f"{json.dumps(callback_data)}"
-    )
+    if not 0 < workflow_run_id <= _MAX_RUN_ID:
+        # Out of the id column's range: the lookup would raise a database
+        # error (HTTP 500) instead of answering like any other unknown run.
+        raise _reject(workflow_run_id, "run id out of range")
 
     workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
     if not workflow_run:
@@ -78,9 +82,18 @@ async def handle_voicelink_status_callback(workflow_run_id: int, request: Reques
     if not workflow:
         raise _reject(workflow_run_id, "workflow not found")
 
-    provider = await get_telephony_provider_for_run(
-        workflow_run, workflow.organization_id
-    )
+    try:
+        provider = await get_telephony_provider_for_run(
+            workflow_run, workflow.organization_id
+        )
+    except ValueError:
+        # The run's configuration was deactivated or deleted. Same 401 as an
+        # unknown run, not a 500 that VoiceLink would retry.
+        raise _reject(workflow_run_id, "provider unresolvable") from None
+    if not isinstance(provider, VoiceLinkProvider):
+        # Another provider's run: its signature check is not ours to trust
+        # (ARI's accepts everything), so this route must not touch it.
+        raise _reject(workflow_run_id, "not a VoiceLink run")
 
     is_valid = await provider.verify_inbound_signature(
         str(request.url),
@@ -90,7 +103,19 @@ async def handle_voicelink_status_callback(workflow_run_id: int, request: Reques
     if not is_valid:
         raise _reject(workflow_run_id, "invalid token")
 
-    parsed = provider.parse_status_callback(callback_data)
+    # Logged only once authenticated, so strangers cannot fill the logs.
+    logger.info(
+        f"[run {workflow_run_id}] VoiceLink status callback: "
+        f"{json.dumps(callback_data)}"
+    )
+
+    try:
+        parsed = provider.parse_status_callback(callback_data)
+    except (ValueError, TypeError, AttributeError) as e:
+        # A 200, not a 500, so VoiceLink does not keep retrying an event
+        # that will never parse.
+        logger.warning(f"[run {workflow_run_id}] VoiceLink status unparseable: {e}")
+        return {"status": "ignored", "reason": "unparseable_event"}
     expected_call_id = None
     gathered = workflow_run.gathered_context or {}
     if isinstance(gathered, dict):

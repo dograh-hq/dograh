@@ -39,7 +39,7 @@ from voicelink.media.events import StartEvent, parse_message
 from voicelink.webhooks import parse_webhook
 
 from api.db import db_client
-from api.enums import TelephonyCallStatus, WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode, WorkflowRunState
 from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
@@ -48,6 +48,7 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
+from api.services.workflow.disposition_mapping import map_disposition
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
@@ -107,7 +108,9 @@ def _canonical_client_id(value: Any) -> Optional[str]:
         return None
     text = str(value).strip()
     if text.isascii() and text.isdecimal():
-        return str(int(text))
+        # String operation, not int(): account_sid is caller-supplied, and int()
+        # raises on numbers longer than Python's digit limit.
+        return text.lstrip("0") or "0"
     return text or None
 
 
@@ -487,48 +490,55 @@ class VoiceLinkProvider(TelephonyProvider):
         without it.
 
         The agent-stream route creates the run and marks it running before
-        calling this, so every rejection also completes the run as failed;
-        otherwise a rejected connection would leave it running forever.
+        calling this, so every rejection, and any error before the pipeline
+        starts, completes the run with an error disposition; otherwise it
+        would stay running forever.
         """
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
+        pipeline_started = False
         try:
             received = await self._receive_start(websocket, workflow_run_id)
             if received is None:
-                await self._fail_rejected_run(workflow_run_id, "invalid handshake")
+                await self._close_rejected_run(workflow_run_id, "invalid handshake")
                 return
             start_msg, start = received
 
-            config = await self._find_config_for_account(
+            candidates = await self._find_configs_for_account(
                 organization_id, start.account_sid
             )
-            if config is None:
+            if not candidates:
                 logger.error(
                     f"VoiceLink agent-stream: no configuration in org "
-                    f"{organization_id} for account_sid={start.account_sid}"
+                    f"{organization_id} for account_sid="
+                    f"{str(start.account_sid)[:32]!r}"
                 )
                 await websocket.close(code=4400, reason="Unknown VoiceLink account")
-                await self._fail_rejected_run(
+                await self._close_rejected_run(
                     workflow_run_id, "unknown VoiceLink account"
                 )
                 return
 
-            credentials = config.credentials or {}
-            api_token = credentials.get("api_token")
-            expected = (
-                self._stream_token(api_token, credentials["client_id"], workflow_id)
-                if api_token
-                else None
+            # Several configurations can share one account, each with its own
+            # API token, so the stream token decides which one signed this bot
+            # URL rather than the first match.
+            presented = (params or {}).get(STREAM_TOKEN_PARAM)
+            config = next(
+                (
+                    cand
+                    for cand in candidates
+                    if self._authenticates(cand, workflow_id, presented)
+                ),
+                None,
             )
-            if expected is None or not _tokens_match(
-                expected, (params or {}).get(STREAM_TOKEN_PARAM)
-            ):
+            if config is None:
                 logger.warning(
                     f"VoiceLink agent-stream: invalid stream token for workflow "
-                    f"{workflow_id} (telephony_configuration_id={config.id})"
+                    f"{workflow_id} (candidates="
+                    f"{[cand.id for cand in candidates]})"
                 )
                 await websocket.close(code=4401, reason="Invalid stream token")
-                await self._fail_rejected_run(workflow_run_id, "invalid stream token")
+                await self._close_rejected_run(workflow_run_id, "invalid stream token")
                 return
 
             builtin_context = {
@@ -580,6 +590,7 @@ class VoiceLinkProvider(TelephonyProvider):
                 f"call_sid={start.call_sid} telephony_configuration_id={config.id}"
             )
 
+            pipeline_started = True
             await run_pipeline_telephony(
                 websocket,
                 provider_name=self.PROVIDER_NAME,
@@ -589,39 +600,89 @@ class VoiceLinkProvider(TelephonyProvider):
                 call_id=str(start.call_sid),
                 transport_kwargs={"start_message": start_msg},
             )
-        except Exception as e:
-            logger.error(f"Error in VoiceLink agent-stream handler: {e}")
+        except BaseException as e:  # noqa: BLE001 - re-raised; also cancellation
+            if not isinstance(e, asyncio.CancelledError):
+                logger.error(f"Error in VoiceLink agent-stream handler: {e}")
+            if not pipeline_started:
+                # e.g. the caller hung up before ``start``, a lookup failed, or
+                # the worker shut down mid-handshake. Once the pipeline has
+                # started, the run's outcome is left to Dograh's pipeline
+                # handling, as for every other provider.
+                await self._close_rejected_run(
+                    workflow_run_id, "stream aborted before the pipeline started"
+                )
             raise
 
-    async def _find_config_for_account(
+    async def _find_configs_for_account(
         self, organization_id: int, account_sid: Optional[str]
-    ):
-        """This org's VoiceLink configuration whose client id is ``account_sid``.
+    ) -> list:
+        """This org's VoiceLink configurations whose client id is ``account_sid``.
 
         Scoped to ``organization_id`` so another org's configuration can never
-        match. This only selects a configuration; the caller still has to
-        authenticate the stream against it.
+        match, and ordered by id so the choice is deterministic. This only
+        narrows the candidates; the stream token picks the configuration.
         """
         wanted = _canonical_client_id(account_sid)
         if not wanted:
-            return None
+            return []
         candidates = await db_client.list_telephony_configurations_by_provider(
             organization_id, self.PROVIDER_NAME
         )
-        for cand in candidates:
-            client_id = _canonical_client_id((cand.credentials or {}).get("client_id"))
-            if client_id is not None and client_id == wanted:
-                return cand
-        return None
+        matches = [
+            cand
+            for cand in candidates
+            if _canonical_client_id((cand.credentials or {}).get("client_id")) == wanted
+        ]
+        return sorted(matches, key=lambda cand: cand.id)
+
+    def _authenticates(
+        self, config, workflow_id: int, presented: Optional[str]
+    ) -> bool:
+        """Whether ``presented`` is the stream token ``config`` signs for the workflow."""
+        credentials = config.credentials or {}
+        api_token = credentials.get("api_token")
+        if not api_token:
+            return False
+        expected = self._stream_token(
+            api_token, credentials.get("client_id"), workflow_id
+        )
+        return _tokens_match(expected, presented)
 
     @staticmethod
-    async def _fail_rejected_run(workflow_run_id: int, reason: str) -> None:
-        """Complete a run whose inbound stream was rejected, as failed."""
-        from api.services.workflow_run_failure import mark_workflow_run_failed
+    async def _close_rejected_run(workflow_run_id: int, reason: str) -> None:
+        """Complete a run whose inbound stream was rejected, without side effects.
 
-        await mark_workflow_run_failed(
-            workflow_run_id, f"VoiceLink stream rejected: {reason}"
-        )
+        The agent-stream route creates the run and marks it running before the
+        stream is authenticated, so a rejected connection would otherwise stay
+        running. This is a plain database write on purpose:
+        ``mark_workflow_run_failed`` also enqueues the organization's post-run
+        integrations, which an unauthenticated caller must not be able to
+        trigger. The fields written match that helper's, so the run reads the
+        same in the UI. Best-effort, so bookkeeping never masks the rejection.
+        """
+        error_disposition = TelephonyCallStatus.ERROR.value
+        try:
+            # Read-only: resolves the org's disposition mapping.
+            mapped_disposition = await map_disposition(
+                await db_client.get_organization_id_by_workflow_run_id(workflow_run_id),
+                error_disposition,
+            )
+            await db_client.update_workflow_run(
+                run_id=workflow_run_id,
+                is_completed=True,
+                state=WorkflowRunState.COMPLETED.value,
+                usage_info={"call_duration_seconds": 0},
+                gathered_context={
+                    "error": f"VoiceLink stream rejected: {reason}",
+                    "call_status": error_disposition,
+                    "call_disposition": error_disposition,
+                    "mapped_call_disposition": mapped_disposition,
+                },
+            )
+        except Exception as e:  # noqa: BLE001 - never mask the rejection
+            logger.error(
+                f"Failed to close rejected VoiceLink run {workflow_run_id}: {e}"
+            )
 
     # ------------------------------------------------------------- automatic setup
     #

@@ -220,6 +220,27 @@ async def test_recorded_call_id_still_wins_over_echoed_run_id():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("run_id", [2**31, 99999999999, 0, -1])
+async def test_out_of_range_run_id_gets_401_without_db_lookup(run_id):
+    # workflow_runs.id is a Postgres integer: querying past its range raises a
+    # database error (HTTP 500) instead of answering like an unknown run.
+    with (
+        patch(f"{ROUTES}.db_client") as db_client,
+        patch(f"{ROUTES}._process_status_update", new_callable=AsyncMock) as process,
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock()
+        with pytest.raises(HTTPException) as exc_info:
+            await handle_voicelink_status_callback(
+                run_id, _authed_request(_provider(), NO_ANSWER_WEBHOOK)
+            )
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Invalid webhook signature"
+    db_client.get_workflow_run_by_id.assert_not_called()
+    process.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("missing", [{"workflow_run": None}, {"workflow": None}])
 async def test_unknown_run_looks_like_a_bad_token(missing):
     # Same 401 as an invalid token, so run ids cannot be enumerated.
@@ -230,6 +251,73 @@ async def test_unknown_run_looks_like_a_bad_token(missing):
     assert isinstance(exc, HTTPException)
     assert exc.status_code == 401
     assert exc.detail == "Invalid webhook signature"
+    process.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rejects_run_of_another_provider():
+    # E.g. an ARI run, whose signature check accepts everything: this route
+    # must not let it through to the status processor.
+    other = SimpleNamespace(
+        verify_inbound_signature=AsyncMock(return_value=True),
+        parse_status_callback=lambda data: {"call_id": "300735", "status": "completed"},
+    )
+    exc, process = await _call(
+        _authed_request(_provider(), NO_ANSWER_WEBHOOK), provider=other
+    )
+
+    assert isinstance(exc, HTTPException)
+    assert exc.status_code == 401
+    assert exc.detail == "Invalid webhook signature"
+    other.verify_inbound_signature.assert_not_called()
+    process.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_with_removed_config_gets_401_not_500():
+    # The factory raises ValueError when the run's configuration was deleted or
+    # deactivated; answer like an unknown run instead of a retried 500.
+    with (
+        patch(f"{ROUTES}.db_client") as db_client,
+        patch(
+            f"{ROUTES}.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            side_effect=ValueError("configuration not found"),
+        ),
+        patch(f"{ROUTES}._process_status_update", new_callable=AsyncMock) as process,
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(
+            return_value=SimpleNamespace(
+                id=42, workflow_id=7, gathered_context={"call_id": "300735"}
+            )
+        )
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(id=7, organization_id=9)
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await handle_voicelink_status_callback(
+                42, _authed_request(_provider(), NO_ANSWER_WEBHOOK)
+            )
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Invalid webhook signature"
+    process.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "call_update",
+    [
+        {"callStatus": 123},
+        {"customParameters": ["not", "a", "dict"]},
+    ],
+)
+async def test_unparseable_event_is_ignored_not_500(call_update):
+    payload = json.loads(json.dumps(NO_ANSWER_WEBHOOK))
+    payload["call"].update(call_update)
+    result, process = await _call(_authed_request(_provider(), payload))
+
+    assert result == {"status": "ignored", "reason": "unparseable_event"}
     process.assert_not_called()
 
 

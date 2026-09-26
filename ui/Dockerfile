@@ -51,7 +51,7 @@ ENV NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL}"
 # Build the application with standalone mode
 # Keep the build heap configurable so constrained Docker builders can complete
 # the Next.js type-check phase without exhausting the builder's memory.
-ARG NODE_OPTIONS="--max-old-space-size=2048"
+ARG NODE_OPTIONS="--max-old-space-size=4096"
 ENV NODE_OPTIONS="${NODE_OPTIONS}"
 RUN npm run build && \
     rm -rf /tmp/* /root/.npm /root/.next/cache

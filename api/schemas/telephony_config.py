@@ -34,6 +34,9 @@ from api.services.telephony.providers.twilio.config import (
 from api.services.telephony.providers.vobiz.config import (
     VobizConfigurationRequest,
 )
+from api.services.telephony.providers.voicelink.config import (
+    VoiceLinkConfigurationRequest,
+)
 from api.services.telephony.providers.vonage.config import (
     VonageConfigurationRequest,
 )
@@ -54,6 +57,7 @@ TelephonyConfigRequest = Annotated[
         TelnyxConfigurationRequest,
         TwilioConfigurationRequest,
         VobizConfigurationRequest,
+        VoiceLinkConfigurationRequest,
         VonageConfigurationRequest,
     ],
     Field(discriminator="provider"),
@@ -192,5 +196,6 @@ __all__ = [
     "TelnyxConfigurationRequest",
     "TwilioConfigurationRequest",
     "VobizConfigurationRequest",
+    "VoiceLinkConfigurationRequest",
     "VonageConfigurationRequest",
 ]

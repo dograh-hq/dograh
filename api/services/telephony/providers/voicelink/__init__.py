@@ -44,10 +44,9 @@ _UI_METADATA = ProviderUIMetadata(
             name="client_id",
             label="Client ID",
             type="number",
-            required=False,
             description=(
-                "Required for reseller accounts only. Inbound calls are matched "
-                "to this configuration by it."
+                "Your VoiceLink client id. Inbound calls are matched to this "
+                "configuration by it."
             ),
         ),
         ProviderUIField(

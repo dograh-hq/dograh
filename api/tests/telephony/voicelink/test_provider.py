@@ -7,6 +7,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 from fastapi import HTTPException
@@ -92,22 +93,21 @@ def _websocket(*messages: str) -> MagicMock:
 
 
 def test_config_defaults_to_production():
-    config = VoiceLinkConfigurationRequest(api_token="t")
+    config = VoiceLinkConfigurationRequest(api_token="t", client_id="123")
     assert config.provider == "voicelink"
     assert config.api_base_url == PRODUCTION_API_BASE_URL
-    assert config.client_id is None
 
 
 def test_config_accepts_known_urls_with_trailing_slash_or_spaces():
     assert (
         VoiceLinkConfigurationRequest(
-            api_token="t", api_base_url=f"{PRODUCTION_API_BASE_URL}/"
+            api_token="t", client_id="123", api_base_url=f"{PRODUCTION_API_BASE_URL}/"
         ).api_base_url
         == PRODUCTION_API_BASE_URL
     )
     assert (
         VoiceLinkConfigurationRequest(
-            api_token="t", api_base_url=f"  {UAT_API_BASE_URL}  "
+            api_token="t", client_id="123", api_base_url=f"  {UAT_API_BASE_URL}  "
         ).api_base_url
         == UAT_API_BASE_URL
     )
@@ -123,31 +123,48 @@ def test_config_accepts_known_urls_with_trailing_slash_or_spaces():
 )
 def test_config_rejects_unknown_urls(url):
     with pytest.raises(ValidationError):
-        VoiceLinkConfigurationRequest(api_token="t", api_base_url=url)
+        VoiceLinkConfigurationRequest(api_token="t", client_id="123", api_base_url=url)
 
 
-@pytest.mark.parametrize("raw", [560, "560", " 560 "])
+@pytest.mark.parametrize("raw", [123, "123", " 123 "])
 def test_config_stores_client_id_as_text(raw):
     # Dograh matches inbound streams with ``credentials->>'client_id'`` (text);
     # a stored integer makes that Postgres comparison fail outright.
     assert (
-        VoiceLinkConfigurationRequest(api_token="t", client_id=raw).client_id == "560"
+        VoiceLinkConfigurationRequest(api_token="t", client_id=raw).client_id == "123"
     )
 
 
-def test_config_rejects_non_numeric_client_id():
+# "²" and Arabic-Indic digits pass ``str.isdigit()`` but are not ASCII numbers.
+@pytest.mark.parametrize("raw", ["abc", "²", "١٢٣", "", "   ", None, "-1", "1.5"])
+def test_config_rejects_invalid_client_id(raw):
     with pytest.raises(ValidationError):
-        VoiceLinkConfigurationRequest(api_token="t", client_id="abc")
+        VoiceLinkConfigurationRequest(api_token="t", client_id=raw)
+
+
+def test_config_requires_client_id():
+    # Inbound streams are matched by client id, so a config without one could
+    # attach numbers that never receive a call.
+    with pytest.raises(ValidationError):
+        VoiceLinkConfigurationRequest(api_token="t")
+
+
+@pytest.mark.parametrize("token", ["", "   "])
+def test_config_rejects_blank_api_token(token):
+    with pytest.raises(ValidationError):
+        VoiceLinkConfigurationRequest(api_token=token, client_id="123")
 
 
 def test_provider_converts_client_id_for_sdk():
     assert _provider(client_id="560").client_id == 560
     assert _provider(client_id=None).client_id is None
+    # The agent-stream route builds the provider with an empty config.
+    assert VoiceLinkProvider({}).client_id is None
 
 
 def test_config_union_dispatches_voicelink_payload():
     parsed = TypeAdapter(TelephonyConfigRequest).validate_python(
-        {"provider": "voicelink", "api_token": "t"}
+        {"provider": "voicelink", "api_token": "t", "client_id": 123}
     )
     assert isinstance(parsed, VoiceLinkConfigurationRequest)
 
@@ -226,6 +243,11 @@ async def test_initiate_call_queues_lead_with_media_url():
         "wss://api.example.test/api/v1/telephony/ws/7/9/42"
     )
     assert kwargs["custom_parameters"] == {"workflow_run_id": 42}
+    # Signed per-run status URL, so pre-media failures still end the run.
+    assert kwargs["webhook_url"] == (
+        "https://api.example.test/api/v1/telephony/voicelink/status-callback/42"
+        f"?voicelink_auth={_provider()._status_callback_token(42)}"
+    )
 
 
 @pytest.mark.asyncio
@@ -331,7 +353,90 @@ def test_parse_status_callback_uses_outbound_queue_id():
     assert parsed["call_id"] == "300735"
     assert parsed["status"] is TelephonyCallStatus.FAILED
     assert parsed["direction"] == "outbound"
+    assert parsed["duration"] is None
     assert parsed["extra"] is COMPLETED_WEBHOOK
+
+
+def _webhook(status: str, call_status=None, duration=None) -> dict:
+    call = {**COMPLETED_WEBHOOK["call"], "status": status, "durationSec": duration}
+    if call_status is not None:
+        call["callStatus"] = call_status
+    return {**COMPLETED_WEBHOOK, "call": call}
+
+
+@pytest.mark.parametrize(
+    "status, call_status, expected",
+    [
+        # Live platform: coarse status plus the real reason in callStatus.
+        ("failed", "NO ANSWER", TelephonyCallStatus.NO_ANSWER),
+        ("failed", "BUSY", TelephonyCallStatus.BUSY),
+        ("failed", "Canceled", TelephonyCallStatus.CANCELED),
+        # A generic callStatus does not override the status.
+        ("completed", "ANSWERED", TelephonyCallStatus.COMPLETED),
+        ("failed", "SOMETHING ELSE", TelephonyCallStatus.FAILED),
+        # Unrecognised status falls back to a recognised callStatus.
+        ("weird", "COMPLETED", TelephonyCallStatus.COMPLETED),
+    ],
+)
+def test_parse_status_callback_prefers_specific_call_status(
+    status, call_status, expected
+):
+    parsed = _provider().parse_status_callback(_webhook(status, call_status))
+    assert parsed["status"] is expected
+
+
+def test_parse_status_callback_reports_duration_as_text():
+    # StatusCallbackRequest.duration is Optional[str].
+    parsed = _provider().parse_status_callback(_webhook("completed", duration=17))
+    assert parsed["duration"] == "17"
+
+
+STATUS_PATH = "https://api.example.test/api/v1/telephony/voicelink/status-callback"
+
+
+@pytest.mark.asyncio
+async def test_verify_inbound_signature_accepts_minted_url():
+    provider = _provider()
+    url = provider.build_status_callback_url("https://api.example.test/", 42)
+    assert url.startswith(f"{STATUS_PATH}/42?voicelink_auth=")
+    assert await provider.verify_inbound_signature(url, {}, {}) is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"{STATUS_PATH}/42",
+        f"{STATUS_PATH}/42?voicelink_auth=",
+        f"{STATUS_PATH}/42?voicelink_auth={'0' * 64}",
+        f"{STATUS_PATH}/42?voicelink_auth=%C3%A9",
+        # Token minted for another run.
+        f"{STATUS_PATH}/42?voicelink_auth={_provider()._status_callback_token(43)}",
+        # Right token, wrong path.
+        (
+            "https://api.example.test/other/42?voicelink_auth="
+            f"{_provider()._status_callback_token(42)}"
+        ),
+    ],
+)
+async def test_verify_inbound_signature_rejects_bad_tokens(url):
+    assert await _provider().verify_inbound_signature(url, {}, {}) is False
+
+
+@pytest.mark.asyncio
+async def test_verify_inbound_signature_rejects_url_from_another_config():
+    for other in (_provider(api_token="other-token"), _provider(client_id=999)):
+        url = other.build_status_callback_url("https://api.example.test", 42)
+        assert await _provider().verify_inbound_signature(url, {}, {}) is False
+
+
+@pytest.mark.asyncio
+async def test_verify_inbound_signature_fails_closed_without_token():
+    provider = _provider()
+    url = provider.build_status_callback_url("https://api.example.test", 42)
+    assert await _provider(api_token=None).verify_inbound_signature(url, {}, {}) is (
+        False
+    )
 
 
 # --------------------------------------------------------- media handshake
@@ -389,22 +494,20 @@ async def test_handle_websocket_times_out_silent_socket():
 # ------------------------------------------------------ inbound agent-stream
 
 
-def _config_row(config_id: int, client_id):
-    credentials = {"provider": "voicelink", "api_token": "t"}
+def _config_row(config_id: int, client_id, api_token: str = "t"):
+    credentials = {"provider": "voicelink", "api_token": api_token}
     if client_id is not None:
-        credentials["client_id"] = client_id
+        # Stored as text, as config.py saves it.
+        credentials["client_id"] = str(client_id)
     return SimpleNamespace(id=config_id, credentials=credentials)
 
 
-@pytest.mark.asyncio
-async def test_external_websocket_matches_config_by_client_id():
-    ws = _websocket(START_FRAME)
-    db = MagicMock()
-    db.list_telephony_configurations_by_provider = AsyncMock(
-        return_value=[_config_row(1, 999), _config_row(2, 123)]
-    )
-    db.update_workflow_run = AsyncMock()
+def _stream_params(api_token="t", client_id=123, workflow_id=7) -> dict:
+    token = VoiceLinkProvider._stream_token(api_token, client_id, workflow_id)
+    return {"vl_token": token}
 
+
+async def _run_external(ws, db, params) -> AsyncMock:
     with (
         patch.object(provider_module, "db_client", db),
         patch(RUN_PIPELINE, new_callable=AsyncMock) as run_pipeline,
@@ -414,8 +517,24 @@ async def test_external_websocket_matches_config_by_client_id():
             organization_id=9,
             workflow_id=7,
             workflow_run_id=42,
-            params={},
+            params=params,
         )
+    return run_pipeline
+
+
+def _db_with_configs(*rows) -> MagicMock:
+    db = MagicMock()
+    db.list_telephony_configurations_by_provider = AsyncMock(return_value=list(rows))
+    db.update_workflow_run = AsyncMock()
+    return db
+
+
+@pytest.mark.asyncio
+async def test_external_websocket_matches_config_by_client_id():
+    ws = _websocket(START_FRAME)
+    db = _db_with_configs(_config_row(1, 999), _config_row(2, 123))
+
+    run_pipeline = await _run_external(ws, db, _stream_params())
 
     db.list_telephony_configurations_by_provider.assert_awaited_once_with(
         9, "voicelink"
@@ -432,23 +551,9 @@ async def test_external_websocket_matches_config_by_client_id():
 @pytest.mark.asyncio
 async def test_external_websocket_rejects_unknown_account():
     ws = _websocket(START_FRAME)
-    db = MagicMock()
-    db.list_telephony_configurations_by_provider = AsyncMock(
-        return_value=[_config_row(1, 999)]
-    )
-    db.update_workflow_run = AsyncMock()
+    db = _db_with_configs(_config_row(1, 999))
 
-    with (
-        patch.object(provider_module, "db_client", db),
-        patch(RUN_PIPELINE, new_callable=AsyncMock) as run_pipeline,
-    ):
-        await VoiceLinkProvider({}).handle_external_websocket(
-            ws,
-            organization_id=9,
-            workflow_id=7,
-            workflow_run_id=42,
-            params={},
-        )
+    run_pipeline = await _run_external(ws, db, _stream_params())
 
     run_pipeline.assert_not_called()
     db.update_workflow_run.assert_not_called()
@@ -456,28 +561,79 @@ async def test_external_websocket_rejects_unknown_account():
 
 
 @pytest.mark.asyncio
-async def test_external_websocket_accepts_sole_config_without_client_id():
+async def test_external_websocket_rejects_config_without_client_id():
+    # No sole-config fallback: account_sid is caller-supplied.
     ws = _websocket(START_FRAME)
-    db = MagicMock()
-    db.list_telephony_configurations_by_provider = AsyncMock(
-        return_value=[_config_row(5, None)]
-    )
-    db.update_workflow_run = AsyncMock()
+    db = _db_with_configs(_config_row(5, None))
 
-    with (
-        patch.object(provider_module, "db_client", db),
-        patch(RUN_PIPELINE, new_callable=AsyncMock) as run_pipeline,
+    run_pipeline = await _run_external(ws, db, _stream_params())
+
+    run_pipeline.assert_not_called()
+    db.update_workflow_run.assert_not_called()
+    assert ws.close.call_args.kwargs["code"] == 4400
+
+
+@pytest.mark.asyncio
+async def test_external_websocket_rejects_start_without_account_sid():
+    frame = json.loads(START_FRAME)
+    del frame["start"]["account_sid"]
+    ws = _websocket(json.dumps(frame))
+    db = _db_with_configs(_config_row(2, 123))
+
+    run_pipeline = await _run_external(ws, db, _stream_params())
+
+    run_pipeline.assert_not_called()
+    db.update_workflow_run.assert_not_called()
+    assert ws.close.call_args.kwargs["code"] == 4400
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "params",
+    [
+        {},
+        {"vl_token": ""},
+        {"vl_token": "0" * 64},
+        {"vl_token": "é"},
+        # Signed with another configuration's API token.
+        _stream_params(api_token="other-token"),
+        # Signed for another workflow.
+        _stream_params(workflow_id=8),
+        # Signed for another account.
+        _stream_params(client_id=999),
+    ],
+)
+async def test_external_websocket_rejects_invalid_stream_token(params):
+    ws = _websocket(START_FRAME)
+    db = _db_with_configs(_config_row(2, 123))
+
+    run_pipeline = await _run_external(ws, db, params)
+
+    run_pipeline.assert_not_called()
+    db.update_workflow_run.assert_not_called()
+    assert ws.close.call_args.kwargs["code"] == 4401
+
+
+@pytest.mark.asyncio
+async def test_external_websocket_accepts_url_written_by_configure_inbound():
+    # Round trip: the provider signs with an int client id, the handler checks
+    # against the text client id in stored credentials.
+    with patch.object(
+        provider_module,
+        "get_backend_endpoints",
+        new_callable=AsyncMock,
+        return_value=("https://api.example.test", "wss://api.example.test"),
     ):
-        await VoiceLinkProvider({}).handle_external_websocket(
-            ws,
-            organization_id=9,
-            workflow_id=7,
-            workflow_run_id=42,
-            params={},
+        url = await _provider(api_token="t", client_id=123)._agent_stream_url(
+            "28894e31-d767-45bc-b3f4-3c5b4e55950a", workflow_id=7
         )
+    params = dict(parse_qsl(urlsplit(url).query))
+    ws = _websocket(START_FRAME)
+    db = _db_with_configs(_config_row(2, 123))
 
-    context = db.update_workflow_run.call_args.kwargs["initial_context"]
-    assert context["telephony_configuration_id"] == 5
+    run_pipeline = await _run_external(ws, db, params)
+
+    ws.close.assert_not_called()
     run_pipeline.assert_awaited_once()
 
 
@@ -588,7 +744,7 @@ async def test_configure_inbound_points_bot_at_attached_agent():
     )
     db.get_workflow_by_id = AsyncMock(
         return_value=SimpleNamespace(
-            workflow_uuid="28894e31-d767-45bc-b3f4-3c5b4e55950a"
+            id=1, workflow_uuid="28894e31-d767-45bc-b3f4-3c5b4e55950a"
         )
     )
     with (
@@ -613,14 +769,37 @@ async def test_configure_inbound_points_bot_at_attached_agent():
         account_id="123",
         to_number=DID,
     )
+    # Signed for the attached workflow (id 1) with this config's API token.
+    token = VoiceLinkProvider._stream_token("token-123", 123, 1)
     prov.ensure_bot.assert_called_once_with(
         bot_name="dograh-910000000000",
         websocket_url=(
             "wss://api.example.test/api/v1/agent-stream/voicelink/"
-            "28894e31-d767-45bc-b3f4-3c5b4e55950a"
+            f"28894e31-d767-45bc-b3f4-3c5b4e55950a?vl_token={token}"
         ),
     )
     prov.route_inbound_to_bot.assert_called_once_with(did="910000000000", bot_id=77)
+
+
+@pytest.mark.asyncio
+async def test_configure_inbound_requires_client_id():
+    client_cls, _ = _mock_sdk_client()
+    prov = _provisioner_mock()
+    db = MagicMock()
+    with (
+        patch.object(provider_module, "VoiceLinkClient", client_cls),
+        patch.object(provider_module, "PipecatProvisioner", return_value=prov),
+        patch.object(provider_module, "db_client", db),
+    ):
+        result = await _provider(client_id=None).configure_inbound(
+            DID, "https://api.example.test/api/v1/telephony/inbound/run"
+        )
+
+    assert result.ok is False
+    assert "client id" in (result.message or "")
+    db.find_inbound_route_by_account.assert_not_called()
+    db.find_inbound_route_by_called_number.assert_not_called()
+    prov.ensure_bot.assert_not_called()
 
 
 @pytest.mark.asyncio

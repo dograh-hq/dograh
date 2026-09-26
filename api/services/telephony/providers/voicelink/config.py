@@ -1,6 +1,6 @@
 """VoiceLink telephony configuration schemas."""
 
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -13,23 +13,27 @@ ALLOWED_API_BASE_URLS = frozenset({PRODUCTION_API_BASE_URL, UAT_API_BASE_URL})
 class VoiceLinkConfigurationRequest(BaseModel):
     provider: Literal["voicelink"] = Field(default="voicelink")
     api_token: str = Field(..., description="VoiceLink API token")
+    # Required: VoiceLink stamps it on every inbound stream as ``account_sid``,
+    # and inbound calls are matched to a configuration by it.
     # Stored as text: Dograh matches inbound streams to a configuration with
     # ``credentials->>'client_id'``, and Postgres will not compare text to an
     # integer. The form sends a number, so it is coerced here.
-    client_id: Optional[str] = Field(
-        default=None,
-        description="VoiceLink client id. Required for reseller accounts only.",
-    )
+    client_id: str = Field(..., description="VoiceLink client id")
+
+    @field_validator("api_token")
+    @classmethod
+    def validate_api_token(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("api_token must not be blank")
+        return value
 
     @field_validator("client_id", mode="before")
     @classmethod
-    def coerce_client_id(cls, value: object) -> Optional[str]:
-        if value is None:
-            return None
-        text = str(value).strip()
-        if not text:
-            return None
-        if not text.isdigit():
+    def coerce_client_id(cls, value: object) -> str:
+        text = "" if value is None else str(value).strip()
+        # ``isdecimal`` alone accepts non-ASCII digits (e.g. Arabic-Indic),
+        # which ``int()`` in the provider would then choke on or misread.
+        if not (text.isascii() and text.isdecimal()):
             raise ValueError("client_id must be a whole number")
         return text
 

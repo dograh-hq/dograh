@@ -7,8 +7,14 @@ return and no webhook-first inbound flow:
   URL as a per-call ``websocket_url``. The DID's outbound route must point at
   a WebSocket bot for VoiceLink to stream the call anywhere at all.
 - Inbound: the DID's WebSocket bot dials
-  ``/api/v1/agent-stream/voicelink/{workflow_uuid}`` directly, which lands in
-  :meth:`VoiceLinkProvider.handle_external_websocket`.
+  ``/api/v1/agent-stream/voicelink/{workflow_uuid}?vl_token=...`` directly,
+  which lands in :meth:`VoiceLinkProvider.handle_external_websocket`.
+- Status: ``add_lead`` also carries a per-call ``webhook_url`` pointing at
+  ``/api/v1/telephony/voicelink/status-callback/{run_id}`` (see ``routes.py``),
+  so calls that fail before the media socket opens still reach Dograh.
+
+Both URLs carry an HMAC token keyed by the configuration's API token, since
+VoiceLink signs neither its WebSocket connections nor its webhooks.
 
 VoiceLink never sends a ``connected`` event; ``start`` is the first frame.
 
@@ -17,8 +23,12 @@ thread to keep the event loop free.
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
+import re
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import HTTPException, Response
 from loguru import logger
@@ -58,7 +68,44 @@ INDIA_COUNTRY_CODE = "91"
 # with "Workflow not found", so a stray inbound call fails fast.
 UNASSIGNED_WORKFLOW_UUID = "00000000-0000-0000-0000-000000000000"
 
+# Query parameters carrying the HMAC tokens on the bot URL and the status URL.
+STREAM_TOKEN_PARAM = "vl_token"
+STATUS_TOKEN_PARAM = "voicelink_auth"
+
+_STATUS_CALLBACK_PATH_RE = re.compile(
+    r"/api/v1/telephony/voicelink/status-callback/(\d+)$"
+)
+
+# VoiceLink reports a coarse ``status`` ("failed") next to a specific
+# ``callStatus`` ("NO ANSWER"). These are the reasons worth preferring, since
+# campaign retries treat them differently from a plain failure.
+_SPECIFIC_FAILURE_STATUSES = frozenset(
+    {
+        TelephonyCallStatus.NO_ANSWER,
+        TelephonyCallStatus.BUSY,
+        TelephonyCallStatus.CANCELED,
+    }
+)
+
 T = TypeVar("T")
+
+
+def _sign(secret: str, message: str) -> str:
+    return hmac.new(
+        secret.encode("utf-8"), message.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+
+def _tokens_match(expected: str, presented: Optional[str]) -> bool:
+    if not presented:
+        return False
+    try:
+        # Bytes compare: a non-ASCII forged token must fail auth, not raise.
+        return hmac.compare_digest(
+            expected.encode("utf-8"), str(presented).encode("utf-8")
+        )
+    except (TypeError, UnicodeError):
+        return False
 
 
 class VoiceLinkProvider(TelephonyProvider):
@@ -108,6 +155,37 @@ class VoiceLinkProvider(TelephonyProvider):
             f"VoiceLink supports Indian (+91) numbers only; got {number!r}"
         )
 
+    @staticmethod
+    def _stream_token(api_token: str, client_id: Any, workflow_id: int) -> str:
+        """HMAC token proving a bot URL was minted by this configuration.
+
+        Bound to the account and the workflow, keyed by the API token, which
+        never leaves Dograh. It does not expire, because VoiceLink stores the
+        bot URL and reuses it for every call; rotating the API token therefore
+        requires re-saving the phone number so :meth:`configure_inbound`
+        re-signs the URL. ``client_id`` is rendered with ``str`` so the int on
+        the provider and the text in stored credentials sign identically.
+        """
+        return _sign(api_token, f"voicelink-stream:{client_id}:{workflow_id}")
+
+    def _status_callback_token(self, workflow_run_id: int) -> str:
+        """HMAC token proving a status callback URL was minted by this config."""
+        return _sign(
+            self.api_token or "",
+            f"voicelink-status:{self.client_id}:{workflow_run_id}",
+        )
+
+    def build_status_callback_url(
+        self, backend_endpoint: str, workflow_run_id: int
+    ) -> str:
+        """Per-call webhook URL; VoiceLink sends no signature, so it carries one."""
+        base = backend_endpoint.rstrip("/")
+        token = self._status_callback_token(workflow_run_id)
+        return (
+            f"{base}/api/v1/telephony/voicelink/status-callback/{workflow_run_id}"
+            f"?{STATUS_TOKEN_PARAM}={token}"
+        )
+
     # ------------------------------------------------------------- outbound
 
     async def initiate_call(
@@ -120,8 +198,10 @@ class VoiceLinkProvider(TelephonyProvider):
     ) -> CallInitiationResult:
         """Queue an outbound call with VoiceLink ``add_lead``.
 
-        ``webhook_url`` is ignored: the media WebSocket URL travels with the
-        lead instead, the same way Exotel attaches ``StreamUrl`` at dial time.
+        Dograh's generic ``webhook_url`` is not used: the lead carries its own
+        media WebSocket URL, the same way Exotel attaches ``StreamUrl`` at dial
+        time, and a signed per-run status callback URL, so a call that fails
+        or goes unanswered before the media socket opens still ends the run.
         """
         if not self.validate_config():
             raise ValueError("VoiceLink provider not properly configured")
@@ -139,9 +219,14 @@ class VoiceLinkProvider(TelephonyProvider):
         customer_number, country_code = self._split_indian_number(to_number)
         did_number = self._did_digits(from_number)
 
-        _, wss_backend_endpoint = await get_backend_endpoints()
+        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         stream_url = ws_auth.build_media_ws_url(
             wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
+        )
+        status_url = (
+            self.build_status_callback_url(backend_endpoint, workflow_run_id)
+            if workflow_run_id is not None
+            else None
         )
 
         logger.info(
@@ -156,6 +241,7 @@ class VoiceLinkProvider(TelephonyProvider):
                     customer_number=customer_number,
                     country_code=country_code,
                     websocket_url=stream_url,
+                    webhook_url=status_url,
                     custom_parameters={"workflow_run_id": workflow_run_id},
                 )
             )
@@ -253,18 +339,31 @@ class VoiceLinkProvider(TelephonyProvider):
         event = parse_webhook(data)
         call = event.call
         status_raw = (call.status if call else None) or ""
+        status = TelephonyCallStatus.from_raw(status_raw)
+        # ``status`` is coarse ("failed"); ``callStatus`` holds the reason
+        # ("NO ANSWER", "BUSY"). Prefer the reason when it is a specific
+        # failure, or when ``status`` itself is unrecognised.
+        detail_raw = (call.call_status if call else None) or ""
+        detail = TelephonyCallStatus.from_raw(
+            detail_raw.strip().lower().replace(" ", "-")
+        )
+        if detail is not None and (
+            detail in _SPECIFIC_FAILURE_STATUSES or status is None
+        ):
+            status = detail
         # ``initiate_call`` records the lead's outbound_queue_id as the call id.
         # The webhook's own ``call.id`` is a different (UUID) identifier, so
         # prefer the queue id VoiceLink echoes back in customParameters.
         custom = (call.custom_parameters if call else None) or {}
         call_id = custom.get("outboundQueueId") or (call.id if call else None)
+        duration = call.duration_sec if call else None
         return {
             "call_id": str(call_id) if call_id is not None else "",
-            "status": TelephonyCallStatus.from_raw(status_raw) or status_raw,
+            "status": status or status_raw,
             "from_number": call.from_number if call else None,
             "to_number": call.to_number if call else None,
             "direction": call.direction if call else None,
-            "duration": call.duration_sec if call else None,
+            "duration": str(duration) if duration is not None else None,
             "extra": data,
         }
 
@@ -356,6 +455,12 @@ class VoiceLinkProvider(TelephonyProvider):
         The agent-stream route builds this provider with an empty config, so
         the org's VoiceLink configuration is looked up here, matched by the
         ``account_sid`` VoiceLink stamps on the ``start`` frame (its client id).
+
+        ``account_sid`` is caller-supplied, so it only selects a configuration.
+        The connection is authenticated by the ``vl_token`` query parameter
+        that :meth:`configure_inbound` signed into the bot URL with that
+        configuration's API token; nothing is written and no pipeline starts
+        without it.
         """
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
@@ -374,6 +479,23 @@ class VoiceLinkProvider(TelephonyProvider):
                     f"{organization_id} for account_sid={start.account_sid}"
                 )
                 await websocket.close(code=4400, reason="Unknown VoiceLink account")
+                return
+
+            credentials = config.credentials or {}
+            api_token = credentials.get("api_token")
+            expected = (
+                self._stream_token(api_token, credentials["client_id"], workflow_id)
+                if api_token
+                else None
+            )
+            if expected is None or not _tokens_match(
+                expected, (params or {}).get(STREAM_TOKEN_PARAM)
+            ):
+                logger.warning(
+                    f"VoiceLink agent-stream: invalid stream token for workflow "
+                    f"{workflow_id} (telephony_configuration_id={config.id})"
+                )
+                await websocket.close(code=4401, reason="Invalid stream token")
                 return
 
             builtin_context = {
@@ -441,25 +563,21 @@ class VoiceLinkProvider(TelephonyProvider):
     async def _find_config_for_account(
         self, organization_id: int, account_sid: Optional[str]
     ):
-        """This org's VoiceLink configuration for the stream's account.
+        """This org's VoiceLink configuration whose client id is ``account_sid``.
 
         Scoped to ``organization_id`` so another org's configuration can never
-        match. A configuration with a ``client_id`` must equal ``account_sid``;
-        one without is accepted only when it is the org's sole VoiceLink
-        configuration, since there is then nothing to confuse it with.
+        match. This only selects a configuration; the caller still has to
+        authenticate the stream against it.
         """
+        if not account_sid:
+            return None
         candidates = await db_client.list_telephony_configurations_by_provider(
             organization_id, self.PROVIDER_NAME
         )
-        if account_sid:
-            for cand in candidates:
-                client_id = (cand.credentials or {}).get("client_id")
-                if client_id is not None and str(client_id) == str(account_sid):
-                    return cand
-        if len(candidates) == 1 and not (candidates[0].credentials or {}).get(
-            "client_id"
-        ):
-            return candidates[0]
+        for cand in candidates:
+            client_id = (cand.credentials or {}).get("client_id")
+            if client_id is not None and str(client_id) == str(account_sid):
+                return cand
         return None
 
     # ------------------------------------------------------------- automatic setup
@@ -473,9 +591,16 @@ class VoiceLinkProvider(TelephonyProvider):
     def _bot_name(self, address: str) -> str:
         return f"dograh-{self._did_digits(address)}"
 
-    async def _agent_stream_url(self, workflow_uuid: str) -> str:
+    async def _agent_stream_url(
+        self, workflow_uuid: str, workflow_id: Optional[int] = None
+    ) -> str:
+        """The bot URL; signed for ``workflow_id`` unless it is the placeholder."""
         _, wss_backend_endpoint = await get_backend_endpoints()
-        return f"{wss_backend_endpoint}/api/v1/agent-stream/voicelink/{workflow_uuid}"
+        url = f"{wss_backend_endpoint}/api/v1/agent-stream/voicelink/{workflow_uuid}"
+        if workflow_id is None:
+            return url
+        token = self._stream_token(self.api_token, self.client_id, workflow_id)
+        return f"{url}?{STREAM_TOKEN_PARAM}={token}"
 
     def _sync_bot(
         self,
@@ -538,6 +663,10 @@ class VoiceLinkProvider(TelephonyProvider):
         Dograh refuses, so an inbound call fails fast instead of reaching a
         stale agent; outbound is unaffected because ``add_lead`` carries its
         own per-call URL.
+
+        The attached agent's URL carries a stream token signed with the API
+        token (see :meth:`_stream_token`). After rotating the API token,
+        re-save the phone number so the bot URL is re-signed.
         """
         if not self.validate_config():
             return ProviderSyncResult(
@@ -546,6 +675,14 @@ class VoiceLinkProvider(TelephonyProvider):
         if webhook_url is None:
             url = await self._agent_stream_url(UNASSIGNED_WORKFLOW_UUID)
         else:
+            if self.client_id is None:
+                return ProviderSyncResult(
+                    ok=False,
+                    message=(
+                        "VoiceLink client id is required to route inbound calls; "
+                        "add it to this configuration"
+                    ),
+                )
             route = await self._find_phone_route(address)
             phone = route[1] if route else None
             if phone is None or phone.inbound_workflow_id is None:
@@ -561,7 +698,9 @@ class VoiceLinkProvider(TelephonyProvider):
                 return ProviderSyncResult(
                     ok=False, message="The attached agent has no UUID yet"
                 )
-            url = await self._agent_stream_url(str(workflow.workflow_uuid))
+            url = await self._agent_stream_url(
+                str(workflow.workflow_uuid), workflow_id=workflow.id
+            )
         try:
             await self._run(
                 lambda client: self._sync_bot(client, address, url, inbound=True)
@@ -574,25 +713,24 @@ class VoiceLinkProvider(TelephonyProvider):
         """This configuration's phone-number row for ``address``.
 
         The factory does not hand the provider its organization, so the lookup
-        keys on ``client_id`` when one is configured; otherwise the number must
-        be unique across VoiceLink configurations, which Dograh's inbound
-        dispatcher requires anyway.
+        keys on ``client_id``. Without one there is no route: inbound streams
+        are matched by client id, so a number attached without one could never
+        receive a call.
         """
-        if self.client_id is not None:
-            return await db_client.find_inbound_route_by_account(
-                provider=self.PROVIDER_NAME,
-                account_id_field="client_id",
-                account_id=str(self.client_id),
-                to_number=address,
-            )
-        return await db_client.find_inbound_route_by_called_number(
-            provider=self.PROVIDER_NAME, to_number=address
+        if self.client_id is None:
+            return None
+        return await db_client.find_inbound_route_by_account(
+            provider=self.PROVIDER_NAME,
+            account_id_field="client_id",
+            account_id=str(self.client_id),
+            to_number=address,
         )
 
     # ------------------------------------------------------------- inbound webhooks
     #
     # VoiceLink has no webhook-first inbound flow: its WebSocket bot dials the
-    # agent-stream endpoint directly. These exist to satisfy the interface.
+    # agent-stream endpoint directly. These exist to satisfy the interface,
+    # except verify_inbound_signature, which guards the status callback route.
 
     @classmethod
     def can_handle_webhook(
@@ -627,8 +765,25 @@ class VoiceLinkProvider(TelephonyProvider):
         headers: Dict[str, str],
         body: str = "",
     ) -> bool:
-        # Fail closed: VoiceLink sends no inbound webhooks to verify.
-        return False
+        """Verify a status callback by the token :meth:`initiate_call` minted.
+
+        VoiceLink signs nothing, so the only proof is the ``voicelink_auth``
+        token in the URL, bound to this configuration and the run id in the
+        path. Anything else fails closed.
+        """
+        if not self.api_token:
+            logger.warning("VoiceLink credentials missing for webhook auth check")
+            return False
+        parts = urlsplit(url)
+        match = _STATUS_CALLBACK_PATH_RE.search(parts.path or "")
+        token = (parse_qs(parts.query).get(STATUS_TOKEN_PARAM) or [None])[0]
+        if not match or not token:
+            logger.warning("VoiceLink webhook missing status callback token")
+            return False
+        ok = _tokens_match(self._status_callback_token(int(match.group(1))), token)
+        if not ok:
+            logger.warning("VoiceLink status callback token mismatch")
+        return ok
 
     async def start_inbound_stream(
         self,

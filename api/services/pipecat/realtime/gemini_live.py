@@ -482,6 +482,13 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
             not self._awaiting_node_transition_context
             or not self._node_transition_context_received
             or not self._session
+            # A node-transition context frame can arrive while the reconnect's
+            # disconnect is still in flight: _session still points to the old
+            # session being torn down, so `not self._session` above does not yet
+            # protect us. Seeding here would run against the dying session and
+            # clear the node-transition flags, so the real seed never happens
+            # when the fresh session is ready. Wait until the reconnect settles.
+            or self._disconnecting
             or self._node_transition_context_seed_started
         ):
             return

@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import api.routes.auth as auth_routes
+import api.schemas.auth as auth_schemas
 from api.routes.auth import router
 from api.services.auth import depends as auth_depends
 from api.services.auth.depends import get_user
@@ -79,3 +80,33 @@ def test_stack_mode_keeps_current_user_route_available(monkeypatch):
         "organization_id": 42,
         "provider_id": "stack-user-1",
     }
+
+
+def test_local_auth_accepts_reserved_test_domain_for_smoke_users(monkeypatch):
+    monkeypatch.setattr(auth_schemas, "AUTH_PROVIDER", "local")
+
+    signup = auth_schemas.SignupRequest(
+        email=" smokescreen.local@example.test ",
+        password="local-password",
+    )
+    login = auth_schemas.LoginRequest(
+        email="testuser.local@example.test",
+        password="local-password",
+    )
+
+    assert signup.email == "smokescreen.local@example.test"
+    assert login.email == "testuser.local@example.test"
+
+
+def test_non_local_auth_keeps_reserved_test_domain_rejected(monkeypatch):
+    monkeypatch.setattr(auth_schemas, "AUTH_PROVIDER", "stack")
+
+    try:
+        auth_schemas.LoginRequest(
+            email="smokescreen.local@example.test",
+            password="local-password",
+        )
+    except ValueError as exc:
+        assert "special-use" in str(exc)
+    else:
+        raise AssertionError("reserved .test email must remain rejected in hosted auth")

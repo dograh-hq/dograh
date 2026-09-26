@@ -3,6 +3,7 @@ import "server-only";
 import type { CurrentUser, StackServerApp } from '@stackframe/stack';
 import { cookies } from 'next/headers';
 
+import { getServerBackendUrl } from '@/lib/apiClient';
 import logger from '@/lib/logger';
 
 import { getAuthProvider, getStackConfig } from './config';
@@ -13,6 +14,29 @@ import type { LocalUser } from './types';
 // This file should only be imported in server components
 
 let stackServerApp: StackServerApp<boolean, string> | null = null;
+
+/**
+ * Validate an OSS token with the API that owns the signing secret.
+ *
+ * The UI deliberately does not receive OSS_JWT_SECRET, so it cannot safely
+ * decode or refresh tokens itself. A null result means the API could not be
+ * reached; callers should keep the session in that case and let the normal
+ * backend-unavailable handling take over.
+ */
+export async function validateOSSSession(token: string | null): Promise<boolean | null> {
+  if (!token) return false;
+
+  try {
+    const response = await fetch(`${getServerBackendUrl()}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    if (response.status === 401) return false;
+    return response.ok ? true : null;
+  } catch {
+    return null;
+  }
+}
 
 // Lazy load and cache the stack server app
 export async function getStackServerApp(): Promise<StackServerApp<boolean, string> | null> {
@@ -95,6 +119,12 @@ export async function getOSSToken(): Promise<string | null> {
  */
 export async function getOSSUser(): Promise<LocalUser | null> {
   const cookieStore = await cookies();
+  const token = cookieStore.get(OSS_TOKEN_COOKIE)?.value || null;
+
+  if ((await validateOSSSession(token)) === false) {
+    return null;
+  }
+
   const userCookie = cookieStore.get(OSS_USER_COOKIE)?.value;
 
   if (userCookie) {
@@ -115,7 +145,6 @@ export async function getOSSUser(): Promise<LocalUser | null> {
   }
 
   // If no user cookie, but we have a token, create user from token
-  const token = cookieStore.get(OSS_TOKEN_COOKIE)?.value;
   if (token) {
     const user: LocalUser = {
       id: token,
@@ -143,7 +172,9 @@ export async function getServerAccessToken(): Promise<string | null> {
     }
   } else if (authProvider === 'local') {
     // Get token from cookies (created by middleware)
-    return await getOSSToken();
+    const token = await getOSSToken();
+    if ((await validateOSSSession(token)) === false) return null;
+    return token;
   }
 
   return null;

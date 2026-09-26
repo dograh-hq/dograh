@@ -215,6 +215,7 @@ export function WorkflowRunsTable({
                                                         recordingUrl={run.recording_url}
                                                         transcriptUrl={run.transcript_url}
                                                         runId={run.id}
+                                                        callId={run.call_id}
                                                         onOpenPreview={mediaPreview.openPreview}
                                                         onSelect={setSelectedRowId}
                                                     />

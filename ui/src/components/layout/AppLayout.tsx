@@ -17,6 +17,7 @@ import { GitHubStarBadge } from "./GitHubStarBadge";
 
 function AppHeader() {
   const { toggleSidebar } = useSidebar();
+  const { config } = useAppConfig();
 
   return (
     <header className="sticky top-[var(--event-banner-h,0px)] z-50 flex items-center justify-between border-b border-border/60 bg-background/70 px-4 py-2 backdrop-blur-md supports-[backdrop-filter]:bg-background/55">
@@ -24,7 +25,12 @@ function AppHeader() {
         <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Open menu" className="md:hidden">
           <Menu className="h-5 w-5" />
         </Button>
-        <Link href="/" className="text-lg font-bold md:hidden">Dograh</Link>
+        <Link href="/" className="text-lg font-bold md:hidden">CALMOS</Link>
+        {config?.uiVersion && (
+          <span className="text-xs font-normal text-muted-foreground md:hidden">
+            v{config.uiVersion}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
@@ -102,7 +108,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({
 
   // Check if current route should have sidebar
   // Hide sidebar for root (/), /handler routes (Stack Auth routes), and /auth routes
-  const shouldShowSidebar = pathname !== "/" && !pathname.startsWith("/handler") && !pathname.startsWith("/auth");
+  const shouldShowSidebar = pathname !== "/" && !pathname.startsWith("/handler") && !pathname.startsWith("/auth") && !pathname.startsWith("/embed");
+  // Embed routes are standalone (iframe-able): no sidebar, no backend banner.
+  const isEmbed = pathname.startsWith("/embed");
 
   // Only match the exact editor page /workflow/<id>, not sub-routes like /workflow/<id>/runs
   const isWorkflowEditor = /^\/workflow\/\d+$/.test(pathname);
@@ -147,6 +155,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({
             </SidebarInset>
           </div>
         </LeadFormsProvider>
+      ) : isEmbed ? (
+        <div className="w-full flex-1">
+          {children}
+        </div>
       ) : (
         <div className="app-surface w-full flex-1">
           <BackendStatusBanner />

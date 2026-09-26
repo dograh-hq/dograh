@@ -3,7 +3,8 @@
 ## Sakinah v1.47.0.0 (2026-09-26)
 
 - Integrated upstream Dograh `dograh-v1.47.0` while retaining the existing Sakinah avatar, CALM simulation, call-data, metadata, and listener-mode behaviour.
-- Added an Alembic merge migration so the retained Sakinah schema history and upstream v1.47 migrations upgrade through one head.
+- Retained the complete v1.46.0.4.x/1.46.0.5 release line: persistent call data and memory, local auth/audio fixes, MinIO/S3 artifact finalization and secondary replication, storage audit, and SpatialReal avatar support.
+- Added an Alembic merge migration so the retained Sakinah schema history, v1.46 artifact-replication schema, and upstream v1.47 migrations upgrade through one head.
 - Published the Sakinah API and release artifact version as `v1.47.0.0`; the bundled local smoke stack is intentionally separate from AWS deployment.
 
 ## 1.47.0 (2026-09-15)

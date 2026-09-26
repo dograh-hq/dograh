@@ -1,0 +1,30 @@
+# Run the stack on the locally built fork images (pinned tags), which carry
+# the SpatialReal avatar feature. The upstream ghcr.io/dograh-hq images do
+# NOT contain this fork's code — never run fork app code against them.
+#
+# After building (docker-compose.local-build.yaml / docker-compose.ui-build.yaml),
+# retag the freshly built images once:
+#
+#   docker tag dograhai/dograh-api:latest sakinah-dograh-api:avatar-v1
+#   docker tag sakinah-dograh-ui:calmos-connect sakinah-dograh-ui:avatar-v1
+#
+# Then start the stack with:
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.avatar.yaml \
+#     --profile tunnel --profile local-turn up -d
+#
+# Notes baked in from bring-up:
+# - dograh_fork database: the original `postgres` db was migrated by the
+#   upstream image to a revision the fork's alembic chain does not contain;
+#   fork deployments need their own database.
+# - coturn:4.8-alpine: the debian-based 4.8.0 image is corrupted in this
+#   Docker install (exec format error on its entrypoint).
+services:
+  api:
+    image: sakinah-dograh-api:avatar-v1
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/dograh_fork"
+  ui:
+    image: sakinah-dograh-ui:avatar-v1
+  coturn:
+    image: coturn/coturn:4.8-alpine

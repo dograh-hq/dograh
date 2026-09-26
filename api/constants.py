@@ -80,7 +80,16 @@ MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
 DOGRAH_DEVOPS_SECRET = os.getenv("DOGRAH_DEVOPS_SECRET") or None
 
 # Storage Configuration
-ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"
+# Keep the legacy switch for backward compatibility.  New Sakinah deployments
+# use MinIO as primary storage and may opt into an asynchronous S3 copy.
+LEGACY_ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"
+ENABLE_AWS_S3 = LEGACY_ENABLE_AWS_S3
+ENABLE_AWS_S3_PRIMARY = (
+    os.getenv("ENABLE_AWS_S3_PRIMARY", "false").lower() == "true"
+)
+ENABLE_AWS_S3_SECONDARY = (
+    os.getenv("ENABLE_AWS_S3_SECONDARY", "false").lower() == "true"
+)
 
 # MinIO Configuration
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
@@ -93,13 +102,22 @@ MINIO_PUBLIC_ENDPOINT = (
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "voice-audio")
+MINIO_REGION = os.getenv("MINIO_REGION", "us-east-1")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+MINIO_ALLOW_ANONYMOUS = (
+    os.getenv(
+        "MINIO_ALLOW_ANONYMOUS",
+        "true" if ENVIRONMENT == Environment.LOCAL.value else "false",
+    ).lower()
+    == "true"
+)
 
 # AWS S3 Configuration
 AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("S3_REGION", "eu-west-2")
 # ``AWS_RECORDINGS_BUCKET`` is the white-label name. Keep ``S3_BUCKET`` as the
 # existing generic storage setting so existing deployments continue to work.
 AWS_RECORDINGS_BUCKET = os.environ.get("AWS_RECORDINGS_BUCKET")
+AWS_S3_PREFIX = os.environ.get("AWS_S3_PREFIX", "").strip("/")
 S3_BUCKET = AWS_RECORDINGS_BUCKET or os.environ.get("S3_BUCKET")
 S3_REGION = AWS_REGION
 S3_KMS_KEY_ID = os.environ.get("S3_KMS_KEY_ID") or None
@@ -128,6 +146,11 @@ MEMORY_EMBEDDING_MODEL = os.getenv(
 MEMORY_EMBEDDING_DIMENSIONS = int(os.getenv("MEMORY_EMBEDDING_DIMENSIONS", "1536"))
 MEMORY_MAX_RESULTS = max(1, int(os.getenv("MEMORY_MAX_RESULTS", "5")))
 MEMORY_MIN_SIMILARITY = float(os.getenv("MEMORY_MIN_SIMILARITY", "0.72"))
+# Use a stable keyed hash for caller identifiers.  OSS_JWT_SECRET is a
+# backwards-compatible fallback for existing deployments.
+CALLER_IDENTIFIER_HASH_KEY = os.getenv("CALLER_IDENTIFIER_HASH_KEY") or os.getenv(
+    "OSS_JWT_SECRET", "change-me-in-production"
+)
 RECORD_CALLS = os.getenv("RECORD_CALLS", "true").lower() == "true"
 
 # Sentry configuration

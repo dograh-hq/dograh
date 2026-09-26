@@ -23,6 +23,7 @@ from api.services.quota_service import QuotaCheckResult
 from api.services.sakinah.simulation import (
     SAKINAH_ROLE,
     SERVICE_USER_ROLE,
+    Simulation,
     SimulationAuthorizationError,
     simulation_manager,
 )
@@ -80,6 +81,18 @@ def _fake_pipeline(chunks_by_run: dict[int, list[str]] | None = None):
         await disconnected.wait()
 
     return fake_run_pipeline
+
+
+def test_audio_subscriber_receives_bounded_preconnect_backlog():
+    """Startup latency must not discard the opening Simulation utterance."""
+    simulation = Simulation("sim-audio-backlog", 1, SCENARIO, 300)
+    simulation.publish_audio(b"first")
+    simulation.publish_audio(b"second")
+
+    queue = simulation.subscribe_audio()
+
+    assert queue.get_nowait() == b"first"
+    assert queue.get_nowait() == b"second"
 
 
 @pytest.fixture

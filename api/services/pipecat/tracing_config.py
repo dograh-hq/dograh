@@ -1,4 +1,5 @@
 import base64
+import os
 import re
 
 from loguru import logger
@@ -13,10 +14,25 @@ from api.constants import (
     LANGFUSE_SECRET_KEY,
 )
 from pipecat.utils.run_context import get_current_org_id
-from pipecat.utils.tracing.langfuse_helpers import (
-    set_trace_public_resolver,
-    traces_public_from_env,
-)
+try:
+    from pipecat.utils.tracing.langfuse_helpers import (
+        set_trace_public_resolver,
+        traces_public_from_env,
+    )
+except ImportError:  # Older deployed Pipecat forks do not expose these hooks.
+    from pipecat.utils.tracing import langfuse_helpers
+
+    set_trace_public_resolver = getattr(
+        langfuse_helpers, "set_trace_public_resolver", lambda resolver: None
+    )
+
+    def traces_public_from_env() -> bool:
+        return os.getenv("LANGFUSE_TRACES_PUBLIC", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 from pipecat.utils.tracing.setup import setup_tracing
 
 _tracing_initialized = False

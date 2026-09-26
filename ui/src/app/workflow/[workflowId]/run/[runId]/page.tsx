@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import {
+    auditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGet,
     getWorkflowApiV1WorkflowFetchWorkflowIdGet,
     getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet,
 } from '@/client/sdk.gen';
@@ -40,7 +41,31 @@ import { formatDateTime } from '@/lib/dateTime';
 import { downloadFile, getSignedUrl } from '@/lib/files';
 import { cn } from '@/lib/utils';
 
+type StorageStatus = 'verified' | 'missing' | 'pending' | 'not_expected' | 'not_configured' | 'unknown';
+
+interface StorageAudit {
+    postgres?: {
+        status?: StorageStatus;
+        transcript_status?: StorageStatus;
+        recording_metadata_count?: number;
+    };
+    minio?: {
+        status?: StorageStatus;
+        configured?: boolean;
+        objects_found?: number;
+        objects?: Array<{
+            type?: string;
+            key?: string;
+            status?: StorageStatus;
+            size_bytes?: number;
+            checksum_sha256?: string | null;
+        }>;
+    };
+    aws?: { status?: StorageStatus };
+}
+
 interface WorkflowRunResponse {
+    call_id: string | null;
     mode: string;
     created_at: string | null;
     is_completed: boolean;
@@ -93,6 +118,58 @@ function MetricCard({ label, value }: { label: string; value: string }) {
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
             <p className="mt-2 text-lg font-semibold text-foreground">{value}</p>
         </div>
+    );
+}
+
+function StorageAuditSection({ audit }: { audit: StorageAudit }) {
+    const statusLabel = (status?: StorageStatus) => status?.replaceAll('_', ' ') ?? 'unknown';
+    const statusIcon = (status?: StorageStatus) => status === 'verified' ? '✓' : status === 'not_configured' || status === 'not_expected' ? '–' : '!';
+    const objectCount = audit.minio?.objects_found ?? 0;
+
+    return (
+        <Card className="border-border">
+            <CardHeader>
+                <CardTitle className="text-lg">Storage</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+                <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+                        <p className="text-muted-foreground">Database</p>
+                        <p className="font-medium">Local Postgres {statusIcon(audit.postgres?.status)} <span className="text-muted-foreground">({statusLabel(audit.postgres?.status)})</span></p>
+                    </div>
+                    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+                        <p className="text-muted-foreground">Transcript</p>
+                        <p className="font-medium">Postgres {statusIcon(audit.postgres?.transcript_status)} <span className="text-muted-foreground">({statusLabel(audit.postgres?.transcript_status)})</span></p>
+                    </div>
+                    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+                        <p className="text-muted-foreground">AWS S3</p>
+                        <p className="font-medium">{statusLabel(audit.aws?.status)} {statusIcon(audit.aws?.status)}</p>
+                    </div>
+                </div>
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-muted-foreground">
+                    <span>Local MinIO: {statusLabel(audit.minio?.status)}</span>
+                    <span>Audio objects: {objectCount}</span>
+                    <span>Recording metadata: {audit.postgres?.recording_metadata_count ?? 0}</span>
+                </div>
+                {audit.minio?.objects && audit.minio.objects.length > 0 && (
+                    <div className="space-y-1 border-t border-border pt-3">
+                        {audit.minio.objects.map((object) => (
+                            <div key={`${object.type}-${object.key}`} className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="font-medium">{object.type ?? 'object'}</span>
+                                <span className="min-w-0 truncate font-mono text-muted-foreground">{object.key}</span>
+                                <span>{object.size_bytes ?? 0} bytes</span>
+                                <span>{statusIcon(object.status)} {statusLabel(object.status)}</span>
+                                {object.checksum_sha256 && (
+                                    <span className="font-mono text-muted-foreground" title={object.checksum_sha256}>
+                                        sha256:{object.checksum_sha256.slice(0, 12)}…
+                                    </span>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </CardContent>
+        </Card>
     );
 }
 
@@ -536,16 +613,27 @@ function SplitTracksSection({
     );
 }
 
+interface AvatarRunSummary {
+    mode?: string;
+    avatar_id?: string;
+    duration_seconds?: number;
+    first_frame_latency_ms?: number | null;
+    failed?: boolean;
+}
+
 function RunMetricsSection({
     costInfo,
     logs,
     gatheredContext,
+    annotations,
 }: {
     costInfo: WorkflowRunResponse['cost_info'];
     logs: WorkflowRunLogs | null;
     gatheredContext: Record<string, string | number | boolean | object> | null;
+    annotations: Record<string, unknown> | null;
 }) {
     const metrics = getTranscriptMetrics(logs, gatheredContext);
+    const avatar = (annotations?.avatar ?? null) as AvatarRunSummary | null;
 
     return (
         <Card className="border-border">
@@ -558,6 +646,16 @@ function RunMetricsSection({
                 <MetricCard label="Bot Turns" value={String(metrics.botTurns)} />
                 <MetricCard label="Tool Calls" value={String(metrics.toolCalls)} />
                 <MetricCard label="Nodes Visited" value={String(metrics.visitedNodes)} />
+                {avatar && (
+                    <MetricCard
+                        label="Avatar"
+                        value={
+                            avatar.failed
+                                ? 'Fell back to audio'
+                                : `${formatDuration(avatar.duration_seconds)}${avatar.first_frame_latency_ms != null ? ` · ${avatar.first_frame_latency_ms}ms to first frame` : ''}`
+                        }
+                    />
+                )}
             </CardContent>
         </Card>
     );
@@ -615,6 +713,7 @@ export default function WorkflowRunPage() {
     const auth = useAuth();
     const organizationTimezone = useOrganizationTimezone();
     const [workflowRun, setWorkflowRun] = useState<WorkflowRunResponse | null>(null);
+    const [storageAudit, setStorageAudit] = useState<StorageAudit | null>(null);
     const [workflowName, setWorkflowName] = useState<string | null>(null);
     const customizeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -637,7 +736,7 @@ export default function WorkflowRunPage() {
             const runId = Number(params.runId);
 
             try {
-                const [runResponse, workflowResponse] = await Promise.all([
+                const [runResponse, workflowResponse, auditResponse] = await Promise.all([
                     getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet({
                         path: {
                             workflow_id: workflowId,
@@ -649,10 +748,19 @@ export default function WorkflowRunPage() {
                             workflow_id: workflowId,
                         },
                     }),
+                    auditWorkflowRunStorageApiV1WorkflowWorkflowIdRunsRunIdStorageAuditGet({
+                        path: {
+                            workflow_id: workflowId,
+                            run_id: runId,
+                        },
+                    }),
                 ]);
+
+                setStorageAudit((auditResponse.data as StorageAudit | undefined) ?? null);
 
                 setWorkflowName(workflowResponse.data?.name ?? null);
                 const runData = {
+                    call_id: runResponse.data?.call_id ?? null,
                     mode: runResponse.data?.mode ?? '',
                     created_at: runResponse.data?.created_at ?? null,
                     is_completed: runResponse.data?.is_completed ?? false,
@@ -792,6 +900,7 @@ export default function WorkflowRunPage() {
                                                 recordingUrl={workflowRun?.recording_url}
                                                 transcriptUrl={workflowRun?.transcript_url}
                                                 runId={Number(params.runId)}
+                                                callId={workflowRun?.call_id}
                                                 onOpenPreview={openPreview}
                                             />
                                         </div>
@@ -846,7 +955,10 @@ export default function WorkflowRunPage() {
                             costInfo={workflowRun?.cost_info ?? null}
                             logs={workflowRun?.logs ?? null}
                             gatheredContext={workflowRun?.gathered_context ?? null}
+                            annotations={workflowRun?.annotations ?? null}
                         />
+
+                        {storageAudit && <StorageAuditSection audit={storageAudit} />}
 
                         {!isTextChatRun && hasSplitTracks && (
                             <SplitTracksSection

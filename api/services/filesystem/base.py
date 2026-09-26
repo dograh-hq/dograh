@@ -2,6 +2,22 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Protocol
 
 
+def artifact_content_type(file_path: str) -> str | None:
+    """Return stable media types for artifacts we serve to browsers.
+
+    Object stores otherwise default byte uploads to ``application/octet-stream``.
+    Browsers, especially Safari's media pipeline, do not reliably preview WAV
+    responses with that generic type even when the bytes and Range support are
+    correct.
+    """
+    suffix = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+    return {
+        "wav": "audio/wav",
+        "mp3": "audio/mpeg",
+        "txt": "text/plain; charset=utf-8",
+    }.get(suffix)
+
+
 class AsyncReadable(Protocol):
     """Anything exposing ``await .read() -> bytes`` (aiofiles handles, in-memory wrappers)."""
 

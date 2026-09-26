@@ -1,0 +1,121 @@
+# CALMOS Connect v1.45.6: calls, recordings, and memory
+
+CALMOS Connect v1.45.6 keeps the existing Dograh `workflow_runs` record as the
+canonical Agent Run / Call Run row. New structured tables extend that row rather
+than creating a separate call-history system.
+
+## Runtime flow
+
+```text
+Incoming call
+  → create workflow_runs row with unique call_id
+  → candidate service-user lookup by one-way caller-identifier hash
+  → UNKNOWN / FIRST_TIME / RECOGNISED / VERIFIED state
+  → permitted memory context only
+  → Sakinah first turn
+  → utterance and scoring events remain in the run/log buffers
+  → completion marks timestamps, duration and status
+  → private recording/transcript upload to object storage
+  → asynchronous RDS snapshot and memory extraction
+  → authenticated replay requests a short-lived signed URL
+```
+
+The lookup happens while the call is connecting and has a two-second timeout.
+RDS/S3 operations after the call are retried and queued through ARQ; they are not
+part of the audio → STT → LLM → TTS response path.
+
+## Database changes
+
+Migration `4f1c2d3e5a67_add_durable_call_and_memory_storage.py` adds:
+
+- canonical call metadata columns to `workflow_runs`, including `call_id`,
+  provider metadata, lifecycle timestamps, recording metadata, transcript and
+  debugging metadata;
+- `service_users` with an organization-scoped stable UUID and a hashed caller
+  identifier;
+- `utterances`, `recordings`, `call_scores`, `call_events`, `memories`, and
+  `memory_sources`;
+- the `vector` extension and cosine vector index for 1536-dimensional embeddings;
+- optional scenario `category` and `tags` fields used by server-side library search.
+
+The scenario search expression has a PostgreSQL `pg_trgm` GIN index, so partial
+case-insensitive matching remains indexed as the library grows.
+
+The migration backfills existing workflow runs with generated internal IDs and
+does not delete or rewrite existing call records or legacy artifact references.
+
+## Storage and security
+
+Set `ENABLE_AWS_S3=true`, `AWS_RECORDINGS_BUCKET`, `AWS_REGION` (default
+`eu-west-2`), and the existing TLS-enabled `DATABASE_URL` for AWS/RDS. Use an
+IAM task role rather than source-controlled credentials. Recordings are written
+to:
+
+```text
+recordings/{year}/{month}/{service_user_id_or_anonymous}/{call_id}/call.wav
+```
+
+The S3 bucket remains private. The S3 adapter sends server-side encryption
+(`aws:kms` by default) and accepts an optional `S3_KMS_KEY_ID`. The browser only
+receives a signed URL from `GET /api/v1/call-history/{call_id}/replay`, valid for
+5 minutes by default. It never receives AWS credentials, the bucket name, or a
+permanent object URL.
+
+## Memory privacy model
+
+`service_user_id` is not a telephone number. A phone match is only a candidate
+identity. The orchestrator filters `active`, non-expired, internal-authorized
+memories before constructing the Sakinah prompt. Unverified callers can receive
+only low/normal sensitivity memories; high/restricted memories require verified
+identity and still carry verbal/explicit-detail permissions. Sensitive history
+is never inserted into the opening greeting.
+
+Completed transcripts are analysed asynchronously for a small, bounded set of
+long-term facts. Proposals are validated, capped, linked to their source run and
+utterance, optionally embedded, and deduplicated. Call termination does not wait
+for this extraction.
+
+## Scenario search
+
+`GET /api/v1/sakinah/scenarios?search=...` applies case-insensitive partial
+matching in PostgreSQL across the scenario identifier, title, category, tags,
+and relevant scenario text while preserving sequence ordering. The library UI
+uses a controlled search form, Enter submits the same search, displays the match
+count, shows a no-results state, and provides `Clear / Show all` without a page
+reload.
+
+## IAM and deployment
+
+The API/worker task role needs, scoped to the recordings bucket and prefix:
+
+- `s3:PutObject` for recording and transcript writes;
+- `s3:GetObject` for server-side replay signing/reads;
+- `kms:Encrypt` and `kms:Decrypt` for the configured KMS key (or the equivalent
+  S3-managed-key permissions);
+- `s3:AbortMultipartUpload` only if multipart upload is introduced later.
+
+The RDS security group should permit the API/worker security group, and the
+database URL should enable TLS (for example, the asyncpg `ssl=require` URL
+parameter or the deployment's equivalent). Run the normal migration command
+from the API image before starting v1.45.6 workers:
+
+```bash
+cd api
+alembic upgrade head
+```
+
+Restart both API and ARQ worker processes so the persistence and extraction jobs
+are registered. No AWS infrastructure is created or destroyed by this change;
+the existing bucket/RDS configuration must be inspected and supplied through
+environment/IAM before enabling the feature.
+
+## Rollback
+
+For an application rollback, deploy the previous image while leaving the new
+tables in place; legacy columns and artifact paths remain compatible, and the
+database-side `call_id` default lets older images continue creating runs. Do not
+delete the new tables during an operational rollback. If a schema downgrade is
+necessary, first take an RDS snapshot and preserve the S3 bucket, stop v1.45.6
+workers, then run `alembic downgrade 8d7f2c1a4b6e`. That downgrade removes the
+new call/memory data tables and must only be used when that data has been
+exported or is intentionally being retired.

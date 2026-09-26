@@ -16,6 +16,7 @@ import { useOnboarding } from "@/context/OnboardingContext";
 import { useAuth } from "@/lib/auth";
 import { cn, getRandomId } from "@/lib/utils";
 
+import { primeBrowserAudioOutput } from "../run/[runId]/hooks";
 import { AiSimulatorPlaceholder } from "./workflow-tester/AiSimulatorPlaceholder";
 import { EmbeddedVoiceTester } from "./workflow-tester/EmbeddedVoiceTester";
 import { ManualTextChatPanel } from "./workflow-tester/ManualTextChatPanel";
@@ -98,6 +99,11 @@ export function WorkflowTesterPanel({
 
     const createVoiceRun = useCallback(async () => {
         if (!accessToken || disabled) return;
+        // Keep audio activation inside the user's Run Test gesture. Run
+        // creation and tester mounting are asynchronous, so waiting until
+        // EmbeddedVoiceTester auto-starts can leave the remote track muted by
+        // browser autoplay policy.
+        primeBrowserAudioOutput();
         setCreatingVoiceRun(true);
         try {
             const response = await createWorkflowRunApiV1WorkflowWorkflowIdRunsPost({

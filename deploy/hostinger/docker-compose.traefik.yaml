@@ -20,6 +20,7 @@
 services:
   traefik:
     image: traefik:v3.1
+    platform: linux/amd64
     container_name: traefik
     restart: unless-stopped
     command:

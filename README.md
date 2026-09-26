@@ -1,5 +1,8 @@
 # Dograh AI
 
+> **CALMOS Connect / Sakinah v1.47.0.0** ([applied-biosciences/dograh](https://github.com/applied-biosciences/dograh)): integrates upstream Dograh v1.47 while retaining the full v1.46.0.4.x/1.46.0.5 white-label line: the Sakinah Scenario Console, AI-to-AI simulation, durable call and storage persistence, privacy-controlled memory, artifact replication, SpatialReal avatars, and scenario search. See [`SAKINAH.md`](SAKINAH.md) and [`docs/developer/calmos-connect-v1.46.0.3.mdx`](docs/developer/calmos-connect-v1.46.0.3.mdx).
+> **Deployment limitation**: run the API with a **single worker** (`FASTAPI_WORKERS=1`, the default). Simulations keep in-process state, so with multiple workers the simulation status/stop endpoints and the transcript/audio WebSockets intermittently land on a worker that doesn't own the simulation ([#4](https://github.com/applied-biosciences/dograh/issues/4)).
+
 <p align="center">
   <a href="https://www.producthunt.com/products/dograh">
     <img src="https://img.shields.io/badge/Product%20Hunt-%231%20Product%20of%20the%20Day-DA552F?style=for-the-badge&logo=producthunt&logoColor=white" alt="Dograh: #1 Product of the Day on Product Hunt">
@@ -127,6 +130,35 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 > **Featured On & Community Validation:** Dograh was named **[#1 Product of the Day on Product Hunt](https://www.producthunt.com/products/dograh)**.
 
+## CALMOS / Sakinah Scenario Console
+
+CALMOS Connect v1.46.0.4.2.D includes the Sakinah Scenario Console at `/sakinah` and
+its AI-to-AI simulation console at `/sakinah/sim`. The white-label release adds:
+
+- Durable Agent Runs/Call History records for active and completed calls,
+  including transcripts, utterances, scores, events, latency, and provider
+  metadata.
+- Private recording and transcript storage with server-generated, short-lived
+  playback/download links. Local Docker uses MinIO; production deployments can
+  use encrypted AWS S3 without exposing credentials or public object URLs.
+- A privacy-controlled Sakinah memory layer backed by PostgreSQL pgvector,
+  stable service-user identities, provenance, retention, and caller states
+  (`UNKNOWN`, `FIRST_TIME`, `RECOGNISED`, and `VERIFIED`).
+- Scenario Library search across names, descriptions, categories, tags,
+  identifiers, and relevant scenario text, with filtering performed server-side
+  for database-backed libraries.
+
+Both consoles show durable run history with conversation previews and signed
+download controls for available recordings and transcripts. Call persistence
+and memory extraction are asynchronous so long-term storage is not on the
+real-time audio → STT → LLM → TTS response path.
+
+Administrators can open `/sakinah/scenarios` to bulk-import scenario JSON files
+from a ZIP or from multiple individual files. The importer validates every JSON
+independently, previews duplicates before committing, and preserves UTF-8 text,
+Arabic content, and intentional leading metadata such as `***` in scenario
+titles. See [`SAKINAH.md`](SAKINAH.md) for local setup and deployment details.
+
 ## Build Agents with MCP
 
 Dograh ships with an MCP server, so coding agents can work directly inside your Dograh workspace.
@@ -164,11 +196,24 @@ See the [MCP guide](https://docs.dograh.com/integrations/mcp) to connect your as
 
 ### Local Development
 
-Refer [Local Setup](https://docs.dograh.com/contribution/setup)
+Refer to [Local Setup](https://docs.dograh.com/contribution/setup). To run the
+white-label source checkout with Docker:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml build api ui
+docker compose -f docker-compose.yaml -f docker-compose.local-build.yaml up -d api ui
+```
+
+Then open [http://localhost:3010](http://localhost:3010). The local stack keeps
+PostgreSQL, Redis, and MinIO data in Docker volumes; do not use `down -v` unless
+you intend to erase local call records and recordings.
 
 ### Self-Hosted Deployment
 
 For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker#option-2-remote-server-deployment).
+For the CALMOS Connect v1.46.0.4.2.D data model, AWS storage configuration, memory
+privacy flow, replay flow, migrations, and rollback procedure, see
+[`docs/developer/calmos-connect-v1.46.0.3.mdx`](docs/developer/calmos-connect-v1.46.0.3.mdx).
 
 ### Cloud Version
 

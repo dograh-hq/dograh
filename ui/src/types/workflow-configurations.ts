@@ -84,6 +84,18 @@ export interface TranscriptConfiguration {
     include_end_timestamps: boolean;
 }
 
+export interface AvatarConfiguration {
+    enabled: boolean;  // Opt this workflow into the SpatialReal avatar
+    avatar_id?: string | null;  // Override the deployment default avatar
+    mode?: 'sdk' | 'host' | null;  // Override the deployment driving mode
+}
+
+export const DEFAULT_AVATAR_CONFIGURATION: AvatarConfiguration = {
+    enabled: false,
+    avatar_id: null,
+    mode: null,
+};
+
 export interface ExternalPBXFieldMapping {
     context_path: string;
     destination_field: string;
@@ -153,6 +165,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     dictionary?: string;  // Comma-separated words for voice agent to listen for
     voicemail_detection?: VoicemailDetectionConfiguration;
     transcript_configuration: TranscriptConfiguration;
+    avatar_configuration?: AvatarConfiguration;
     context_compaction_enabled: boolean;  // Summarize context on node transitions to remove stale tool calls
     call_dispositions: CallDispositionOption[];  // Allowed terminal business outcomes
     text_chat_inactivity_timeout_seconds?: number;  // End inactive text chats after this many seconds
@@ -249,6 +262,11 @@ export function resolveWorkflowConfigurations(
             ...DEFAULT_TRANSCRIPT_CONFIGURATION,
             ...(defaults?.transcript_configuration as Partial<TranscriptConfiguration> | undefined),
             ...(configurations?.transcript_configuration as Partial<TranscriptConfiguration> | undefined),
+        },
+        avatar_configuration: {
+            ...DEFAULT_AVATAR_CONFIGURATION,
+            ...(defaults?.avatar_configuration as Partial<AvatarConfiguration> | undefined),
+            ...(configurations?.avatar_configuration as Partial<AvatarConfiguration> | undefined),
         },
     };
 }

@@ -14,6 +14,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { PostHogEvent } from '@/constants/posthog-events';
+import { getCallReplay } from '@/lib/callHistory';
 import { downloadFile, getSignedUrl } from '@/lib/files';
 
 export function MediaPreviewDialog() {
@@ -26,18 +27,44 @@ export function MediaPreviewDialog() {
     const [mediaLoading, setMediaLoading] = useState(false);
 
     const openPreview = useCallback(
-        async (recordingUrl: string | null, transcriptUrl: string | null, runId: number) => {
-            if (!recordingUrl && !transcriptUrl) return;
+        async (recordingUrl: string | null, transcriptUrl: string | null, runId: number, callId?: string | null) => {
+            if (!recordingUrl && !transcriptUrl && !callId) return;
             setMediaLoading(true);
             setAudioSignedUrl(null);
             setTranscriptContent(null);
-            setRecordingKey(recordingUrl);
+            setRecordingKey(callId ? null : recordingUrl);
             setTranscriptKey(transcriptUrl);
             setSelectedRunId(runId);
             setIsOpen(true);
 
+            if (callId) {
+                try {
+                    const replay = await getCallReplay(callId);
+                    const fallbackRecording = replay.recordings.find((item) => item.track === 'mixed')
+                        ?? replay.recordings[0];
+                    const transcript = replay.transcript ?? replay.utterances
+                        .map((item) => `${item.speaker}: ${item.transcript}`)
+                        .join('\n');
+                    setAudioSignedUrl(replay.recording_signed_url ?? fallbackRecording?.signed_url ?? null);
+                    setTranscriptContent(transcript || null);
+                    posthog.capture(PostHogEvent.TRANSCRIPT_VIEWED, {
+                        run_id: runId,
+                        source: 'call_replay',
+                        transcript_length: transcript.length,
+                    });
+                } catch (error) {
+                    console.error('Error loading call replay:', error);
+                } finally {
+                    setMediaLoading(false);
+                }
+                return;
+            }
+
             const [audioResult, transcriptResult] = await Promise.all([
-                recordingUrl ? getSignedUrl(recordingUrl) : null,
+                // Request an inline, typed response. Historic recordings may
+                // have been stored as application/octet-stream; Safari does
+                // not reliably preview those WAV bytes in an <audio> element.
+                recordingUrl ? getSignedUrl(recordingUrl, true) : null,
                 transcriptUrl ? getSignedUrl(transcriptUrl, true) : null,
             ]);
 
@@ -136,7 +163,8 @@ interface MediaPreviewButtonProps {
     recordingUrl: string | null | undefined;
     transcriptUrl: string | null | undefined;
     runId: number;
-    onOpenPreview: (recordingUrl: string | null, transcriptUrl: string | null, runId: number) => void;
+    onOpenPreview: (recordingUrl: string | null, transcriptUrl: string | null, runId: number, callId?: string | null) => void;
+    callId?: string | null;
     onSelect?: (runId: number) => void;
 }
 
@@ -146,18 +174,21 @@ export function MediaPreviewButton({
     runId,
     onOpenPreview,
     onSelect,
+    callId,
 }: MediaPreviewButtonProps) {
-    if (!recordingUrl && !transcriptUrl) return null;
+    if (!recordingUrl && !transcriptUrl && !callId) return null;
 
     const handleOpen = () => {
         onSelect?.(runId);
-        onOpenPreview(recordingUrl ?? null, transcriptUrl ?? null, runId);
+        onOpenPreview(recordingUrl ?? null, transcriptUrl ?? null, runId, callId);
     };
 
     return (
         <Button
             variant="outline"
             size="icon"
+            aria-label="Preview recording and transcript"
+            title="Preview recording and transcript"
             onClick={handleOpen}
         >
             <Headphones className="h-4 w-4" />

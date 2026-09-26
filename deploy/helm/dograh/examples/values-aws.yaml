@@ -24,6 +24,22 @@ storage:
     region: us-east-1
     bucket: ""  # set via --set
 
+# SpatialReal video deployment. Supply the API key through an existing
+# Kubernetes Secret (recommended) or --set-string secrets.spatialrealApiKey.
+# Never commit the real key to this file.
+config:
+  backendApiEndpoint: https://video.calmos.io
+  spatialrealAppId: ""      # set at deploy time
+  spatialrealAvatarId: ""   # set at deploy time
+  spatialrealRegion: us-west
+  spatialrealMode: sdk
+  spatialrealTokenTtl: 43200
+  spatialrealMaxSessions: 10
+
+secrets:
+  existingSecret: ""  # recommended: a dedicated video deployment Secret
+  spatialrealApiKey: ""  # fallback only; prefer existingSecret
+
 exposure:
   mode: gatewayApi
   gatewayApi:

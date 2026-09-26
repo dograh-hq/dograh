@@ -8,6 +8,7 @@ from api.mcp_server.tools.catalog import (
     list_recordings,
     list_tools,
 )
+from api.mcp_server.tools.cost import estimate_call_cost
 from api.mcp_server.tools.create_workflow import create_workflow
 from api.mcp_server.tools.docs_search import list_docs, read_doc, search_docs
 from api.mcp_server.tools.get_workflow_code import get_workflow_code
@@ -22,6 +23,7 @@ mcp = FastMCP("dograh", instructions=DOGRAH_MCP_INSTRUCTIONS)
 for _tool in (
     create_workflow,
     create_tool,
+    estimate_call_cost,
     get_node_type,
     get_workflow,
     get_workflow_code,

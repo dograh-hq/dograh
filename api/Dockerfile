@@ -42,6 +42,11 @@ RUN --mount=type=bind,source=pipecat,target=/tmp/pipecat,rw \
  && uv pip install opencv-python-headless \
  && python -c "import nltk; nltk.download('punkt_tab', download_dir='/opt/venv/nltk_data', quiet=True)"
 
+# Some setuptools/uv combinations omit this binary package data when
+# installing Pipecat directly from the source tree. Copy it explicitly so
+# runtime VAD initialization is reproducible in the production image.
+COPY pipecat/src/pipecat/audio/vad/data /opt/venv/lib/python3.13/site-packages/pipecat/audio/vad/data
+
 # Strip cache files, test/example dirs, and type stubs from the venv
 RUN find /opt/venv -type f -name '*.pyc' -delete && \
     find /opt/venv -type d -name '__pycache__' -prune -exec rm -rf {} + && \

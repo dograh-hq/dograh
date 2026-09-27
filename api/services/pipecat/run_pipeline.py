@@ -877,10 +877,10 @@ async def _run_pipeline_impl(
         or (getattr(workflow, "workflow_configurations", None) or {}).get("calm_scoring")
         or {}
     )
-    if calm_prompt_callback is None and bool(calm_config.get("enabled")) and (
-        "sakinah" in str(getattr(workflow, "name", "")).lower()
-        or bool((workflow_run.initial_context or {}).get("calm_enabled"))
-    ):
+    calm_enabled = bool(calm_config.get("enabled")) or bool(
+        (workflow_run.initial_context or {}).get("calm_enabled")
+    )
+    if calm_prompt_callback is None and calm_enabled:
         from api.services.sakinah.live_calm import LiveCalmSession
 
         live_calm = LiveCalmSession(

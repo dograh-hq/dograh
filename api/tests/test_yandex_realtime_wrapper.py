@@ -3,10 +3,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api.services.pipecat.realtime.yandex_realtime import (
-    YANDEX_REALTIME_BASE_URL,
-    DograhYandexRealtimeLLMService,
-)
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.services.configuration.registry import YandexRealtimeLLMConfiguration
+from api.services.pipecat.realtime.yandex_realtime import DograhYandexRealtimeLLMService
+from api.services.pipecat.service_factory import create_realtime_llm_service
+from pipecat.services.yandex.realtime.llm import YANDEX_REALTIME_BASE_URL
 
 
 def _make_service(**overrides) -> DograhYandexRealtimeLLMService:
@@ -33,7 +34,7 @@ async def test_connect_authenticates_with_api_key_header(monkeypatch):
     service = _make_service()
     connect = AsyncMock(return_value=SimpleNamespace())
     monkeypatch.setattr(
-        "api.services.pipecat.realtime.yandex_realtime.websocket_connect", connect
+        "pipecat.services.yandex.realtime.llm.websocket_connect", connect
     )
     service._receive_task_handler = MagicMock(return_value=object())
     service.create_task = MagicMock()
@@ -44,11 +45,6 @@ async def test_connect_authenticates_with_api_key_header(monkeypatch):
         uri=service.base_url,
         additional_headers={"Authorization": "Api-Key test-key"},
     )
-
-
-from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
-from api.services.configuration.registry import YandexRealtimeLLMConfiguration
-from api.services.pipecat.service_factory import create_realtime_llm_service
 
 
 def test_factory_creates_dograh_yandex_realtime_service():

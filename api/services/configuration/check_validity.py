@@ -46,6 +46,8 @@ class UserConfigurationValidator:
             ServiceProviders.GOOGLE.value: self._check_google_api_key,
             ServiceProviders.AZURE.value: self._check_azure_api_key,
             ServiceProviders.AZURE_SPEECH.value: self._check_azure_speech_api_key,
+            ServiceProviders.YANDEX.value: self._check_yandex_api_key,
+            ServiceProviders.YANDEX_REALTIME.value: self._check_yandex_api_key,
             ServiceProviders.CARTESIA.value: self._check_cartesia_api_key,
             ServiceProviders.DOGRAH.value: self._check_dograh_api_key,
             ServiceProviders.SARVAM.value: self._check_sarvam_api_key,
@@ -338,6 +340,11 @@ class UserConfigurationValidator:
         return True
 
     def _check_azure_speech_api_key(self, model: str, api_key: str) -> bool:
+        return True
+
+    def _check_yandex_api_key(self, model: str, api_key: str) -> bool:
+        # No cheap, unauthenticated-cost endpoint to smoke-test a Yandex Cloud
+        # API key against; same tradeoff as google/azure above.
         return True
 
     def _check_azure_realtime_api_key(self, model: str, api_key: str) -> bool:

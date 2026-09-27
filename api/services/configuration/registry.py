@@ -61,15 +61,10 @@ from api.services.configuration.options import (
     SMALLEST_TTS_PRO_VOICES,
     SMALLEST_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
-    YANDEX_EMBEDDING_MODELS,
     YANDEX_MODELS,
     YANDEX_REALTIME_API_VERSIONS,
     YANDEX_REALTIME_MODELS,
     YANDEX_REALTIME_VOICES,
-    YANDEX_SPEECH_REGIONS,
-    YANDEX_SPEECH_STT_LANGUAGES,
-    YANDEX_SPEECH_TTS_LANGUAGES,
-    YANDEX_SPEECH_TTS_VOICES
 )
 from api.services.configuration.options.google import (
     GOOGLE_VERTEX_DEFAULT_LOCATION,
@@ -727,9 +722,11 @@ class YandexLLMService(BaseLLMConfiguration):
         description="OpenAI chat model to use.",
         json_schema_extra={"examples": YANDEX_MODELS, "allow_custom_input": False},
     )
-    base_url: str = Field(
-        default="https://ai.api.cloud.yandex.net/v1",
-        description="Do not override this",
+    folder_id: str = Field(
+        description=(
+            "Yandex Cloud folder ID that owns the model (used to build the "
+            "gpt://<folder_id>/<model> model URI)."
+        ),
     )
 
 OPENAI_REALTIME_MODELS = [

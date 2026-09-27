@@ -1057,6 +1057,11 @@ def _migrate_deprecated_google_model(model: str) -> str:
     return model
 
 
+# Fixed in code, not user-configurable: Yandex Cloud has a single AI Studio
+# endpoint, unlike e.g. Azure where the base URL names the caller's own resource.
+YANDEX_LLM_BASE_URL = "https://ai.api.cloud.yandex.net/v1"
+
+
 @_report_service_factory_failures(ErrorSource.LLM, provider_argument=0)
 def create_llm_service_from_provider(
     provider: str,
@@ -1075,6 +1080,7 @@ def create_llm_service_from_provider(
     temperature: float | None = None,
     bill_to: str | None = None,
     usage_context: str | None = None,
+    folder_id: str | None = None,
 ):
     """Create an LLM service from explicit provider/model/api_key.
 
@@ -1215,6 +1221,13 @@ def create_llm_service_from_provider(
                 model=model,
                 temperature=temperature if temperature is not None else 0.5,
             ),
+        )
+    elif provider == ServiceProviders.YANDEX.value:
+        model_uri = f"gpt://{folder_id}/{model}"
+        return OpenAILLMService(
+            api_key=api_key,
+            base_url=YANDEX_LLM_BASE_URL,
+            settings=OpenAILLMSettings(model=model_uri, temperature=0.1),
         )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
@@ -1533,6 +1546,8 @@ def create_llm_service(
         kwargs["temperature"] = user_config.llm.temperature
     elif provider == ServiceProviders.SARVAM.value:
         kwargs["temperature"] = user_config.llm.temperature
+    elif provider == ServiceProviders.YANDEX.value:
+        kwargs["folder_id"] = user_config.llm.folder_id
 
     return create_llm_service_from_provider(
         provider,

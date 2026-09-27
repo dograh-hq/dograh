@@ -1,10 +1,13 @@
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
 from api import constants
+
+logger = logging.getLogger(__name__)
 
 
 def sessions_directory() -> Path:
@@ -35,19 +38,28 @@ def create_pending_session(
     started_at: datetime,
     experiment_mode: str | None = None,
 ) -> None:
-    _write_json(
-        sessions_directory() / ".pending" / f"{session_id}.json",
-        {
-            "session_id": session_id,
-            "scenario": scenario,
-            "name": name,
-            "workflow_id": workflow_id,
-            "workflow_run_id": workflow_run_id,
-            "organization_id": organization_id,
-            "started_at": started_at.astimezone(UTC).isoformat(),
-            "experiment_mode": experiment_mode,
-        },
-    )
+    try:
+        _write_json(
+            sessions_directory() / ".pending" / f"{session_id}.json",
+            {
+                "session_id": session_id,
+                "scenario": scenario,
+                "name": name,
+                "workflow_id": workflow_id,
+                "workflow_run_id": workflow_run_id,
+                "organization_id": organization_id,
+                "started_at": started_at.astimezone(UTC).isoformat(),
+                "experiment_mode": experiment_mode,
+            },
+        )
+    except (OSError, PermissionError):
+        # The database is authoritative for runs. The JSON file is a legacy
+        # compatibility artifact and must not prevent a live simulation from
+        # starting when a container-mounted data directory is read-only.
+        logger.warning(
+            "Unable to write pending Sakinah session %s; continuing with DB persistence",
+            session_id,
+        )
 
 
 def finish_session(

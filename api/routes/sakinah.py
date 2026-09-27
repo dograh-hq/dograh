@@ -539,6 +539,20 @@ async def start_simulation(
         )
     except SimulationAuthorizationError as e:
         raise HTTPException(status_code=402, detail=str(e)) from None
+    except ValueError as e:
+        # Configuration/request errors should be actionable in the console;
+        # leaking them as a generic 500 leaves users with no way to recover.
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception:
+        logger.exception("Failed to start Sakinah simulation")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The Sakinah simulation could not start. Check that both the "
+                "Sakinah and service-user agents have valid AI model "
+                "configuration, then try again."
+            ),
+        ) from None
     return _simulation_response(simulation.snapshot())
 
 

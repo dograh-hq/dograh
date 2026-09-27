@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.47.0.21 (2026-09-27)
+
+- Return an actionable `503` when Sakinah simulation startup fails because agent
+  configuration or another server-side prerequisite is unavailable; log the
+  traceback for diagnosis while keeping provider details out of the browser.
+- Keep simulations running when the optional legacy JSON session directory is
+  read-only; the durable database run and live transcript remain authoritative.
+- Add a visible **Export Definition** button to the agent editor. Its ZIP contains
+  the complete React Flow definition and manifest, preserving disconnected/global
+  nodes, edges, node data, and positions for the documented create-from-definition
+  import shape.
+
 ## 1.47.0.20 (2026-09-27)
 
 - Fix Sakinah scenario startup when no organization is selected by returning an actionable error instead of an internal server error.

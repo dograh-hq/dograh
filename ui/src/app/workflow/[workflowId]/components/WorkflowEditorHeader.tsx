@@ -173,7 +173,10 @@ export const WorkflowEditorHeader = ({
     };
 
     const handleDownloadDefinitionZip = async () => {
-        if (!rfInstance.current) return;
+        if (!rfInstance.current) {
+            toast.error("Workflow definition is not ready yet");
+            return;
+        }
         const workflowDefinition = rfInstance.current.toObject();
         const definition = {
             name: workflowName,
@@ -198,6 +201,7 @@ export const WorkflowEditorHeader = ({
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+        toast.success("Agent definition ZIP downloaded");
     };
 
     const enterEditMode = () => {
@@ -456,6 +460,16 @@ export const WorkflowEditorHeader = ({
                 >
                     <Bot className="w-4 h-4" />
                     Test Agent
+                </Button>
+
+                <Button
+                    variant="outline"
+                    className="flex items-center gap-2 bg-transparent border-[#3a3a3a] hover:bg-[#2a2a2a] text-white"
+                    onClick={() => void handleDownloadDefinitionZip()}
+                    aria-label="Download complete agent definition ZIP"
+                >
+                    <Download className="w-4 h-4" />
+                    Export Definition
                 </Button>
 
                 {/* Save button (only shown when editing the draft) */}

@@ -130,7 +130,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 ## CALMOS / Sakinah Scenario Console
 
-CALMOS Connect v1.47.0.20 includes the Sakinah Scenario Console at `/sakinah` and
+CALMOS Connect v1.47.0.21 includes the Sakinah Scenario Console at `/sakinah` and
 its AI-to-AI simulation console at `/sakinah/sim`. The white-label release adds:
 
 - Durable Agent Runs/Call History records for active and completed calls,
@@ -150,6 +150,14 @@ Both consoles show durable run history with conversation previews and signed
 download controls for available recordings and transcripts. Call persistence
 and memory extraction are asynchronous so long-term storage is not on the
 real-time audio → STT → LLM → TTS response path.
+
+The agent editor's visible **Export Definition** button downloads a ZIP containing
+`workflow_definition.json` in the same `{name, workflow_definition}` shape accepted
+by the [Create from Definition API](https://docs.dograh.com/api-reference/agents/create-from-definition),
+plus a manifest with node and edge counts. The export is taken from React Flow's
+full graph object, preserving disconnected/global nodes, connections, node data,
+and layout positions. Sakinah startup configuration failures now return an
+actionable message instead of an opaque Internal Server Error.
 
 Administrators can open `/sakinah/scenarios` to bulk-import scenario JSON files
 from a ZIP or from multiple individual files. The importer validates every JSON

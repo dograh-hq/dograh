@@ -1,5 +1,5 @@
 [project]
 name = "dograh-api"
-version = "1.47.0.21"
+version = "1.47.0.22"
 description = "Backend API for Dograh voice AI platform"
 requires-python = ">=3.13,<3.14"

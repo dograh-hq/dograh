@@ -41,6 +41,7 @@ class CalmSimulationRuntime:
         self.prompt_composer = PromptComposer()
         self.score_history: list[dict[str, Any]] = []
         self.turns: list[dict[str, Any]] = []
+        self.sakinah_turns: list[dict[str, Any]] = []
         self._base_role_rules = (
             "You are Sakinah, a compassionate voice-based clinical conversation "
             "partner and listener. Stay as Sakinah, listen carefully, and respond "
@@ -101,6 +102,7 @@ class CalmSimulationRuntime:
             prompt = self._base_role_rules
         turn = {
             "turn_id": len(self.turns) + 1,
+            "role": "caller",
             "utterance_verbatim": utterance_verbatim,
             "calm_scores": {
                 name: value.get("score") for name, value in calm_scores.items()
@@ -121,6 +123,14 @@ class CalmSimulationRuntime:
             "response_delivered": "",
             "post_response_evaluation": {},
         }
+        turn["emotional_scores"] = dict(turn["calm_scores"])
+        turn["safety_scores"] = {
+            "risk": 10.0
+            if safety_state.get("requires_immediate_action")
+            else 7.0
+            if safety_state.get("classification") == "concern"
+            else 0.0
+        }
         self.score_history.append(calm_scores)
         self.turns.append(turn)
         return turn
@@ -134,3 +144,33 @@ class CalmSimulationRuntime:
             "response_present": bool(response.strip()),
             "safety_decision_changed": False,
         }
+        if not response.strip():
+            return
+        raw_scores = score_utterance(
+            response,
+            ("empathy", "emotional_attunement", "validation"),
+        )
+        values = {name: value.get("score") for name, value in raw_scores.items()}
+        previous = self.sakinah_turns[-1].get("scores", {}) if self.sakinah_turns else {}
+        trend = {
+            name: {
+                "current_score": value,
+                "previous_score": previous.get(name),
+                "delta_previous": None if previous.get(name) is None else round(value - previous[name], 3),
+                "direction": "insufficient_data" if previous.get(name) is None else "up" if value > previous[name] else "down" if value < previous[name] else "unchanged",
+            }
+            for name, value in values.items()
+        }
+        self.sakinah_turns.append(
+            {
+                "turn_id": len(self.sakinah_turns) + 1,
+                "role": "sakinah",
+                "text": response,
+                "scores": values,
+                "emotional_scores": values,
+                "safety_scores": {"risk": 10.0 if score_safety(response).get("requires_immediate_action") else 0.0},
+                "confidence": {name: value.get("confidence") for name, value in raw_scores.items()},
+                "trend": trend,
+                "prompt_sent_to_llm": self.turns[-1].get("prompt_sent_to_llm", ""),
+            }
+        )

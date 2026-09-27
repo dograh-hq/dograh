@@ -1186,3 +1186,8 @@
 
 * change pipecat to submodule & add github alerts ([a9a97ab](https://github.com/dograh-hq/dograh/commit/a9a97abefb7fee3d909b0111fdb65ff8cec8a530))
 * change pipecat to submodule & add github alerts ([6562963](https://github.com/dograh-hq/dograh/commit/6562963018c613c5439c1253374cef83e088d15d))
+# v1.47.0.22
+
+- Restored shared live CALM scoring for Sakinah agent tests, WebRTC, and inbound voice calls.
+- Persisted turn-by-turn caller/Sakinah scores and engineered prompt context in Postgres annotations and MinIO JSON artifacts.
+- Added run-detail/test-page scoring tables, trend arrows, and JSON downloads.

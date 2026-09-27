@@ -137,6 +137,33 @@ def _score_payload(
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     gathered = run.gathered_context or {}
     annotations = run.annotations or {}
+    calm_scoring = annotations.get("calm_scoring")
+    if isinstance(calm_scoring, dict) and (
+        isinstance(calm_scoring.get("caller"), list)
+        or isinstance(calm_scoring.get("sakinah"), list)
+    ):
+        caller = calm_scoring.get("caller") or []
+        sakinah = calm_scoring.get("sakinah") or []
+        safety = {
+            "caller": [
+                {
+                    "turn_id": item.get("turn_id"),
+                    "scores": item.get("safety_scores") or {},
+                    "state": item.get("safety_state") or {},
+                }
+                for item in caller
+                if isinstance(item, dict)
+            ],
+            "sakinah": [
+                {
+                    "turn_id": item.get("turn_id"),
+                    "scores": item.get("safety_scores") or {},
+                }
+                for item in sakinah
+                if isinstance(item, dict)
+            ],
+        }
+        return calm_scoring, safety, {"turns": sakinah}
     calm = (
         gathered.get("calm_score")
         or gathered.get("calm_scores")

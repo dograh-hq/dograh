@@ -82,6 +82,9 @@ async def audit_run_storage(
     recordings = await db_client.get_call_recordings_for_run(run_id)
     transcript_key = run.transcript_object_key or run.transcript_url
     transcript_expected = bool(transcript_key or run.full_transcript)
+    calm_metadata = (run.extra or {}).get("calm_scoring") if run.extra else None
+    calm_key = calm_metadata.get("object_key") if isinstance(calm_metadata, dict) else None
+    calm_expected = bool((run.annotations or {}).get("calm_scoring") or calm_key)
 
     objects: list[dict[str, Any]] = []
     if transcript_key:
@@ -105,6 +108,14 @@ async def audit_run_storage(
                 **object_result,
             }
         )
+    if calm_key:
+        objects.append(
+            {
+                "type": "calm_scoring",
+                "database_checksum_sha256": calm_metadata.get("checksum_sha256"),
+                **await _verify_object(calm_key, calm_metadata.get("size_bytes")),
+            }
+        )
 
     run_mode = getattr(run, "mode", None)
     expected_audio = bool(
@@ -115,6 +126,7 @@ async def audit_run_storage(
             and run_mode not in {"textchat", "chat"}
         )
     )
+    expected_artifacts = expected_audio or calm_expected
     transcript_status = _status(
         exists=bool(run.full_transcript or transcript_key), expected=transcript_expected
     )
@@ -126,14 +138,14 @@ async def audit_run_storage(
     minio_status = "not_configured"
     if minio_configured:
         if not objects:
-            minio_status = "pending" if expected_audio else "not_expected"
-        elif expected_audio and not audio_found:
+            minio_status = "pending" if expected_artifacts else "not_expected"
+        elif expected_artifacts and not audio_found and not any(item["type"] == "calm_scoring" and item["status"] == "verified" for item in objects):
             minio_status = "missing"
         elif all(item["status"] == "verified" for item in objects):
             minio_status = "verified"
         else:
             minio_status = "missing" if objects else (
-                "pending" if expected_audio else "not_expected"
+                "pending" if expected_artifacts else "not_expected"
             )
 
     return {
@@ -143,6 +155,10 @@ async def audit_run_storage(
             "run_exists": True,
             "transcript_exists": bool(run.full_transcript or transcript_key),
             "transcript_status": transcript_status,
+            "calm_scoring_status": (
+                "verified" if any(item["type"] == "calm_scoring" and item["status"] == "verified" for item in objects)
+                else "missing" if calm_expected else "not_expected"
+            ),
             "utterance_count": len(utterances),
             "recording_metadata_exists": bool(recordings),
             "recording_metadata_count": len(recordings),

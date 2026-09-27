@@ -140,9 +140,68 @@ def _storage_bucket() -> str | None:
     return str(bucket) if bucket else None
 
 
+async def persist_calm_scoring_artifact(
+    workflow_run_id: int, payload: dict[str, Any], *, replicate: bool = False
+) -> dict[str, Any] | None:
+    """Persist the latest turn-by-turn CALM snapshot in the primary store.
+
+    CALM is useful while a call is still running, so this helper is deliberately
+    independent of audio finalization.  The final artifact pass below will
+    schedule the same object for the configured AWS secondary store.
+    """
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    started_at = getattr(workflow_run, "started_at", None) or datetime.now(UTC)
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=UTC)
+    service_user_id = str(getattr(workflow_run, "service_user_id", None) or "anonymous")
+    call_id = str(getattr(workflow_run, "call_id", None) or workflow_run_id)
+    artifact_root = (
+        f"{started_at.year:04d}/{started_at.month:02d}/{service_user_id}/{call_id}"
+    )
+    object_key = f"calm-scoring/{artifact_root}/turn-by-turn.json"
+    data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if not await _upload_bytes(workflow_run_id, data, object_key, "CALM scoring"):
+        return None
+    metadata = {
+        "storage_backend": get_current_storage_backend().value,
+        "bucket": _storage_bucket(),
+        "object_key": object_key,
+        "size_bytes": len(data),
+        "checksum_sha256": hashlib.sha256(data).hexdigest(),
+        "format": "json",
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    await _persist_run_fields(
+        workflow_run_id,
+        extra={"calm_scoring": metadata},
+    )
+    if replicate:
+        try:
+            await schedule_s3_replication(
+                workflow_run_id,
+                {
+                    "storage_backend": metadata["storage_backend"],
+                    "calm_scoring": {"status": "success", **metadata},
+                    "recordings": {"objects": []},
+                    "transcript": {"status": "not_expected"},
+                },
+            )
+        except Exception as exc:  # secondary storage must not fail the run
+            logger.warning(
+                "CALM S3 replication scheduling failed for run {} ({})",
+                workflow_run_id,
+                type(exc).__name__,
+            )
+    return metadata
+
+
 def _overall_status(audit: dict[str, Any]) -> str:
     statuses = [audit["postgres"]["status"]]
-    for component in (audit["transcript"], audit["recordings"]):
+    for component in (
+        audit["transcript"],
+        audit["recordings"],
+        audit.get("calm_scoring", {"status": "not_expected"}),
+    ):
         if component["status"] != "not_expected":
             statuses.append(component["status"])
     if all(status == "success" for status in statuses):
@@ -243,6 +302,12 @@ async def upload_workflow_run_artifacts(
     )
     if not RECORD_CALLS:
         mixed_audio_wav = user_audio_wav = bot_audio_wav = None
+
+    calm_scoring_payload = (getattr(workflow_run, "annotations", None) or {}).get(
+        "calm_scoring"
+    ) if workflow_run is not None else None
+    if not isinstance(calm_scoring_payload, dict):
+        calm_scoring_payload = None
 
     recordings_metadata: dict[str, dict] = {}
     expected_recordings = 0
@@ -361,8 +426,46 @@ async def upload_workflow_run_artifacts(
             )
             audit["postgres"]["transcript_saved"] = transcript_saved
 
-    audit["artifact_count"] = len(audit["recordings"]["objects"]) + int(
-        audit["transcript"]["status"] != "not_expected"
+    if calm_scoring_payload:
+        calm_key = f"calm-scoring/{artifact_root}/turn-by-turn.json"
+        calm_bytes = json.dumps(
+            calm_scoring_payload, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        audit["calm_scoring"] = {
+            "status": "failed",
+            "backend": backend_name,
+            "bucket": bucket,
+            "object_key": calm_key,
+            "size_bytes": len(calm_bytes),
+            "checksum_sha256": hashlib.sha256(calm_bytes).hexdigest(),
+        }
+        if await _upload_bytes(
+            workflow_run_id, calm_bytes, calm_key, "CALM scoring"
+        ):
+            metadata_saved = await _persist_run_fields(
+                workflow_run_id,
+                extra={
+                    "calm_scoring": {
+                        "storage_backend": backend_name,
+                        "bucket": bucket,
+                        "object_key": calm_key,
+                        "size_bytes": len(calm_bytes),
+                        "checksum_sha256": audit["calm_scoring"]["checksum_sha256"],
+                        "format": "json",
+                    }
+                },
+            )
+            audit["calm_scoring"]["status"] = (
+                "success" if metadata_saved else "partial"
+            )
+
+    audit["artifact_count"] = (
+        len(audit["recordings"]["objects"])
+        + int(audit["transcript"]["status"] != "not_expected")
+        + int(
+            audit.get("calm_scoring", {}).get("status")
+            not in {None, "not_expected"}
+        )
     )
     if audit["postgres"]["status"] == "success" and (
         not audit["postgres"]["recording_metadata_saved"]

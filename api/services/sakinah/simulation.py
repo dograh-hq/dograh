@@ -25,6 +25,7 @@ from api.services.pipecat.ws_sender_registry import (
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.sakinah.calm.runtime import EXPERIMENT_MODES, CalmSimulationRuntime
 from api.services.sakinah.calm_evaluation import CalmEvaluator, run_llm_inference
+from api.services.workflow_run_artifacts import persist_calm_scoring_artifact
 from api.services.sakinah.internal_transport import (
     InternalTransport,
     create_internal_transport_pair,
@@ -473,6 +474,15 @@ class SimulationManager:
     def _make_calm_response_callback(self, simulation: Simulation):
         async def record_response(response: str) -> None:
             simulation.calm_runtime.record_response(response or "")
+            if simulation.calm_runtime.sakinah_turns:
+                simulation.publish(
+                    {
+                        "role": SAKINAH_ROLE,
+                        "type": "calm-analysis",
+                        "payload": simulation.calm_runtime.sakinah_turns[-1],
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
 
         return record_response
 
@@ -842,7 +852,7 @@ class SimulationManager:
                 organization_id=simulation.organization_id,
                 ended_at=simulation.ended_at,
                 turns=turns,
-                calm_turns=simulation.calm_runtime.turns,
+                calm_turns=simulation.calm_runtime.turns + simulation.calm_runtime.sakinah_turns,
                 timings={
                     "duration_ms": (
                         simulation.ended_at - simulation.started_at
@@ -856,6 +866,33 @@ class SimulationManager:
             )
 
         if simulation.user_id is not None:
+            # Keep the simulation on the same durable CALM contract as live
+            # WebRTC/telephony runs.  The simulation runtime already owns the
+            # complete caller turn records, so persist them before the final
+            # run snapshot and object replication pass.
+            calm_payload = {
+                "version": 2,
+                "workflow_run_id": simulation.agents[SAKINAH_ROLE].workflow_run_id,
+                "updated_at": simulation.ended_at.isoformat(),
+                "caller": simulation.calm_runtime.turns,
+                "sakinah": simulation.calm_runtime.sakinah_turns,
+            }
+            try:
+                await db_client.update_workflow_run(
+                    run_id=simulation.agents[SAKINAH_ROLE].workflow_run_id,
+                    annotations={"calm_scoring": calm_payload},
+                )
+                await persist_calm_scoring_artifact(
+                    simulation.agents[SAKINAH_ROLE].workflow_run_id,
+                    calm_payload,
+                    replicate=True,
+                )
+            except Exception as exc:  # scoring must not hide the call result
+                logger.warning(
+                    "Simulation {}: CALM artifact persistence failed ({})",
+                    simulation.id,
+                    type(exc).__name__,
+                )
             artifact_references: dict[str, Any] = {}
             for role, agent in simulation.agents.items():
                 artifacts = await db_client.get_workflow_run_artifacts_for_user(
@@ -881,7 +918,7 @@ class SimulationManager:
                     recording_url=primary_artifacts.get("recording_url"),
                     transcript_url=primary_artifacts.get("transcript_url"),
                     recording_file_reference=artifact_references,
-                    calm_turns=simulation.calm_runtime.turns,
+                    calm_turns=simulation.calm_runtime.turns + simulation.calm_runtime.sakinah_turns,
                     timings={
                         "duration_ms": (
                             simulation.ended_at - simulation.started_at

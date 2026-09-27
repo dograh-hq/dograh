@@ -867,6 +867,58 @@ async def _run_pipeline_impl(
     # Create node transition callback (always logs to buffer, optionally streams to WS)
     ws_sender = get_ws_sender(workflow_run_id)
 
+    # CALM used to be enabled only by the Sakinah simulation wrapper.  Keep
+    # that explicit callback behaviour, but also enable the same runtime for
+    # Sakinah live/test workflows so WebRTC and inbound voice calls receive
+    # identical turn events and durable scoring.
+    live_calm = None
+    calm_config = (
+        (run_configs or {}).get("calm_scoring")
+        or (getattr(workflow, "workflow_configurations", None) or {}).get("calm_scoring")
+        or {}
+    )
+    if calm_prompt_callback is None and bool(calm_config.get("enabled")) and (
+        "sakinah" in str(getattr(workflow, "name", "")).lower()
+        or bool((workflow_run.initial_context or {}).get("calm_enabled"))
+    ):
+        from api.services.sakinah.live_calm import LiveCalmSession
+
+        live_calm = LiveCalmSession(
+            workflow_run_id,
+            scenario=str((workflow_run.initial_context or {}).get("scenario") or ""),
+        )
+
+        async def live_calm_prompt_callback(engine, context):
+            messages = getattr(context, "messages", [])
+            latest = next(
+                (m.get("content") for m in reversed(messages) if isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str) and m.get("content", "").strip()),
+                None,
+            )
+            if not latest:
+                return
+            turn = live_calm.analyse_user(latest, [{"role": m.get("role"), "text": m.get("content", "")} for m in messages[-6:] if isinstance(m, dict)])
+            if not turn:
+                return
+            await engine._update_llm_context(turn["prompt_sent_to_llm"], [])
+            await live_calm.persist()
+            message = {"type": "calm-analysis", "payload": {"role": "caller", **turn}}
+            await in_memory_logs_buffer.append(message)
+            if ws_sender:
+                await ws_sender(message)
+
+        async def live_calm_response_callback(response):
+            turn = live_calm.record_sakinah(response)
+            if not turn:
+                return
+            await live_calm.persist()
+            message = {"type": "calm-analysis", "payload": {"role": "sakinah", **turn}}
+            await in_memory_logs_buffer.append(message)
+            if ws_sender:
+                await ws_sender(message)
+
+        calm_prompt_callback = live_calm_prompt_callback
+        calm_response_callback = live_calm_response_callback
+
     async def send_node_transition(
         node_id: str,
         node_name: str,

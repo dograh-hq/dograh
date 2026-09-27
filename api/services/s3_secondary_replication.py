@@ -62,6 +62,16 @@ def _artifact_refs(audit: dict[str, Any]) -> list[dict[str, Any]]:
                 "checksum_sha256": transcript.get("checksum_sha256"),
             }
         )
+    calm_scoring = audit.get("calm_scoring", {})
+    if calm_scoring.get("status") == "success" and calm_scoring.get("object_key"):
+        refs.append(
+            {
+                "type": "calm_scoring",
+                "object_key": calm_scoring["object_key"],
+                "size_bytes": calm_scoring.get("size_bytes"),
+                "checksum_sha256": calm_scoring.get("checksum_sha256"),
+            }
+        )
     return refs
 
 

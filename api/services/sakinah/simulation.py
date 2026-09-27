@@ -24,7 +24,11 @@ from api.services.pipecat.ws_sender_registry import (
 )
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.sakinah.calm.runtime import EXPERIMENT_MODES, CalmSimulationRuntime
-from api.services.sakinah.calm_evaluation import CalmEvaluator, run_llm_inference
+from api.services.sakinah.calm_evaluation import (
+    CalmEvaluator,
+    enrich_scoring_turn,
+    run_llm_inference,
+)
 from api.services.workflow_run_artifacts import persist_calm_scoring_artifact
 from api.services.sakinah.internal_transport import (
     InternalTransport,
@@ -130,6 +134,7 @@ class Simulation:
         self.evaluator: CalmEvaluator | None = None
         self._evaluation_llm: Any = None
         self._evaluation_llm_lock = asyncio.Lock()
+        self._calm_persist_lock = asyncio.Lock()
         self._stopping = False
         self._finalized = False
 
@@ -621,6 +626,42 @@ class SimulationManager:
                 turn_id=turn_id,
                 turns=turns,
             )
+            async with simulation._calm_persist_lock:
+                history = (
+                    simulation.calm_runtime.sakinah_turns
+                    if role == SAKINAH_ROLE else simulation.calm_runtime.turns
+                )
+                target = next(
+                    (turn for turn in reversed(history) if "evaluation" not in turn),
+                    None,
+                )
+                if target is not None:
+                    index = history.index(target)
+                    enrich_scoring_turn(
+                        target, result, history[index - 1] if index else None
+                    )
+                    scoring_payload = {
+                        "version": 2,
+                        "workflow_run_id": simulation.agents[SAKINAH_ROLE].workflow_run_id,
+                        "updated_at": datetime.now(UTC).isoformat(),
+                        "caller": simulation.calm_runtime.turns,
+                        "sakinah": simulation.calm_runtime.sakinah_turns,
+                    }
+                    await db_client.update_workflow_run(
+                        run_id=simulation.agents[SAKINAH_ROLE].workflow_run_id,
+                        annotations={"calm_scoring": scoring_payload},
+                    )
+                    await persist_calm_scoring_artifact(
+                        simulation.agents[SAKINAH_ROLE].workflow_run_id,
+                        scoring_payload,
+                        replicate=True,
+                    )
+                    simulation.publish({
+                        "role": SAKINAH_ROLE,
+                        "type": "calm-analysis",
+                        "payload": target,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    })
             payload = {
                 "turn_id": turn_id,
                 "role": role,

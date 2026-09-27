@@ -1186,6 +1186,14 @@
 
 * change pipecat to submodule & add github alerts ([a9a97ab](https://github.com/dograh-hq/dograh/commit/a9a97abefb7fee3d909b0111fdb65ff8cec8a530))
 * change pipecat to submodule & add github alerts ([6562963](https://github.com/dograh-hq/dograh/commit/6562963018c613c5439c1253374cef83e088d15d))
+# v1.47.0.23
+
+- Added a CALM scoring switch to agent General settings, saved as `calm_scoring.enabled`.
+- Filled live tester and inbound caller turn panels from the active call, preserving the engineered prompt and every available evaluation dimension in Postgres, MinIO and AWS S3 replication.
+- Added readable alternating caller/Sakinah turn cards, trend deltas, JSON downloads, and separate emotional/safety graphs with score and turn ticks to run details, agent tests, and simulation.
+- Run details now refresh CALM turns during an active call and display the scoring section at the bottom of the summary.
+- Fixed the v1.47.0.22 gap where inbound agents were left without CALM enabled in their published definitions; newly started calls now use the saved scoring switch, and empty panels stay visible.
+
 # v1.47.0.22
 
 - Restored shared live CALM scoring for Sakinah agent tests, WebRTC, and inbound voice calls.

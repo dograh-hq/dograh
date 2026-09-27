@@ -311,6 +311,9 @@ function GeneralSection({
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState(
         workflowConfigurations.context_compaction_enabled,
     );
+    const [calmScoringEnabled, setCalmScoringEnabled] = useState(
+        Boolean((workflowConfigurations.calm_scoring as { enabled?: boolean } | undefined)?.enabled),
+    );
     const [callDispositionRows, setCallDispositionRows] = useState<CallDispositionRow[]>(
         () => createCallDispositionRows(workflowConfigurations.call_dispositions),
     );
@@ -363,6 +366,7 @@ function GeneralSection({
             provisionalVadPauseSecs !== workflowConfigurations.provisional_vad_pause_secs ||
             turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
             contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled ||
+            calmScoringEnabled !== Boolean((workflowConfigurations.calm_scoring as { enabled?: boolean } | undefined)?.enabled) ||
             JSON.stringify(normalizedCallDispositions) !==
                 JSON.stringify(workflowConfigurations.call_dispositions) ||
             includeTranscriptEndTimestamps !==
@@ -372,7 +376,7 @@ function GeneralSection({
             JSON.stringify(externalPbxLeadHeaders) !==
             JSON.stringify(workflowConfigurations.external_pbx_lead_headers)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, normalizedCallDispositions, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, calmScoringEnabled, normalizedCallDispositions, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -450,6 +454,10 @@ function GeneralSection({
                     provisional_vad_pause_secs: provisionalVadPauseSecs,
                     turn_stop_strategy: turnStopStrategy,
                     context_compaction_enabled: contextCompactionEnabled,
+                    calm_scoring: {
+                        ...((workflowConfigurations.calm_scoring as Record<string, unknown> | undefined) ?? {}),
+                        enabled: calmScoringEnabled,
+                    },
                     call_dispositions: normalizedCallDispositions,
                     transcript_configuration: {
                         ...(workflowConfigurations.transcript_configuration ?? {}),
@@ -496,6 +504,23 @@ function GeneralSection({
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         placeholder="Enter Agent name"
+                    />
+                </div>
+
+                <Separator />
+
+                <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                        <Label htmlFor="calm-scoring-enabled">Turn-by-turn CALM scoring</Label>
+                        <p className="text-xs text-muted-foreground">
+                            Score each caller and Sakinah turn and save the engineered prompt with the call.
+                        </p>
+                    </div>
+                    <Switch
+                        id="calm-scoring-enabled"
+                        checked={calmScoringEnabled}
+                        onCheckedChange={setCalmScoringEnabled}
+                        aria-label="Turn-by-turn CALM scoring"
                     />
                 </div>
 

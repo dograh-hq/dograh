@@ -9,8 +9,10 @@ from api.services.sakinah.calm_evaluation import (
     CalmEvaluator,
     ServiceUserAssessment,
     ServiceUserEvaluationResult,
+    SakinahEvaluationResult,
     calculate_service_user_trends,
     calculate_trend,
+    enrich_scoring_turn,
     parse_sakinah_evaluation,
     parse_service_user_evaluation,
 )
@@ -225,3 +227,28 @@ async def test_calm_evaluator_rejects_malformed_provider_output():
             turns=[{"role": "service_user", "text": "I am struggling."}],
         )
 
+
+def test_enriched_turn_keeps_all_emotional_and_safety_dimensions_and_trends():
+    caller_result = ServiceUserEvaluationResult(
+        **_service_user_payload(4), turn_id="1", trend={}, evaluated_at="now"
+    )
+    previous = {
+        "emotional_scores": {"sadness": 4},
+        "safety_scores": {"suicidal_ideation": 2},
+    }
+    caller_turn = {"turn_id": 2, "prompt_sent_to_llm": "exact prompt"}
+    enrich_scoring_turn(caller_turn, caller_result, previous)
+    assert len(caller_turn["emotional_scores"]) == 17
+    assert len(caller_turn["safety_scores"]) == 8
+    assert caller_turn["trend"]["sadness"]["direction"] == "unchanged"
+    assert caller_turn["trend"]["suicidal_ideation"]["delta_previous"] == 2
+    assert caller_turn["prompt_sent_to_llm"] == "exact prompt"
+
+    sakinah_result = SakinahEvaluationResult(
+        **_sakinah_payload(), turn_id="1", evaluated_at="now"
+    )
+    sakinah_turn = {"turn_id": 1, "prompt_sent_to_llm": "engineered prompt"}
+    enrich_scoring_turn(sakinah_turn, sakinah_result)
+    assert len(sakinah_turn["emotional_scores"]) == 10
+    assert len(sakinah_turn["safety_scores"]) == 9
+    assert sakinah_turn["evaluation"]["safety_evaluation"]["critical_flags"]

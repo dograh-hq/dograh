@@ -130,7 +130,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 ## CALMOS / Sakinah Scenario Console
 
-CALMOS Connect v1.47.0.22 includes the Sakinah Scenario Console at `/sakinah` and
+CALMOS Connect v1.47.0.23 includes the Sakinah Scenario Console at `/sakinah` and
 its AI-to-AI simulation console at `/sakinah/sim`. The white-label release adds:
 
 - Durable Agent Runs/Call History records for active and completed calls,
@@ -138,7 +138,11 @@ its AI-to-AI simulation console at `/sakinah/sim`. The white-label release adds:
   metadata.
 - Live Sakinah calls and browser tests expose turn-by-turn CALM scoring,
   engineered prompt context, trend direction, and downloadable JSON; the same
-  scoring payload is persisted incrementally in Postgres and MinIO.
+  scoring payload is persisted incrementally in Postgres and MinIO, with AWS S3
+  replication. Enable `calm_scoring.enabled` in the agent's General settings;
+  new browser and inbound calls read this setting when they start.
+  Each run detail page shows readable, alternating turn cards and four graphs
+  covering caller/Sakinah emotional and safety dimensions.
 - Private recording and transcript storage with server-generated, short-lived
   playback/download links. Local Docker uses MinIO; production deployments can
   use encrypted AWS S3 without exposing credentials or public object URLs.

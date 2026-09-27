@@ -872,49 +872,78 @@ async def _run_pipeline_impl(
     # Sakinah live/test workflows so WebRTC and inbound voice calls receive
     # identical turn events and durable scoring.
     live_calm = None
-    calm_config = (
-        (run_configs or {}).get("calm_scoring")
-        or (getattr(workflow, "workflow_configurations", None) or {}).get("calm_scoring")
-        or {}
+    # The settings switch is an operational scoring control.  It applies to
+    # newly started inbound calls even when their conversation definition is
+    # pinned to a published version that predates CALM scoring.
+    workflow_calm = (getattr(workflow, "workflow_configurations", None) or {}).get(
+        "calm_scoring"
+    )
+    calm_config = workflow_calm if isinstance(workflow_calm, dict) else (
+        (run_configs or {}).get("calm_scoring") or {}
     )
     calm_enabled = bool(calm_config.get("enabled")) or bool(
         (workflow_run.initial_context or {}).get("calm_enabled")
     )
     if calm_prompt_callback is None and calm_enabled:
-        from api.services.sakinah.live_calm import LiveCalmSession
+        from api.services.sakinah.live_calm import LiveCalmSession, latest_user_turn
+        from api.services.sakinah.calm_evaluation import run_llm_inference
+
+        evaluation_inference = None
+        if user_config.llm is not None:
+            try:
+                evaluation_llm = create_llm_service(
+                    user_config,
+                    correlation_id=mps_correlation_id,
+                    usage_context="calm_evaluation",
+                )
+
+                async def evaluation_inference(messages, system_prompt):
+                    return await run_llm_inference(
+                        evaluation_llm, messages, system_prompt
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "CALM evaluator unavailable for run {} ({})",
+                    workflow_run_id, type(exc).__name__,
+                )
+
+        async def publish_calm_turn(turn):
+            message = {"type": "calm-analysis", "payload": {"role": turn["role"], **turn}}
+            await in_memory_logs_buffer.append(message)
+            if ws_sender:
+                await ws_sender(message)
 
         live_calm = LiveCalmSession(
             workflow_run_id,
             scenario=str((workflow_run.initial_context or {}).get("scenario") or ""),
+            evaluation_inference=evaluation_inference,
+            on_update=publish_calm_turn,
         )
 
         async def live_calm_prompt_callback(engine, context):
-            messages = getattr(context, "messages", [])
-            latest = next(
-                (m.get("content") for m in reversed(messages) if isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str) and m.get("content", "").strip()),
-                None,
-            )
+            messages = context.get_messages()
+            latest = latest_user_turn(messages)
             if not latest:
                 return
-            turn = live_calm.analyse_user(latest, [{"role": m.get("role"), "text": m.get("content", "")} for m in messages[-6:] if isinstance(m, dict)])
+            turn = live_calm.analyse_user(
+                latest[1],
+                [{"role": m.get("role"), "text": m.get("content", "")} for m in messages[-6:] if isinstance(m, dict)],
+                source_turn_key=latest[0],
+            )
             if not turn:
                 return
             await engine._update_llm_context(turn["prompt_sent_to_llm"], [])
             await live_calm.persist()
-            message = {"type": "calm-analysis", "payload": {"role": "caller", **turn}}
-            await in_memory_logs_buffer.append(message)
-            if ws_sender:
-                await ws_sender(message)
+            await publish_calm_turn(turn)
+            live_calm.schedule_evaluation(turn)
 
         async def live_calm_response_callback(response):
             turn = live_calm.record_sakinah(response)
             if not turn:
                 return
             await live_calm.persist()
-            message = {"type": "calm-analysis", "payload": {"role": "sakinah", **turn}}
-            await in_memory_logs_buffer.append(message)
-            if ws_sender:
-                await ws_sender(message)
+            await publish_calm_turn(turn)
+            live_calm.schedule_evaluation(turn)
 
         calm_prompt_callback = live_calm_prompt_callback
         calm_response_callback = live_calm_response_callback
@@ -1327,6 +1356,7 @@ async def _run_pipeline_impl(
         user_provider_id=user_provider_id,
         integration_runtime_sessions=integration_runtime_sessions,
         include_transcript_end_timestamps=include_transcript_end_timestamps,
+        calm_finalize=live_calm.wait_for_evaluations if live_calm else None,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)

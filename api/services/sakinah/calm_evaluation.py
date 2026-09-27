@@ -254,6 +254,63 @@ def parse_sakinah_evaluation(raw: str) -> SakinahAssessment:
     return SakinahAssessment.model_validate(parse_llm_json(raw))
 
 
+def enrich_scoring_turn(
+    turn: dict, result: EvaluationResult, previous: dict | None = None
+) -> None:
+    """Attach every evaluated dimension to one durable CALM turn."""
+    evaluation = result.model_dump(mode="json")
+    if result.role == "service_user":
+        state = evaluation["state"]
+        emotional_groups = (
+            state["emotion"], state["mental_state"],
+            state["interaction"], state["capacity"],
+        )
+        emotional = {
+            name: parameter["score"]
+            for group in emotional_groups
+            for name, parameter in group.items()
+        }
+        safety = {
+            name: parameter["score"]
+            for name, parameter in evaluation["safety"].items()
+        }
+    else:
+        emotional = {
+            name: parameter["score"]
+            for name, parameter in evaluation["response_quality"].items()
+        }
+        safety = {
+            name: parameter["score"]
+            for name, parameter in evaluation["safety_evaluation"].items()
+            if isinstance(parameter, dict) and "score" in parameter
+        }
+    previous_scores = {
+        **((previous or {}).get("emotional_scores") or {}),
+        **((previous or {}).get("safety_scores") or {}),
+    }
+    turn["calm_trend"] = turn.get("trend")
+    turn["emotional_scores"] = emotional
+    turn["safety_scores"] = safety
+    turn["trend"] = {
+        name: {
+            "previous_score": previous_scores.get(name),
+            "delta_previous": (
+                round(value - previous_scores[name], 3)
+                if isinstance(previous_scores.get(name), (int, float)) else None
+            ),
+            "direction": (
+                "insufficient_data"
+                if not isinstance(previous_scores.get(name), (int, float))
+                else "up" if value > previous_scores[name]
+                else "down" if value < previous_scores[name]
+                else "unchanged"
+            ),
+        }
+        for name, value in {**emotional, **safety}.items()
+    }
+    turn["evaluation"] = evaluation
+
+
 def _format_context(turns: Sequence[dict]) -> str:
     bounded = list(turns)[-RECENT_CONTEXT_TURNS:]
     return "\n".join(

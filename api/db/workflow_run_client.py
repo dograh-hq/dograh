@@ -79,6 +79,10 @@ class WorkflowRunClient(BaseDBClient):
                 )
                 session.add(row)
             else:
+                if checksum_sha256 and row.checksum_sha256 != checksum_sha256:
+                    row.s3_saved = False
+                    row.replication_status = "pending"
+                    row.last_error_class = None
                 row.primary_saved = True
                 row.primary_backend = primary_backend
                 row.primary_bucket = primary_bucket
@@ -116,6 +120,10 @@ class WorkflowRunClient(BaseDBClient):
             row = result.scalar_one_or_none()
             if row is None:
                 return None
+            if checksum_sha256 and row.checksum_sha256 and row.checksum_sha256 != checksum_sha256:
+                # A newer live CALM snapshot replaced this object's bytes.
+                # An older replication job must not overwrite its status.
+                return row
             row.replication_status = replication_status
             row.s3_saved = s3_saved
             row.retry_count = retry_count

@@ -145,7 +145,7 @@ export function EmbeddedVoiceTester({
     return (
         <>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background">
-                <div className="min-h-0 flex-1 overflow-hidden bg-muted/15">
+                <div className="min-h-0 flex-1 overflow-y-auto bg-muted/15">
                     <RealtimeFeedback
                         mode="live"
                         messages={feedbackMessages}
@@ -154,7 +154,7 @@ export function EmbeddedVoiceTester({
                     />
                 </div>
 
-                <TurnByTurnCalmPanel turns={calmTurns.map((turn) => ({
+                <div className="max-h-[42vh] overflow-y-auto border-t border-border/70 p-3"><TurnByTurnCalmPanel turns={calmTurns.map((turn) => ({
                     turn_id: turn.turn_id as number | string,
                     role: turn.role as string | undefined,
                     text: (turn.text ?? turn.utterance_verbatim) as string | undefined,
@@ -163,7 +163,7 @@ export function EmbeddedVoiceTester({
                     safety_scores: turn.safety_scores as Record<string, number | null> | undefined,
                     trend: turn.trend as Record<string, { direction?: string; delta_previous?: number | null }> | undefined,
                     prompt_sent_to_llm: turn.prompt_sent_to_llm as string | undefined,
-                } satisfies CalmTurn))} />
+                } satisfies CalmTurn))} /></div>
 
                 <div className="border-t border-border/70 bg-background px-4 py-3">
                     <div className="flex flex-col gap-3">

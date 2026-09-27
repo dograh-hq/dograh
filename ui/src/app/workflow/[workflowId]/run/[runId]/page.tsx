@@ -705,6 +705,8 @@ export default function WorkflowRunPage() {
     const auth = useAuth();
     const organizationTimezone = useOrganizationTimezone();
     const [workflowRun, setWorkflowRun] = useState<WorkflowRunResponse | null>(null);
+    const hasWorkflowRun = workflowRun !== null;
+    const isRunCompleted = workflowRun?.is_completed ?? false;
     const [storageAudit, setStorageAudit] = useState<StorageAudit | null>(null);
     const [workflowName, setWorkflowName] = useState<string | null>(null);
     const customizeButtonRef = useRef<HTMLButtonElement>(null);
@@ -781,11 +783,30 @@ export default function WorkflowRunPage() {
             }
         };
         fetchWorkflowRun();
-    }, [params.workflowId, params.runId, auth]);
+    }, [params.workflowId, params.runId, auth.isAuthenticated, auth.loading]);
+
+    useEffect(() => {
+        if (!auth.isAuthenticated || !hasWorkflowRun || isRunCompleted) return;
+        const timer = window.setInterval(async () => {
+            const response = await getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet({
+                path: { workflow_id: Number(params.workflowId), run_id: Number(params.runId) },
+            });
+            if (!response.data) return;
+            setWorkflowRun((current) => current ? {
+                ...current,
+                is_completed: response.data?.is_completed ?? current.is_completed,
+                annotations: response.data?.annotations as Record<string, unknown> | null ?? null,
+                logs: response.data?.logs as WorkflowRunLogs | null ?? current.logs,
+                transcript_url: response.data?.transcript_url ?? current.transcript_url,
+                recording_url: response.data?.recording_url ?? current.recording_url,
+            } : current);
+        }, 3000);
+        return () => window.clearInterval(timer);
+    }, [auth.isAuthenticated, params.workflowId, params.runId, hasWorkflowRun, isRunCompleted]);
 
     let returnValue = null;
     const isTextChatRun = workflowRun?.mode === WORKFLOW_RUN_MODES.TEXTCHAT;
-    const showRunDetailsView = Boolean(workflowRun?.is_completed || isTextChatRun);
+    const showRunDetailsView = Boolean(workflowRun);
     const userSplitRecordingUrl = workflowRun?.user_recording_url ?? null;
     const botSplitRecordingUrl = workflowRun?.bot_recording_url ?? null;
     const hasSplitTracks = Boolean(userSplitRecordingUrl && botSplitRecordingUrl);
@@ -818,7 +839,7 @@ export default function WorkflowRunPage() {
         returnValue = (
             <div className={`flex ${RUN_SHELL_HEIGHT_CLASS} min-h-0 w-full overflow-hidden bg-background`}>
                 <div className="min-w-0 flex-1 overflow-y-auto">
-                    <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
+                    <div className="mx-auto w-full max-w-6xl space-y-6 p-6">
                     <Card className="border-border">
                         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0 flex-1 space-y-2">
@@ -843,7 +864,7 @@ export default function WorkflowRunPage() {
                                 </div>
                                 <div className="flex min-w-0 items-center gap-4 pt-1">
                                     <CardTitle className="min-w-0 text-2xl">
-                                        {isTextChatRun ? 'Text Chat Session' : 'Agent Run Completed'}
+                                        {isTextChatRun ? 'Text Chat Session' : workflowRun?.is_completed ? 'Agent Run Completed' : 'Agent Run In Progress'}
                                     </CardTitle>
                                     <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isTextChatRun ? 'bg-sky-500/15' : 'bg-emerald-500/20'}`}>
                                         {isTextChatRun ? (
@@ -880,7 +901,9 @@ export default function WorkflowRunPage() {
                             <p className="text-muted-foreground mb-8">
                                 {isTextChatRun
                                     ? 'Review the conversation history, metrics, and context captured for this text session.'
-                                    : 'Your voice agent run has been completed successfully. You can preview or download the transcript and recording.'}
+                                    : workflowRun?.is_completed
+                                        ? 'Your voice agent run has been completed successfully. You can preview or download the transcript and recording.'
+                                        : 'Turn-by-turn CALM scoring refreshes here during the call.'}
                             </p>
 
                             <div className="flex flex-wrap gap-4">
@@ -949,8 +972,6 @@ export default function WorkflowRunPage() {
                             gatheredContext={workflowRun?.gathered_context ?? null}
                         />
 
-                        <TurnByTurnCalmPanel turns={calmTurns(workflowRun?.annotations ?? null)} />
-
                         {storageAudit && <StorageAuditSection audit={storageAudit} />}
 
                         {!isTextChatRun && hasSplitTracks && (
@@ -977,6 +998,8 @@ export default function WorkflowRunPage() {
                                 context={workflowRun.annotations as Record<string, string | number | boolean | object>}
                             />
                         )}
+
+                        <TurnByTurnCalmPanel turns={calmTurns(workflowRun?.annotations ?? null)} />
                     </div>
                 </div>
 

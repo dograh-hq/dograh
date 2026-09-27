@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from loguru import logger
@@ -81,6 +82,7 @@ def register_event_handlers(
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
     include_transcript_end_timestamps: bool = False,
+    calm_finalize: Callable[[], Awaitable[None]] | None = None,
 ):
     """Register all event handlers for transport and task events.
 
@@ -304,6 +306,8 @@ def register_event_handlers(
         # before finalizing immutable transcripts and taking the DB snapshot.
         await task.wait_for_observers()
         await transcript_log_coordinator.flush()
+        if calm_finalize:
+            await calm_finalize()
 
         workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
 

@@ -1,81 +1,85 @@
 'use client';
 
-import { Download, Minus, TrendingDown, TrendingUp } from 'lucide-react';
+import { Download } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+
+type ScoreValue = number | { score?: number | null; confidence?: number | null } | null;
 
 export type CalmTurn = {
     role?: string;
     turn_id?: number | string;
     text?: string;
     utterance_verbatim?: string;
-    scores?: Record<string, number | null>;
-    calm_scores?: Record<string, number | { score?: number | null; confidence?: number | null } | null>;
-    emotional_scores?: Record<string, number | null>;
-    safety_scores?: Record<string, number | null>;
+    scores?: Record<string, ScoreValue>;
+    calm_scores?: Record<string, ScoreValue>;
+    emotional_scores?: Record<string, ScoreValue>;
+    safety_scores?: Record<string, ScoreValue>;
     trend?: Record<string, unknown>;
     prompt_sent_to_llm?: string;
 };
 
 type Trend = { direction?: string; delta_previous?: number | null };
 
-function valuesFor(turn: CalmTurn, kind: 'emotional' | 'safety') {
-    if (kind === 'safety') return turn.safety_scores ?? {};
-    const values = turn.emotional_scores ?? turn.scores ?? turn.calm_scores ?? {};
-    return Object.fromEntries(Object.entries(values).map(([name, value]) => [name, typeof value === 'number' ? value : value?.score ?? null]));
+function valuesFor(turn: CalmTurn, kind: 'emotional' | 'safety'): Record<string, number | null> {
+    const source = kind === 'safety' ? turn.safety_scores : turn.emotional_scores ?? turn.scores ?? turn.calm_scores;
+    return Object.fromEntries(Object.entries(source ?? {}).map(([name, raw]) => [
+        name, typeof raw === 'number' ? raw : raw?.score ?? null,
+    ]));
 }
 
-function displayTrend(rawTrend?: unknown) {
-    const trend = rawTrend as Trend | undefined;
-    if (!trend || trend.direction === 'insufficient_data' || trend.delta_previous == null) {
-        return { icon: <Minus className="h-3.5 w-3.5 text-muted-foreground" />, label: '—' };
-    }
-    if (trend.direction === 'unchanged' || trend.delta_previous === 0) {
-        return { icon: <Minus className="h-3.5 w-3.5 text-muted-foreground" />, label: '=' };
-    }
-    const positive = trend.delta_previous > 0;
-    return {
-        icon: positive ? <TrendingUp className="h-3.5 w-3.5 text-emerald-600" /> : <TrendingDown className="h-3.5 w-3.5 text-rose-600" />,
-        label: `${positive ? '+' : ''}${trend.delta_previous.toFixed(1)}`,
-    };
+function trendFor(turn: CalmTurn, name: string): Trend | undefined {
+    const direct = turn.trend?.[name];
+    if (direct && typeof direct === 'object') return direct as Trend;
+    const parameters = turn.trend?.parameters;
+    if (parameters && typeof parameters === 'object') return (parameters as Record<string, Trend>)[name];
+    return undefined;
+}
+
+function trendLabel(trend?: Trend): string {
+    if (!trend || trend.direction === 'insufficient_data' || trend.delta_previous == null) return '—';
+    if (trend.direction === 'unchanged' || trend.delta_previous === 0) return '=';
+    return `${trend.delta_previous > 0 ? '↑ +' : '↓ '}${trend.delta_previous.toFixed(1)}`;
 }
 
 function ScoreChart({ title, turns, kind }: { title: string; turns: CalmTurn[]; kind: 'emotional' | 'safety' }) {
-    const series = Array.from(new Set(turns.flatMap((turn) => Object.keys(valuesFor(turn, kind)))));
-    if (!turns.length || !series.length) return null;
+    const names = Array.from(new Set(turns.flatMap((turn) => Object.keys(valuesFor(turn, kind)))));
+    const width = 600, height = 230, left = 36, right = 12, top = 18, bottom = 32;
+    const plotWidth = width - left - right, plotHeight = height - top - bottom;
+    const x = (index: number) => left + (turns.length <= 1 ? plotWidth / 2 : index * plotWidth / (turns.length - 1));
+    const y = (score: number) => top + plotHeight * (1 - Math.max(0, Math.min(10, score)) / 10);
+    const colorFor = (index: number) => `hsl(${Math.round(index * 137.508) % 360} 72% 42%)`;
 
-    const width = 560;
-    const height = 210;
-    const left = 34;
-    const right = 12;
-    const top = 18;
-    const bottom = 30;
-    const plotWidth = width - left - right;
-    const plotHeight = height - top - bottom;
-    const x = (index: number) => left + (turns.length === 1 ? plotWidth / 2 : (index * plotWidth) / (turns.length - 1));
-    const y = (score: number | null | undefined) => top + plotHeight - ((Math.max(0, Math.min(10, score ?? 0)) / 10) * plotHeight);
-    const colors = ['#2563eb', '#db2777', '#16a34a', '#ea580c', '#7c3aed', '#0891b2'];
-
-    return (
-        <div className="rounded-lg border bg-background/60 p-3">
-            <p className="mb-2 text-sm font-semibold">{title}</p>
-            <div className="overflow-x-auto">
-                <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[520px]" role="img" aria-label={`${title} score trajectory`}>
-                    {[0, 5, 10].map((tick) => <g key={tick}><line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} stroke="currentColor" className="text-border" strokeDasharray="3 3" /><text x={left - 7} y={y(tick) + 4} textAnchor="end" fontSize="10" fill="currentColor" className="text-muted-foreground">{tick}</text></g>)}
-                    {turns.map((turn, index) => <text key={`${String(turn.turn_id)}-${index}`} x={x(index)} y={height - 10} textAnchor="middle" fontSize="10" fill="currentColor" className="text-muted-foreground">{String(turn.turn_id ?? index + 1)}</text>)}
-                    {series.map((name, seriesIndex) => <polyline key={name} points={turns.map((turn, index) => `${x(index)},${y(valuesFor(turn, kind)[name])}`).join(' ')} fill="none" stroke={colors[seriesIndex % colors.length]} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />)}
-                    {series.map((name, seriesIndex) => turns.map((turn, index) => <circle key={`${name}-${String(turn.turn_id)}-${index}`} cx={x(index)} cy={y(valuesFor(turn, kind)[name])} r="2.8" fill={colors[seriesIndex % colors.length]} />))}
-                </svg>
-            </div>
-            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">{series.map((name, index) => <span key={name} className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />{name.replaceAll('_', ' ')}</span>)}</div>
-            <p className="mt-1 text-[11px] text-muted-foreground">Y-axis: score 0–10 · X-axis: turn</p>
-        </div>
-    );
+    return <div className="min-w-0 rounded-lg border bg-background/60 p-3">
+        <p className="mb-2 text-sm font-semibold">{title}</p>
+        {turns.length && names.length ? <>
+            <div className="overflow-x-auto"><svg viewBox={`0 0 ${width} ${height}`} className="min-w-[540px]" role="img" aria-label={`${title} score trajectory`}>
+                {[0, 2, 4, 6, 8, 10].map((tick) => <g key={tick}>
+                    <line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} stroke="currentColor" className="text-border" strokeDasharray="3 3" />
+                    <text x={left - 7} y={y(tick) + 4} textAnchor="end" fontSize="10" fill="currentColor" className="text-muted-foreground">{tick}</text>
+                </g>)}
+                {turns.map((turn, index) => <text key={index} x={x(index)} y={height - 9} textAnchor="middle" fontSize="10" fill="currentColor" className="text-muted-foreground">{String(turn.turn_id ?? index + 1)}</text>)}
+                {names.map((name, seriesIndex) => {
+                    const points = turns.flatMap((turn, index) => {
+                        const value = valuesFor(turn, kind)[name];
+                        return typeof value === 'number' ? [{ index, value }] : [];
+                    });
+                    return <g key={name}>
+                        {points.length > 1 && <polyline points={points.map(({ index, value }) => `${x(index)},${y(value)}`).join(' ')} fill="none" stroke={colorFor(seriesIndex)} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
+                        {points.map(({ index, value }) => <circle key={index} cx={x(index)} cy={y(value)} r="3" fill={colorFor(seriesIndex)} />)}
+                    </g>;
+                })}
+            </svg></div>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">{names.map((name, index) => <span key={name} className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorFor(index) }} />{name.replaceAll('_', ' ')}</span>)}</div>
+            <p className="mt-1 text-[11px] text-muted-foreground">Y: score (0–10) · X: turn number</p>
+        </> : <p className="text-xs text-muted-foreground">No {kind} scores for this role yet.</p>}
+    </div>;
 }
 
 export function TurnByTurnCalmPanel({ turns, title = 'Turn-by-turn CALM scoring' }: { turns: CalmTurn[]; title?: string }) {
-    if (!turns.length) return null;
-
+    const ordered = [...turns].sort((a, b) => Number(a.turn_id ?? 0) - Number(b.turn_id ?? 0) || (a.role === 'sakinah' ? 1 : -1));
+    const callerTurns = turns.filter((turn) => turn.role !== 'sakinah');
+    const sakinahTurns = turns.filter((turn) => turn.role === 'sakinah');
     const download = () => {
         const blob = new Blob([JSON.stringify(turns, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -85,13 +89,29 @@ export function TurnByTurnCalmPanel({ turns, title = 'Turn-by-turn CALM scoring'
         anchor.click();
         URL.revokeObjectURL(url);
     };
-    const columns = Array.from(new Set(turns.flatMap((turn) => Object.keys(valuesFor(turn, 'emotional')))));
 
-    return (
-        <section className="space-y-4 rounded-xl border border-border bg-card p-4" aria-label={title}>
-            <div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold">{title}</h3><p className="text-xs text-muted-foreground">Scores, trend movement, safety/emotional trajectories, and the exact engineered prompt used for each turn.</p></div><Button size="sm" variant="outline" onClick={download}><Download className="mr-2 h-4 w-4" />Download</Button></div>
-            <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-sm"><thead><tr className="border-b text-left"><th className="p-2">Role</th><th className="p-2">Turn</th><th className="p-2">Text</th>{columns.map((name) => <th key={name} className="p-2">{name.replaceAll('_', ' ')}</th>)}<th className="p-2">Prompt</th></tr></thead><tbody>{turns.map((turn, index) => { const scores = valuesFor(turn, 'emotional'); return <tr key={`${turn.role ?? 'turn'}-${String(turn.turn_id ?? index)}`} className="border-b last:border-0 align-top"><td className="p-2 font-medium capitalize">{turn.role ?? 'caller'}</td><td className="p-2 font-mono">{turn.turn_id ?? index + 1}</td><td className="max-w-xs p-2 text-muted-foreground">{turn.text ?? turn.utterance_verbatim ?? '—'}</td>{columns.map((name) => { const trend = displayTrend(turn.trend?.[name]); return <td key={name} className="p-2"><span className="inline-flex items-center gap-1 tabular-nums">{scores[name] ?? '—'} {trend.icon}<span className="text-xs text-muted-foreground">{trend.label}</span></span></td>; })}<td className="p-2">{turn.prompt_sent_to_llm ? <details><summary className="cursor-pointer text-xs font-medium text-primary">View engineered prompt</summary><pre className="mt-2 max-h-48 max-w-md overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs">{turn.prompt_sent_to_llm}</pre></details> : <span className="text-xs text-muted-foreground">Not available</span>}</td></tr>; })}</tbody></table></div>
-            <div className="grid gap-4 xl:grid-cols-2"><ScoreChart title="Caller / service user — emotional scores" turns={turns.filter((turn) => (turn.role ?? 'caller') !== 'sakinah')} kind="emotional" /><ScoreChart title="Caller / service user — safety scores" turns={turns.filter((turn) => (turn.role ?? 'caller') !== 'sakinah')} kind="safety" /><ScoreChart title="Sakinah — emotional scores" turns={turns.filter((turn) => turn.role === 'sakinah')} kind="emotional" /><ScoreChart title="Sakinah — safety scores" turns={turns.filter((turn) => turn.role === 'sakinah')} kind="safety" /></div>
-        </section>
-    );
+    return <section className="min-w-0 space-y-5 rounded-xl border border-border bg-card p-4" aria-label={title}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><h3 className="font-semibold">{title}</h3><p className="text-xs text-muted-foreground">Scores, movement, safety, and the exact engineered prompt for each turn.</p></div>
+            <Button size="sm" variant="outline" onClick={download} disabled={!turns.length}><Download className="mr-2 h-4 w-4" />Download scoring</Button>
+        </div>
+        {ordered.length ? <div className="overflow-hidden rounded-lg border">{ordered.map((turn, index) => <article key={`${turn.role ?? 'caller'}-${String(turn.turn_id ?? index)}-${index}`} className={`space-y-3 p-4 ${index % 2 ? 'bg-muted/35' : 'bg-background'}`}>
+            <div className="flex flex-wrap items-baseline gap-2"><span className="font-semibold capitalize">{turn.role === 'sakinah' ? 'Sakinah' : 'Caller / service user'}</span><span className="text-xs text-muted-foreground">Turn {turn.turn_id ?? index + 1}</span></div>
+            <p className="whitespace-pre-wrap text-sm">{turn.text ?? turn.utterance_verbatim ?? 'No transcript text'}</p>
+            {(['emotional', 'safety'] as const).map((kind) => {
+                const scores = valuesFor(turn, kind);
+                return Object.keys(scores).length ? <div key={kind} className="space-y-1">
+                    <p className="text-xs font-medium capitalize text-muted-foreground">{kind} scores</p>
+                    <div className="flex flex-wrap gap-2">{Object.entries(scores).map(([name, score]) => <span key={name} className="rounded-md border bg-card px-2 py-1 text-xs tabular-nums"><span className="font-medium">{name.replaceAll('_', ' ')}</span> {score ?? '—'} <span className="font-semibold" aria-label={`${name} trend ${trendLabel(trendFor(turn, name))}`}>{trendLabel(trendFor(turn, name))}</span></span>)}</div>
+                </div> : null;
+            })}
+            {turn.prompt_sent_to_llm && <details className="rounded-md border bg-card p-3"><summary className="cursor-pointer text-sm font-medium text-primary">Engineered prompt for turn {turn.turn_id ?? index + 1}</summary><pre className="mt-3 max-h-[32rem] w-full overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs leading-relaxed">{turn.prompt_sent_to_llm}</pre></details>}
+        </article>)}</div> : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No CALM turns recorded yet. Scores appear here as the call progresses when CALM scoring is enabled for the agent.</p>}
+        {ordered.length > 0 && <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+            <ScoreChart title="Caller / service user — emotional scores" turns={callerTurns} kind="emotional" />
+            <ScoreChart title="Caller / service user — safety scores" turns={callerTurns} kind="safety" />
+            <ScoreChart title="Sakinah — emotional scores" turns={sakinahTurns} kind="emotional" />
+            <ScoreChart title="Sakinah — safety scores" turns={sakinahTurns} kind="safety" />
+        </div>}
+    </section>;
 }

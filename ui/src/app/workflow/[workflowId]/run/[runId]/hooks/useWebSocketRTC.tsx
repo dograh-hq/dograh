@@ -438,7 +438,12 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
 
                     switch (message.type) {
                         case 'calm-analysis':
-                            setCalmTurns(prev => [...prev, message.payload as Record<string, unknown>]);
+                            setCalmTurns(prev => {
+                                const turn = message.payload as Record<string, unknown>;
+                                const index = prev.findIndex((item) => item.role === turn.role && item.turn_id === turn.turn_id);
+                                if (index < 0) return [...prev, turn];
+                                return prev.map((item, position) => position === index ? { ...item, ...turn } : item);
+                            });
                             break;
                         case 'answer':
                             // Set remote description immediately (may have no candidates)

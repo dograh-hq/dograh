@@ -214,7 +214,7 @@ async def schedule_s3_replication(
             FunctionNames.REPLICATE_WORKFLOW_RUN_ARTIFACTS_S3,
             run_id,
             refs,
-            _job_id=f"s3-secondary-{run_id}",
+            _job_id=f"s3-secondary-{run_id}-{hashlib.sha256(json.dumps(refs, sort_keys=True).encode()).hexdigest()[:16]}",
         )
     except Exception as exc:  # noqa: BLE001 - primary completion is independent
         result["status"] = "failed"
@@ -264,9 +264,10 @@ async def _replicate_one(
                 _log_replication_event(run_id=run_id, bucket=AWS_RECORDINGS_BUCKET, object_key=destination_key, source_object_key=source_key, status="success", attempt=0, artifact_type=ref.get("type"), size_bytes=result["size_bytes"])
                 await _record_replication_result(run_id, source_key, result)
                 return result
-            result = {**ref, "object_key": destination_key, "status": "failed", "attempt": 0, "error_class": "ChecksumMismatch"}
-            await _record_replication_result(run_id, source_key, result)
-            return result
+            if ref.get("type") != "calm_scoring":
+                result = {**ref, "object_key": destination_key, "status": "failed", "attempt": 0, "error_class": "ChecksumMismatch"}
+                await _record_replication_result(run_id, source_key, result)
+                return result
     last_error: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:

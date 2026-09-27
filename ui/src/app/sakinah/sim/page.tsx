@@ -158,7 +158,8 @@ export default function SakinahSimulationPage() {
             const analysis = payload as unknown as CalmAnalysis;
             setCalmAnalysis(analysis);
             const trend = (payload.trend as { parameters?: unknown } | undefined)?.parameters ?? payload.trend;
-            setCalmTurns((previous) => [...previous, {
+            setCalmTurns((previous) => {
+                const next = {
                 role: (payload.role as string | undefined) ?? (event.role === "sakinah" ? "sakinah" : "caller"),
                 turn_id: payload.turn_id as number | string | undefined,
                 text: (payload.text ?? payload.utterance_verbatim) as string | undefined,
@@ -168,7 +169,10 @@ export default function SakinahSimulationPage() {
                 safety_scores: payload.safety_scores as Record<string, number | null> | undefined,
                 trend: trend as CalmTurn["trend"],
                 prompt_sent_to_llm: payload.prompt_sent_to_llm as string | undefined,
-            }]);
+                } satisfies CalmTurn;
+                const index = previous.findIndex((turn) => turn.role === next.role && turn.turn_id === next.turn_id);
+                return index < 0 ? [...previous, next] : previous.map((turn, position) => position === index ? { ...turn, ...next } : turn);
+            });
             return;
         }
         if (event.type === "pipeline-error" || event.type === "rtf-pipeline-error") {

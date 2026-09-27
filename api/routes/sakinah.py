@@ -365,10 +365,20 @@ async def create_session(
     scenario = request.scenario.strip()
     if not scenario:
         raise HTTPException(status_code=422, detail="Scenario cannot be blank")
+    if user.selected_organization_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Select an organization before starting a Sakinah scenario.",
+        )
 
     session_id = uuid.uuid4()
     started_at = datetime.now(UTC)
     workflow = await ensure_sakinah_workflow(db_client, user)
+    if workflow is None:
+        raise HTTPException(
+            status_code=503,
+            detail="The Sakinah scenario workflow is unavailable. Please try again.",
+        )
     initial_context = {
         "scenario": scenario,
         "session_id": str(session_id),
@@ -512,6 +522,11 @@ async def start_simulation(
     scenario = request.scenario.strip()
     if not scenario:
         raise HTTPException(status_code=422, detail="Scenario cannot be blank")
+    if user.selected_organization_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Select an organization before starting a Sakinah simulation.",
+        )
 
     try:
         simulation = await simulation_manager.start_simulation(

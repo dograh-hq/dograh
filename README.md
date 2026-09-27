@@ -130,7 +130,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 ## CALMOS / Sakinah Scenario Console
 
-CALMOS Connect v1.46.0.4.2.D includes the Sakinah Scenario Console at `/sakinah` and
+CALMOS Connect v1.47.0.20 includes the Sakinah Scenario Console at `/sakinah` and
 its AI-to-AI simulation console at `/sakinah/sim`. The white-label release adds:
 
 - Durable Agent Runs/Call History records for active and completed calls,

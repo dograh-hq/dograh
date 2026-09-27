@@ -1,6 +1,6 @@
 {
   "name": "ui",
-  "version": "1.46.0.5",
+  "version": "1.47.0.20",
   "private": true,
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--enable-source-maps node scripts/dev-server.mjs",
@@ -39,6 +39,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "jszip": "^3.10.2",
     "lucide-react": "^0.505.0",
     "next": "^15.3.3",
     "next-themes": "^0.4.6",

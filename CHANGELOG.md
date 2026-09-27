@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.47.0.20 (2026-09-27)
+
+- Fix Sakinah scenario startup when no organization is selected by returning an actionable error instead of an internal server error.
+- Add agent-editor export of the complete React Flow `workflow_definition` (including all nodes and edges) as a JSON file inside a ZIP archive.
+
 ## 1.46.0.5 (2026-09-10)
 
 - Integrate inbound-only WhatsApp Business Calling from Dograh PR #732, including Meta webhook verification, HMAC validation, WebRTC media, multi-worker termination, and Meta phone-number synchronisation.

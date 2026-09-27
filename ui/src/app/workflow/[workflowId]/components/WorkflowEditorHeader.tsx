@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
+import JSZip from "jszip";
 import { AlertCircle, ArrowLeft, Bot, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Pencil, Phone, Rocket } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
@@ -151,7 +152,7 @@ export const WorkflowEditorHeader = ({
         }
     };
 
-    const handleDownloadWorkflow = () => {
+    const handleDownloadWorkflow = async () => {
         if (!rfInstance.current) return;
 
         const workflowDefinition = rfInstance.current.toObject();
@@ -165,6 +166,34 @@ export const WorkflowEditorHeader = ({
         const link = document.createElement("a");
         link.href = url;
         link.download = `${workflowName}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleDownloadDefinitionZip = async () => {
+        if (!rfInstance.current) return;
+        const workflowDefinition = rfInstance.current.toObject();
+        const definition = {
+            name: workflowName,
+            workflow_definition: workflowDefinition,
+        };
+        const zip = new JSZip();
+        zip.file("workflow_definition.json", JSON.stringify(definition, null, 2));
+        zip.file("manifest.json", JSON.stringify({
+            format: "dograh-agent-definition",
+            version: 1,
+            name: workflowName,
+            files: ["workflow_definition.json"],
+            node_count: workflowDefinition.nodes.length,
+            edge_count: workflowDefinition.edges.length,
+        }, null, 2));
+        const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${workflowName}.definition.zip`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -479,11 +508,18 @@ export const WorkflowEditorHeader = ({
                             {duplicating ? "Duplicating..." : "Duplicate Workflow"}
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                            onClick={handleDownloadWorkflow}
+                            onClick={() => void handleDownloadWorkflow()}
                             className="text-white hover:bg-[#2a2a2a] cursor-pointer"
                         >
                             <Download className="w-4 h-4 mr-2" />
                             Download Workflow
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => void handleDownloadDefinitionZip()}
+                            className="text-white hover:bg-[#2a2a2a] cursor-pointer"
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            Download Definition ZIP
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={handleCopyAgentUuid}

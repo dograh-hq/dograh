@@ -1223,10 +1223,18 @@ def create_llm_service_from_provider(
             ),
         )
     elif provider == ServiceProviders.YANDEX.value:
+        if not folder_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Yandex LLM provider requires a folder_id",
+            )
         model_uri = f"gpt://{folder_id}/{model}"
         return OpenAILLMService(
             api_key=api_key,
             base_url=YANDEX_LLM_BASE_URL,
+            # Yandex's OpenAI-compatible endpoint rejects the SDK's default
+            # `Authorization: Bearer` scheme; it requires `Api-Key` instead.
+            default_headers={"Authorization": f"Api-Key {api_key}"},
             settings=OpenAILLMSettings(model=model_uri, temperature=0.1),
         )
     else:

@@ -11,7 +11,12 @@ from pipecat.services.yandex.realtime.llm import YANDEX_REALTIME_BASE_URL
 
 
 def _make_service(**overrides) -> DograhYandexRealtimeLLMService:
-    kwargs = {"api_key": "test-key"}
+    kwargs = {
+        "api_key": "test-key",
+        "settings": DograhYandexRealtimeLLMService.Settings(
+            model="gpt://folder-1/speech-realtime-deepseek-v4-flash/latest"
+        ),
+    }
     kwargs.update(overrides)
     return DograhYandexRealtimeLLMService(**kwargs)
 

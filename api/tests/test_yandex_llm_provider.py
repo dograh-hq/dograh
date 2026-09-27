@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from api.services.configuration.registry import ServiceProviders, YandexLLMService
@@ -52,3 +53,40 @@ class TestYandexLLMServiceFactory:
         kwargs = mock_service.call_args.kwargs
         assert kwargs["base_url"] == "https://ai.api.cloud.yandex.net/v1"
         assert kwargs["settings"].model == "gpt://b1gxxxxxxxxxxxxxxxxx/deepseek-v4-flash"
+
+    def test_sends_api_key_auth_scheme_not_bearer(self):
+        with patch(
+            "api.services.pipecat.service_factory.OpenAILLMService"
+        ) as mock_service:
+            create_llm_service_from_provider(
+                provider=ServiceProviders.YANDEX.value,
+                model="deepseek-v4-flash",
+                api_key="test-key",
+                folder_id="b1gxxxxxxxxxxxxxxxxx",
+            )
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["default_headers"] == {"Authorization": "Api-Key test-key"}
+
+    def test_rejects_missing_folder_id_instead_of_building_invalid_uri(self):
+        with patch("api.services.pipecat.service_factory.OpenAILLMService") as mock_service:
+            with pytest.raises(HTTPException, match="folder_id"):
+                create_llm_service_from_provider(
+                    provider=ServiceProviders.YANDEX.value,
+                    model="deepseek-v4-flash",
+                    api_key="test-key",
+                )
+
+        mock_service.assert_not_called()
+
+    def test_rejects_empty_folder_id_instead_of_building_invalid_uri(self):
+        with patch("api.services.pipecat.service_factory.OpenAILLMService") as mock_service:
+            with pytest.raises(HTTPException, match="folder_id"):
+                create_llm_service_from_provider(
+                    provider=ServiceProviders.YANDEX.value,
+                    model="deepseek-v4-flash",
+                    api_key="test-key",
+                    folder_id="",
+                )
+
+        mock_service.assert_not_called()

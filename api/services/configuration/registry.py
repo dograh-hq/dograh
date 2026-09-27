@@ -1137,9 +1137,12 @@ class YandexRealtimeLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": False,
         },
     )
-    api_version: str = Field(
+    api_version: Literal["v1"] = Field(
         default="v1",
-        description="Yandex protocol version",
+        description=(
+            "Yandex protocol version. Only 'v1' (the "
+            "/v1/realtime/openai endpoint) is currently supported."
+        ),
         json_schema_extra={
             "examples": YANDEX_REALTIME_API_VERSIONS,
         },

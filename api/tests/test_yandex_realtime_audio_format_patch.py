@@ -87,7 +87,9 @@ def test_normalize_pcm_rate_leaves_other_messages_untouched():
 
 
 def test_yandex_session_created_fails_to_parse_without_the_patch():
-    with pytest.raises(Exception):
+    # pipecat wraps the underlying pydantic ValidationError in a plain
+    # Exception, so pin the message instead of the exception type.
+    with pytest.raises(Exception, match=r"PCMAudioFormat\.rate"):
         events.parse_server_event(YANDEX_SESSION_CREATED)
 
 
@@ -114,7 +116,9 @@ def test_normalize_event_type_leaves_other_messages_untouched():
 
 
 def test_yandex_conversation_item_created_fails_to_parse_without_the_patch():
-    with pytest.raises(Exception):
+    with pytest.raises(
+        Exception, match=r"Unimplemented server event type: conversation\.item\.created"
+    ):
         events.parse_server_event(YANDEX_CONVERSATION_ITEM_CREATED)
 
 

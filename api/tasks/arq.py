@@ -12,7 +12,7 @@ from api.tasks.function_names import FunctionNames
 setup_logging()
 
 # Now import ARQ and task dependencies
-from arq import create_pool, cron
+from arq import create_pool, cron, func
 from arq.connections import ArqRedis, RedisSettings
 from redis.asyncio.retry import Retry
 from redis.backoff import ExponentialBackoff
@@ -90,7 +90,10 @@ class WorkerSettings:
         complete_inactive_text_chat_session,
         persist_workflow_run_call_data,
         extract_workflow_run_memories,
-        replicate_workflow_run_artifacts_to_s3,
+        func(
+            replicate_workflow_run_artifacts_to_s3,
+            name=FunctionNames.REPLICATE_WORKFLOW_RUN_ARTIFACTS_S3,
+        ),
         reconcile_pending_s3_replications,
     ]
     cron_jobs = [

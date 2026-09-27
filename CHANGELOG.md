@@ -1193,6 +1193,7 @@
 - Added readable alternating caller/Sakinah turn cards, trend deltas, JSON downloads, and separate emotional/safety graphs with score and turn ticks to run details, agent tests, and simulation.
 - Run details now refresh CALM turns during an active call and display the scoring section at the bottom of the summary.
 - Fixed the v1.47.0.22 gap where inbound agents were left without CALM enabled in their published definitions; newly started calls now use the saved scoring switch, and empty panels stay visible.
+- Registered the AWS S3 replication task under its queued job name so ongoing CALM snapshots and final artifacts are copied by the background worker.
 
 # v1.47.0.22
 

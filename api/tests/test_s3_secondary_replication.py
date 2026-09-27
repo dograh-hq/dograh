@@ -223,3 +223,11 @@ async def test_provider_access_denied_code_is_safe_and_specific(monkeypatch):
     assert result["status"] == "failed"
     assert result["error_class"] == "AccessDenied"
     assert events[-1]["error_class"] == "AccessDenied"
+def test_replication_job_name_is_registered_on_worker():
+    from api.tasks.arq import WorkerSettings
+
+    registered = {
+        getattr(task, "name", getattr(task, "__name__", None))
+        for task in WorkerSettings.functions
+    }
+    assert replication.FunctionNames.REPLICATE_WORKFLOW_RUN_ARTIFACTS_S3 in registered

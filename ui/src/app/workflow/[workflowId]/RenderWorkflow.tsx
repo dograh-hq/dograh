@@ -591,6 +591,15 @@ function RenderWorkflow({
                     hasDraft={hasDraft}
                     onPublished={handlePublished}
                     renameWorkflow={renameWorkflow}
+                    calmScoringEnabled={Boolean((workflowConfigurations as Record<string, unknown> | null)?.calm_scoring && ((workflowConfigurations as Record<string, unknown>).calm_scoring as Record<string, unknown>).enabled)}
+                    onCalmScoringChange={async (enabled) => {
+                        if (!workflowConfigurations) return;
+                        await saveWorkflowConfigurations({
+                            ...workflowConfigurations,
+                            calm_scoring: { ...((workflowConfigurations.calm_scoring as Record<string, unknown> | undefined) ?? {}), enabled },
+                        }, workflowName);
+                        toast.success(`CALM scoring ${enabled ? 'enabled' : 'disabled'}`);
+                    }}
                 />
 
                 {/* Workflow Canvas */}

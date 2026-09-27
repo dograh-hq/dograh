@@ -48,6 +48,8 @@ interface WorkflowEditorHeaderProps {
     hasDraft: boolean;
     onPublished: () => void;
     renameWorkflow: (newName: string) => Promise<void>;
+    calmScoringEnabled: boolean;
+    onCalmScoringChange: (enabled: boolean) => Promise<void>;
 }
 
 export const WorkflowEditorHeader = ({
@@ -67,6 +69,8 @@ export const WorkflowEditorHeader = ({
     workflowId,
     workflowUuid,
     renameWorkflow,
+    calmScoringEnabled,
+    onCalmScoringChange,
 }: WorkflowEditorHeaderProps) => {
     const router = useRouter();
     const { toggleSidebar } = useSidebar();
@@ -460,6 +464,17 @@ export const WorkflowEditorHeader = ({
                 >
                     <Bot className="w-4 h-4" />
                     Test Agent
+                </Button>
+
+                <Button
+                    variant="outline"
+                    className="flex items-center gap-2 bg-transparent border-[#3a3a3a] hover:bg-[#2a2a2a] text-white"
+                    onClick={() => void onCalmScoringChange(!calmScoringEnabled)}
+                    aria-pressed={calmScoringEnabled}
+                    aria-label="Toggle CALM turn-by-turn scoring"
+                >
+                    <span className={`h-2.5 w-2.5 rounded-full ${calmScoringEnabled ? 'bg-emerald-400' : 'bg-gray-500'}`} />
+                    CALM scoring {calmScoringEnabled ? 'On' : 'Off'}
                 </Button>
 
                 <Button

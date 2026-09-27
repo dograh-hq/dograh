@@ -10,6 +10,7 @@ import {
     stopSimulationApiV1SakinahSimulationsSimulationIdStopPost,
 } from "@/client";
 import { client } from "@/client/client.gen";
+import { type CalmTurn,TurnByTurnCalmPanel } from "@/components/TurnByTurnCalmPanel";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -63,6 +64,7 @@ export default function SakinahSimulationPage() {
     const [showScoringPanel, setShowScoringPanel] = useState(true);
     const [experimentMode, setExperimentMode] = useState<ExperimentMode>("full_calm_prompt");
     const [calmAnalysis, setCalmAnalysis] = useState<CalmAnalysis | null>(null);
+    const [calmTurns, setCalmTurns] = useState<CalmTurn[]>([]);
     const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
     const [audioStatus, setAudioStatus] = useState<SimulationAudioStatus>("idle");
     const [audioFrameCount, setAudioFrameCount] = useState(0);
@@ -152,7 +154,21 @@ export default function SakinahSimulationPage() {
             return;
         }
         if (event.type === "calm-analysis") {
-            setCalmAnalysis(event.payload as unknown as CalmAnalysis);
+            const payload = event.payload ?? {};
+            const analysis = payload as unknown as CalmAnalysis;
+            setCalmAnalysis(analysis);
+            const trend = (payload.trend as { parameters?: unknown } | undefined)?.parameters ?? payload.trend;
+            setCalmTurns((previous) => [...previous, {
+                role: (payload.role as string | undefined) ?? (event.role === "sakinah" ? "sakinah" : "caller"),
+                turn_id: payload.turn_id as number | string | undefined,
+                text: (payload.text ?? payload.utterance_verbatim) as string | undefined,
+                calm_scores: payload.calm_scores as Record<string, number | null> | undefined,
+                scores: payload.scores as Record<string, number | null> | undefined,
+                emotional_scores: payload.emotional_scores as Record<string, number | null> | undefined,
+                safety_scores: payload.safety_scores as Record<string, number | null> | undefined,
+                trend: trend as CalmTurn["trend"],
+                prompt_sent_to_llm: payload.prompt_sent_to_llm as string | undefined,
+            }]);
             return;
         }
         if (event.type === "pipeline-error" || event.type === "rtf-pipeline-error") {
@@ -357,6 +373,7 @@ export default function SakinahSimulationPage() {
         setError(null);
         setTurns([]);
         setCalmAnalysis(null);
+        setCalmTurns([]);
         try {
             if (!isAuthenticated) {
                 redirectToLogin();
@@ -632,6 +649,7 @@ export default function SakinahSimulationPage() {
                 </section>
             </div>
             {showScoringPanel ? <div className="lg:ml-[calc(33.333%+0.5rem)]"><CalmScoringPanel analysis={calmAnalysis} /></div> : null}
+            {showScoringPanel ? <div className="lg:ml-[calc(33.333%+0.5rem)]"><TurnByTurnCalmPanel turns={calmTurns} title="Simulation turn-by-turn CALM scoring" /></div> : null}
             <SakinahRunHistory refreshKey={historyRefreshKey} />
         </main>
     );

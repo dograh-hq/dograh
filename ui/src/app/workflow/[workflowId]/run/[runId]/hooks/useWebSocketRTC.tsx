@@ -136,6 +136,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const [workflowConfigError, setWorkflowConfigError] = useState<string | null>(null);
     const [isStarting, setIsStarting] = useState(false);
     const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
+    const [calmTurns, setCalmTurns] = useState<Array<Record<string, unknown>>>([]);
     const initialContext = initialContextVariables || {};
     const { config: appConfig, loading: appConfigLoading, refresh: refreshAppConfig } = useAppConfig();
 
@@ -436,6 +437,9 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                     const message = JSON.parse(event.data);
 
                     switch (message.type) {
+                        case 'calm-analysis':
+                            setCalmTurns(prev => [...prev, message.payload as Record<string, unknown>]);
+                            break;
                         case 'answer':
                             // Set remote description immediately (may have no candidates)
                             const answer = message.payload;
@@ -955,5 +959,6 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         initialContext,
         getAudioInputDevices,
         feedbackMessages,
+        calmTurns,
     };
 };

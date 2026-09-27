@@ -4,6 +4,7 @@ import { Loader2, Phone, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
+import { type CalmTurn,TurnByTurnCalmPanel } from "@/components/TurnByTurnCalmPanel";
 import { Button } from "@/components/ui/button";
 import { RealtimeFeedback } from "@/components/workflow/conversation";
 
@@ -46,6 +47,7 @@ export function EmbeddedVoiceTester({
         stop,
         isStarting,
         feedbackMessages,
+        calmTurns,
         appConfig,
         appConfigLoading,
         refreshAppConfig,
@@ -151,6 +153,17 @@ export function EmbeddedVoiceTester({
                         isCallCompleted={isCompleted}
                     />
                 </div>
+
+                <TurnByTurnCalmPanel turns={calmTurns.map((turn) => ({
+                    turn_id: turn.turn_id as number | string,
+                    role: turn.role as string | undefined,
+                    text: (turn.text ?? turn.utterance_verbatim) as string | undefined,
+                    scores: (turn.role === 'sakinah' ? turn.scores : turn.calm_scores) as Record<string, number | null> | undefined,
+                    emotional_scores: turn.emotional_scores as Record<string, number | null> | undefined,
+                    safety_scores: turn.safety_scores as Record<string, number | null> | undefined,
+                    trend: turn.trend as Record<string, { direction?: string; delta_previous?: number | null }> | undefined,
+                    prompt_sent_to_llm: turn.prompt_sent_to_llm as string | undefined,
+                } satisfies CalmTurn))} />
 
                 <div className="border-t border-border/70 bg-background px-4 py-3">
                     <div className="flex flex-col gap-3">

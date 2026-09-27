@@ -28,6 +28,7 @@ import {
 } from '@/client/sdk.gen';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
+import { type CalmTurn,TurnByTurnCalmPanel } from '@/components/TurnByTurnCalmPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -47,6 +48,7 @@ interface StorageAudit {
     postgres?: {
         status?: StorageStatus;
         transcript_status?: StorageStatus;
+        calm_scoring_status?: StorageStatus;
         recording_metadata_count?: number;
     };
     minio?: {
@@ -81,6 +83,13 @@ interface WorkflowRunResponse {
     gathered_context: Record<string, string | number | boolean | object> | null;
     logs: WorkflowRunLogs | null;
     annotations: Record<string, unknown> | null;
+}
+
+function calmTurns(annotations: Record<string, unknown> | null): CalmTurn[] {
+    const scoring = annotations?.calm_scoring as Record<string, unknown> | undefined;
+    const caller = Array.isArray(scoring?.caller) ? scoring.caller.map((turn) => ({ ...(turn as CalmTurn), role: 'caller' })) : [];
+    const sakinah = Array.isArray(scoring?.sakinah) ? scoring.sakinah.map((turn) => ({ ...(turn as CalmTurn), role: 'sakinah' })) : [];
+    return [...caller, ...sakinah];
 }
 
 const RUN_SHELL_HEIGHT_CLASS = "h-[calc(100svh-49px)] min-h-[calc(100svh-49px)] max-h-[calc(100svh-49px)]";
@@ -132,7 +141,7 @@ function StorageAuditSection({ audit }: { audit: StorageAudit }) {
                 <CardTitle className="text-lg">Storage</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-                <div className="grid gap-2 sm:grid-cols-3">
+                <div className="grid gap-2 sm:grid-cols-4">
                     <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
                         <p className="text-muted-foreground">Database</p>
                         <p className="font-medium">Local Postgres {statusIcon(audit.postgres?.status)} <span className="text-muted-foreground">({statusLabel(audit.postgres?.status)})</span></p>
@@ -144,6 +153,10 @@ function StorageAuditSection({ audit }: { audit: StorageAudit }) {
                     <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
                         <p className="text-muted-foreground">AWS S3</p>
                         <p className="font-medium">{statusLabel(audit.aws?.status)} {statusIcon(audit.aws?.status)}</p>
+                    </div>
+                    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+                        <p className="text-muted-foreground">CALM scoring</p>
+                        <p className="font-medium">Postgres/MinIO {statusIcon(audit.postgres?.calm_scoring_status)} <span className="text-muted-foreground">({statusLabel(audit.postgres?.calm_scoring_status)})</span></p>
                     </div>
                 </div>
                 <div className="flex flex-wrap gap-x-5 gap-y-1 text-muted-foreground">
@@ -935,6 +948,8 @@ export default function WorkflowRunPage() {
                             logs={workflowRun?.logs ?? null}
                             gatheredContext={workflowRun?.gathered_context ?? null}
                         />
+
+                        <TurnByTurnCalmPanel turns={calmTurns(workflowRun?.annotations ?? null)} />
 
                         {storageAudit && <StorageAuditSection audit={storageAudit} />}
 

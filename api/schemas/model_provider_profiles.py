@@ -29,7 +29,7 @@ _PROFILE_NAME_RE = re.compile(PROFILE_NAME_PATTERN)
 
 
 def validate_profile_name(name: str) -> str:
-    if not isinstance(name, str) or not _PROFILE_NAME_RE.match(name):
+    if not isinstance(name, str) or not _PROFILE_NAME_RE.fullmatch(name):
         raise ValueError(
             "Profile name must be 1-48 characters: lowercase letters, digits, "
             "'-' or '_', starting with a letter or digit"
@@ -53,6 +53,8 @@ def parse_profile_config(
     provider = config.get("provider")
     if not provider:
         raise ValueError("config.provider is required")
+    if not isinstance(provider, str):
+        raise ValueError("config.provider must be a string")
     if provider == ServiceProviders.DOGRAH.value:
         raise ValueError(
             "The managed 'dograh' provider cannot be saved as a profile; "

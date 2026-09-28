@@ -2,10 +2,15 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from api.routes.public_agent import router
+from api.routes.public_agent import (
+    ResolvedAgentTarget,
+    _validate_model_overrides,
+    router,
+)
+from api.schemas.model_provider_profiles import CallModelOverrides
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration import provider_profiles as profiles
 from api.services.workflow.initial_context import (
@@ -124,7 +129,7 @@ async def env():
         patch(
             "api.routes.public_agent.get_effective_ai_model_configuration_for_workflow",
             new=AsyncMock(return_value=base_config),
-        ),
+        ) as get_effective_config,
     ):
         concurrency.acquire_org_slot = AsyncMock(return_value=object())
         concurrency.bind_workflow_run = AsyncMock()
@@ -158,6 +163,8 @@ async def env():
             db=mock_db,
             provider=provider,
             concurrency=concurrency,
+            workflow=workflow,
+            get_effective_config=get_effective_config,
         )
 
 
@@ -254,3 +261,63 @@ def test_reserved_key_is_stripped_when_merging_external_context():
         {"a": 1}, {RUN_MODEL_OVERRIDES_CONTEXT_KEY: {"llm": {}}, "b": 2}
     )
     assert merged == {"a": 1, "b": 2}
+
+
+def test_validation_uses_the_pinned_definitions_config_not_a_stale_workflow_one(env):
+    """An intentionally empty definition config (`{}`) must not fall back to
+    the mutable top-level workflow config -- `{}` is falsy, so a naive `or`
+    would silently pick the wrong (possibly stale) source."""
+    env.workflow.released_definition.workflow_configurations = {}
+    env.workflow.workflow_configurations = {"stale": "marker-should-not-be-used"}
+
+    response = _post(
+        env, ROUTES[0], {"model_overrides": {"llm": {"profile": "openai-cheap"}}}
+    )
+
+    assert response.status_code == 200
+    used_configs = env.get_effective_config.await_args_list[0].kwargs[
+        "workflow_configurations"
+    ]
+    assert used_configs == {}
+
+
+@pytest.mark.asyncio
+async def test_validate_model_overrides_catches_a_plain_value_error_as_422():
+    """A ValueError/ValidationError from the second (apply-time) profile read
+    -- e.g. a profile edited between the two reads in this one request --
+    must surface as the documented 422, not an unhandled 500."""
+    workflow = SimpleNamespace(
+        organization_id=ORG_ID,
+        workflow_configurations={},
+        released_definition=None,
+        current_definition=SimpleNamespace(workflow_configurations={}),
+    )
+    target = ResolvedAgentTarget(
+        workflow=workflow,
+        organization_id=ORG_ID,
+        identifier_type="trigger_path",
+        identifier_value="trigger-uuid-123",
+    )
+    overrides = CallModelOverrides.model_validate({"llm": {"profile": "openai-cheap"}})
+
+    with (
+        patch(
+            "api.routes.public_agent.validate_call_overrides",
+            new=AsyncMock(return_value={"llm": {"profile": "openai-cheap"}}),
+        ),
+        patch(
+            "api.routes.public_agent.get_effective_ai_model_configuration_for_workflow",
+            new=AsyncMock(
+                return_value=EffectiveAIModelConfiguration.model_validate(BASE)
+            ),
+        ),
+        patch(
+            "api.routes.public_agent.apply_call_model_overrides",
+            new=AsyncMock(side_effect=ValueError("profile changed mid-request")),
+        ),
+    ):
+        with pytest.raises(HTTPException) as excinfo:
+            await _validate_model_overrides(target, overrides, use_draft=False)
+
+    assert excinfo.value.status_code == 422
+    assert "profile changed mid-request" in excinfo.value.detail

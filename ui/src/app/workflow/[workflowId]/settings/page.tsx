@@ -1572,12 +1572,18 @@ function WorkflowModelOverridesSection({
                                 )}
                             </div>
                         )}
-
-                        <WorkflowSavedProviders
-                            selection={workflowConfigurations.model_profile_selection as WorkflowProfileSelection | undefined}
-                            onSave={saveProfileSelection}
-                        />
                     </>
+                )}
+
+                {/* Saved providers work with just the org default, so this is not
+                    gated on hasOrgConfiguration -- otherwise a workflow that already
+                    has a model_profile_selection would become invisible/unclearable
+                    for any org that hasn't set up a v2 default configuration. */}
+                {!modelConfigurationLoading && !modelConfigurationError && modelConfigurationDefaults && (
+                    <WorkflowSavedProviders
+                        selection={workflowConfigurations.model_profile_selection}
+                        onSave={saveProfileSelection}
+                    />
                 )}
             </CardContent>
         </Card>

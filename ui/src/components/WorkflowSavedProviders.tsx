@@ -9,11 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
+import type { WorkflowProfileSelection } from "@/types/workflow-configurations";
+
+export type { WorkflowProfileSelection };
 
 type ProfileService = ModelProviderProfileResponse["service"];
-
-/** Saved providers chosen for a workflow: `{ llm: { profile: "openai-fast" } }`. */
-export type WorkflowProfileSelection = Partial<Record<ProfileService, { profile: string } & Record<string, unknown>>>;
 
 const SERVICES: { key: ProfileService; label: string }[] = [
     { key: "llm", label: "LLM" },
@@ -105,7 +105,7 @@ export function WorkflowSavedProviders({ selection, onSave }: WorkflowSavedProvi
                 </p>
             </div>
 
-            {profiles.length === 0 ? (
+            {profiles.length === 0 && !selection ? (
                 <p className="text-sm text-muted-foreground">
                     No saved providers yet. Add some under Model Configurations, then choose them here.
                 </p>

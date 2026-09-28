@@ -215,6 +215,7 @@ export function SavedProvidersSection({ defaults }: SavedProvidersSectionProps) 
                                                 aria-label={`Edit ${profile.name}`}
                                                 onClick={() => {
                                                     setError(null);
+                                                    setNameError(null);
                                                     setDialog({ kind: "edit", profile });
                                                 }}
                                             >

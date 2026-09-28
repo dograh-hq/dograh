@@ -95,10 +95,21 @@ def test_same_name_in_different_services_is_allowed():
     )
 
 
-@pytest.mark.parametrize("name", ["", "Has Caps", "-leading", "a" * 49, "with space"])
+@pytest.mark.parametrize(
+    "name", ["", "Has Caps", "-leading", "a" * 49, "with space", "abc\n", "abc\x00"]
+)
 def test_invalid_profile_names_are_rejected(name):
     with pytest.raises(ValueError):
         ModelProviderProfile(name=name, service="llm", config=OPENAI_A)
+
+
+def test_non_string_provider_is_rejected_not_500():
+    # A JSON list/object provider must not reach REGISTRY.get() as a dict key
+    # (unhashable -> TypeError -> 500); it must fail as an ordinary 422.
+    with pytest.raises(ValueError, match="must be a string"):
+        parse_profile_config("llm", {"provider": ["openai"], "api_key": "x"})
+    with pytest.raises(ValueError, match="must be a string"):
+        parse_profile_config("llm", {"provider": {"nested": True}, "api_key": "x"})
 
 
 def test_dograh_provider_cannot_be_saved_as_a_profile():
@@ -193,6 +204,22 @@ async def test_update_keeps_stored_secret_when_client_sends_the_mask(store):
 
 
 @pytest.mark.asyncio
+async def test_update_rejects_a_mask_that_does_not_match_the_stored_key(store):
+    """A mask that doesn't match the stored key can't be a real key either --
+    it must be rejected (422), not silently kept or silently accepted."""
+    await profiles.create_profile(ORG_ID, name="main", service="llm", config=OPENAI_A)
+
+    wrong_mask_update = {**OPENAI_A, "api_key": "****wxyz"}
+    with pytest.raises(profiles.ProfileConfigError, match="masked"):
+        await profiles.update_profile(
+            ORG_ID, service="llm", name="main", config=wrong_mask_update
+        )
+
+    stored = await profiles.get_profile(ORG_ID, "llm", "main")
+    assert stored.config["api_key"] == OPENAI_A["api_key"]
+
+
+@pytest.mark.asyncio
 async def test_update_with_new_key_replaces_it(store):
     await profiles.create_profile(ORG_ID, name="main", service="llm", config=OPENAI_A)
     await profiles.update_profile(
@@ -268,6 +295,7 @@ def test_routes_full_lifecycle_never_leak_keys(client):
     )
     assert updated.status_code == 200
     assert updated.json()["config"]["model"] == "gpt-4.1"
+    assert OPENAI_A["api_key"] not in updated.text
 
     assert client.delete(f"{BASE}/llm/openai-prod").status_code == 204
     assert client.get(BASE).json()["profiles"] == []
@@ -295,5 +323,22 @@ def test_routes_status_codes(client):
     assert client.delete(f"{BASE}/llm/missing").status_code == 404
     assert (
         client.put(f"{BASE}/embeddings/main", json={"config": OPENAI_A}).status_code
+        == 422
+    )
+    # A non-string provider (JSON list/object) must 422, not crash the
+    # registry lookup with an unhashable-key TypeError.
+    assert (
+        client.post(
+            BASE,
+            json={"name": "y", "service": "llm", "config": {"provider": ["openai"]}},
+        ).status_code
+        == 422
+    )
+    # A name with a trailing newline must be rejected, not silently accepted
+    # by a `$`-anchored regex.
+    assert (
+        client.post(
+            BASE, json={"name": "abc\n", "service": "llm", "config": OPENAI_A}
+        ).status_code
         == 422
     )

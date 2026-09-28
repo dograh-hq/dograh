@@ -218,6 +218,22 @@ async def test_apply_never_merges_default_endpoint_into_a_profile(saved_profiles
 
 
 @pytest.mark.asyncio
+async def test_apply_rejects_a_forbidden_field_even_if_stored_unvalidated(
+    saved_profiles, base_config
+):
+    """Defense-in-depth: a `stored` dict that skipped validate_call_overrides
+    (e.g. a hand-edited run, or a future writer that forgot to validate) must
+    still be refused here, at the point that actually merges onto real
+    credentials -- not silently substitute the attacker-supplied key."""
+    with pytest.raises(CallOverrideError, match="cannot be overridden"):
+        await apply_call_model_overrides(
+            base_config,
+            ORG_ID,
+            {"llm": {"profile": "openai-cheap", "api_key": "sk-attacker-key"}},
+        )
+
+
+@pytest.mark.asyncio
 async def test_realtime_profile_switches_to_speech_to_speech(
     saved_profiles, base_config
 ):

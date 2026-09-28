@@ -114,6 +114,9 @@ describe("SavedProvidersSection", () => {
 
         await waitFor(() => expect(update).toHaveBeenCalledOnce());
         expect(update.mock.calls[0][0].path).toEqual({ service: "llm", name: "openai-prod" });
+        expect(update.mock.calls[0][0].body).toMatchObject({
+            config: { provider: "openai", model: "gpt-4.1-mini" },
+        });
     });
 
     it("deletes only after confirmation", async () => {

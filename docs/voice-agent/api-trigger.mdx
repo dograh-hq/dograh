@@ -125,7 +125,7 @@ curl -X POST https://your-dograh-instance/api/v1/public/agent/{uuid} \
 | `llm`, `tts`, `stt`, `realtime` | Each takes `profile` (the name of a saved provider for that service) plus optional settings to change for this call, such as `model`, `voice`, `speed`, or `language`. |
 | `is_realtime` | Optional. Force speech-to-speech on or off. It defaults to on when `realtime` is set. |
 
-- A service you leave out keeps the agent's normal configuration. The override order is your default configuration, then the agent's own model overrides, then `model_overrides` for the call.
+- A service you leave out keeps the agent's normal configuration. The override order is your default configuration, then the agent's own model overrides, then the agent's [saved-provider selection](/configurations/saved-providers#use-a-saved-provider-in-a-workflow) (if any), then `model_overrides` for the call.
 - API keys are read from the saved provider when the call starts. `api_key`, `credentials`, `provider`, and endpoint URLs (`base_url`, `endpoint`) cannot be sent. To use another key or endpoint, save another provider for it.
 - The request is checked before the call is placed. An unknown saved provider, an unknown setting for that provider, or an override that leaves the call without a required service returns `422` and no call is made.
 - Overrides apply to all four trigger URLs (production and test, by trigger node or by Agent UUID).

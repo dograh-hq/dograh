@@ -98,10 +98,27 @@ describe("WorkflowSavedProviders", () => {
         expect(screen.getByText("gone (deleted)")).toBeTruthy();
     });
 
-    it("explains when there are no saved providers", async () => {
+    it("explains when there are no saved providers and nothing is selected", async () => {
         list.mockResolvedValue({ data: { profiles: [] } });
         render(<WorkflowSavedProviders selection={undefined} onSave={vi.fn()} />);
         expect(await screen.findByText(/No saved providers yet/)).toBeTruthy();
+    });
+
+    it("still shows the dropdown to clear a selection even with zero saved providers left", async () => {
+        // All providers were deleted, but the workflow still points at one by
+        // name -- the UI must offer a way to reset it, not go silent.
+        list.mockResolvedValue({ data: { profiles: [] } });
+        const onSave = vi.fn().mockResolvedValue(undefined);
+        render(<WorkflowSavedProviders selection={{ llm: { profile: "gone" } }} onSave={onSave} />);
+
+        expect(await screen.findByText(/no longer exists/)).toBeTruthy();
+        expect(screen.queryByText(/No saved providers yet/)).toBeNull();
+
+        const llm = await dropdown("LLM");
+        fireEvent.change(llm, { target: { value: "__default__" } });
+        fireEvent.click(screen.getByRole("button", { name: "Save Saved Providers" }));
+
+        await waitFor(() => expect(onSave).toHaveBeenCalledWith({}));
     });
 
     it("shows a save error inline", async () => {

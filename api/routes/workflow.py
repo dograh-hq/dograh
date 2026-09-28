@@ -41,6 +41,7 @@ from api.services.configuration.call_model_overrides import (
     validate_workflow_profile_selection,
 )
 from api.services.configuration.check_validity import UserConfigurationValidator
+from api.services.configuration.profile_selection import apply_profile_selection
 from api.services.configuration.masking import (
     mask_workflow_configurations,
     mask_workflow_definition,
@@ -1264,16 +1265,43 @@ async def update_workflow(
                 effective = resolve_effective_config(
                     effective_config, enriched_overrides
                 )
+                # A pending saved-provider selection (validated on its own,
+                # below) may supply a service this partial override doesn't.
+                # Validate against that combined picture too, so this step
+                # doesn't reject a config the selection would go on to
+                # complete — but never let the selection's real credentials
+                # leak into what gets persisted here (`effective` stays
+                # untouched; only `effective_for_validation` sees them).
+                effective_for_validation = effective
+                pending_selection = workflow_configurations.get(
+                    WORKFLOW_MODEL_PROFILE_SELECTION_KEY
+                )
+                if pending_selection:
+                    try:
+                        effective_for_validation = await apply_profile_selection(
+                            effective,
+                            user.selected_organization_id,
+                            pending_selection,
+                        )
+                    except (CallOverrideError, ValueError, ValidationError):
+                        # An invalid selection is reported with a clearer
+                        # message by validate_workflow_profile_selection,
+                        # below — don't let it surface here instead.
+                        effective_for_validation = effective
                 if resolved_config.source == "organization_v2":
                     v2_override = convert_legacy_ai_model_configuration_to_v2(effective)
                     await UserConfigurationValidator().validate(
-                        compile_ai_model_configuration_v2(v2_override),
+                        compile_ai_model_configuration_v2(
+                            convert_legacy_ai_model_configuration_to_v2(
+                                effective_for_validation
+                            )
+                        ),
                         organization_id=user.selected_organization_id,
                         created_by=user.provider_id,
                     )
                 else:
                     await UserConfigurationValidator().validate(
-                        effective,
+                        effective_for_validation,
                         organization_id=user.selected_organization_id,
                         created_by=user.provider_id,
                     )

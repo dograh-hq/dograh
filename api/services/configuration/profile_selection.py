@@ -11,10 +11,24 @@ from typing import Any
 
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.schemas.model_provider_profiles import PROFILE_SERVICES, parse_profile_config
+from api.services.configuration.masking import SERVICE_SECRET_FIELDS
 from api.services.configuration.provider_profiles import (
     ProfileNotFoundError,
     get_profile,
 )
+
+# A per-call/per-workflow field tweak may never carry credentials, switch the
+# provider, or point at a different endpoint — those require a separate saved
+# profile. `call_model_overrides.validate_call_overrides` already rejects
+# these before anything is stored; this module re-checks at the point that
+# actually merges a tweak onto a profile's real credentials, so a future
+# caller that stores an override without going through validation first
+# can't smuggle a secret field into a run's resolved config.
+_FORBIDDEN_TWEAK_FIELDS = frozenset(SERVICE_SECRET_FIELDS) | {
+    "provider",
+    "base_url",
+    "endpoint",
+}
 
 
 class CallOverrideError(ValueError):
@@ -30,6 +44,12 @@ async def expand_profile_section(
     except ProfileNotFoundError as exc:
         raise CallOverrideError(f"No saved {service} profile named '{name}'") from exc
     fields = {key: value for key, value in section.items() if key != "profile"}
+    forbidden = sorted(_FORBIDDEN_TWEAK_FIELDS & set(fields))
+    if forbidden:
+        raise CallOverrideError(
+            f"{service}: {', '.join(forbidden)} cannot be overridden; "
+            "save a separate profile instead"
+        )
     return {**profile.config, **fields}
 
 

@@ -27,8 +27,8 @@ from api.services.configuration.ai_model_configuration import (
     WORKFLOW_MODEL_PROFILE_SELECTION_KEY,
     get_effective_ai_model_configuration_for_workflow,
 )
-from api.services.configuration.masking import SERVICE_SECRET_FIELDS
 from api.services.configuration.profile_selection import (
+    _FORBIDDEN_TWEAK_FIELDS,
     CallOverrideError,
     expand_profile_section,
     apply_profile_selection,
@@ -42,14 +42,7 @@ from api.services.workflow.initial_context import RUN_MODEL_OVERRIDES_CONTEXT_KE
 
 # Re-exported: callers and tests import the historical names from here.
 apply_call_model_overrides = apply_profile_selection
-
-# Fields a caller may never override per call: credentials, the provider
-# itself, and endpoint URLs (validated only when a profile is saved).
-_FORBIDDEN_FIELDS = frozenset(SERVICE_SECRET_FIELDS) | {
-    "provider",
-    "base_url",
-    "endpoint",
-}
+_FORBIDDEN_FIELDS = _FORBIDDEN_TWEAK_FIELDS
 
 
 def _check_field_names(service: str, section: dict[str, Any], provider: str) -> None:

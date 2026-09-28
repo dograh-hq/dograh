@@ -10,7 +10,7 @@ from typing import Awaitable, Callable, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from api.db import db_client
 from api.enums import TriggerState, WorkflowStatus
@@ -222,9 +222,11 @@ async def _validate_model_overrides(
         definition = await definition_to_run(
             db_client, target.workflow, use_draft=use_draft
         )
+        definition_configurations = getattr(definition, "workflow_configurations", None)
         workflow_configurations = (
-            getattr(definition, "workflow_configurations", None)
-            or target.workflow.workflow_configurations
+            definition_configurations
+            if definition_configurations is not None
+            else target.workflow.workflow_configurations
         )
         base = await get_effective_ai_model_configuration_for_workflow(
             organization_id=target.organization_id,
@@ -239,7 +241,11 @@ async def _validate_model_overrides(
                 "model_overrides leave the call without a "
                 f"{', '.join(missing)} configuration; add a profile for it"
             )
-    except CallOverrideError as exc:
+    except (CallOverrideError, ValueError, ValidationError) as exc:
+        # CallOverrideError is a ValueError subclass; the wider catch also
+        # covers a profile edited/deleted between the two reads above
+        # (validate_call_overrides, then apply_call_model_overrides), which
+        # would otherwise surface as an unhandled 500 instead of a 422.
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return stored
 

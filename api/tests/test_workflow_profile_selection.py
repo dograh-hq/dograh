@@ -2,10 +2,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from api.routes.workflow import router
+from api.routes.workflow import UpdateWorkflowRequest, router, update_workflow
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.auth.depends import get_user
 from api.services.configuration import ai_model_configuration as amc
@@ -246,6 +246,49 @@ def test_update_workflow_rejects_unknown_saved_provider_before_db_write(
 
     assert response.status_code == 422
     assert "No saved llm profile named 'missing'" in response.json()["detail"]
+    mock_db.update_workflow.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_malformed_selection_combined_with_model_overrides_is_422_not_500(
+    saved, passthrough_pbx_policy
+):
+    """A malformed model_profile_selection (not a dict of {service: {...}})
+    alongside a legacy model_overrides must not crash the speculative
+    peek that lets a selection complete a partial override -- it falls
+    back, and the real (later) validator reports the real 422.
+
+    Calls the route function directly rather than through TestClient/HTTP:
+    the same behavior, without going through the ASGI/ https client stack.
+    """
+    with patch("api.routes.workflow.db_client") as mock_db:
+        mock_db.update_workflow = AsyncMock()
+        # The elif model_overrides branch this test also exercises loads the
+        # existing workflow/draft to merge secrets -- unrelated to the bug
+        # under test, but required for the request to reach that far.
+        mock_db.get_workflow = AsyncMock(
+            return_value=SimpleNamespace(
+                released_definition=SimpleNamespace(workflow_configurations={})
+            )
+        )
+        mock_db.get_draft_version = AsyncMock(return_value=None)
+
+        request = UpdateWorkflowRequest.model_validate(
+            {
+                "workflow_configurations": {
+                    "model_overrides": {"llm": {"provider": "openai"}},
+                    "model_profile_selection": "not-a-dict",
+                }
+            }
+        )
+        user = SimpleNamespace(
+            id=1, provider_id="provider-1", selected_organization_id=ORG_ID
+        )
+
+        with pytest.raises(HTTPException) as excinfo:
+            await update_workflow(33, request, user)
+
+    assert excinfo.value.status_code == 422
     mock_db.update_workflow.assert_not_awaited()
 
 

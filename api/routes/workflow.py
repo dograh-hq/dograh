@@ -1283,10 +1283,16 @@ async def update_workflow(
                             user.selected_organization_id,
                             pending_selection,
                         )
-                    except (CallOverrideError, ValueError, ValidationError):
-                        # An invalid selection is reported with a clearer
-                        # message by validate_workflow_profile_selection,
-                        # below — don't let it surface here instead.
+                    except Exception:
+                        # This is a best-effort peek: a malformed selection
+                        # shape here (not just CallOverrideError/ValueError/
+                        # ValidationError -- e.g. a non-dict value, which
+                        # raises TypeError/AttributeError/KeyError deeper in
+                        # apply_profile_selection) must fall back to the
+                        # unaugmented config rather than 500, since the real,
+                        # authoritative shape/value validation -- and its
+                        # clearer error message -- happens below, in
+                        # validate_workflow_profile_selection.
                         effective_for_validation = effective
                 if resolved_config.source == "organization_v2":
                     v2_override = convert_legacy_ai_model_configuration_to_v2(effective)

@@ -283,10 +283,9 @@ def test_validation_uses_the_pinned_definitions_config_not_a_stale_workflow_one(
     )
 
     assert response.status_code == 200
-    used_configs = env.get_effective_config.await_args_list[0].kwargs[
-        "workflow_configurations"
-    ]
-    assert used_configs == {}
+    env.get_effective_config.assert_awaited_once_with(
+        organization_id=ORG_ID, workflow_configurations={}
+    )
 
 
 @pytest.mark.asyncio

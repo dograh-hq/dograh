@@ -692,6 +692,8 @@ export type ByokPipelineAiModelConfiguration = {
     } & AssemblyAisttConfiguration) | ({
         provider: 'gladia';
     } & GladiaSttConfiguration) | ({
+        provider: 'soniox';
+    } & SonioxSttConfiguration) | ({
         provider: 'azure_speech';
     } & AzureSpeechSttConfiguration) | ({
         provider: 'smallest';
@@ -2085,6 +2087,12 @@ export type DeepgramSttConfiguration = {
      * Language code. 'multi' enables Nova-3 auto-detect and omits language hints for Flux multilingual auto-detect.
      */
     language?: string;
+    /**
+     * Language Hints
+     *
+     * More languages to bias Flux multilingual toward, on top of the language above. Pick several when callers switch between known languages; leave empty to rely on the language above.
+     */
+    language_hints?: Array<string>;
     /**
      * Base Url
      *
@@ -4695,6 +4703,12 @@ export type OpenRouterLlmConfiguration = {
      * Override only if proxying OpenRouter through your own gateway.
      */
     base_url?: string;
+    /**
+     * Provider Order
+     *
+     * OpenRouter provider slugs to try first, in order, one per entry (e.g. groq), as listed on the model's OpenRouter page. Pinning a low-latency provider avoids OpenRouter's default price-weighted routing; other providers are still used if these are unavailable.
+     */
+    provider_order?: Array<string>;
 };
 
 /**
@@ -6083,6 +6097,32 @@ export type SmallestAittsConfiguration = {
      * Speech speed multiplier (0.5 to 2.0).
      */
     speed?: number;
+};
+
+/**
+ * Soniox
+ */
+export type SonioxSttConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'soniox';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Soniox real-time STT model.
+     */
+    model?: string;
+    /**
+     * Language
+     *
+     * ISO 639-1 language code, sent as a language hint. 'multi' sends no hint and lets Soniox auto-detect the language.
+     */
+    language?: string;
 };
 
 /**

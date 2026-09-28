@@ -91,6 +91,11 @@ from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
 from pipecat.services.smallest.stt import SmallestSTTService, SmallestSTTSettings
 from pipecat.services.smallest.tts import SmallestTTSService, SmallestTTSSettings
+from pipecat.services.soniox.stt import (
+    SonioxContextObject,
+    SonioxSTTService,
+    SonioxSTTSettings,
+)
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
 from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
 from pipecat.services.speaches.tts import SpeachesTTSService, SpeachesTTSSettings
@@ -360,10 +365,19 @@ def create_stt_service(
                 "keyterm": keyterms or [],
             }
             if user_config.stt.model == "flux-general-multi":
-                language = getattr(user_config.stt, "language", None)
-                language_hint = _resolve_deepgram_flux_language_hint(language)
-                if language_hint:
-                    settings_kwargs["language_hints"] = [language_hint]
+                codes = [
+                    getattr(user_config.stt, "language", None),
+                    *(getattr(user_config.stt, "language_hints", None) or []),
+                ]
+                language_hints = list(
+                    dict.fromkeys(
+                        hint
+                        for hint in map(_resolve_deepgram_flux_language_hint, codes)
+                        if hint
+                    )
+                )
+                if language_hints:
+                    settings_kwargs["language_hints"] = language_hints
 
             return DeepgramFluxSTTService(
                 api_key=user_config.stt.api_key,
@@ -560,6 +574,21 @@ def create_stt_service(
         return GladiaSTTService(
             api_key=user_config.stt.api_key,
             settings=GladiaSTTSettings(**settings_kwargs),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.SONIOX.value:
+        language = getattr(user_config.stt, "language", None) or "multi"
+        settings_kwargs = {"model": user_config.stt.model}
+        if language != "multi":
+            settings_kwargs["language_hints"] = [Language(language)]
+        if keyterms:
+            settings_kwargs["context"] = SonioxContextObject(terms=keyterms)
+        return SonioxSTTService(
+            api_key=user_config.stt.api_key,
+            settings=SonioxSTTSettings(**settings_kwargs),
+            # Local VAD ends the turn and triggers Soniox finalize; Soniox's own
+            # endpoint detection stays off so turn strategies behave as for Nova.
+            vad_force_turn_endpoint=True,
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
@@ -1094,6 +1123,7 @@ def create_llm_service_from_provider(
     credentials: str | None = None,
     temperature: float | None = None,
     bill_to: str | None = None,
+    provider_order: list[str] | None = None,
     usage_context: str | None = None,
 ):
     """Create an LLM service from explicit provider/model/api_key.
@@ -1150,9 +1180,14 @@ def create_llm_service_from_provider(
         if base_url:
             _validate_runtime_service_url(base_url, "base_url")
             kwargs["base_url"] = base_url
+        extra = {}
+        if provider_order:
+            # OpenRouter's provider preferences are a request-body field the
+            # OpenAI client does not know, so they travel in extra_body.
+            extra["extra_body"] = {"provider": {"order": provider_order}}
         return OpenRouterLLMService(
             api_key=api_key,
-            settings=OpenRouterLLMSettings(model=model, temperature=0.1),
+            settings=OpenRouterLLMSettings(model=model, temperature=0.1, extra=extra),
             **kwargs,
         )
     elif provider == ServiceProviders.GOOGLE.value:
@@ -1504,6 +1539,7 @@ def create_llm_service(
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.OPENROUTER.value:
         kwargs["base_url"] = user_config.llm.base_url
+        kwargs["provider_order"] = getattr(user_config.llm, "provider_order", None)
     elif provider == ServiceProviders.AZURE.value:
         kwargs["endpoint"] = user_config.llm.endpoint
     elif provider == ServiceProviders.SPEACHES.value:

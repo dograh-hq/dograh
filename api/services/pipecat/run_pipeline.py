@@ -411,14 +411,15 @@ async def _run_pipeline_telephony_impl(
     # Resolve effective org config here so the transport can tune its
     # bot-stopped-speaking fallback based on is_realtime; pass the resolved
     # values into _run_pipeline so it doesn't fetch them again.
-    from api.services.configuration.ai_model_configuration import (
-        get_effective_ai_model_configuration_for_workflow,
+    from api.services.configuration.call_model_overrides import (
+        get_effective_ai_model_configuration_for_run,
     )
 
     run_configs = workflow_run.definition.workflow_configurations or {}
-    user_config = await get_effective_ai_model_configuration_for_workflow(
+    user_config = await get_effective_ai_model_configuration_for_run(
         organization_id=workflow.organization_id,
         workflow_configurations=run_configs,
+        run_initial_context=workflow_run.initial_context,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -531,8 +532,8 @@ async def _run_pipeline_smallwebrtc_impl(
     # Resolve workflow_run + effective org config here so the transport can
     # tune its bot-stopped-speaking fallback based on is_realtime. _run_pipeline
     # reuses these via kwargs so we don't fetch twice.
-    from api.services.configuration.ai_model_configuration import (
-        get_effective_ai_model_configuration_for_workflow,
+    from api.services.configuration.call_model_overrides import (
+        get_effective_ai_model_configuration_for_run,
     )
 
     workflow_run = await db_client.get_workflow_run(workflow_run_id, **workflow_scope)
@@ -547,9 +548,10 @@ async def _run_pipeline_smallwebrtc_impl(
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
-    user_config = await get_effective_ai_model_configuration_for_workflow(
+    user_config = await get_effective_ai_model_configuration_for_run(
         organization_id=workflow.organization_id if workflow else None,
         workflow_configurations=run_configs,
+        run_initial_context=workflow_run.initial_context,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -708,13 +710,14 @@ async def _run_pipeline_impl(
     # Resolve model overrides from the version onto global org config (skip
     # when the caller already resolved it).
     if resolved_user_config is None:
-        from api.services.configuration.ai_model_configuration import (
-            get_effective_ai_model_configuration_for_workflow,
+        from api.services.configuration.call_model_overrides import (
+            get_effective_ai_model_configuration_for_run,
         )
 
-        user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_config = await get_effective_ai_model_configuration_for_run(
             organization_id=workflow.organization_id,
             workflow_configurations=run_configs,
+            run_initial_context=workflow_run.initial_context,
         )
     else:
         user_config = resolved_user_config

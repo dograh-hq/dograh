@@ -14,6 +14,7 @@ import type {
     OrganizationAiModelConfigurationV2,
 } from "@/client/types.gen";
 import { AIModelConfigurationV2Editor, type ModelConfigurationDefaultsV2 } from "@/components/AIModelConfigurationV2Editor";
+import { SavedProvidersSection } from "@/components/SavedProvidersSection";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUserConfig } from "@/context/UserConfigContext";
 import { detailFromError } from "@/lib/apiError";
@@ -140,6 +141,8 @@ export default function ModelConfigurationV2({ docsUrl }: { docsUrl?: string }) 
                     onSave={saveConfiguration}
                 />
             )}
+
+            {defaults && response && <SavedProvidersSection defaults={defaults} />}
         </div>
     );
 }

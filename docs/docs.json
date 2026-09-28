@@ -54,6 +54,7 @@
               "configurations/llm",
               "configurations/voice",
               "configurations/transcriber",
+              "configurations/saved-providers",
               "configurations/api-keys",
               "configurations/agent-uuid",
               "configurations/interruption",

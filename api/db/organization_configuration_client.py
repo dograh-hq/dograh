@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 from sqlalchemy import update
@@ -80,6 +80,73 @@ class OrganizationConfigurationClient(BaseDBClient):
             except Exception as e:
                 await session.rollback()
                 raise e
+            await session.refresh(config)
+            return config
+
+    async def upsert_configuration_with_lock(
+        self,
+        organization_id: int,
+        key: str,
+        mutate: Callable[[Any], Any],
+        last_validated_at: datetime | None = None,
+    ) -> OrganizationConfigurationModel:
+        """Atomically read-modify-write one organization configuration row.
+
+        Row-locks (``SELECT ... FOR UPDATE``) the key for the duration of the
+        transaction, so two concurrent callers for the same
+        organization_id/key can never both read the same starting value and
+        silently overwrite each other's write -- the second caller's
+        ``mutate`` always runs against the first caller's committed result.
+
+        ``mutate`` receives the current stored ``value`` (``None`` if the key
+        doesn't exist yet) and returns the new value to persist; it may raise
+        to abort the write (e.g. a duplicate-name check that only the
+        now-current, locked value can answer authoritatively) -- the
+        transaction rolls back and the exception propagates to the caller.
+        Keep ``mutate`` synchronous and fast: it runs while the row lock is
+        held, so it must not itself await a slow or external call.
+        """
+        now = datetime.now(UTC)
+        async with self.async_session() as session:
+            try:
+                # Ensure a row exists so the lock below always has something
+                # to lock on -- otherwise two concurrent first-ever writers
+                # for this organization/key could both take the insert path.
+                # Track whether *this* call is the one that created it, so a
+                # genuinely-new row can still be reported to `mutate` as
+                # `None` (its documented contract) rather than `{}`.
+                insert_result = await session.execute(
+                    insert(OrganizationConfigurationModel.__table__)
+                    .values(
+                        organization_id=organization_id,
+                        key=key,
+                        value={},
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    .on_conflict_do_nothing(constraint="_organization_key_uc")
+                )
+                row_is_new = insert_result.rowcount > 0
+
+                result = await session.execute(
+                    select(OrganizationConfigurationModel)
+                    .where(
+                        OrganizationConfigurationModel.organization_id
+                        == organization_id,
+                        OrganizationConfigurationModel.key == key,
+                    )
+                    .with_for_update()
+                )
+                config = result.scalars().one()
+
+                config.value = mutate(None if row_is_new else config.value)
+                config.updated_at = now
+                config.last_validated_at = last_validated_at
+
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
             await session.refresh(config)
             return config
 

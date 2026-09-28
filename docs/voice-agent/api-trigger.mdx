@@ -49,7 +49,7 @@ The request body, headers, and response shape are identical for both URLs.
 
 ## Making a request
 
-Authenticate by passing your API key in the `X-API-Key` header. The request body requires a `phone_number` and accepts optional `initial_context`, `telephony_configuration_id`, and `from_phone_number_id` fields.
+Authenticate by passing your API key in the `X-API-Key` header. The request body requires a `phone_number` and accepts optional `initial_context`, `telephony_configuration_id`, `from_phone_number_id`, and `model_overrides` fields.
 
 <CodeGroup>
 ```bash Production URL
@@ -101,6 +101,34 @@ A successful request returns a `workflow_run_id` that you can use to [retrieve r
 | `401` | Missing or invalid API key |
 | `403` | API key does not have access to this agent |
 | `404` | Trigger not found or not active |
+| `422` | Invalid `model_overrides`: unknown saved provider, a field that cannot be overridden, or no runnable model configuration |
+
+## Override models for one call
+
+`model_overrides` lets one call use different models or voices without changing the agent. Each service names a [saved provider](/configurations/saved-providers) and can tweak its non-secret settings for this call only.
+
+```bash
+curl -X POST https://your-dograh-instance/api/v1/public/agent/{uuid} \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dg_your_api_key" \
+  -d '{
+    "phone_number": "+14155550100",
+    "model_overrides": {
+      "llm": { "profile": "openai-cheap" },
+      "tts": { "profile": "eleven-eu", "voice": "Bella" }
+    }
+  }'
+```
+
+| Key | Meaning |
+|---|---|
+| `llm`, `tts`, `stt`, `realtime` | Each takes `profile` (the name of a saved provider for that service) plus optional settings to change for this call, such as `model`, `voice`, `speed`, or `language`. |
+| `is_realtime` | Optional. Force speech-to-speech on or off. It defaults to on when `realtime` is set. |
+
+- A service you leave out keeps the agent's normal configuration. The override order is your default configuration, then the agent's own model overrides, then the agent's [saved-provider selection](/configurations/saved-providers#use-a-saved-provider-in-a-workflow) (if any), then `model_overrides` for the call.
+- API keys are read from the saved provider when the call starts. `api_key`, `credentials`, `provider`, and endpoint URLs (`base_url`, `endpoint`) cannot be sent. To use another key or endpoint, save another provider for it.
+- The request is checked before the call is placed. An unknown saved provider, an unknown setting for that provider, or an override that leaves the call without a required service returns `422` and no call is made.
+- Overrides apply to all four trigger URLs (production and test, by trigger node or by Agent UUID).
 
 ## Initial context
 

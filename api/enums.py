@@ -174,6 +174,9 @@ class OrganizationConfigurationKey(Enum):
     MODEL_CONFIGURATION_V2 = (
         "MODEL_CONFIGURATION_V2"  # Org-level v2 AI model configuration
     )
+    MODEL_PROVIDER_PROFILES = (
+        "MODEL_PROVIDER_PROFILES"  # Org-level named saved model provider configs
+    )
     ORGANIZATION_PREFERENCES = "ORGANIZATION_PREFERENCES"  # Org-level defaults such as timezone/test call number
     MODEL_CONFIGURATION_PREFERENCES = "MODEL_CONFIGURATION_PREFERENCES"  # Deprecated; read fallback for old org preferences
     ORGANIZATION_BOOTSTRAP = (

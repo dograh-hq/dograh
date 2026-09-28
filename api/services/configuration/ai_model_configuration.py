@@ -32,10 +32,14 @@ from api.services.configuration.masking import (
     resolve_masked_api_keys,
 )
 from api.services.configuration.registry import ServiceProviders
+from api.services.configuration.profile_selection import apply_profile_selection
 from api.services.configuration.resolve import resolve_effective_config
 
 AIModelConfigurationSource = Literal["organization_v2", "legacy_user_v1", "empty"]
 WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY = "model_configuration_v2_override"
+# Names saved provider profiles per service: {"llm": {"profile": "openai-fast"}}.
+# Holds no credentials; keys are read from the saved profile when a run starts.
+WORKFLOW_MODEL_PROFILE_SELECTION_KEY = "model_profile_selection"
 
 
 @dataclass
@@ -92,17 +96,23 @@ async def get_effective_ai_model_configuration_for_workflow(
         WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
     )
     if v2_override:
-        return compile_ai_model_configuration_v2(
+        effective = compile_ai_model_configuration_v2(
             OrganizationAIModelConfigurationV2.model_validate(v2_override)
         )
+    else:
+        resolved_config = await get_resolved_ai_model_configuration(
+            organization_id=organization_id,
+        )
+        effective = resolve_effective_config(
+            resolved_config.effective,
+            workflow_configurations.get("model_overrides"),
+        )
 
-    resolved_config = await get_resolved_ai_model_configuration(
-        organization_id=organization_id,
-    )
-    return resolve_effective_config(
-        resolved_config.effective,
-        workflow_configurations.get("model_overrides"),
-    )
+    # Saved providers chosen for this workflow layer on top of the above.
+    selection = workflow_configurations.get(WORKFLOW_MODEL_PROFILE_SELECTION_KEY)
+    if selection and organization_id is not None:
+        effective = await apply_profile_selection(effective, organization_id, selection)
+    return effective
 
 
 async def get_organization_ai_model_configuration_v2(

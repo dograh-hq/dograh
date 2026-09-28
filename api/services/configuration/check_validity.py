@@ -110,6 +110,24 @@ class UserConfigurationValidator:
 
         return {"status": [{"model": "all", "message": "ok"}]}
 
+    async def validate_single_service(
+        self,
+        service_config: ServiceConfig,
+        service_name: str,
+        organization_id: Optional[int] = None,
+        created_by: Optional[str] = None,
+    ) -> APIKeyStatusResponse:
+        """Validate one service config in isolation (e.g. a saved provider profile)."""
+        self._dograh_service_key_validation_cache.clear()
+        self._auth_context: AuthContext = {
+            "organization_id": organization_id,
+            "created_by": created_by,
+        }
+        status_list = self._validate_service(service_config, service_name)
+        if status_list:
+            raise ValueError(status_list)
+        return {"status": [{"model": service_name, "message": "ok"}]}
+
     def _validate_service(
         self,
         service_config: Optional[ServiceConfig],

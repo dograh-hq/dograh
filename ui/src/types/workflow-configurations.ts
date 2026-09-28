@@ -7,6 +7,18 @@ import type {
 
 export type WorkflowConfigurationDefaults = GeneratedWorkflowConfigurationDefaults;
 
+// A saved provider profile picked for one service, plus optional non-secret
+// field tweaks -- mirrors the backend's CallModelOverrides/CallServiceOverride
+// (api/schemas/model_provider_profiles.py) shape used both here and for the
+// per-call `model_overrides` trigger-API field.
+export type WorkflowProfileServiceOverride = { profile: string } & Record<string, unknown>;
+
+export type WorkflowProfileSelection = Partial<
+    Record<"llm" | "tts" | "stt" | "realtime", WorkflowProfileServiceOverride>
+> & {
+    is_realtime?: boolean;
+};
+
 export type AmbientNoiseConfiguration = Omit<
     AmbientNoiseConfigurationDefaults,
     "enabled" | "volume"
@@ -163,6 +175,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     external_pbx_lead_headers: string[];  // Extra lead fields to capture from the inbound INVITE
     model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
     model_configuration_v2_override?: OrganizationAiModelConfigurationV2;  // Full v2 model configuration override
+    model_profile_selection?: WorkflowProfileSelection;  // Saved providers chosen per service (by name)
     [key: string]: unknown;  // Allow additional properties for future configurations
 };
 

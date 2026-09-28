@@ -29,13 +29,22 @@ from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.configuration.ai_model_configuration import (
     WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY,
+    WORKFLOW_MODEL_PROFILE_SELECTION_KEY,
     check_for_masked_keys_in_ai_model_configuration_v2,
     compile_ai_model_configuration_v2,
     convert_legacy_ai_model_configuration_to_v2,
     get_resolved_ai_model_configuration,
     merge_ai_model_configuration_v2_secrets,
 )
+from api.services.configuration.call_model_overrides import (
+    CallOverrideError,
+    validate_workflow_profile_selection,
+)
 from api.services.configuration.check_validity import UserConfigurationValidator
+from api.services.configuration.profile_selection import (
+    apply_profile_selection,
+    looks_like_profile_selection,
+)
 from api.services.configuration.masking import (
     mask_workflow_configurations,
     mask_workflow_definition,
@@ -1259,16 +1268,54 @@ async def update_workflow(
                 effective = resolve_effective_config(
                     effective_config, enriched_overrides
                 )
+                # A pending saved-provider selection (validated on its own,
+                # below) may supply a service this partial override doesn't.
+                # Validate against that combined picture too, so this step
+                # doesn't reject a config the selection would go on to
+                # complete — but never let the selection's real credentials
+                # leak into what gets persisted here (`effective` stays
+                # untouched; only `effective_for_validation` sees them).
+                effective_for_validation = effective
+                pending_selection = workflow_configurations.get(
+                    WORKFLOW_MODEL_PROFILE_SELECTION_KEY
+                )
+                # Obviously malformed input (not a dict of {"profile": ...}
+                # sections) is skipped without even attempting resolution --
+                # the real, authoritative shape/value validation (and its
+                # clearer error message) happens below, in
+                # validate_workflow_profile_selection. Attempting it anyway
+                # and catching broadly would also hide a genuine transient
+                # failure (e.g. a real storage error) behind this same
+                # fallback, reporting a misleading "missing API key" instead.
+                if pending_selection and looks_like_profile_selection(
+                    pending_selection
+                ):
+                    try:
+                        effective_for_validation = await apply_profile_selection(
+                            effective,
+                            user.selected_organization_id,
+                            pending_selection,
+                        )
+                    except (CallOverrideError, ValueError, ValidationError):
+                        # A well-shaped but semantically invalid selection
+                        # (e.g. an unknown profile name) -- safe to ignore
+                        # here and let the config validate without it; the
+                        # authoritative error is reported below.
+                        effective_for_validation = effective
                 if resolved_config.source == "organization_v2":
                     v2_override = convert_legacy_ai_model_configuration_to_v2(effective)
                     await UserConfigurationValidator().validate(
-                        compile_ai_model_configuration_v2(v2_override),
+                        compile_ai_model_configuration_v2(
+                            convert_legacy_ai_model_configuration_to_v2(
+                                effective_for_validation
+                            )
+                        ),
                         organization_id=user.selected_organization_id,
                         created_by=user.provider_id,
                     )
                 else:
                     await UserConfigurationValidator().validate(
-                        effective,
+                        effective_for_validation,
                         organization_id=user.selected_organization_id,
                         created_by=user.provider_id,
                     )
@@ -1288,6 +1335,27 @@ async def update_workflow(
                     **workflow_configurations,
                     "model_overrides": enriched_overrides,
                 }
+
+        # Saved providers chosen for this workflow are stored by name only.
+        if (
+            workflow_configurations
+            and WORKFLOW_MODEL_PROFILE_SELECTION_KEY in workflow_configurations
+        ):
+            try:
+                profile_selection = await validate_workflow_profile_selection(
+                    user.selected_organization_id, workflow_configurations
+                )
+            except CallOverrideError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            workflow_configurations = {
+                key: value
+                for key, value in workflow_configurations.items()
+                if key != WORKFLOW_MODEL_PROFILE_SELECTION_KEY
+            }
+            if profile_selection:
+                workflow_configurations[WORKFLOW_MODEL_PROFILE_SELECTION_KEY] = (
+                    profile_selection
+                )
 
         # Reject upfront if any new trigger path collides with another
         # workflow's trigger — keeps the workflow record from

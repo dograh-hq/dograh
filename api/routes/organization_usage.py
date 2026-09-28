@@ -1,7 +1,8 @@
 import asyncio
 import json
-from datetime import datetime, timedelta
-from typing import Annotated, Any, Dict, List, Optional
+from datetime import UTC, date, datetime, time, timedelta
+from typing import Annotated, Any, Dict, List, Literal, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
@@ -227,6 +228,21 @@ async def get_billing_credits(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     user: UserModel = Depends(get_user),
+    entry_type: Annotated[
+        Literal["credit", "purchase", "debit", "grant", "additional_credit"] | None,
+        Query(
+            description="Entry type; credit includes purchases, grants, and additional credits"
+        ),
+    ] = None,
+    start_date: Annotated[
+        date | None, Query(description="Inclusive calendar date in timezone")
+    ] = None,
+    end_date: Annotated[
+        date | None, Query(description="Inclusive calendar date in timezone")
+    ] = None,
+    timezone: Annotated[
+        str, Query(description="IANA timezone for the selected calendar dates")
+    ] = "UTC",
 ):
     """Return per-key MPS credits (OSS) or the org's paginated billing ledger."""
     try:
@@ -236,12 +252,38 @@ async def get_billing_credits(
         if not user.selected_organization_id:
             raise HTTPException(status_code=400, detail="No organization selected")
 
+        if start_date is not None and end_date is not None and start_date > end_date:
+            raise HTTPException(
+                status_code=422, detail="start_date must not follow end_date"
+            )
+        try:
+            zone = ZoneInfo(timezone)
+            start_at = (
+                datetime.combine(start_date, time.min, zone).astimezone(UTC)
+                if start_date is not None
+                else None
+            )
+            end_at = (
+                datetime.combine(
+                    end_date + timedelta(days=1), time.min, zone
+                ).astimezone(UTC)
+                if end_date is not None
+                else None
+            )
+        except (ZoneInfoNotFoundError, ValueError, OverflowError):
+            raise HTTPException(
+                status_code=422, detail="Invalid billing date range or timezone"
+            ) from None
+
         organization_id = user.selected_organization_id
         ledger = await mps_service_key_client.get_credit_ledger(
             organization_id=organization_id,
             page=page,
             limit=limit,
             created_by=str(user.provider_id),
+            entry_type=entry_type,
+            start_date=start_at,
+            end_date=end_at,
         )
         account = ledger.get("account") or {}
         ledger_entries = ledger.get("ledger_entries") or []

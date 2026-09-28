@@ -1,7 +1,10 @@
+from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from api.routes import organization_usage
 
@@ -34,7 +37,33 @@ async def test_get_billing_credits_oss_aggregates_by_created_by(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_billing_credits_pages_hosted_ledger(monkeypatch):
+@pytest.mark.parametrize(
+    ("day", "timezone", "start_at", "end_at"),
+    [
+        (None, "UTC", None, None),
+        (
+            date(2026, 3, 8),
+            "America/Los_Angeles",
+            "2026-03-08T08:00:00+00:00",
+            "2026-03-09T07:00:00+00:00",
+        ),
+        (
+            date(2026, 11, 1),
+            "America/Los_Angeles",
+            "2026-11-01T07:00:00+00:00",
+            "2026-11-02T08:00:00+00:00",
+        ),
+        (
+            date(2026, 6, 12),
+            "Asia/Kolkata",
+            "2026-06-11T18:30:00+00:00",
+            "2026-06-12T18:30:00+00:00",
+        ),
+    ],
+)
+async def test_get_billing_credits_pages_hosted_ledger(
+    monkeypatch, day, timezone, start_at, end_at
+):
     monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "saas")
     get_ledger = AsyncMock(
         return_value={
@@ -77,6 +106,10 @@ async def test_get_billing_credits_pages_hosted_ledger(monkeypatch):
         page=3,
         limit=25,
         user=user,
+        entry_type="credit",
+        start_date=day,
+        end_date=day,
+        timezone=timezone,
     )
 
     get_ledger.assert_awaited_once_with(
@@ -84,6 +117,9 @@ async def test_get_billing_credits_pages_hosted_ledger(monkeypatch):
         page=3,
         limit=25,
         created_by="provider-123",
+        entry_type="credit",
+        start_date=datetime.fromisoformat(start_at) if start_at else None,
+        end_date=datetime.fromisoformat(end_at) if end_at else None,
     )
     assert response.total_credits_used == 75
     assert response.total_count == 101
@@ -91,3 +127,33 @@ async def test_get_billing_credits_pages_hosted_ledger(monkeypatch):
     assert response.limit == 25
     assert response.total_pages == 5
     assert response.ledger_entries[0].id == 99
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        {"entry_type": "invalid"},
+        {"start_date": "not-a-date"},
+        {"start_date": "2026-07-01", "end_date": "2026-06-01"},
+        {"timezone": "Not/A_Zone"},
+        {"end_date": "9999-12-31"},
+    ],
+)
+def test_invalid_billing_filters_return_422(monkeypatch, query):
+    monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "saas")
+    get_ledger = AsyncMock()
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client, "get_credit_ledger", get_ledger
+    )
+    app = FastAPI()
+    app.include_router(organization_usage.router)
+    app.dependency_overrides[organization_usage.get_user] = lambda: SimpleNamespace(
+        provider_id="provider-123",
+        selected_organization_id=42,
+    )
+    with TestClient(app) as client:
+        assert (
+            client.get("/organizations/billing/credits", params=query).status_code
+            == 422
+        )
+    get_ledger.assert_not_awaited()

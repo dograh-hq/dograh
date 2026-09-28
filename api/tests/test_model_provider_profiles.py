@@ -355,23 +355,25 @@ async def test_update_detects_a_deletion_that_happened_after_the_read():
 
 
 @pytest.mark.asyncio
-async def test_update_does_not_restore_a_key_rotated_by_another_writer():
+async def test_update_rejects_rather_than_persist_an_unvalidated_race():
     """Admin A rotates a profile's key (a full update). Admin B's own
-    concurrent update -- sending the *old*, now-stale masked key, read
-    before A's rotation landed -- must not silently overwrite A's new key
-    with the old one once B's turn at the lock arrives."""
-    rotated_key = "sk-bbbbbbbbbbbb1111"  # same length + last-4 as OPENAI_A, so B's stale mask of the old key still matches mask_key(rotated_key)
-    store = RaceStore(
-        injected_write=lambda _current: ModelProviderProfilesDocument(
-            profiles=[
-                ModelProviderProfile(
-                    name="main",
-                    service="llm",
-                    config={**OPENAI_A, "api_key": rotated_key},
-                )
-            ]
-        ).model_dump(mode="json", exclude_none=True)
-    )
+    concurrent update -- built and network-validated against the *old*
+    key, read before A's rotation landed -- must not silently persist
+    once B's turn at the lock arrives: that config's actual
+    credential+endpoint combination was never checked together against
+    the provider. Reject with ProfileConflictError instead; A's rotation
+    survives untouched."""
+    rotated_key = "sk-bbbbbbbbbbbb1111"
+    rotated_document = ModelProviderProfilesDocument(
+        profiles=[
+            ModelProviderProfile(
+                name="main",
+                service="llm",
+                config={**OPENAI_A, "api_key": rotated_key},
+            )
+        ]
+    ).model_dump(mode="json", exclude_none=True)
+    store = RaceStore(injected_write=lambda _current: rotated_document)
     store.rows[(ORG_ID, profiles._KEY)] = ModelProviderProfilesDocument(
         profiles=[ModelProviderProfile(name="main", service="llm", config=OPENAI_A)]
     ).model_dump(mode="json", exclude_none=True)
@@ -386,23 +388,24 @@ async def test_update_does_not_restore_a_key_rotated_by_another_writer():
     ):
         # B's request: masked key (unchanged from B's point of view) + a
         # harmless model tweak. B read OPENAI_A's key before A's rotation.
-        await profiles.update_profile(
-            ORG_ID,
-            service="llm",
-            name="main",
-            config={
-                **OPENAI_A,
-                "api_key": mask_key(OPENAI_A["api_key"]),
-                "model": "gpt-4.1",
-            },
-        )
+        with pytest.raises(profiles.ProfileConflictError):
+            await profiles.update_profile(
+                ORG_ID,
+                service="llm",
+                name="main",
+                config={
+                    **OPENAI_A,
+                    "api_key": mask_key(OPENAI_A["api_key"]),
+                    "model": "gpt-4.1",
+                },
+            )
 
         stored = await profiles.get_profile(ORG_ID, "llm", "main")
 
-    # A's rotated key survives; B's masked "unchanged" field resolved
-    # against the *current* key at write time, not B's stale read.
+    # A's rotation survives untouched; B's update was rejected, not
+    # silently persisted with a never-jointly-validated combination.
     assert stored.config["api_key"] == rotated_key
-    assert stored.config["model"] == "gpt-4.1"
+    assert stored.config["model"] == OPENAI_A["model"]
 
 
 def test_mask_profile_hides_the_api_key():

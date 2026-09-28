@@ -35,6 +35,28 @@ class CallOverrideError(ValueError):
     """The requested overrides cannot be applied (maps to HTTP 422)."""
 
 
+def looks_like_profile_selection(value: Any) -> bool:
+    """Cheap, local, I/O-free shape check for a candidate selection dict.
+
+    Used by best-effort speculative callers (a peek that should fall back to
+    an unaugmented config rather than fail outright on bad input) to decide
+    whether the value is even worth attempting to resolve. Returning False
+    for obviously malformed input (not a dict, or a value that isn't a
+    ``{"profile": ...}``-shaped dict) lets such a caller skip the real
+    resolution entirely -- rather than attempt it and catch broadly, which
+    would also hide a genuine transient failure (e.g. a real storage error)
+    behind the same fallback and report a confusing, unrelated error instead.
+    """
+    if not isinstance(value, dict):
+        return False
+    for key, section in value.items():
+        if key == "is_realtime":
+            continue
+        if not isinstance(section, dict) or "profile" not in section:
+            return False
+    return True
+
+
 async def expand_profile_section(
     organization_id: int, service: str, section: dict[str, Any]
 ) -> dict[str, Any]:

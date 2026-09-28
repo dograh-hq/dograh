@@ -41,7 +41,10 @@ from api.services.configuration.call_model_overrides import (
     validate_workflow_profile_selection,
 )
 from api.services.configuration.check_validity import UserConfigurationValidator
-from api.services.configuration.profile_selection import apply_profile_selection
+from api.services.configuration.profile_selection import (
+    apply_profile_selection,
+    looks_like_profile_selection,
+)
 from api.services.configuration.masking import (
     mask_workflow_configurations,
     mask_workflow_definition,
@@ -1276,23 +1279,28 @@ async def update_workflow(
                 pending_selection = workflow_configurations.get(
                     WORKFLOW_MODEL_PROFILE_SELECTION_KEY
                 )
-                if pending_selection:
+                # Obviously malformed input (not a dict of {"profile": ...}
+                # sections) is skipped without even attempting resolution --
+                # the real, authoritative shape/value validation (and its
+                # clearer error message) happens below, in
+                # validate_workflow_profile_selection. Attempting it anyway
+                # and catching broadly would also hide a genuine transient
+                # failure (e.g. a real storage error) behind this same
+                # fallback, reporting a misleading "missing API key" instead.
+                if pending_selection and looks_like_profile_selection(
+                    pending_selection
+                ):
                     try:
                         effective_for_validation = await apply_profile_selection(
                             effective,
                             user.selected_organization_id,
                             pending_selection,
                         )
-                    except Exception:
-                        # This is a best-effort peek: a malformed selection
-                        # shape here (not just CallOverrideError/ValueError/
-                        # ValidationError -- e.g. a non-dict value, which
-                        # raises TypeError/AttributeError/KeyError deeper in
-                        # apply_profile_selection) must fall back to the
-                        # unaugmented config rather than 500, since the real,
-                        # authoritative shape/value validation -- and its
-                        # clearer error message -- happens below, in
-                        # validate_workflow_profile_selection.
+                    except (CallOverrideError, ValueError, ValidationError):
+                        # A well-shaped but semantically invalid selection
+                        # (e.g. an unknown profile name) -- safe to ignore
+                        # here and let the config validate without it; the
+                        # authoritative error is reported below.
                         effective_for_validation = effective
                 if resolved_config.source == "organization_v2":
                     v2_override = convert_legacy_ai_model_configuration_to_v2(effective)

@@ -69,6 +69,8 @@ async def update_model_provider_profile(
         )
     except profiles.ProfileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except profiles.ProfileConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except profiles.ProfileConfigError as exc:
         raise HTTPException(status_code=422, detail=exc.detail)
     return profiles.mask_profile(updated)

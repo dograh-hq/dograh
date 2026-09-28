@@ -45,6 +45,11 @@ class ProfileAlreadyExistsError(ProfileError):
     pass
 
 
+class ProfileConflictError(ProfileError):
+    """Another write landed between this request's credential check and its
+    turn at the row lock (maps to HTTP 409: retry with fresh data)."""
+
+
 class ProfileConfigError(ProfileError):
     """The supplied config is invalid (maps to HTTP 422)."""
 
@@ -187,14 +192,15 @@ async def update_profile(
     if index is None:
         raise ProfileNotFoundError(f"No {service} profile named '{name}'")
 
-    # Optimistic merge + (network) credential check for a fast, clear error
-    # before the lock. What actually gets persisted is re-merged under the
-    # lock in `_mutate`, against the *then-current* stored secret -- not
-    # this possibly-stale read -- so a masked/omitted key in this request
-    # can never silently restore a key another writer just rotated away in
-    # between (see the comment in `_mutate`).
+    # The (network) credential check below validates this exact merged
+    # config -- the read it merged against is the snapshot we compare the
+    # locked value to in `_mutate`. If another writer changed this profile
+    # in between, that comparison fails closed with ProfileConflictError
+    # rather than persisting a config whose actual credential+endpoint
+    # combination was never checked together (see `_mutate`).
+    validated_against = document.profiles[index].config
     optimistic_merged = merge_service_secrets(
-        copy.deepcopy(config), document.profiles[index].config
+        copy.deepcopy(config), validated_against
     )
     optimistic_normalised = _prepare_config(service, optimistic_merged)
     await _validate_credentials(
@@ -215,7 +221,20 @@ async def update_profile(
         )
         if idx is None:
             raise ProfileNotFoundError(f"No {service} profile named '{name}'")
-        # Re-merge against the config the lock is actually protecting.
+        if current.profiles[idx].config != validated_against:
+            # Someone else changed this profile between our credential
+            # check and this lock. Persisting our merge now would save a
+            # credential/config combination that was never actually
+            # checked together against the provider -- reject instead, so
+            # the caller re-reads and retries against the current state.
+            raise ProfileConflictError(
+                f"The {service} profile '{name}' was changed by someone "
+                "else while this update was in flight. Reload it and try "
+                "again."
+            )
+        # Re-merge against the config the lock is actually protecting --
+        # equal to `validated_against` at this point, but built the same
+        # way for a single, consistent code path.
         authoritative_merged = merge_service_secrets(
             copy.deepcopy(config), current.profiles[idx].config
         )

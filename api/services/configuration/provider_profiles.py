@@ -187,14 +187,21 @@ async def update_profile(
     if index is None:
         raise ProfileNotFoundError(f"No {service} profile named '{name}'")
 
-    # Masked or omitted secrets keep their stored values (provider unchanged).
-    merged = merge_service_secrets(
+    # Optimistic merge + (network) credential check for a fast, clear error
+    # before the lock. What actually gets persisted is re-merged under the
+    # lock in `_mutate`, against the *then-current* stored secret -- not
+    # this possibly-stale read -- so a masked/omitted key in this request
+    # can never silently restore a key another writer just rotated away in
+    # between (see the comment in `_mutate`).
+    optimistic_merged = merge_service_secrets(
         copy.deepcopy(config), document.profiles[index].config
     )
-    normalised = _prepare_config(service, merged)
-    await _validate_credentials(organization_id, service, normalised, created_by)
+    optimistic_normalised = _prepare_config(service, optimistic_merged)
+    await _validate_credentials(
+        organization_id, service, optimistic_normalised, created_by
+    )
 
-    profile = ModelProviderProfile(name=name, service=service, config=normalised)
+    persisted: list[ModelProviderProfile] = []
 
     def _mutate(current_value: Any) -> dict:
         current = _document_from_stored_value(current_value)
@@ -208,11 +215,20 @@ async def update_profile(
         )
         if idx is None:
             raise ProfileNotFoundError(f"No {service} profile named '{name}'")
+        # Re-merge against the config the lock is actually protecting.
+        authoritative_merged = merge_service_secrets(
+            copy.deepcopy(config), current.profiles[idx].config
+        )
+        authoritative_normalised = _prepare_config(service, authoritative_merged)
+        profile = ModelProviderProfile(
+            name=name, service=service, config=authoritative_normalised
+        )
+        persisted.append(profile)
         current.profiles[idx] = profile
         return current.model_dump(mode="json", exclude_none=True)
 
     await db_client.upsert_configuration_with_lock(organization_id, _KEY, _mutate)
-    return profile
+    return persisted[0]
 
 
 async def delete_profile(organization_id: int, *, service: str, name: str) -> None:

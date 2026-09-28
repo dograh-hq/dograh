@@ -112,7 +112,10 @@ class OrganizationConfigurationClient(BaseDBClient):
                 # Ensure a row exists so the lock below always has something
                 # to lock on -- otherwise two concurrent first-ever writers
                 # for this organization/key could both take the insert path.
-                await session.execute(
+                # Track whether *this* call is the one that created it, so a
+                # genuinely-new row can still be reported to `mutate` as
+                # `None` (its documented contract) rather than `{}`.
+                insert_result = await session.execute(
                     insert(OrganizationConfigurationModel.__table__)
                     .values(
                         organization_id=organization_id,
@@ -123,6 +126,7 @@ class OrganizationConfigurationClient(BaseDBClient):
                     )
                     .on_conflict_do_nothing(constraint="_organization_key_uc")
                 )
+                row_is_new = insert_result.rowcount > 0
 
                 result = await session.execute(
                     select(OrganizationConfigurationModel)
@@ -135,7 +139,7 @@ class OrganizationConfigurationClient(BaseDBClient):
                 )
                 config = result.scalars().one()
 
-                config.value = mutate(config.value)
+                config.value = mutate(None if row_is_new else config.value)
                 config.updated_at = now
                 config.last_validated_at = last_validated_at
 

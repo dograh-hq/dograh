@@ -33,6 +33,14 @@ class FakeStore:
     async def upsert_configuration(self, organization_id, key, value, **_kwargs):
         self.rows[(organization_id, key)] = value
 
+    async def upsert_configuration_with_lock(
+        self, organization_id, key, mutate, **_kwargs
+    ):
+        current = self.rows.get((organization_id, key))
+        new_value = mutate(current)
+        self.rows[(organization_id, key)] = new_value
+        return SimpleNamespace(value=new_value)
+
 
 @pytest.mark.asyncio
 async def test_telephony_pipeline_runs_with_the_calls_model_overrides():

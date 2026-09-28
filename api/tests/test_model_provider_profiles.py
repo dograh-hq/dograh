@@ -47,6 +47,37 @@ class FakeStore:
     async def upsert_configuration(self, organization_id, key, value, **_kwargs):
         self.rows[(organization_id, key)] = value
 
+    async def upsert_configuration_with_lock(
+        self, organization_id, key, mutate, **_kwargs
+    ):
+        current = self.rows.get((organization_id, key))
+        new_value = mutate(current)
+        self.rows[(organization_id, key)] = new_value
+        return SimpleNamespace(value=new_value)
+
+
+class RaceStore(FakeStore):
+    """Simulates another writer's row landing between two callers'
+    optimistic pre-check and their turn at the row lock -- proving the
+    write re-checks the *locked* value rather than trusting a stale read."""
+
+    def __init__(self, injected_write):
+        super().__init__()
+        self._injected_write = injected_write
+        self._injected = False
+
+    async def upsert_configuration_with_lock(
+        self, organization_id, key, mutate, **_kwargs
+    ):
+        if not self._injected:
+            self._injected = True
+            self.rows[(organization_id, key)] = self._injected_write(
+                self.rows.get((organization_id, key))
+            )
+        return await super().upsert_configuration_with_lock(
+            organization_id, key, mutate, **_kwargs
+        )
+
 
 @pytest.fixture
 def store():
@@ -251,6 +282,76 @@ async def test_delete_removes_only_the_named_profile(store):
     await profiles.delete_profile(ORG_ID, service="llm", name="a")
 
     assert [p.name for p in await profiles.list_profiles(ORG_ID)] == ["b"]
+
+
+# ---------------------------------------------------------- concurrent writes
+
+
+@pytest.mark.asyncio
+async def test_create_detects_a_conflict_that_appears_after_the_precheck():
+    """Two callers can pass the (fast, pre-lock) duplicate-name pre-check for
+    the same name before either has written. The second one's actual write
+    must detect the now-real conflict under the row lock and raise -- not
+    silently clobber the first writer's profile with a stale read."""
+    concurrent_write = ModelProviderProfilesDocument(
+        profiles=[ModelProviderProfile(name="main", service="llm", config=OPENAI_A)]
+    ).model_dump(mode="json", exclude_none=True)
+    store = RaceStore(injected_write=lambda _current: concurrent_write)
+
+    with (
+        patch.object(profiles, "db_client", store),
+        patch.object(
+            profiles.UserConfigurationValidator,
+            "validate_single_service",
+            new=AsyncMock(return_value={"status": []}),
+        ),
+    ):
+        with pytest.raises(profiles.ProfileAlreadyExistsError):
+            await profiles.create_profile(
+                ORG_ID, name="main", service="llm", config=OPENAI_B
+            )
+
+    stored = ModelProviderProfilesDocument.model_validate(
+        store.rows[(ORG_ID, profiles._KEY)]
+    )
+    # The concurrent writer's profile survived untouched; our conflicting
+    # create was rejected, not appended on top of it.
+    assert [p.name for p in stored.profiles] == ["main"]
+    assert stored.profiles[0].config["api_key"] == OPENAI_A["api_key"]
+
+
+@pytest.mark.asyncio
+async def test_update_detects_a_deletion_that_happened_after_the_read():
+    """The profile existed when `update_profile` read it (and validated the
+    new credentials against it), but was deleted by another writer before
+    this caller's turn at the lock. The update must fail loudly -- not
+    silently resurrect a profile an administrator just deleted."""
+    store = RaceStore(
+        injected_write=lambda _current: ModelProviderProfilesDocument().model_dump(
+            mode="json", exclude_none=True
+        )
+    )
+    store.rows[(ORG_ID, profiles._KEY)] = ModelProviderProfilesDocument(
+        profiles=[ModelProviderProfile(name="main", service="llm", config=OPENAI_A)]
+    ).model_dump(mode="json", exclude_none=True)
+
+    with (
+        patch.object(profiles, "db_client", store),
+        patch.object(
+            profiles.UserConfigurationValidator,
+            "validate_single_service",
+            new=AsyncMock(return_value={"status": []}),
+        ),
+    ):
+        with pytest.raises(profiles.ProfileNotFoundError):
+            await profiles.update_profile(
+                ORG_ID, service="llm", name="main", config=OPENAI_B
+            )
+
+    stored = ModelProviderProfilesDocument.model_validate(
+        store.rows[(ORG_ID, profiles._KEY)]
+    )
+    assert stored.profiles == []
 
 
 def test_mask_profile_hides_the_api_key():

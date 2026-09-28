@@ -60,14 +60,10 @@ async def load_profiles(organization_id: int) -> ModelProviderProfilesDocument:
     return ModelProviderProfilesDocument.model_validate(row.value)
 
 
-async def _save_profiles(
-    organization_id: int, document: ModelProviderProfilesDocument
-) -> None:
-    await db_client.upsert_configuration(
-        organization_id,
-        _KEY,
-        document.model_dump(mode="json", exclude_none=True),
-    )
+def _document_from_stored_value(value: Any) -> ModelProviderProfilesDocument:
+    if not value:
+        return ModelProviderProfilesDocument()
+    return ModelProviderProfilesDocument.model_validate(value)
 
 
 def mask_profile(profile: ModelProviderProfile) -> ModelProviderProfileResponse:
@@ -146,6 +142,9 @@ async def create_profile(
         raise ProfileConfigError(str(exc)) from exc
     normalised = _prepare_config(service, config)
 
+    # Optimistic pre-check for a fast, clear error before the (network)
+    # credential check below -- the real, authoritative check happens under
+    # the row lock in `_mutate`, so this can't itself cause a lost write.
     document = await load_profiles(organization_id)
     if any(p.service == service and p.name == name for p in document.profiles):
         raise ProfileAlreadyExistsError(f"A {service} profile named '{name}' exists")
@@ -153,8 +152,18 @@ async def create_profile(
     await _validate_credentials(organization_id, service, normalised, created_by)
 
     profile = ModelProviderProfile(name=name, service=service, config=normalised)
-    document.profiles.append(profile)
-    await _save_profiles(organization_id, document)
+
+    def _mutate(current_value: Any) -> dict:
+        current = _document_from_stored_value(current_value)
+        if any(p.service == service and p.name == name for p in current.profiles):
+            # Someone else created it between our pre-check and this lock.
+            raise ProfileAlreadyExistsError(
+                f"A {service} profile named '{name}' exists"
+            )
+        current.profiles.append(profile)
+        return current.model_dump(mode="json", exclude_none=True)
+
+    await db_client.upsert_configuration_with_lock(organization_id, _KEY, _mutate)
     return profile
 
 
@@ -186,17 +195,35 @@ async def update_profile(
     await _validate_credentials(organization_id, service, normalised, created_by)
 
     profile = ModelProviderProfile(name=name, service=service, config=normalised)
-    document.profiles[index] = profile
-    await _save_profiles(organization_id, document)
+
+    def _mutate(current_value: Any) -> dict:
+        current = _document_from_stored_value(current_value)
+        idx = next(
+            (
+                i
+                for i, p in enumerate(current.profiles)
+                if p.service == service and p.name == name
+            ),
+            None,
+        )
+        if idx is None:
+            raise ProfileNotFoundError(f"No {service} profile named '{name}'")
+        current.profiles[idx] = profile
+        return current.model_dump(mode="json", exclude_none=True)
+
+    await db_client.upsert_configuration_with_lock(organization_id, _KEY, _mutate)
     return profile
 
 
 async def delete_profile(organization_id: int, *, service: str, name: str) -> None:
-    document = await load_profiles(organization_id)
-    remaining = [
-        p for p in document.profiles if not (p.service == service and p.name == name)
-    ]
-    if len(remaining) == len(document.profiles):
-        raise ProfileNotFoundError(f"No {service} profile named '{name}'")
-    document.profiles = remaining
-    await _save_profiles(organization_id, document)
+    def _mutate(current_value: Any) -> dict:
+        current = _document_from_stored_value(current_value)
+        remaining = [
+            p for p in current.profiles if not (p.service == service and p.name == name)
+        ]
+        if len(remaining) == len(current.profiles):
+            raise ProfileNotFoundError(f"No {service} profile named '{name}'")
+        current.profiles = remaining
+        return current.model_dump(mode="json", exclude_none=True)
+
+    await db_client.upsert_configuration_with_lock(organization_id, _KEY, _mutate)

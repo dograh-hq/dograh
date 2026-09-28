@@ -10,8 +10,8 @@ from api.routes.public_agent import (
     _validate_model_overrides,
     router,
 )
-from api.schemas.model_provider_profiles import CallModelOverrides
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.schemas.model_provider_profiles import CallModelOverrides
 from api.services.configuration import provider_profiles as profiles
 from api.services.workflow.initial_context import (
     RUN_MODEL_OVERRIDES_CONTEXT_KEY,
@@ -49,6 +49,14 @@ class FakeStore:
 
     async def upsert_configuration(self, organization_id, key, value, **_kwargs):
         self.rows[(organization_id, key)] = value
+
+    async def upsert_configuration_with_lock(
+        self, organization_id, key, mutate, **_kwargs
+    ):
+        current = self.rows.get((organization_id, key))
+        new_value = mutate(current)
+        self.rows[(organization_id, key)] = new_value
+        return SimpleNamespace(value=new_value)
 
 
 def _workflow():

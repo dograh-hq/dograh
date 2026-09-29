@@ -26,9 +26,10 @@ async def list_calls(
 ) -> list[dict]:
     """List completed voice calls for a workflow, newest first.
 
-    Returns id, run_id (Axiom key), call_type, duration_seconds,
-    disposition, and created_at for each call. Excludes text-chat
-    sessions and incomplete runs.
+    Returns id, call_type, duration_seconds, disposition, and created_at
+    for each call. The id is the call identifier — pass it straight to
+    get_call_transcript, and it doubles as the Axiom `extra.run_id`
+    correlator. Excludes text-chat sessions and incomplete runs.
 
     Args:
         workflow_id: The workflow (agent) ID to query.
@@ -53,7 +54,6 @@ async def list_calls(
     return [
         {
             "id": r["id"],
-            "run_id": r["run_id"],
             "call_type": r["call_type"],
             "duration_seconds": r["duration_seconds"],
             "disposition": r["disposition"],
@@ -64,24 +64,26 @@ async def list_calls(
 
 
 @traced_tool
-async def get_call_transcript(run_id: int) -> str:
-    """Fetch the speaker-labeled transcript for a single call run.
+async def get_call_transcript(call_id: int) -> str:
+    """Fetch the speaker-labeled transcript for a single call.
 
     Returns the transcript as a plain-text string. Returns an empty string
-    if no transcript was recorded for this run.
+    only when no transcript was ever recorded for this call (no stored
+    transcript file). A storage/download failure raises an error instead,
+    so callers can tell "no transcript" apart from "couldn't fetch it".
 
     Args:
-        run_id: The integer ID of the workflow run (from list_calls).
+        call_id: The call id from list_calls (the run's integer PK).
     """
     user = await authenticate_mcp_request()
 
     run = await db_client.get_workflow_run(
-        run_id=run_id,
+        run_id=call_id,
         organization_id=user.selected_organization_id,
     )
     if not run:
         raise HTTPException(
-            status_code=404, detail=f"Call run {run_id} not found"
+            status_code=404, detail=f"Call {call_id} not found"
         )
 
     if not run.transcript_url:
@@ -92,7 +94,7 @@ async def get_call_transcript(run_id: int) -> str:
     except ValueError:
         logger.error(
             f"get_call_transcript: unknown storage backend "
-            f"'{run.storage_backend}' for run {run_id}"
+            f"'{run.storage_backend}' for call {call_id}"
         )
         raise HTTPException(status_code=500, detail="Storage configuration error")
 
@@ -104,15 +106,23 @@ async def get_call_transcript(run_id: int) -> str:
         ok = await storage.adownload_file(run.transcript_url, tmp_path)
         if not ok:
             logger.warning(
-                f"get_call_transcript: download failed for run {run_id}, "
+                f"get_call_transcript: download failed for call {call_id}, "
                 f"key={run.transcript_url}"
             )
-            return ""
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"Transcript exists for call {call_id} but could not be "
+                    f"downloaded from storage"
+                ),
+            )
 
         content = await asyncio.to_thread(_read_text, tmp_path)
         return content
+    except HTTPException:
+        raise
     except Exception as exc:
-        logger.error(f"get_call_transcript: error reading run {run_id}: {exc}")
+        logger.error(f"get_call_transcript: error reading call {call_id}: {exc}")
         raise HTTPException(status_code=500, detail="Failed to fetch transcript")
     finally:
         if tmp_path is not None:

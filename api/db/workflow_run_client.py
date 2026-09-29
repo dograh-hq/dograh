@@ -1,7 +1,7 @@
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import Float, String, cast, func
+from sqlalchemy import Float, cast, func
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -14,7 +14,7 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
-from api.enums import CallType, StorageBackend
+from api.enums import CallType, StorageBackend, WorkflowRunMode
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.workflow.run_usage_response import format_public_cost_info
 from api.utils.recording_artifacts import get_recording_storage_key
@@ -555,13 +555,21 @@ class WorkflowRunClient(BaseDBClient):
     ) -> List[dict]:
         """Return completed voice runs for a workflow, scoped to an org.
 
-        Excludes text-chat modes and incomplete runs. Results are ordered
-        newest-first.
+        Restricts to actual voice transports (excludes the text-chat modes)
+        and incomplete runs. Results are ordered newest-first.
 
-        Returns dicts with: id, run_id (Axiom key), call_type,
-        duration_seconds, disposition, created_at, transcript_url,
-        storage_backend.
+        Returns dicts with: id (the run PK, also the Axiom `extra.run_id`
+        correlator), call_type, duration_seconds, disposition, created_at,
+        transcript_url, storage_backend.
         """
+        # Allowlist of real voice modes, derived from the enum so new
+        # transports are picked up automatically. A denylist misses the
+        # historical uppercase "CHAT" value (WorkflowRunMode.CHAT).
+        voice_modes = [
+            m.value
+            for m in WorkflowRunMode
+            if m not in (WorkflowRunMode.TEXTCHAT, WorkflowRunMode.CHAT)
+        ]
         async with self.async_session() as session:
             query = (
                 select(WorkflowRunModel)
@@ -570,7 +578,7 @@ class WorkflowRunClient(BaseDBClient):
                     WorkflowRunModel.workflow_id == workflow_id,
                     WorkflowModel.organization_id == organization_id,
                     WorkflowRunModel.is_completed == True,
-                    WorkflowRunModel.mode.notin_(["textchat", "chat"]),
+                    WorkflowRunModel.mode.in_(voice_modes),
                 )
             )
 
@@ -587,19 +595,8 @@ class WorkflowRunClient(BaseDBClient):
 
             if disposition_filter:
                 query = query.where(
-                    func.replace(
-                        func.replace(
-                            cast(
-                                WorkflowRunModel.gathered_context[
-                                    "mapped_call_disposition"
-                                ],
-                                String,
-                            ),
-                            '"',
-                            "",
-                        ),
-                        "'",
-                        "",
+                    WorkflowRunModel.gathered_context.op("->>")(
+                        "mapped_call_disposition"
                     )
                     == disposition_filter
                 )
@@ -612,7 +609,6 @@ class WorkflowRunClient(BaseDBClient):
             return [
                 {
                     "id": run.id,
-                    "run_id": (run.extra or {}).get("run_id"),
                     "call_type": run.call_type,
                     "duration_seconds": (run.usage_info or {}).get(
                         "call_duration_seconds"

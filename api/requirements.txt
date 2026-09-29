@@ -19,6 +19,9 @@ msgpack==1.1.2
 pgvector==0.4.2
 bcrypt==5.0.0
 email-validator==2.3.0
+# Bundle the full IANA tz database (incl. deprecated "backward" aliases like
+# Asia/Calcutta) so ZoneInfo resolves timezones the trimmed system tzdata omits.
+tzdata==2026.4
 posthog==7.19.1
 fastmcp==3.2.4
 tuner-pipecat-sdk==0.2.4

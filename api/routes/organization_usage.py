@@ -258,6 +258,15 @@ async def get_billing_credits(
             )
         try:
             zone = ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            # Some browsers report deprecated IANA aliases (e.g. "Asia/Calcutta")
+            # or otherwise unresolvable names. Degrade to UTC instead of failing
+            # the whole billing page.
+            logger.warning(
+                f"Unresolvable billing timezone {timezone!r}; falling back to UTC"
+            )
+            zone = UTC
+        try:
             start_at = (
                 datetime.combine(start_date, time.min, zone).astimezone(UTC)
                 if start_date is not None
@@ -270,9 +279,9 @@ async def get_billing_credits(
                 if end_date is not None
                 else None
             )
-        except (ZoneInfoNotFoundError, ValueError, OverflowError):
+        except (ValueError, OverflowError):
             raise HTTPException(
-                status_code=422, detail="Invalid billing date range or timezone"
+                status_code=422, detail="Invalid billing date range"
             ) from None
 
         organization_id = user.selected_organization_id

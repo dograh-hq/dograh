@@ -558,6 +558,11 @@ class WorkflowRunClient(BaseDBClient):
         Restricts to actual voice transports (excludes the text-chat modes)
         and incomplete runs. Results are ordered newest-first.
 
+        When ``min_duration_seconds > 0``, runs whose ``usage_info`` has no
+        ``call_duration_seconds`` are also excluded (an unknown duration
+        cannot be confirmed to meet the threshold). Pass 0 to include every
+        completed voice run regardless of recorded duration.
+
         Returns dicts with: id (the run PK, also the Axiom `extra.run_id`
         correlator), call_type, duration_seconds, disposition, created_at,
         transcript_url, storage_backend.

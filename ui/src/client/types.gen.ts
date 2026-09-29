@@ -14260,6 +14260,30 @@ export type GetBillingCreditsApiV1OrganizationsBillingCreditsGetData = {
          * Limit
          */
         limit?: number;
+        /**
+         * Entry Type
+         *
+         * Entry type; credit includes purchases, grants, and additional credits
+         */
+        entry_type?: 'credit' | 'purchase' | 'debit' | 'grant' | 'additional_credit' | null;
+        /**
+         * Start Date
+         *
+         * Inclusive calendar date in timezone
+         */
+        start_date?: string | null;
+        /**
+         * End Date
+         *
+         * Inclusive calendar date in timezone
+         */
+        end_date?: string | null;
+        /**
+         * Timezone
+         *
+         * IANA timezone for the selected calendar dates
+         */
+        timezone?: string;
     };
     url: '/api/v1/organizations/billing/credits';
 };

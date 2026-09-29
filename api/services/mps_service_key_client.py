@@ -5,6 +5,7 @@ Service keys are stored and managed entirely in MPS, not in the local database.
 """
 
 import asyncio
+from datetime import datetime
 from typing import List, Optional
 
 import httpx
@@ -418,12 +419,22 @@ class MPSServiceKeyClient:
         page: int = 1,
         limit: int = 50,
         created_by: Optional[str] = None,
+        entry_type: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> dict:
-        """Get the MPS v2 billing account balance and recent credit ledger."""
+        """Get the MPS balance and ledger, optionally filtered before pagination."""
+        params: dict[str, str | int] = {"page": page, "limit": limit}
+        if entry_type is not None:
+            params["entry_type"] = entry_type
+        if start_date is not None:
+            params["start_date"] = start_date.isoformat()
+        if end_date is not None:
+            params["end_date"] = end_date.isoformat()
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
                 f"{self.base_url}/api/v1/billing/accounts/{organization_id}/ledger",
-                params={"page": page, "limit": limit},
+                params=params,
                 headers=self._get_headers(
                     organization_id=organization_id,
                     created_by=created_by,

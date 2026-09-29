@@ -1310,7 +1310,7 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
     model_config = CARTESIA_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.CARTESIA] = ServiceProviders.CARTESIA
     model: str = Field(
-        default="sonic-3.5",
+        default="sonic-3.6",
         description="Cartesia TTS model.",
         json_schema_extra={"examples": CARTESIA_TTS_MODELS},
     )

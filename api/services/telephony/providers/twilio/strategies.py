@@ -66,7 +66,7 @@ class TwilioConferenceStrategy(TransferStrategy):
     </Dial>
 </Response>"""
 
-            logger.debug(
+            logger.info(
                 f"[Twilio Transfer] Transferring call to conference: {conference_name}"
             )
 

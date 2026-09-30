@@ -117,7 +117,7 @@ class TerminationFunnelProcessor(FrameProcessor):
         if direction == FrameDirection.UPSTREAM and self._should_funnel(frame):
             self._funnelled = True
             reason, error = self._classify(frame)
-            logger.debug(f"Funnelling {frame} through the engine as '{reason}'")
+            logger.info(f"Funnelling {frame} through the engine as '{reason}'")
             self.create_task(self._terminate(reason, error))
             return
 

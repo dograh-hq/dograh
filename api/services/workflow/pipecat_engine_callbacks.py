@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 async def handle_user_idle(engine: "PipecatEngine", aggregator, attempt: int) -> None:
     """Execute the monitor's idle decision; timing and retry state live there."""
-    logger.debug(f"Handling user_idle, attempt: {attempt}")
+    logger.info(f"Handling user_idle, attempt: {attempt}")
     content = (
         "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far."
         if attempt == 1
@@ -54,7 +54,7 @@ def create_max_duration_callback(engine: "PipecatEngine"):
     """Return a callback that cancels the task when the hard call limit is exceeded."""
 
     async def handle_max_duration():
-        logger.debug("Max call duration exceeded. Terminating call")
+        logger.info("Max call duration exceeded. Terminating call")
         await engine.end_call_with_reason(
             EndTaskReason.CALL_DURATION_EXCEEDED.value,
             abort_immediately=True,

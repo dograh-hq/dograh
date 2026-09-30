@@ -746,8 +746,8 @@ class WorkflowConfigurationDefaults(BaseModel):
     ] = 2.0
     turn_start_strategy: Annotated[
         TurnStartStrategy | None, Field(title='Turn Start Strategy')
-    ] = 'default'
-    turn_start_min_words: Annotated[int | None, Field(title='Turn Start Min Words')] = 3
+    ] = 'min_words'
+    turn_start_min_words: Annotated[int | None, Field(title='Turn Start Min Words')] = 2
     turn_stop_strategy: Annotated[
         TurnStopStrategy | None, Field(title='Turn Stop Strategy')
     ] = 'transcription'

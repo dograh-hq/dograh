@@ -105,6 +105,8 @@ def test_null_values_treated_as_unset():
     assert config.max_call_duration == DEFAULT_MAX_CALL_DURATION_SECONDS
     # Nulls count as unset, so a sparse round-trip drops them entirely.
     assert config.model_dump(exclude_unset=True) == {}
+    assert config.turn_start_strategy == "min_words"
+    assert config.turn_start_min_words == 2
 
 
 def test_retired_turn_start_strategy_loads_as_default():

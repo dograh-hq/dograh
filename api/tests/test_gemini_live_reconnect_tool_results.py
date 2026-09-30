@@ -4,7 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from google.genai.types import LiveServerContent, LiveServerMessage
 from pipecat.frames.frames import (
+    BotStoppedSpeakingFrame,
     EndFrame,
     NodeTransitionStartedFrame,
     TranscriptionFrame,
@@ -56,6 +58,71 @@ def _make_tool_result_context(tool_call_id: str) -> LLMContext:
             }
         ]
     )
+
+
+@pytest.mark.asyncio
+async def test_node_transition_flushes_at_playback_stop_before_gemini_turn_complete():
+    service = _make_service()
+    service._bot_is_responding = True
+    service.push_frame = AsyncMock()
+    service._schedule_node_transition_function_calls = MagicMock()
+    function_call = FunctionCallFromLLM(
+        context=LLMContext(),
+        tool_call_id="transition",
+        function_name="next_node",
+        arguments={},
+    )
+    service._pending_node_transition_function_calls = [function_call]
+    assert service._turn_complete_pending_idle is None
+
+    # Playback ends before Gemini sends turn_complete, so flush the transition
+    # without waiting for the server to close the turn.
+    frame = BotStoppedSpeakingFrame()
+    await service.process_frame(frame, FrameDirection.UPSTREAM)
+
+    service._schedule_node_transition_function_calls.assert_called_once_with(
+        [function_call]
+    )
+    assert service._pending_node_transition_function_calls == []
+    assert service._bot_is_responding is True
+    service.push_frame.assert_awaited_once_with(frame, FrameDirection.UPSTREAM)
+
+
+@pytest.mark.asyncio
+async def test_node_transition_waits_for_gemini_idle_across_an_audio_gap():
+    service = _make_service()
+    service._bot_is_responding = True
+    service.push_frame = AsyncMock()
+    service._start_deferred_turn_complete_timeout = MagicMock()
+    service._schedule_node_transition_function_calls = MagicMock()
+    function_call = FunctionCallFromLLM(
+        context=LLMContext(),
+        tool_call_id="transition",
+        function_name="next_node",
+        arguments={},
+    )
+    service._pending_node_transition_function_calls = [function_call]
+
+    await service._handle_server_message(
+        LiveServerMessage(
+            server_content=LiveServerContent(
+                turn_complete=True, interaction_status="IN_PROGRESS"
+            )
+        )
+    )
+    await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+
+    service._schedule_node_transition_function_calls.assert_not_called()
+    assert service._bot_is_responding is True
+
+    await service._handle_server_message(
+        LiveServerMessage(server_content=LiveServerContent(interaction_status="IDLE"))
+    )
+
+    service._schedule_node_transition_function_calls.assert_called_once_with(
+        [function_call]
+    )
+    assert service._bot_is_responding is False
 
 
 @pytest.mark.asyncio

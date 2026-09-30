@@ -98,6 +98,7 @@ async def late_call(
     start_with_human=False,
     external_turns=True,
     min_words=None,
+    turn_start_strategy=None,
     supervised=True,
     turn_stop_timeout=5,
     recording_fetch=None,
@@ -165,18 +166,19 @@ async def late_call(
         context=context,
         classify=classify,
     )
+    turn_configs = {}
+    if turn_start_strategy is not None:
+        turn_configs["turn_start_strategy"] = turn_start_strategy
+    if min_words is not None:
+        turn_configs.setdefault("turn_start_strategy", "min_words")
+        turn_configs["turn_start_min_words"] = min_words
     user, assistant = LLMContextAggregatorPair(
         context,
         realtime_service_mode=False,
         user_params=LLMUserAggregatorParams(
             user_turn_strategies=UserTurnStrategies(
                 start=_create_non_realtime_user_turn_start_strategies(
-                    {
-                        "turn_start_strategy": "min_words",
-                        "turn_start_min_words": min_words,
-                    }
-                    if min_words
-                    else {},
+                    turn_configs,
                     uses_external_turns=external_turns,
                 ),
                 stop=[ExternalUserTurnStopStrategy()]
@@ -888,13 +890,15 @@ async def test_human_during_screening_reply_is_retained_and_releases_workflow(
 
         await c.start()
         assert c.output.interruptions == 1
+        await c.partial("Hello")
+        assert c.user.user_turn_controller.has_active_user_turn
         if finishes_after_playback:
             c.output.resume.set()
             await until(lambda: speech.done)
             # Finishing playback must preserve an already-active caller turn.
             await asyncio.sleep(0.08)
             assert c.supervisor._verdict is None
-        await c.stop("Hello, this is Alex.")
+        await c.stop("Hello.")
         await until(lambda: c.supervisor._verdict is not None)
         assert c.supervisor._verdict.subtype == MachineSubtype.CONVERSATION
 
@@ -920,32 +924,48 @@ async def test_human_during_screening_reply_is_retained_and_releases_workflow(
             ].count("Alex calling.") == 1
         assert [
             m["content"] for m in c.context.messages if m.get("role") == "user"
-        ] == ["Hello, this is Alex."]
+        ] == ["Hello."]
         await c.say("Can we reschedule?")
         await until(lambda: c.llm.get_current_step() == 2)
         assert await c.engine.drain_call_pipeline()
         assert [
             m["content"] for m in c.generation_messages[-1] if m.get("role") == "user"
-        ] == ["Hello, this is Alex.", "Can we reschedule?"]
+        ] == ["Hello.", "Can we reschedule?"]
         c.engine.end_call_with_reason.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("greeting_type", ["text", "audio", "llm"])
 @pytest.mark.parametrize(
+    "external_turns,min_words,turn_start_strategy",
+    [(True, None, None), (False, 3, None), (True, None, "default")],
+)
+@pytest.mark.parametrize(
     "screening_message", [{"text": "Alex calling."}, {"recording_pk": 10}]
 )
 async def test_human_interrupts_screening_reply_before_initial_greeting(
-    simple_workflow, greeting_type, screening_message
+    simple_workflow,
+    greeting_type,
+    screening_message,
+    external_turns,
+    min_words,
+    turn_start_strategy,
 ):
     async with late_call(
         simple_workflow,
         greeting_type,
         start_with_screening=True,
         screening_message=screening_message,
+        external_turns=external_turns,
+        min_words=min_words,
+        turn_start_strategy=turn_start_strategy,
     ) as c:
         assert not c.speech.done
         assert not c.output.resume.is_set()
+        assert (
+            c.user.user_turn_controller.user_turn_strategies.stop
+            == c.normal_strategies.stop
+        )
         await c.say("Hello.")
         # Only interruption can release the held output and allow the greeting.
         await asyncio.wait_for(c.action, 3)
@@ -954,6 +974,7 @@ async def test_human_interrupts_screening_reply_before_initial_greeting(
         assert c.output.interruptions == 1
         assert not c.engine.speech_playback.pending
         assert not c.supervisor.blocks_workflow
+        assert c.user.user_turn_controller.user_turn_strategies is c.normal_strategies
         assert [
             m["content"] for m in c.context.messages if m.get("role") == "user"
         ] == ["Hello."]
@@ -968,38 +989,150 @@ async def test_human_interrupts_screening_reply_before_initial_greeting(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("external_turns", [False, True])
 @pytest.mark.parametrize(
     "screening_message", [{"text": "Alex calling."}, {"recording_pk": 10}]
 )
-async def test_discarded_speech_during_screening_reply_resumes_silence_timeout(
-    simple_workflow, screening_message
+async def test_screening_speech_waits_for_classification_without_interrupting(
+    simple_workflow, screening_message, external_turns
 ):
+    classified = asyncio.Event()
+
+    async def classify(_text):
+        await classified.wait()
+        return MachineSubtype.SCREENING_WAIT
+
+    classifier = AsyncMock(side_effect=classify)
     async with late_call(
         simple_workflow,
         start_with_screening=True,
         screening_message=screening_message,
-        external_turns=False,
-        min_words=2,
+        external_turns=external_turns,
+        min_words=3,
+        classify=classifier,
+        human_utterance_max_ms=1,
         screening_wait_ms=50,
     ) as c:
         await c.start()
         assert not c.supervisor._screening_idle.is_set()
-        await c.stop("Hello.")
-        # The minimum-word strategy discards this without starting a logical
-        # turn, so no turn-stop callback will resume the screening timeout.
-        assert not c.supervisor._logical_turn
-        assert c.supervisor._onset is None
-        assert not c.user.aggregation_string()
+        await c.partial("Automated")
+        assert c.user.user_turn_controller.has_active_user_turn
+        assert c.output.interruptions == 0
+        await c.stop("Automated.")
+        await until(lambda: classifier.await_count == 1)
+        assert c.output.interruptions == 0
+        assert not c.speech.done
+        assert c.llm.get_current_step() == 0
+
+        classified.set()
+        await until(c.supervisor._screening_idle.is_set)
+        assert c.output.interruptions == 0
         assert not c.speech.done
 
         c.output.resume.set()
         await asyncio.wait_for(c.action, 3)
+        assert await c.engine.drain_call_pipeline()
         c.engine.end_call_with_reason.assert_awaited_once_with(
             "screening_timeout", abort_immediately=True
         )
         assert c.speech.outcome == PlaybackOutcome.PLAYED
         assert c.llm.get_current_step() == 0
+        assert c.user.user_turn_controller.user_turn_strategies is c.normal_strategies
         assert not any(m.get("role") == "user" for m in c.context.messages)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("external_turns", [False, True])
+async def test_screening_pickup_restores_configured_interruption_threshold(
+    simple_workflow, external_turns
+):
+    async with late_call(
+        simple_workflow,
+        start_with_screening=True,
+        screening_message={"text": "Alex calling."},
+        external_turns=external_turns,
+        min_words=3,
+        allow_interrupt=True,
+    ) as c:
+        await c.say("Hello.")
+        await asyncio.wait_for(c.action, 3)
+        assert await c.engine.drain_call_pipeline()
+        assert c.user.user_turn_controller.user_turn_strategies is c.normal_strategies
+
+        c.output.resume.clear()
+        c.output.writing.clear()
+        later = await c.engine.queue_speech(text="How can I help?")
+        await asyncio.wait_for(c.output.writing.wait(), 3)
+        await c.start()
+        await c.partial("Wait")
+        await c.partial("Wait please")
+        assert not later.done
+        assert c.output.interruptions == 1
+        await c.partial("Wait please stop")
+        await until(lambda: later.done)
+        assert later.outcome is PlaybackOutcome.INTERRUPTED
+        await c.stop("Wait please stop.")
+        await until(lambda: c.llm.get_current_step() == 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("greeting_type", ["text", "audio", "llm"])
+async def test_greeting_after_screening_still_requires_two_words(
+    simple_workflow, greeting_type
+):
+    async with late_call(
+        simple_workflow,
+        greeting_type,
+        start_with_screening=True,
+        screening_message={"text": "Alex calling."},
+    ) as c:
+        queue_opening = c.engine.queue_node_opening
+
+        async def held_opening(**kwargs):
+            c.output.resume.clear()
+            c.output.writing.clear()
+            return await queue_opening(**kwargs)
+
+        c.engine.queue_node_opening = held_opening
+        await c.say("Hello.")
+        await until(lambda: c.engine.speech_playback.greeting_pending)
+        await asyncio.wait_for(c.output.writing.wait(), 3)
+        greeting = c.engine.speech_playback.greeting
+        assert c.speech.outcome is PlaybackOutcome.INTERRUPTED
+        await c.say("Hello.")
+        assert not greeting.done
+        assert c.output.interruptions == 1
+        await c.start()
+        await c.partial("Wait please")
+        await until(lambda: greeting.done)
+        assert greeting.outcome is PlaybackOutcome.INTERRUPTED
+        await c.stop("Wait please.")
+        await asyncio.wait_for(c.action, 3)
+        assert await c.engine.drain_call_pipeline()
+        assert c.user.user_turn_controller.user_turn_strategies is c.normal_strategies
+        assert c.output.interruptions == 2
+
+
+@pytest.mark.asyncio
+async def test_disconnect_during_screening_restores_normal_strategies(simple_workflow):
+    async with late_call(
+        simple_workflow,
+        start_with_screening=True,
+        screening_message={"text": "Alex calling."},
+    ) as c:
+        await c.start()
+        await c.partial("Hello")
+        assert (
+            c.user.user_turn_controller.user_turn_strategies is not c.normal_strategies
+        )
+        await c.worker.queue_frame(CancelFrame())
+        await asyncio.wait_for(c.action, 3)
+        await until(
+            lambda: (
+                c.user.user_turn_controller.user_turn_strategies is c.normal_strategies
+            )
+        )
+        assert c.output.interruptions == 0
 
 
 @pytest.mark.asyncio
@@ -1158,8 +1291,18 @@ async def test_failed_greeting_restores_normal_strategy_without_committing_conte
 
 
 @pytest.mark.asyncio
-async def test_later_playback_uses_normal_immediate_interruption(simple_workflow):
-    async with late_call(simple_workflow, allow_interrupt=True) as c:
+@pytest.mark.parametrize("external_turns", [False, True])
+@pytest.mark.parametrize("min_words", [None, 3])
+async def test_later_playback_uses_normal_immediate_interruption(
+    simple_workflow, external_turns, min_words
+):
+    async with late_call(
+        simple_workflow,
+        allow_interrupt=True,
+        external_turns=external_turns,
+        min_words=min_words,
+        turn_start_strategy="default",
+    ) as c:
         c.output.resume.set()
         await asyncio.wait_for(c.action, 3)
         c.output.resume.clear()

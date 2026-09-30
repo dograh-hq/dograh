@@ -10,7 +10,6 @@ dead MCP server.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from loguru import logger
@@ -41,8 +40,8 @@ def build_streamable_http_params(
     return StreamableHttpParameters(
         url=url,
         headers=headers,
-        timeout=timedelta(seconds=timeout_secs),
-        sse_read_timeout=timedelta(seconds=sse_read_timeout_secs),
+        timeout=float(timeout_secs),
+        sse_read_timeout=float(sse_read_timeout_secs),
     )
 
 

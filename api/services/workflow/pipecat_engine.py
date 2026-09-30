@@ -871,7 +871,7 @@ class PipecatEngine:
 
         node = self.active_agent.workflow.nodes[node_id]
 
-        logger.debug(
+        logger.info(
             f"Executing node: name: {node.name} allow_interrupt: {node.allow_interrupt} is_end: {node.is_end}"
         )
 
@@ -1038,7 +1038,7 @@ class PipecatEngine:
                     and self._fetch_recording_audio
                     and self._transport_output is not None
                 ):
-                    logger.debug(f"Playing audio greeting recording: {greeting_value}")
+                    logger.info(f"Playing audio greeting recording: {greeting_value}")
                     fetch_kwargs = (
                         {"recording_id": greeting_value}
                         if greeting_type == "audio_recording_id"
@@ -1061,7 +1061,7 @@ class PipecatEngine:
                         "falling back to LLM generation"
                     )
                 elif greeting_value and agent.worker is not None:
-                    logger.debug("Playing text greeting via TTS")
+                    logger.info("Playing text greeting via TTS")
                     # Completed greeting playback is retained in context so
                     # the LLM knows the caller has already been greeted.
                     if self._is_realtime:
@@ -1200,7 +1200,7 @@ class PipecatEngine:
         ):
             return
 
-        logger.debug(
+        logger.info(
             f"Refining call disposition: {fallback_disposition} -> "
             f"{extracted_disposition}"
         )
@@ -1378,7 +1378,7 @@ class PipecatEngine:
         # write, of the finished context, is enough. Hangup strategies read
         # only keys recorded at call setup or at transfer time, never the
         # terminal extraction.
-        logger.debug(
+        logger.info(
             f"Finishing run with call status: {call_status}, disposition: "
             f"{self._gathered_context.get(CALL_DISPOSITION_CONTEXT_KEY, call_disposition)} "
             f"queueing frame {frame_to_push}"
@@ -1799,7 +1799,7 @@ class PipecatEngine:
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             if runtime.worker.active:
-                logger.debug(f"Agent visit {runtime.visit_id} activated")
+                logger.info(f"Agent visit {runtime.visit_id} activated")
                 return True
             await asyncio.sleep(0.01)
         logger.warning(

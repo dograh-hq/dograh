@@ -597,9 +597,7 @@ async def _upload_text_chat_transcript(
     """Persist the text transcript before webhooks render their payload."""
     transcript_text = generate_transcript_text(feedback_events)
     if not transcript_text:
-        logger.debug(
-            f"No text-chat transcript events for run {run_id}; skipping upload"
-        )
+        logger.info(f"No text-chat transcript events for run {run_id}; skipping upload")
         return
     try:
         await upload_workflow_run_artifacts(

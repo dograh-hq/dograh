@@ -210,7 +210,7 @@ def register_event_handlers(
     async def on_client_disconnected(_transport, _participant):
         call_disposed = engine.is_call_disposed()
 
-        logger.debug(
+        logger.info(
             f"In on_client_disconnected callback handler. Call disposed: {call_disposed}"
         )
 
@@ -446,7 +446,7 @@ def register_event_handlers(
             except Exception as e:
                 logger.error(f"Error saving realtime feedback logs: {e}", exc_info=True)
         else:
-            logger.debug("Logs buffer is empty, skipping save")
+            logger.info("Logs buffer is empty, skipping save")
 
         logs_update.update(integration_logs)
 
@@ -477,23 +477,23 @@ def register_event_handlers(
                 if not in_memory_audio_buffers.mixed.is_empty:
                     mixed_audio_wav = await in_memory_audio_buffers.mixed.to_wav_bytes()
                 else:
-                    logger.debug("Audio buffer is empty, skipping upload")
+                    logger.info("Audio buffer is empty, skipping upload")
 
                 if not in_memory_audio_buffers.user.is_empty:
                     user_audio_wav = await in_memory_audio_buffers.user.to_wav_bytes()
                 else:
-                    logger.debug("User audio buffer is empty, skipping upload")
+                    logger.info("User audio buffer is empty, skipping upload")
 
                 if not in_memory_audio_buffers.bot.is_empty:
                     bot_audio_wav = await in_memory_audio_buffers.bot.to_wav_bytes()
                 else:
-                    logger.debug("Bot audio buffer is empty, skipping upload")
+                    logger.info("Bot audio buffer is empty, skipping upload")
 
             transcript_text = in_memory_logs_buffer.generate_transcript_text(
                 include_end_timestamps=include_transcript_end_timestamps
             )
             if not transcript_text:
-                logger.debug("No transcript events in logs buffer, skipping upload")
+                logger.info("No transcript events in logs buffer, skipping upload")
 
             await upload_workflow_run_artifacts(
                 workflow_run_id,

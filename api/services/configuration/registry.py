@@ -82,6 +82,7 @@ class ServiceType(Enum):
 class ServiceProviders(str, Enum):
     OPENAI = "openai"
     ATLASCLOUD = "atlascloud"
+    HOPPER = "hopper"
     DEEPGRAM = "deepgram"
     GROQ = "groq"
     OPENROUTER = "openrouter"
@@ -122,6 +123,7 @@ class BaseServiceConfiguration(BaseModel):
     provider: Literal[
         ServiceProviders.OPENAI,
         ServiceProviders.ATLASCLOUD,
+        ServiceProviders.HOPPER,
         ServiceProviders.DEEPGRAM,
         ServiceProviders.GROQ,
         ServiceProviders.OPENROUTER,
@@ -317,6 +319,10 @@ ATLASCLOUD_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Atlas Cloud",
     description="Atlas Cloud OpenAI-compatible LLM API.",
 )
+HOPPER_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Hopper",
+    provider_docs_url="https://docs.withhopper.com",
+)
 GOOGLE_PROVIDER_MODEL_CONFIG = provider_model_config("Google")
 GROQ_PROVIDER_MODEL_CONFIG = provider_model_config("Groq")
 OPENROUTER_PROVIDER_MODEL_CONFIG = provider_model_config("Open Router")
@@ -406,6 +412,11 @@ ATLASCLOUD_MODELS = [
     "deepseek-ai/deepseek-v4-pro",
 ]
 
+HOPPER_API_BASE_URL = "https://api.withhopper.com/v1"
+HOPPER_MODELS = [
+    "gemma-4-31b",
+]
+
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "openai/gpt-oss-120b",
@@ -456,6 +467,24 @@ class AtlasCloudLLMService(BaseLLMConfiguration):
     base_url: str = Field(
         default="https://api.atlascloud.ai/v1",
         description="Atlas Cloud OpenAI-compatible API endpoint.",
+    )
+
+
+@register_llm
+class HopperLLMConfiguration(BaseLLMConfiguration):
+    model_config = HOPPER_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.HOPPER] = ServiceProviders.HOPPER
+    api_key: str | list[str] = Field(
+        description="API key from your Hopper console.",
+        json_schema_extra={
+            "docs_url": "https://withhopper.com/console/keys",
+            "docs_label": "Create a key",
+        },
+    )
+    model: str = Field(
+        default="gemma-4-31b",
+        description="Hopper chat model.",
+        json_schema_extra={"examples": HOPPER_MODELS, "allow_custom_input": True},
     )
 
 
@@ -1102,6 +1131,7 @@ LLMConfig = Annotated[
     Union[
         OpenAILLMService,
         AtlasCloudLLMService,
+        HopperLLMConfiguration,
         GoogleVertexLLMConfiguration,
         GroqLLMService,
         OpenRouterLLMConfiguration,

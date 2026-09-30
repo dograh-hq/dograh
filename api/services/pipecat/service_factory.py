@@ -18,7 +18,7 @@ from api.services.configuration.options import (
     DEEPGRAM_FLUX_MODELS,
     GOOGLE_VERTEX_DEFAULT_LOCATION,
 )
-from api.services.configuration.registry import ServiceProviders
+from api.services.configuration.registry import HOPPER_API_BASE_URL, ServiceProviders
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
@@ -1174,6 +1174,12 @@ def create_llm_service_from_provider(
         return GroqLLMService(
             api_key=api_key,
             settings=GroqLLMSettings(model=model, temperature=0.1),
+        )
+    elif provider == ServiceProviders.HOPPER.value:
+        return OpenAILLMService(
+            api_key=api_key,
+            base_url=HOPPER_API_BASE_URL,
+            settings=OpenAILLMSettings(model=model, temperature=0.1),
         )
     elif provider == ServiceProviders.OPENROUTER.value:
         kwargs = {}

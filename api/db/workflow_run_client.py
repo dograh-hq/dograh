@@ -598,9 +598,7 @@ class WorkflowRunClient(BaseDBClient):
             if min_duration_seconds > 0:
                 query = query.where(
                     cast(
-                        WorkflowRunModel.usage_info.op("->>")(
-                            "call_duration_seconds"
-                        ),
+                        WorkflowRunModel.usage_info.op("->>")("call_duration_seconds"),
                         Float,
                     )
                     >= min_duration_seconds

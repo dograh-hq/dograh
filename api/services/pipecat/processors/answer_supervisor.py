@@ -102,6 +102,12 @@ class AnswerSupervisor(FrameProcessor):
         return not self._released
 
     @property
+    def awaiting_screening_pickup(self) -> bool:
+        return self._screening and not (
+            self._committed or self._released or self._closed
+        )
+
+    @property
     def observing_opening(self) -> bool:
         return (
             self._opening_started

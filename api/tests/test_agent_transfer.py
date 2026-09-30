@@ -1206,6 +1206,55 @@ def _destination_factory(*, use_draft: bool) -> AgentRuntimeFactory:
 
 
 @pytest.mark.asyncio
+async def test_a_retired_agent_cannot_acquire_a_worker():
+    runtime = stub_agent_runtime()
+    runtime.is_child = True
+    runtime.worker = None
+    await asyncio.wait_for(runtime.abort("user_hangup"), 1)
+    call_worker = Mock(add_workers=AsyncMock())
+    callbacks = Mock()
+    factory = AgentRuntimeFactory(
+        organization_id=1,
+        workflow_run_id=1,
+        call_worker=call_worker,
+        audio_config=None,
+        callbacks_factory=callbacks,
+    )
+
+    await asyncio.wait_for(factory.attach(runtime), 1)
+
+    assert runtime.retired and runtime.worker is None
+    callbacks.assert_not_called()
+    call_worker.add_workers.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "has_worker, retired", [(False, False), (False, True), (True, True)]
+)
+async def test_initial_agent_does_not_wait_for_or_activate_an_unavailable_worker(
+    has_worker, retired
+):
+    runtime = stub_agent_runtime()
+    runtime.is_child = True
+    runtime.retired = retired
+    if not has_worker:
+        runtime.worker = None
+    runtime.wait_until_started = AsyncMock(return_value=True)
+    engine = SimpleNamespace(
+        _active_agent=runtime,
+        _agent_factory=SimpleNamespace(attach=AsyncMock()),
+        _call_worker=object(),
+        activate_agent=AsyncMock(return_value=True),
+    )
+
+    assert not await asyncio.wait_for(PipecatEngine.start_initial_agent(engine), 1)
+
+    runtime.wait_until_started.assert_not_awaited()
+    engine.activate_agent.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "use_draft, draft, expected_id",
     [

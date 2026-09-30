@@ -73,6 +73,7 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
         call_monitor=Mock(),
         # Readiness now also waits for the agent this call starts on.
         start_initial_agent=AsyncMock(return_value=True),
+        is_call_disposed=Mock(return_value=False),
     )
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
@@ -172,6 +173,93 @@ async def test_no_supervisor_activates_monitor_before_the_opening(monkeypatch):
     await task.handlers["on_pipeline_started"](task, None)
     await task.handlers["on_pipeline_started"](task, None)
     engine.queue_node_opening.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "disposed_before, disposed_during, started",
+    [
+        (True, False, True),
+        (False, True, True),
+        (False, True, False),
+        (False, False, True),
+        (False, False, False),
+    ],
+    ids=[
+        "already-ended",
+        "ends-during-success",
+        "ends-during-failure",
+        "live",
+        "failed",
+    ],
+)
+async def test_initial_response_respects_call_disposal(
+    monkeypatch, disposed_before, disposed_during, started
+):
+    task, transport = EventSource(), EventSource()
+    engine = PipecatEngine(workflow=None, call_context_vars={})
+    engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
+    engine._call_disposed = disposed_before
+    engine.set_node = AsyncMock()
+    engine.queue_node_opening = AsyncMock()
+    engine.end_call_with_reason = AsyncMock()
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def start():
+        entered.set()
+        await release.wait()
+        return started
+
+    engine.start_initial_agent = AsyncMock(side_effect=start)
+    logger = Mock()
+    monkeypatch.setattr("api.services.pipecat.event_handlers.logger", logger)
+    monkeypatch.setattr(
+        "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
+    )
+    register_event_handlers(
+        task=task,
+        transport=transport,
+        workflow_run_id=1,
+        engine=engine,
+        audio_buffer=SimpleNamespace(start_recording=AsyncMock()),
+        in_memory_logs_buffer=SimpleNamespace(),
+        transcript_log_coordinator=SimpleNamespace(),
+        pipeline_metrics_aggregator=SimpleNamespace(),
+        termination_funnel=TerminationFunnelProcessor(),
+        audio_config=SimpleNamespace(pipeline_sample_rate=16000),
+    )
+    await transport.handlers["on_client_connected"](transport, None)
+    startup = asyncio.create_task(task.handlers["on_pipeline_started"](task, None))
+    try:
+        if not disposed_before:
+            await asyncio.wait_for(entered.wait(), 1)
+            engine._call_disposed = disposed_during
+            release.set()
+        await asyncio.wait_for(startup, 1)
+    finally:
+        release.set()
+        startup.cancel()
+        await asyncio.wait_for(asyncio.gather(startup, return_exceptions=True), 1)
+
+    if disposed_before:
+        engine.start_initial_agent.assert_not_awaited()
+    else:
+        engine.start_initial_agent.assert_awaited_once()
+    disposed = disposed_before or disposed_during
+    if disposed or not started:
+        engine.set_node.assert_not_awaited()
+        engine.queue_node_opening.assert_not_awaited()
+        assert not engine.call_monitor.active
+    else:
+        engine.set_node.assert_awaited_once_with("start")
+        engine.queue_node_opening.assert_awaited_once()
+        assert engine.call_monitor.active
+    if not disposed and not started:
+        engine.end_call_with_reason.assert_awaited_once_with("pipeline_error")
+        logger.error.assert_called_once()
+    else:
+        engine.end_call_with_reason.assert_not_awaited()
+        logger.error.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -253,7 +253,7 @@ class AgentRuntimeFactory:
         call's conversation trace, and that trace only exists from the moment
         the call pipeline starts.
         """
-        if runtime.worker is not None:
+        if runtime.worker is not None or runtime.retired:
             return
 
         callbacks = self._callbacks_factory(runtime.visit_id)

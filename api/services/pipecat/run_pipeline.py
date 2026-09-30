@@ -191,9 +191,10 @@ def _resolve_user_turn_stop_timeout(
 
 
 def _resolve_turn_start_min_words(run_configs: dict) -> int:
+    min_words = run_configs.get("turn_start_min_words")
     return max(
         1,
-        int(run_configs.get("turn_start_min_words", DEFAULT_TURN_START_MIN_WORDS)),
+        int(DEFAULT_TURN_START_MIN_WORDS if min_words is None else min_words),
     )
 
 
@@ -202,18 +203,11 @@ def _create_non_realtime_user_turn_start_strategies(
 ):
     """Return user turn start strategies for non-realtime pipelines."""
 
-    # An STT that reports its own turn boundaries decides the turn start,
-    # whatever `turn_start_strategy` asks for.
-    #
-    # Local VAD is deliberately kept out of these start strategies too: it would
-    # win the race on raw voice activity and start the turn before the STT
-    # confirms a real turn.
-    if uses_external_turns:
-        return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
-
     turn_start_strategy = run_configs.get(
         "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
     )
+    if turn_start_strategy not in ("default", "min_words"):
+        turn_start_strategy = DEFAULT_TURN_START_STRATEGY
 
     if turn_start_strategy == "min_words":
         return [
@@ -221,6 +215,11 @@ def _create_non_realtime_user_turn_start_strategies(
                 min_words=_resolve_turn_start_min_words(run_configs)
             )
         ]
+
+    # Voice activity mode follows provider turn starts when available. Keep local VAD
+    # out of that path so it cannot interrupt before the provider confirms speech.
+    if uses_external_turns:
+        return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
 
     return [TranscriptionUserTurnStartStrategy(), VADUserTurnStartStrategy()]
 
@@ -987,9 +986,8 @@ async def _run_pipeline_impl(
             user_config.realtime.provider, user_config.realtime.model
         )
     else:
-        # Some STT services emit their own turn boundaries, so the aggregator
-        # follows those external signals. Other models use configurable turn
-        # detection.
+        # Provider turn endings stay authoritative even when a word threshold
+        # controls when the caller can interrupt.
         uses_external_turns = stt_uses_external_turns(user_config)
         user_turn_start_strategies = _create_non_realtime_user_turn_start_strategies(
             run_configs,
@@ -998,8 +996,7 @@ async def _run_pipeline_impl(
         turn_start_strategy = run_configs.get(
             "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
         )
-        # `requested` is what the workflow asked for; `resolved` is what the
-        # pipeline built, which differs whenever external turns override it.
+        # Log the configured choice alongside the concrete strategies it selects.
         logger.info(
             f"[run {workflow_run_id}] Non-realtime interrupt strategy "
             f"requested={turn_start_strategy} "

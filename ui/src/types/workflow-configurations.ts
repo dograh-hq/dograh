@@ -20,7 +20,8 @@ export type AmbientNoiseConfiguration = Omit<
 
 export type TurnStopStrategy = NonNullable<GeneratedWorkflowConfigurationDefaults["turn_stop_strategy"]>;
 export type TurnStartStrategy = NonNullable<GeneratedWorkflowConfigurationDefaults["turn_start_strategy"]>;
-export const DEFAULT_TURN_START_MIN_WORDS = 3;
+export const DEFAULT_TURN_START_STRATEGY: TurnStartStrategy = 'min_words';
+export const DEFAULT_TURN_START_MIN_WORDS = 2;
 
 // "provisional_vad" was retired. Definitions saved before then still carry it,
 // so map it onto the option the backend now resolves such a value to, rather
@@ -28,7 +29,7 @@ export const DEFAULT_TURN_START_MIN_WORDS = 3;
 function coerceTurnStartStrategy(value: string): TurnStartStrategy {
     return TURN_START_STRATEGY_OPTIONS.some(o => o.value === value)
         ? (value as TurnStartStrategy)
-        : 'default';
+        : DEFAULT_TURN_START_STRATEGY;
 }
 
 export const TURN_START_STRATEGY_OPTIONS: Array<{
@@ -38,8 +39,8 @@ export const TURN_START_STRATEGY_OPTIONS: Array<{
 }> = [
     {
         value: 'default',
-        label: 'Default',
-        description: 'Use the platform default: external STT turn signals when available, otherwise local VAD.',
+        label: 'Voice activity',
+        description: 'Interrupt when the STT provider or local voice activity detection signals speech.',
     },
     {
         value: 'min_words',
@@ -174,7 +175,7 @@ const FALLBACK_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     max_call_duration: 300,
     max_user_idle_timeout: 10,  // 10 seconds
     smart_turn_stop_secs: 2,  // 2 seconds
-    turn_start_strategy: 'default',  // Default to platform-chosen user turn start detection
+    turn_start_strategy: DEFAULT_TURN_START_STRATEGY,
     turn_start_min_words: DEFAULT_TURN_START_MIN_WORDS,
     turn_stop_strategy: 'transcription',  // Default to transcription-based detection
     dictionary: '',

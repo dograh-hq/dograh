@@ -270,11 +270,15 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     # ------------------------------------------------------------------
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
-        if isinstance(frame, BotStoppedSpeakingFrame):
+        if (
+            isinstance(frame, BotStoppedSpeakingFrame)
+            and self._turn_complete_pending_idle is None
+        ):
             # Belt-and-suspenders: the main drain happens in
             # _set_bot_is_responding(False), but if Gemini delays turn_complete
             # past the audible end of the turn, flushing here ensures a pending
-            # node transition fires promptly.
+            # node transition fires promptly. A turn held open by Gemini's
+            # IN_PROGRESS status can resume speaking after this audio gap.
             await self._run_pending_node_transition_function_calls()
             # Fall through to super for the actual push.
         await super().process_frame(frame, direction)

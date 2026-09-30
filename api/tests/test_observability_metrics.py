@@ -17,10 +17,11 @@ from pipecat.frames.frames import (
 )
 from pipecat.metrics.metrics import TTFAMetricsData, TTFATMetricsData, TTFBMetricsData
 from pipecat.observers.base_observer import FramePushed
-from pipecat.observers.service_metrics_observer import ServiceMetricsObserver
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker_observer import WorkerObserver
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.utils.asyncio.task_manager import TaskManager
 from prometheus_client.parser import text_string_to_metric_families
 
 from api.routes import main as main_routes
@@ -163,7 +164,8 @@ async def test_service_metrics_deduplicate_hops_and_keep_latency_kinds_separate(
     runtime,
 ):
     observers = observed_worker()
-    observer = next(o for o in observers if isinstance(o, ServiceMetricsObserver))
+    observer = WorkerObserver(observers=observers)
+    await observer.setup(TaskManager())
     frame = MetricsFrame(
         data=[
             TTFBMetricsData(
@@ -198,8 +200,8 @@ async def test_service_metrics_deduplicate_hops_and_keep_latency_kinds_separate(
             )
         )
     )
-    for item in observers:
-        await item.cleanup()
+    await observer.wait_until_idle()
+    await observer.cleanup()
 
     assert value(runtime, "dograh_ai_latency_seconds_count", kind="ttfb") == 2
     assert value(
@@ -248,7 +250,8 @@ async def test_invalid_durations_are_not_exported_and_text_is_labeled(runtime):
 
 @pytest.mark.asyncio
 async def test_metrics_from_retired_agent_reach_observer_once(runtime):
-    observer = observed_worker(conversation_type="text")[0]
+    observer = WorkerObserver(observers=observed_worker(conversation_type="text"))
+    await observer.setup(TaskManager())
     bridge = AgentBridgeProcessor(
         bus=SimpleNamespace(),
         worker_name="call",
@@ -274,6 +277,7 @@ async def test_metrics_from_retired_agent_reach_observer_once(runtime):
             direction=FrameDirection.DOWNSTREAM,
         )
     )
+    await observer.wait_until_idle()
     await observer.cleanup()
     assert value(runtime, "dograh_ai_latency_seconds_count") == 1
 

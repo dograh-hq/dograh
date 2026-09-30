@@ -233,7 +233,14 @@ class PipecatEngine:
             max_duration_end_task_callback=self.create_max_duration_callback(),
         )
         self.speech_playback.add_observer(self.call_monitor)
-        self.greeting = GreetingController(self.speech_playback, lambda: self.context)
+        self.greeting = GreetingController(
+            self.speech_playback,
+            lambda: self.context,
+            is_screening=lambda: (
+                self.answer_supervisor is not None
+                and self.answer_supervisor.awaiting_screening_pickup
+            ),
+        )
 
         # Tracks whether the bot is currently speaking (for allow_interrupt logic)
         self._bot_is_speaking: bool = False

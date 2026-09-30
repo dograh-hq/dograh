@@ -199,6 +199,8 @@ def register_event_handlers(
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.
             await engine.set_node(engine.active_agent.workflow.start_node_id)
+            if engine.is_call_disposed():
+                return
             if answer_supervisor is not None:
                 await engine.handle_answer_supervision()
                 return

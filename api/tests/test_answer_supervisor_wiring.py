@@ -177,40 +177,49 @@ async def test_no_supervisor_activates_monitor_before_the_opening(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "disposed_before, disposed_during, started",
+    "hangup_phase, started",
     [
-        (True, False, True),
-        (False, True, True),
-        (False, True, False),
-        (False, False, True),
-        (False, False, False),
+        ("before", True),
+        ("startup", True),
+        ("startup", False),
+        ("node", True),
+        (None, True),
+        (None, False),
     ],
     ids=[
         "already-ended",
         "ends-during-success",
         "ends-during-failure",
+        "ends-during-node-setup",
         "live",
         "failed",
     ],
 )
 async def test_initial_response_respects_call_disposal(
-    monkeypatch, disposed_before, disposed_during, started
+    monkeypatch, hangup_phase, started
 ):
     task, transport = EventSource(), EventSource()
     engine = PipecatEngine(workflow=None, call_context_vars={})
     engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
-    engine._call_disposed = disposed_before
-    engine.set_node = AsyncMock()
+    engine._call_disposed = hangup_phase == "before"
     engine.queue_node_opening = AsyncMock()
     engine.end_call_with_reason = AsyncMock()
     entered, release = asyncio.Event(), asyncio.Event()
+    node_entered, node_release = asyncio.Event(), asyncio.Event()
+    if hangup_phase != "node":
+        node_release.set()
 
     async def start():
         entered.set()
         await release.wait()
         return started
 
+    async def set_node(_node_id):
+        node_entered.set()
+        await node_release.wait()
+
     engine.start_initial_agent = AsyncMock(side_effect=start)
+    engine.set_node = AsyncMock(side_effect=set_node)
     logger = Mock()
     monkeypatch.setattr("api.services.pipecat.event_handlers.logger", logger)
     monkeypatch.setattr(
@@ -231,27 +240,34 @@ async def test_initial_response_respects_call_disposal(
     await transport.handlers["on_client_connected"](transport, None)
     startup = asyncio.create_task(task.handlers["on_pipeline_started"](task, None))
     try:
-        if not disposed_before:
+        if hangup_phase != "before":
             await asyncio.wait_for(entered.wait(), 1)
-            engine._call_disposed = disposed_during
+            engine._call_disposed = hangup_phase == "startup"
             release.set()
+        if hangup_phase == "node":
+            await asyncio.wait_for(node_entered.wait(), 1)
+            engine._call_disposed = True
+            node_release.set()
         await asyncio.wait_for(startup, 1)
     finally:
         release.set()
+        node_release.set()
         startup.cancel()
         await asyncio.wait_for(asyncio.gather(startup, return_exceptions=True), 1)
 
-    if disposed_before:
+    if hangup_phase == "before":
         engine.start_initial_agent.assert_not_awaited()
     else:
         engine.start_initial_agent.assert_awaited_once()
-    disposed = disposed_before or disposed_during
-    if disposed or not started:
+    if hangup_phase in ("before", "startup") or not started:
         engine.set_node.assert_not_awaited()
+    else:
+        engine.set_node.assert_awaited_once_with("start")
+    disposed = hangup_phase is not None
+    if disposed or not started:
         engine.queue_node_opening.assert_not_awaited()
         assert not engine.call_monitor.active
     else:
-        engine.set_node.assert_awaited_once_with("start")
         engine.queue_node_opening.assert_awaited_once()
         assert engine.call_monitor.active
     if not disposed and not started:

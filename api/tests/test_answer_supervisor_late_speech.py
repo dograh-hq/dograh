@@ -170,9 +170,8 @@ async def late_call(
     if turn_start_strategy is not None:
         turn_configs["turn_start_strategy"] = turn_start_strategy
     if min_words is not None:
-        turn_configs.update(
-            turn_start_strategy="min_words", turn_start_min_words=min_words
-        )
+        turn_configs.setdefault("turn_start_strategy", "min_words")
+        turn_configs["turn_start_min_words"] = min_words
     user, assistant = LLMContextAggregatorPair(
         context,
         realtime_service_mode=False,
@@ -1292,9 +1291,17 @@ async def test_failed_greeting_restores_normal_strategy_without_committing_conte
 
 
 @pytest.mark.asyncio
-async def test_later_playback_uses_normal_immediate_interruption(simple_workflow):
+@pytest.mark.parametrize("external_turns", [False, True])
+@pytest.mark.parametrize("min_words", [None, 3])
+async def test_later_playback_uses_normal_immediate_interruption(
+    simple_workflow, external_turns, min_words
+):
     async with late_call(
-        simple_workflow, allow_interrupt=True, turn_start_strategy="default"
+        simple_workflow,
+        allow_interrupt=True,
+        external_turns=external_turns,
+        min_words=min_words,
+        turn_start_strategy="default",
     ) as c:
         c.output.resume.set()
         await asyncio.wait_for(c.action, 3)

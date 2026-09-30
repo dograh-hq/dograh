@@ -17,7 +17,6 @@ from pipecat.frames.frames import (
 )
 from pipecat.metrics.metrics import TTFAMetricsData, TTFATMetricsData, TTFBMetricsData
 from pipecat.observers.base_observer import FramePushed
-from pipecat.observers.service_metrics_observer import ServiceMetricsObserver
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker_observer import WorkerObserver

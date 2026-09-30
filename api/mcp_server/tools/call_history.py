@@ -82,9 +82,7 @@ async def get_call_transcript(call_id: int) -> str:
         organization_id=user.selected_organization_id,
     )
     if not run:
-        raise HTTPException(
-            status_code=404, detail=f"Call {call_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Call {call_id} not found")
 
     try:
         return await download_run_transcript_text(

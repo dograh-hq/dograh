@@ -42,6 +42,31 @@ def test_max_call_duration_rejects_non_positive():
         WorkflowConfigurationDefaults(max_call_duration=0)
 
 
+@pytest.mark.parametrize("min_words", [0, -1])
+def test_turn_start_min_words_rejects_non_positive(min_words):
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowConfigurationDefaults(turn_start_min_words=min_words)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("turn_start_min_words",)
+    assert error["type"] == "greater_than_equal"
+
+
+@pytest.mark.parametrize("min_words", [1, 2, 4])
+def test_turn_start_min_words_preserves_valid_threshold(min_words):
+    config = WorkflowConfigurationDefaults(turn_start_min_words=min_words)
+
+    assert config.model_dump(exclude_unset=True) == {"turn_start_min_words": min_words}
+
+
+def test_turn_start_min_words_lower_bound_is_exported_in_schema():
+    field_schema = WorkflowConfigurationDefaults.model_json_schema()["properties"][
+        "turn_start_min_words"
+    ]
+
+    assert field_schema["minimum"] == 1
+
+
 def test_text_chat_inactivity_timeout_defaults_to_deployment_value():
     config = WorkflowConfigurationDefaults()
 

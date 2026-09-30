@@ -145,7 +145,7 @@ class WorkflowConfigurationDefaults(BaseModel):
     max_user_idle_timeout: float = DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS
     smart_turn_stop_secs: float = DEFAULT_SMART_TURN_STOP_SECS
     turn_start_strategy: Literal["default", "min_words"] = DEFAULT_TURN_START_STRATEGY
-    turn_start_min_words: int = DEFAULT_TURN_START_MIN_WORDS
+    turn_start_min_words: int = Field(default=DEFAULT_TURN_START_MIN_WORDS, ge=1)
     turn_stop_strategy: Literal["transcription", "turn_analyzer"] = (
         DEFAULT_TURN_STOP_STRATEGY
     )

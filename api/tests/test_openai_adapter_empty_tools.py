@@ -68,6 +68,13 @@ def test_adapter_sanitizes_tool_messages_when_tools_is_empty():
     assert wire_messages[3]["role"] == "user"
     assert "[Tool result]: Transitioned successfully" in wire_messages[3]["content"]
 
+    # 3. Canonical source messages in memory must remain completely untouched
+    assert messages[2]["role"] == "assistant"
+    assert messages[2]["tool_calls"] is not None
+    assert messages[2]["tool_calls"][0]["function"]["name"] == "transition_to_end_call"
+    assert messages[3]["role"] == "tool"
+    assert messages[3]["content"] == "Transitioned successfully"
+
 
 def test_adapter_preserves_tool_messages_when_tools_are_present():
     """Verify that when tools are actively present, messages are passed through unchanged."""
@@ -188,6 +195,13 @@ def test_adapter_sanitizes_unpaired_assistant_tool_call_without_tool_result():
     for msg in wire_messages:
         assert msg["role"] != "tool"
 
+    # Canonical source messages in memory must remain completely untouched
+    assert messages[1]["role"] == "assistant"
+    assert messages[1]["tool_calls"] is not None
+    assert len(messages[1]["tool_calls"]) == 1
+    assert messages[1]["tool_calls"][0]["function"]["name"] == "cancel_booking"
+    assert messages[1]["content"] == "Cancelling now..."
+
 
 def test_adapter_sanitizes_unpaired_tool_message_without_assistant_call():
     """Verify orphaned tool result with no preceding assistant tool_call is sanitized."""
@@ -213,3 +227,8 @@ def test_adapter_sanitizes_unpaired_tool_message_without_assistant_call():
     orphan_tool_msg = wire_messages[0]
     assert orphan_tool_msg["role"] == "user"
     assert "[Tool result]: Booking cancellation confirmed" in orphan_tool_msg["content"]
+
+    # Canonical source messages in memory must remain completely untouched
+    assert messages[0]["role"] == "tool"
+    assert messages[0]["content"] == "Booking cancellation confirmed"
+    assert messages[0]["tool_call_id"] == "call_dropped_from_history"

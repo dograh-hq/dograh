@@ -10,11 +10,8 @@ from api.services.integrations.base import (
     IntegrationRuntimeSession,
 )
 
-from .collector import (
-    DeferredTunerObserver,
-    extract_inbound_sip_metadata,
-    mode_to_tuner_call_type,
-)
+from .collector import DeferredTunerObserver, mode_to_tuner_call_type
+from .sip import extract_inbound_sip_metadata
 
 
 def _format_model_label(provider: str | None, model: str | None) -> str:

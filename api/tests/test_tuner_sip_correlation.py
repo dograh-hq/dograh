@@ -20,10 +20,8 @@ from typing import Any
 
 import pytest
 
-from api.services.integrations.tuner.collector import (
-    DeferredTunerObserver,
-    extract_inbound_sip_metadata,
-)
+from api.services.integrations.tuner.collector import DeferredTunerObserver
+from api.services.integrations.tuner.sip import extract_inbound_sip_metadata
 
 # Verbatim from a live Tuner simulation call, as delivered by Cloudonix to
 # /inbound/run. ``CID`` carries the caller's SIP Call-ID, repeated by Cloudonix
@@ -58,7 +56,8 @@ LIVE_SESSION_DATA = {
 def _run(session_data: Any) -> SimpleNamespace:
     """A workflow run whose stored inbound webhook carries ``session_data``."""
     return SimpleNamespace(
-        logs={"inbound_webhook": {"raw_webhook_data": {"SessionData": session_data}}}
+        mode="cloudonix",
+        logs={"inbound_webhook": {"raw_webhook_data": {"SessionData": session_data}}},
     )
 
 
@@ -161,7 +160,33 @@ def test_a_call_with_no_correlation_headers_reports_nothing():
 )
 def test_absent_or_unrelated_shapes_yield_nothing(logs: Any):
     """Outbound, web, and ordinary carrier calls must pass through untouched."""
-    assert extract_inbound_sip_metadata(SimpleNamespace(logs=logs)) == (None, None)
+    assert extract_inbound_sip_metadata(
+        SimpleNamespace(mode="cloudonix", logs=logs)
+    ) == (
+        None,
+        None,
+    )
+
+
+@pytest.mark.parametrize("mode", [None, "webrtc", "plivo"])
+def test_modes_without_an_extractor_yield_nothing(mode: Any):
+    """Only providers with a known extractor are read, whatever the stored body holds."""
+    run = SimpleNamespace(mode=mode, logs=_run(LIVE_SESSION_DATA).logs)
+
+    assert extract_inbound_sip_metadata(run) == (None, None)
+
+
+def test_extracts_call_id_from_twilio_sip_domain_webhook():
+    run = SimpleNamespace(
+        mode="twilio",
+        logs={
+            "inbound_webhook": {
+                "raw_webhook_data": {"CallSid": "CA123", "SipCallId": LIVE_CALL_ID}
+            }
+        },
+    )
+
+    assert extract_inbound_sip_metadata(run) == (LIVE_CALL_ID, None)
 
 
 @pytest.mark.parametrize(

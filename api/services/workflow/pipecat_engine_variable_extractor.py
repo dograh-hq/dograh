@@ -59,7 +59,8 @@ class VariableExtractionManager:
 
         system_prompt = (
             "You are an assistant tasked with extracting structured data from the conversation. "
-            "Return ONLY a valid JSON object with the requested variables as top-level keys. Do not wrap the JSON in markdown."  # noqa: E501
+            "Return ONLY a valid JSON object with the requested variables as top-level keys, "
+            "written on a single line with no line breaks. Do not wrap the JSON in markdown."
         )
         # Use provided extraction_prompt as system prompt, or default
         system_prompt = (

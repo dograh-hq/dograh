@@ -12,7 +12,11 @@ from groq import Groq
 from api.schemas.ai_model_configuration import (
     EffectiveAIModelConfiguration,
 )
-from api.services.configuration.registry import ServiceConfig, ServiceProviders
+from api.services.configuration.registry import (
+    HOPPER_API_BASE_URL,
+    ServiceConfig,
+    ServiceProviders,
+)
 from api.services.mps_service_key_client import mps_service_key_client
 from api.utils.url_security import validate_user_configured_service_url
 
@@ -32,12 +36,23 @@ class APIKeyStatusResponse(TypedDict):
     status: list[APIKeyStatus]
 
 
+_OPENAI_COMPATIBLE_PROVIDER_NAMES = {
+    ServiceProviders.ATLASCLOUD.value: "Atlas Cloud",
+    ServiceProviders.HOPPER.value: "Hopper",
+}
+
+_OPENAI_COMPATIBLE_PROVIDER_BASE_URLS = {
+    ServiceProviders.HOPPER.value: HOPPER_API_BASE_URL,
+}
+
+
 class UserConfigurationValidator:
     def __init__(self):
         self._dograh_service_key_validation_cache: dict[str, bool] = {}
         self._validator_map = {
             ServiceProviders.OPENAI.value: self._check_openai_api_key,
             ServiceProviders.ATLASCLOUD.value: self._check_openai_api_key,
+            ServiceProviders.HOPPER.value: self._check_openai_api_key,
             ServiceProviders.DEEPGRAM.value: self._check_deepgram_api_key,
             ServiceProviders.GROQ.value: self._check_groq_api_key,
             ServiceProviders.OPENROUTER.value: self._check_openrouter_api_key,
@@ -241,6 +256,7 @@ class UserConfigurationValidator:
         if provider in (
             ServiceProviders.OPENAI.value,
             ServiceProviders.ATLASCLOUD.value,
+            ServiceProviders.HOPPER.value,
             ServiceProviders.OPENAI_REALTIME.value,
         ):
             return validator(provider, api_key, service_config)
@@ -249,11 +265,11 @@ class UserConfigurationValidator:
     def _check_openai_api_key(
         self, model: str, api_key: str, service_config: Optional[ServiceConfig] = None
     ) -> bool:
-        provider_name = (
-            "Atlas Cloud" if model == ServiceProviders.ATLASCLOUD.value else "OpenAI"
-        )
+        provider_name = _OPENAI_COMPATIBLE_PROVIDER_NAMES.get(model, "OpenAI")
         client_kwargs: dict[str, str] = {"api_key": api_key}
-        base_url = getattr(service_config, "base_url", None) if service_config else None
+        base_url = (
+            getattr(service_config, "base_url", None) if service_config else None
+        ) or _OPENAI_COMPATIBLE_PROVIDER_BASE_URLS.get(model)
         if base_url:
             client_kwargs["base_url"] = base_url
         client = openai.OpenAI(**client_kwargs)

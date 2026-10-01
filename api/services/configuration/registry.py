@@ -407,6 +407,7 @@ OPENAI_MODELS = [
     "gpt-3.5-turbo",
 ]
 
+ATLASCLOUD_API_BASE_URL = "https://api.atlascloud.ai/v1"
 ATLASCLOUD_MODELS = [
     "qwen/qwen3.5-flash",
     "deepseek-ai/deepseek-v4-pro",
@@ -465,7 +466,7 @@ class AtlasCloudLLMService(BaseLLMConfiguration):
         json_schema_extra={"examples": ATLASCLOUD_MODELS, "allow_custom_input": True},
     )
     base_url: str = Field(
-        default="https://api.atlascloud.ai/v1",
+        default=ATLASCLOUD_API_BASE_URL,
         description="Atlas Cloud OpenAI-compatible API endpoint.",
     )
 

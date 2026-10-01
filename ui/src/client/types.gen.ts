@@ -3354,6 +3354,28 @@ export type HealthResponse = {
 };
 
 /**
+ * Hopper
+ */
+export type HopperLlmConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'hopper';
+    /**
+     * Api Key
+     *
+     * API key from your Hopper console.
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Hopper chat model.
+     */
+    model?: string;
+};
+
+/**
  * HttpApiConfig
  *
  * Configuration for HTTP API tools.
@@ -3517,28 +3539,6 @@ export type HttpTransferResolverConfig = {
      * Parameters injected by Dograh from fixed values or workflow context templates.
      */
     preset_parameters?: Array<PresetToolParameter> | null;
-};
-
-/**
- * Hopper
- */
-export type HopperLlmConfiguration = {
-    /**
-     * Provider
-     */
-    provider?: 'hopper';
-    /**
-     * Api Key
-     *
-     * API key from your Hopper console.
-     */
-    api_key: string | Array<string>;
-    /**
-     * Model
-     *
-     * Hopper chat model.
-     */
-    model?: string;
 };
 
 /**
@@ -5759,6 +5759,12 @@ export type SarvamLlmConfiguration = {
      * Sarvam chat model.
      */
     model?: string;
+    /**
+     * Base Url
+     *
+     * Sarvam API base URL.
+     */
+    base_url?: string;
     /**
      * Temperature
      *

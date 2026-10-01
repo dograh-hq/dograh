@@ -271,3 +271,107 @@ def test_call_without_an_identifier_omits_both_fields():
 
     assert "sip_call_id" not in payload
     assert "sip_headers" not in payload
+
+
+# Verbatim from a live Tuner simulation call through a Twilio SIP Domain, as
+# stored on the run by the inbound dispatcher (account ids and source IP masked).
+# ``SipCallId`` is the caller's SIP Call-ID; ``SipHeader_*`` are the INVITE's
+# custom headers.
+LIVE_TWILIO_CALL_ID = "wNKHaE4vIQkwwwLlQZernlM0V5E"
+LIVE_TWILIO_CORRELATION_ID = "0182ab97d2a8433fa272ae690e3d18a0"
+
+LIVE_TWILIO_WEBHOOK = {
+    "SipDomain": "tuner-sim-test.sip.twilio.com",
+    "ApiVersion": "2010-04-01",
+    "Called": "sip:tuner-sim@tuner-sim-test.sip.twilio.com",
+    "SipHeader_X-LiveKit-Room": "sim-0182ab97",
+    "CallStatus": "ringing",
+    "From": "sip:+15550001111@project.sip.livekit.cloud",
+    "Direction": "inbound",
+    "AccountSid": "ACxxxxxxxx",
+    "SipDomainSid": "SDxxxxxxxx",
+    "SipCallId": LIVE_TWILIO_CALL_ID,
+    "Caller": "sip:+15550001111@project.sip.livekit.cloud",
+    "CallSid": "CA8e7407250cb9282ca05d6f5c43f1872e",
+    "To": "sip:tuner-sim@tuner-sim-test.sip.twilio.com",
+    "SipSourceIp": "203.0.113.10",
+    "CallerName": "+15550001111",
+    "SipHeader_X-Correlation-Id": LIVE_TWILIO_CORRELATION_ID,
+}
+
+
+def _twilio_run(raw_webhook_data: Any) -> SimpleNamespace:
+    return SimpleNamespace(
+        mode="twilio",
+        logs={"inbound_webhook": {"raw_webhook_data": raw_webhook_data}},
+    )
+
+
+def test_extracts_call_id_from_live_twilio_payload():
+    assert extract_inbound_sip_metadata(_twilio_run(LIVE_TWILIO_WEBHOOK)) == (
+        LIVE_TWILIO_CALL_ID,
+        {"X-Correlation-Id": LIVE_TWILIO_CORRELATION_ID},
+    )
+
+
+def test_twilio_provider_metadata_is_never_exported():
+    _, headers = extract_inbound_sip_metadata(_twilio_run(LIVE_TWILIO_WEBHOOK))
+
+    exported = " ".join(f"{name}={value}" for name, value in (headers or {}).items())
+    for leaked in ("ACxxxxxxxx", "SDxxxxxxxx", "203.0.113.10", "sim-0182ab97"):
+        assert leaked not in exported
+
+
+@pytest.mark.parametrize(
+    "sip_call_id",
+    [
+        pytest.param(None, id="missing"),
+        pytest.param("", id="empty"),
+        pytest.param(["", None], id="no_string_in_list"),
+    ],
+)
+def test_twilio_without_a_call_id_reports_none(sip_call_id: Any):
+    webhook = {**LIVE_TWILIO_WEBHOOK, "SipCallId": sip_call_id}
+    if sip_call_id is None:
+        del webhook["SipCallId"]
+
+    call_id, _ = extract_inbound_sip_metadata(_twilio_run(webhook))
+
+    assert call_id is None
+
+
+def test_twilio_pstn_call_reports_nothing():
+    """A regular phone-number call has no SIP fields and must pass through untouched."""
+    webhook = {
+        "CallSid": "CA123",
+        "AccountSid": "ACxxxxxxxx",
+        "From": "+15550001111",
+        "To": "+15550002222",
+        "Direction": "inbound",
+    }
+
+    assert extract_inbound_sip_metadata(_twilio_run(webhook)) == (None, None)
+
+
+def test_twilio_run_ignores_cloudonix_session_data():
+    """The run's provider picks the extractor, not the shape of the body."""
+    assert extract_inbound_sip_metadata(
+        _twilio_run({"SessionData": LIVE_SESSION_DATA})
+    ) == (None, None)
+
+
+def test_twilio_identifier_reaches_the_payload_delivered_to_tuner():
+    sip_call_id, sip_headers = extract_inbound_sip_metadata(
+        _twilio_run(LIVE_TWILIO_WEBHOOK)
+    )
+    observer = DeferredTunerObserver(
+        workflow_run_id=23,
+        call_type="phone_call",
+        sip_call_id=sip_call_id,
+        sip_headers=sip_headers,
+    )
+
+    payload = observer.build_payload_snapshot()
+
+    assert payload["sip_call_id"] == LIVE_TWILIO_CALL_ID
+    assert payload["sip_headers"] == {"X-Correlation-Id": LIVE_TWILIO_CORRELATION_ID}

@@ -23,7 +23,8 @@ class TestSarvamLLMConfiguration:
     def test_default_values(self):
         config = SarvamLLMConfiguration(api_key="test-key")
         assert config.provider == ServiceProviders.SARVAM
-        assert config.model == "sarvam-105b"
+        assert config.model == "sarvam-105b-conversations"
+        assert config.base_url == "https://api.sarvam.ai/v1"
         assert config.temperature == 0.5
 
     def test_custom_model(self):
@@ -41,17 +42,18 @@ class TestSarvamLLMServiceFactory:
             mock_service.Settings = RealSarvamLLMService.Settings
             create_llm_service_from_provider(
                 provider=ServiceProviders.SARVAM.value,
-                model="sarvam-105b",
+                model="sarvam-105b-conversations",
                 api_key="test-key",
             )
 
         assert mock_service.call_count == 1
         kwargs = mock_service.call_args.kwargs
         assert kwargs["api_key"] == "test-key"
-        assert kwargs["settings"].model == "sarvam-105b"
+        assert kwargs["settings"].model == "sarvam-105b-conversations"
         assert kwargs["settings"].temperature == 0.5
+        assert "base_url" not in kwargs
 
-    def test_create_sarvam_llm_service_passes_user_temperature(self):
+    def test_create_sarvam_llm_service_passes_base_url(self):
         with patch(
             "api.services.pipecat.service_factory.SarvamLLMService"
         ) as mock_service:
@@ -60,18 +62,34 @@ class TestSarvamLLMServiceFactory:
                 provider=ServiceProviders.SARVAM.value,
                 model="sarvam-105b",
                 api_key="test-key",
+                base_url="https://api.sarvam.ai/v1",
+            )
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["base_url"] == "https://api.sarvam.ai/v1"
+
+    def test_create_sarvam_llm_service_passes_user_temperature(self):
+        with patch(
+            "api.services.pipecat.service_factory.SarvamLLMService"
+        ) as mock_service:
+            mock_service.Settings = RealSarvamLLMService.Settings
+            create_llm_service_from_provider(
+                provider=ServiceProviders.SARVAM.value,
+                model="sarvam-105b-conversations",
+                api_key="test-key",
                 temperature=0.8,
             )
 
         kwargs = mock_service.call_args.kwargs
         assert kwargs["settings"].temperature == 0.8
 
-    def test_create_llm_service_extracts_sarvam_temperature(self):
+    def test_create_llm_service_extracts_sarvam_config(self):
         user_config = SimpleNamespace(
             llm=SimpleNamespace(
                 provider=ServiceProviders.SARVAM.value,
-                model="sarvam-105b",
+                model="sarvam-105b-conversations",
                 api_key="test-key",
+                base_url="https://api.sarvam.ai/v1",
                 temperature=0.7,
             )
         )
@@ -83,6 +101,7 @@ class TestSarvamLLMServiceFactory:
             create_llm_service(user_config)
 
         kwargs = mock_service.call_args.kwargs
+        assert kwargs["base_url"] == "https://api.sarvam.ai/v1"
         assert kwargs["settings"].temperature == 0.7
 
 

@@ -1,8 +1,6 @@
 """Unit tests for OpenAILLMAdapter handling of empty tools and tool messages."""
 
-import pytest
 from openai._types import NOT_GIVEN as OPENAI_NOT_GIVEN
-
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.adapters.services.open_ai_adapter import (
     OpenAILLMAdapter,
@@ -55,8 +53,12 @@ def test_adapter_sanitizes_tool_messages_when_tools_is_empty():
     assert len(wire_messages) == 5
 
     for msg in wire_messages:
-        assert msg["role"] != "tool", "role='tool' must be normalized when tools is empty"
-        assert "tool_calls" not in msg, "tool_calls must be stripped when tools is empty"
+        assert msg["role"] != "tool", (
+            "role='tool' must be normalized when tools is empty"
+        )
+        assert "tool_calls" not in msg, (
+            "tool_calls must be stripped when tools is empty"
+        )
 
     # Check that assistant message captured the action in content
     assert wire_messages[2]["role"] == "assistant"
@@ -99,7 +101,9 @@ def test_adapter_preserves_tool_messages_when_tools_are_present():
         properties={},
         required=[],
     )
-    context = LLMContext(messages=messages, tools=ToolsSchema(standard_tools=[dummy_func]))
+    context = LLMContext(
+        messages=messages, tools=ToolsSchema(standard_tools=[dummy_func])
+    )
     params = adapter.get_llm_invocation_params(context, convert_developer_to_user=True)
 
     # Tools should be present
@@ -145,3 +149,67 @@ def test_adapter_handles_complex_content_types_when_sanitizing():
     assert wire_messages[1]["role"] == "user"
     assert wire_messages[1]["content"] == [{"type": "text", "text": "Available"}]
 
+
+def test_adapter_sanitizes_unpaired_assistant_tool_call_without_tool_result():
+    """Verify orphaned assistant tool_call with no matching tool response is sanitized."""
+    adapter = OpenAILLMAdapter()
+
+    messages = [
+        {"role": "user", "content": "Cancel my booking."},
+        {
+            "role": "assistant",
+            "content": "Cancelling now...",
+            "tool_calls": [
+                {
+                    "id": "call_interrupted",
+                    "type": "function",
+                    "function": {"name": "cancel_booking", "arguments": "{}"},
+                }
+            ],
+        },
+        # No matching role='tool' message follows (e.g. user interrupted or pipeline transitioned)
+        {"role": "user", "content": "Wait, never mind, just end the call."},
+    ]
+
+    context = LLMContext(messages=messages, tools=ToolsSchema(standard_tools=[]))
+    params = adapter.get_llm_invocation_params(context, convert_developer_to_user=True)
+
+    wire_messages = params["messages"]
+    assert len(wire_messages) == 3
+
+    # The lone assistant tool_call should be stripped and summarized into content
+    assistant_msg = wire_messages[1]
+    assert assistant_msg["role"] == "assistant"
+    assert "tool_calls" not in assistant_msg
+    assert "Cancelling now..." in assistant_msg["content"]
+    assert "[Called cancel_booking]" in assistant_msg["content"]
+
+    # Verify no tool messages in payload
+    for msg in wire_messages:
+        assert msg["role"] != "tool"
+
+
+def test_adapter_sanitizes_unpaired_tool_message_without_assistant_call():
+    """Verify orphaned tool result with no preceding assistant tool_call is sanitized."""
+    adapter = OpenAILLMAdapter()
+
+    messages = [
+        # Preceding assistant call dropped (e.g. history sliding window / truncation)
+        {
+            "role": "tool",
+            "tool_call_id": "call_dropped_from_history",
+            "content": "Booking cancellation confirmed",
+        },
+        {"role": "user", "content": "Thanks, goodbye!"},
+    ]
+
+    context = LLMContext(messages=messages, tools=ToolsSchema(standard_tools=[]))
+    params = adapter.get_llm_invocation_params(context, convert_developer_to_user=True)
+
+    wire_messages = params["messages"]
+    assert len(wire_messages) == 2
+
+    # The lone role='tool' message should be converted to user
+    orphan_tool_msg = wire_messages[0]
+    assert orphan_tool_msg["role"] == "user"
+    assert "[Tool result]: Booking cancellation confirmed" in orphan_tool_msg["content"]

@@ -1278,17 +1278,15 @@ def create_llm_service_from_provider(
             ),
         )
     elif provider == ServiceProviders.SARVAM.value:
-        kwargs = {}
-        if base_url:
-            _validate_runtime_service_url(base_url, "base_url")
-            kwargs["base_url"] = base_url
+        base_url = base_url or "https://api.sarvam.ai/v1"
+        _validate_runtime_service_url(base_url, "base_url")
         return SarvamLLMService(
             api_key=api_key,
+            base_url=base_url,
             settings=SarvamLLMSettings(
                 model=model,
                 temperature=temperature if temperature is not None else 0.5,
             ),
-            **kwargs,
         )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")

@@ -51,7 +51,29 @@ class TestSarvamLLMServiceFactory:
         assert kwargs["api_key"] == "test-key"
         assert kwargs["settings"].model == "sarvam-105b-conversations"
         assert kwargs["settings"].temperature == 0.5
-        assert "base_url" not in kwargs
+        assert kwargs["base_url"] == "https://api.sarvam.ai/v1"
+
+    def test_real_sarvam_llm_service_instantiation(self):
+        service = create_llm_service_from_provider(
+            provider=ServiceProviders.SARVAM.value,
+            model="sarvam-105b-conversations",
+            api_key="test-key",
+        )
+        assert isinstance(service, RealSarvamLLMService)
+        assert service._settings.model == "sarvam-105b-conversations"
+        assert str(service._client.base_url).rstrip("/") == "https://api.sarvam.ai/v1"
+
+    def test_real_sarvam_llm_service_instantiation_with_custom_base_url(self):
+        service = create_llm_service_from_provider(
+            provider=ServiceProviders.SARVAM.value,
+            model="sarvam-105b-conversations",
+            api_key="test-key",
+            base_url="https://custom.sarvam.ai/v1",
+        )
+        assert isinstance(service, RealSarvamLLMService)
+        assert (
+            str(service._client.base_url).rstrip("/") == "https://custom.sarvam.ai/v1"
+        )
 
     def test_create_sarvam_llm_service_passes_base_url(self):
         with patch(

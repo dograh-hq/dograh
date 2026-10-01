@@ -189,6 +189,44 @@ def test_extracts_call_id_from_twilio_sip_domain_webhook():
     assert extract_inbound_sip_metadata(run) == (LIVE_CALL_ID, None)
 
 
+def test_twilio_forwards_only_correlation_headers():
+    """``SipHeader_*`` correlation headers are reported; the Call-ID still links."""
+    run = SimpleNamespace(
+        mode="twilio",
+        logs={
+            "inbound_webhook": {
+                "raw_webhook_data": {
+                    "SipCallId": LIVE_CALL_ID,
+                    "SipHeader_X-Correlation-Id": LIVE_CORRELATION_ID,
+                    "SipHeader_X-LiveKit-Room": "sim-6c38334d",
+                    "AccountSid": "AC123",
+                }
+            }
+        },
+    )
+
+    assert extract_inbound_sip_metadata(run) == (
+        LIVE_CALL_ID,
+        {"X-Correlation-Id": LIVE_CORRELATION_ID},
+    )
+
+
+def test_twilio_correlation_header_is_not_used_as_call_id():
+    run = SimpleNamespace(
+        mode="twilio",
+        logs={
+            "inbound_webhook": {
+                "raw_webhook_data": {"SipHeader_X-Correlation-Id": LIVE_CORRELATION_ID}
+            }
+        },
+    )
+
+    assert extract_inbound_sip_metadata(run) == (
+        None,
+        {"X-Correlation-Id": LIVE_CORRELATION_ID},
+    )
+
+
 @pytest.mark.parametrize(
     "session_data",
     [

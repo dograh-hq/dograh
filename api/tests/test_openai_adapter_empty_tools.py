@@ -1,0 +1,147 @@
+"""Unit tests for OpenAILLMAdapter handling of empty tools and tool messages."""
+
+import pytest
+from openai._types import NOT_GIVEN as OPENAI_NOT_GIVEN
+
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.services.open_ai_adapter import (
+    OpenAILLMAdapter,
+    openai_from_llm_context_tools,
+)
+from pipecat.processors.aggregators.llm_context import LLMContext
+
+
+def test_openai_from_llm_context_tools_omits_empty_tools():
+    """Verify that an empty list of tools is converted to OPENAI_NOT_GIVEN so the wire payload omits tools."""
+    assert openai_from_llm_context_tools([]) == OPENAI_NOT_GIVEN
+    assert openai_from_llm_context_tools(None) == OPENAI_NOT_GIVEN
+
+
+def test_adapter_sanitizes_tool_messages_when_tools_is_empty():
+    """Verify that orphaned tool messages and tool calls are flattened when tools is empty."""
+    adapter = OpenAILLMAdapter()
+
+    messages = [
+        {"role": "system", "content": "You are a receptionist."},
+        {"role": "user", "content": "Please end the call."},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "transition_to_end_call", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_123",
+            "content": "Transitioned successfully",
+        },
+        {"role": "user", "content": "Goodbye."},
+    ]
+
+    context = LLMContext(messages=messages, tools=ToolsSchema(standard_tools=[]))
+    params = adapter.get_llm_invocation_params(context, convert_developer_to_user=True)
+
+    # 1. Tools and tool_choice should be omitted
+    assert params["tools"] == OPENAI_NOT_GIVEN
+    assert params["tool_choice"] == OPENAI_NOT_GIVEN
+
+    # 2. Messages should be normalized without tool_calls or role='tool'
+    wire_messages = params["messages"]
+    assert len(wire_messages) == 5
+
+    for msg in wire_messages:
+        assert msg["role"] != "tool", "role='tool' must be normalized when tools is empty"
+        assert "tool_calls" not in msg, "tool_calls must be stripped when tools is empty"
+
+    # Check that assistant message captured the action in content
+    assert wire_messages[2]["role"] == "assistant"
+    assert "[Called transition_to_end_call]" in wire_messages[2]["content"]
+
+    # Check that tool message became user message with tool result
+    assert wire_messages[3]["role"] == "user"
+    assert "[Tool result]: Transitioned successfully" in wire_messages[3]["content"]
+
+
+def test_adapter_preserves_tool_messages_when_tools_are_present():
+    """Verify that when tools are actively present, messages are passed through unchanged."""
+    adapter = OpenAILLMAdapter()
+
+    messages = [
+        {"role": "user", "content": "Book an appointment."},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "book", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_123",
+            "content": "Booked",
+        },
+    ]
+
+    from pipecat.adapters.schemas.tools_schema import FunctionSchema
+
+    dummy_func = FunctionSchema(
+        name="book",
+        description="Book appointment",
+        properties={},
+        required=[],
+    )
+    context = LLMContext(messages=messages, tools=ToolsSchema(standard_tools=[dummy_func]))
+    params = adapter.get_llm_invocation_params(context, convert_developer_to_user=True)
+
+    # Tools should be present
+    assert params["tools"] != OPENAI_NOT_GIVEN
+    assert len(params["tools"]) == 1
+
+    # Messages should preserve tool_calls and role='tool'
+    wire_messages = params["messages"]
+    assert wire_messages[1]["tool_calls"] is not None
+    assert wire_messages[2]["role"] == "tool"
+
+
+def test_adapter_handles_complex_content_types_when_sanitizing():
+    """Verify that list content (multimodal) and None content are handled without errors."""
+    adapter = OpenAILLMAdapter()
+
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Checking slot..."}],
+            "tool_calls": [
+                {
+                    "id": "call_99",
+                    "type": "function",
+                    "function": {"name": "check_slot", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_99",
+            "content": [{"type": "text", "text": "Available"}],
+        },
+    ]
+
+    context = LLMContext(messages=messages, tools=ToolsSchema(standard_tools=[]))
+    params = adapter.get_llm_invocation_params(context, convert_developer_to_user=True)
+
+    wire_messages = params["messages"]
+    assert wire_messages[0]["role"] == "assistant"
+    assert "tool_calls" not in wire_messages[0]
+    assert isinstance(wire_messages[0]["content"], list)
+    assert wire_messages[1]["role"] == "user"
+    assert wire_messages[1]["content"] == [{"type": "text", "text": "Available"}]
+

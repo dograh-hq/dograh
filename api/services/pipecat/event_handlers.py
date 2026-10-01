@@ -178,7 +178,17 @@ def register_event_handlers(
             # pipeline nothing can generate until this lands: an agent worker
             # is inactive until told otherwise, and an inactive worker is
             # handed no frames from the bus.
-            if not await engine.start_initial_agent():
+            # Disposal precedes retirement, so avoid startup once shutdown begins.
+            if engine.is_call_disposed():
+                return
+
+            started = await engine.start_initial_agent()
+
+            # Hangup during startup must skip both opening and failure handling.
+            if engine.is_call_disposed():
+                return
+
+            if not started:
                 logger.error(
                     f"Initial agent never became ready for run {workflow_run_id}; "
                     "ending the call"
@@ -189,6 +199,8 @@ def register_event_handlers(
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.
             await engine.set_node(engine.active_agent.workflow.start_node_id)
+            if engine.is_call_disposed():
+                return
             if answer_supervisor is not None:
                 await engine.handle_answer_supervision()
                 return

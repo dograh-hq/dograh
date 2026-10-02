@@ -1,0 +1,96 @@
+---
+title: "Moss Integration"
+description: "Let your voice agent search a Moss index during calls, with each search running in memory inside Dograh"
+---
+
+## Overview
+
+The Moss integration node gives your agents a `search_moss_index` tool that searches a [Moss](https://www.moss.dev) index with hybrid (semantic and keyword) search. You build and update the index in Moss. Dograh downloads it once per worker process and runs every search in memory, so a search makes no network request during the call.
+
+Use it when your reference content already lives in a Moss index, or when you want to manage a knowledge base outside Dograh. For documents you upload to Dograh itself, see [Knowledge Base](/voice-agent/knowledge-base).
+
+## Prerequisites
+
+- A [Moss account](https://portal.usemoss.dev) with a project
+- A Moss index that holds your content. You can build one from documents, from PDF and DOCX files, or by crawling a website. See [Indexing Data](https://docs.moss.dev/docs/integrate/indexing-data) in the Moss docs.
+- A Dograh voice agent workflow
+
+## Setup
+
+### 1. Gather your Moss credentials
+
+| Value | Where to find it |
+|---|---|
+| **Project ID** | Moss portal, on your project |
+| **Project Key** | Moss portal → **API Keys** → create a key |
+| **Index Name** | The name you gave the index when you created it |
+
+Treat the project key like a password. It grants access to the indexes in that project.
+
+### 2. Add the Moss node to your workflow
+
+In your Dograh workflow editor, click **Add node**, scroll to the **Integrations** section, and select **Moss**.
+
+Like other integration nodes, the Moss node stands alone. It does not connect to any other node in the conversation graph, and a workflow can contain at most one Moss node.
+
+### 3. Configure the node
+
+Click the Moss node and fill in these fields:
+
+- **Index Name**, **Project ID**, **Project Key**: the values from step 1. All three are required while the node is enabled.
+- **Index Contents**: a short description of what the index holds, for example `Return policy, shipping times and warranty terms`. The agent reads it to decide when to search, so a specific description leads to better tool use.
+- **Results per Search**: how many passages each search returns to the agent (1 to 20, default 3). Fewer results keep the agent's context short.
+- **Semantic Weight**: the blend of semantic and keyword matching, from `1.0` (semantic only) to `0.0` (keyword only). The default `0.8` favors meaning while still rewarding exact terms such as product names.
+- **Enabled**: toggle on to give agents the search tool.
+
+Click **Save**, then **Publish** your workflow.
+
+### 4. Verify the connection
+
+Make a test call and ask a question that the index can answer. The agent calls `search_moss_index` and answers from the passages it gets back.
+
+The first search on a freshly started worker waits for the index download to finish. Later searches on that worker, in the same call or in any later call, run in memory.
+
+## How it works
+
+- When a call enters a **Start Call** or **Agent** node, Dograh adds the `search_moss_index` tool to that node. **End Call** nodes do not get it.
+- If the worker has not loaded the index yet, Dograh starts the download in the background as the call begins, so it is usually ready before the agent first searches.
+- Each worker process keeps one copy of each configured index in memory and reuses it for every call.
+- Dograh checks Moss for a newer version of the index every 10 minutes, so index updates reach running agents without a restart.
+
+Each search returns the matching passages to the agent in this shape:
+
+```json
+{
+  "chunks": [
+    {
+      "text": "Refunds take 5 days.",
+      "id": "doc-1",
+      "score": 0.8123,
+      "metadata": { "source": "faq" }
+    }
+  ],
+  "query": "refund policy",
+  "total_results": 1
+}
+```
+
+## Disabling the integration
+
+To stop agents from searching the index, open the Moss node and toggle **Enabled** off. Your settings are preserved, so you can turn it back on anytime.
+
+## Troubleshooting
+
+| Issue | Solution |
+|---|---|
+| The agent says the search failed | Check the project ID, project key, and index name. The API logs show `Moss index '<name>' failed to load` with the reason. |
+| The agent never searches | Fill in **Index Contents** so the agent knows what the index holds, and mention the knowledge base in the node prompt. |
+| New content does not show up | Index updates reach running workers within about 10 minutes. Restart the API to pick them up immediately. |
+| Node shows "Not configured" | Fill in **Index Name**, **Project ID**, and **Project Key**. All three are required while the node is enabled. |
+| Logs show `The moss package is not installed` | The `moss` Python package is missing from the API environment. The API requirements install it everywhere except Intel macOS, which has no prebuilt package. |
+
+## Learn more
+
+- [Moss documentation](https://docs.moss.dev/docs/start/what-is-moss)
+- [Indexing data in Moss](https://docs.moss.dev/docs/integrate/indexing-data)
+- [Hybrid search in Moss](https://docs.moss.dev/docs/integrate/hybrid-search)

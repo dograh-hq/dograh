@@ -133,7 +133,8 @@
               "integrations/mcp",
               "integrations/tuner",
               "integrations/paygent",
-              "integrations/noveum"
+              "integrations/noveum",
+              "integrations/moss"
             ]
           }
         ]

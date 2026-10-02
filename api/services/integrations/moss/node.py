@@ -140,8 +140,8 @@ class MossNodeData(BaseNodeData):
         ui_type=PropertyType.string,
         display_name="Index Contents",
         description=(
-            "What the index contains. With the search tool, which tool mode and "
-            "speech to speech calls use, the agent reads this to decide when to search."
+            "What the index contains. The agent reads this to decide when to call "
+            "the search tool, in tool mode and on speech to speech calls."
         ),
         editor="textarea",
     )

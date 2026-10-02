@@ -58,9 +58,8 @@ class Moss(TypedNode):
 
     moss_index_description: Optional[str] = None
     """
-    What the index contains. With the search tool, which tool mode and
-    speech to speech calls use, the agent reads this to decide when to
-    search.
+    What the index contains. The agent reads this to decide when to call the
+    search tool, in tool mode and on speech to speech calls.
     """
 
     moss_top_k: float = 3

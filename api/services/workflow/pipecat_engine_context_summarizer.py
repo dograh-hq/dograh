@@ -8,12 +8,14 @@ from typing import TYPE_CHECKING, Optional
 from loguru import logger
 from opentelemetry import trace
 from pipecat.frames.frames import LLMContextSummaryRequestFrame
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.utils.context.llm_context_summarization import (
     LLMContextSummarizationUtil,
     LLMContextSummaryConfig,
 )
 from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
+from api.services.pipecat.integration_context import without_integration_context
 from api.services.pipecat.tracing_config import ensure_tracing
 
 if TYPE_CHECKING:
@@ -87,9 +89,12 @@ class ContextSummarizationManager:
                 return
 
             config = self._config
+            # Per-turn integration knowledge stays out of the summary, so saving
+            # and exporting can still leave it out.
+            source = LLMContext(messages=without_integration_context(messages))
             request_frame = LLMContextSummaryRequestFrame(
                 request_id=f"node-transition-{current_node.id}",
-                context=context,
+                context=source,
                 min_messages_to_keep=config.min_messages_after_summary,
                 target_context_tokens=config.target_context_tokens,
                 summarization_prompt=config.summary_prompt,
@@ -116,7 +121,7 @@ class ContextSummarizationManager:
             if ensure_tracing():
                 summarize_result = (
                     LLMContextSummarizationUtil.get_messages_to_summarize(
-                        context, config.min_messages_after_summary
+                        source, config.min_messages_after_summary
                     )
                 )
                 transcript = LLMContextSummarizationUtil.format_messages_for_summary(
@@ -148,8 +153,9 @@ class ContextSummarizationManager:
 
             # Snapshot current messages at apply-time (not request-time)
             # to preserve anything added while the summary was generating
+            summarized = {id(m) for m in source.messages[: last_index + 1]}
             current_messages = context.messages
-            recent_messages = current_messages[last_index + 1 :]
+            recent_messages = [m for m in current_messages if id(m) not in summarized]
 
             summary_message = {
                 "role": "user",

@@ -11,7 +11,7 @@ from api.services.integrations.base import (
 )
 
 from .collector import DeferredTunerObserver, mode_to_tuner_call_type
-from .sip import extract_inbound_sip_metadata
+from .sip import get_sip_metadata
 
 
 def _format_model_label(provider: str | None, model: str | None) -> str:
@@ -95,7 +95,7 @@ def create_runtime_sessions(
 
     # Carried through to Tuner so a call it originated is linked back to the
     # simulation that placed it rather than logged as production traffic.
-    sip_call_id, sip_headers = extract_inbound_sip_metadata(context.workflow_run)
+    sip_call_id, sip_headers = get_sip_metadata(context.workflow_run)
     if sip_call_id:
         logger.info(
             "[tuner] inbound call carries SIP correlation id {} for run {}",

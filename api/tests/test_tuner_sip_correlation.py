@@ -1,377 +1,238 @@
-"""Tests for recovering an inbound call's SIP Call-ID for Tuner.
+"""Tuner consumes persisted SIP metadata and only exports correlation headers."""
 
-Tuner links a call Dograh reports back to the simulation that placed it by
-matching the caller's SIP Call-ID. Cloudonix keeps that value off the
-TwiML-compatible fields but exposes it on the session object, so it is read
-from there.
-
-Covers:
-- The payload shape Cloudonix actually delivers (captured from live calls)
-- All three places Cloudonix repeats the Call-ID, and their precedence
-- The correlation-header fallback, for a provider that forwards no Call-ID
-- That only correlation identifiers are exported, never provider or tenant metadata
-- Every shape carrying nothing usable, which must stay silent rather than raise
-"""
-
-from __future__ import annotations
-
+import asyncio
 from types import SimpleNamespace
-from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from api.services.integrations.tuner.collector import DeferredTunerObserver
-from api.services.integrations.tuner.sip import extract_inbound_sip_metadata
+from api.services.integrations.base import (
+    IntegrationCompletionContext,
+    IntegrationRuntimeContext,
+)
+from api.services.integrations.tuner.completion import run_completion
+from api.services.integrations.tuner.runtime import create_runtime_sessions
+from api.services.integrations.tuner.sip import get_sip_metadata
 
-# Verbatim from a live Tuner simulation call, as delivered by Cloudonix to
-# /inbound/run. ``CID`` carries the caller's SIP Call-ID, repeated by Cloudonix
-# in SessionData.callIds and profile.callId; ``Correlation-Id`` is Tuner's own
-# marker, arriving with the ``X-`` prefix stripped by Cloudonix.
-LIVE_CALL_ID = "B3tExKsHfHt96HSkBX96iOaeH9fB"
-LIVE_CORRELATION_ID = "6c38334da5ca4c868cc9ee0ba2a2b852"
-
-LIVE_TRUNK_SIP_HEADERS = {
-    "CID": LIVE_CALL_ID,
-    "LiveKit-Room": "sim-6c38334d",
-    "Correlation-Id": LIVE_CORRELATION_ID,
-    "Cloudonix-Origin": "border",
-    "Cloudonix-IP": "161.115.178.174",
-    "Cloudonix-Signature": "f1c57c099e4b90a8476a389c958001e5",
-}
-
-LIVE_SESSION_DATA = {
-    "id": 30894740,
-    "token": "1f2fc84f9a79400a90c19830d38d8a11",
-    "status": "NEW",
-    "callIds": [LIVE_CALL_ID],
-    "profile": {
-        "callId": [LIVE_CALL_ID],
-        "inbound-trunk-id": 0,
-        "trunk-sip-headers": LIVE_TRUNK_SIP_HEADERS,
-    },
-    "destination": "9001",
-}
+SIP_CALL_ID = "caller-sip-id"
+CORRELATION_ID = "simulation-correlation-id"
 
 
-def _run(session_data: Any) -> SimpleNamespace:
-    """A workflow run whose stored inbound webhook carries ``session_data``."""
+def _run(*, sip_call_id=SIP_CALL_ID, headers=None, mode="twilio"):
     return SimpleNamespace(
-        mode="cloudonix",
-        logs={"inbound_webhook": {"raw_webhook_data": {"SessionData": session_data}}},
+        id=42,
+        mode=mode,
+        gathered_context={"call_id": "carrier-id", "sip_call_id": sip_call_id},
+        logs={"inbound_webhook": {"sip_headers": headers or {}}},
+        recording_url=None,
+        usage_info=None,
     )
 
 
-def test_extracts_call_id_from_live_cloudonix_payload():
-    sip_call_id, headers = extract_inbound_sip_metadata(_run(LIVE_SESSION_DATA))
+def _session(run):
+    return create_runtime_sessions(
+        IntegrationRuntimeContext(
+            workflow_run_id=run.id,
+            workflow_run=run,
+            workflow_graph=SimpleNamespace(
+                nodes={
+                    "tuner": SimpleNamespace(
+                        node_type="tuner", data=SimpleNamespace(tuner_enabled=True)
+                    )
+                }
+            ),
+            run_definition=SimpleNamespace(version_number=1),
+            user_config=SimpleNamespace(stt=None, llm=None, tts=None),
+            is_realtime=False,
+            context_messages_provider=lambda: [],
+        )
+    )[0]
 
-    assert sip_call_id == LIVE_CALL_ID
-    # Only correlation identifiers are reported, which is enough to show which
-    # of them the provider forwarded when a call fails to link.
-    assert headers == {"CID": LIVE_CALL_ID, "Correlation-Id": LIVE_CORRELATION_ID}
+
+@pytest.mark.parametrize("mode", ["twilio", "cloudonix", "another-provider"])
+def test_tuner_reads_normalized_metadata_without_provider_dispatch(mode):
+    run = _run(mode=mode, headers={"X-Correlation-Id": CORRELATION_ID})
+    assert get_sip_metadata(run) == (SIP_CALL_ID, {"X-Correlation-Id": CORRELATION_ID})
 
 
-def test_provider_and_tenant_metadata_is_never_exported():
-    """Nothing beyond correlation identifiers may leave the deployment.
+def test_tuner_exports_only_non_empty_correlation_headers():
+    run = _run(
+        headers={
+            "CID": SIP_CALL_ID,
+            "CORRELATION-ID": CORRELATION_ID,
+            "Call-ID": "",
+            "x-correlation-id": None,
+            "Cloudonix-Signature": "provider-secret",
+            "Cloudonix-IP": "203.0.113.10",
+            "Twilio-AccountSid": "AC123",
+            "X-LiveKit-Room": "room-id",
+        }
+    )
+    assert get_sip_metadata(run) == (
+        SIP_CALL_ID,
+        {"CID": SIP_CALL_ID, "CORRELATION-ID": CORRELATION_ID},
+    )
 
-    ``trunk-sip-headers`` also carries provider authentication, source
-    addresses, and upstream account ids. Tuner correlates on none of them.
-    """
-    _, headers = extract_inbound_sip_metadata(
-        _run(
-            {
-                "profile": {
-                    "trunk-sip-headers": {
-                        "CID": LIVE_CALL_ID,
-                        "Cloudonix-Signature": "f1c57c099e4b90a8476a389c958001e5",
-                        "Cloudonix-IP": "161.115.178.174",
-                        "Cloudonix-Port": "9000",
-                        "Cloudonix-Timestamp": "1787188329",
-                        "Twilio-AccountSid": "AC00000000000000000000000000000000",
-                        "LiveKit-Room": "sim-6c38334d",
+
+@pytest.mark.parametrize("sip_call_id", [None, "", 42, [SIP_CALL_ID]])
+def test_tuner_does_not_substitute_carrier_id_or_header_for_missing_sip_id(sip_call_id):
+    run = _run(sip_call_id=sip_call_id, headers={"X-Correlation-Id": CORRELATION_ID})
+    assert get_sip_metadata(run) == (None, {"X-Correlation-Id": CORRELATION_ID})
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        SimpleNamespace(),
+        SimpleNamespace(gathered_context=None, logs=None),
+        SimpleNamespace(gathered_context={"call_id": "CA123"}, logs={}),
+        SimpleNamespace(
+            logs={
+                "inbound_webhook": {
+                    "raw_webhook_data": {
+                        "SipCallId": SIP_CALL_ID,
+                        "SessionData": {"callIds": [SIP_CALL_ID]},
                     }
                 }
             }
-        )
-    )
-
-    assert headers == {"CID": LIVE_CALL_ID}
-
-
-def test_call_id_wins_over_the_correlation_header():
-    """The Call-ID is the identifier Tuner matches on; ours is only a fallback."""
-    sip_call_id, _ = extract_inbound_sip_metadata(_run(LIVE_SESSION_DATA))
-    assert sip_call_id == LIVE_CALL_ID
-    assert sip_call_id != LIVE_CORRELATION_ID
-
-
-@pytest.mark.parametrize(
-    "session_data",
-    [
-        pytest.param({"callIds": [LIVE_CALL_ID]}, id="session_callIds"),
-        pytest.param({"profile": {"callId": [LIVE_CALL_ID]}}, id="profile_callId"),
-        pytest.param(
-            {"profile": {"trunk-sip-headers": {"CID": LIVE_CALL_ID}}},
-            id="cid_header",
-        ),
-        pytest.param({"callIds": LIVE_CALL_ID}, id="callIds_as_bare_string"),
-    ],
-)
-def test_reads_the_call_id_from_any_of_its_locations(session_data: Any):
-    sip_call_id, _ = extract_inbound_sip_metadata(_run(session_data))
-    assert sip_call_id == LIVE_CALL_ID
-
-
-@pytest.mark.parametrize(
-    "name", ["Correlation-Id", "X-Correlation-Id", "CORRELATION-ID", "Call-ID"]
-)
-def test_falls_back_to_a_correlation_header_when_no_call_id(name: str):
-    """Cloudonix strips ``X-``; another provider may forward it untouched."""
-    sip_call_id, _ = extract_inbound_sip_metadata(
-        _run({"profile": {"trunk-sip-headers": {name: "corr-1"}}})
-    )
-    assert sip_call_id == "corr-1"
-
-
-def test_reads_subscriber_origin_headers():
-    sip_call_id, _ = extract_inbound_sip_metadata(
-        _run({"profile": {"subscriber-sip-headers": {"CID": "sub-1"}}})
-    )
-    assert sip_call_id == "sub-1"
-
-
-def test_a_call_with_no_correlation_headers_reports_nothing():
-    """Headers that are not correlation identifiers must not be reported."""
-    assert extract_inbound_sip_metadata(
-        _run({"profile": {"trunk-sip-headers": {"Cloudonix-Origin": "border"}}})
-    ) == (None, None)
-
-
-@pytest.mark.parametrize(
-    "logs",
-    [
-        pytest.param(None, id="no_logs"),
-        pytest.param({}, id="empty_logs"),
-        pytest.param({"inbound_webhook": {}}, id="webhook_without_body"),
-        pytest.param(
-            {"inbound_webhook": {"raw_webhook_data": {"CallSid": "abc"}}},
-            id="webhook_without_session_data",
         ),
     ],
 )
-def test_absent_or_unrelated_shapes_yield_nothing(logs: Any):
-    """Outbound, web, and ordinary carrier calls must pass through untouched."""
-    assert extract_inbound_sip_metadata(
-        SimpleNamespace(mode="cloudonix", logs=logs)
-    ) == (
-        None,
-        None,
-    )
+def test_runs_without_normalized_metadata_pass_through(run):
+    # No provider-payload fallback: older snapshots remain deliverable as stored.
+    assert get_sip_metadata(run) == (None, None)
 
 
-@pytest.mark.parametrize("mode", [None, "webrtc", "plivo"])
-def test_modes_without_an_extractor_yield_nothing(mode: Any):
-    """Only providers with a known extractor are read, whatever the stored body holds."""
-    run = SimpleNamespace(mode=mode, logs=_run(LIVE_SESSION_DATA).logs)
-
-    assert extract_inbound_sip_metadata(run) == (None, None)
-
-
-def test_extracts_call_id_from_twilio_sip_domain_webhook():
-    run = SimpleNamespace(
-        mode="twilio",
-        logs={
-            "inbound_webhook": {
-                "raw_webhook_data": {"CallSid": "CA123", "SipCallId": LIVE_CALL_ID}
-            }
-        },
-    )
-
-    assert extract_inbound_sip_metadata(run) == (LIVE_CALL_ID, None)
-
-
-def test_twilio_forwards_only_correlation_headers():
-    """``SipHeader_*`` correlation headers are reported; the Call-ID still links."""
-    run = SimpleNamespace(
-        mode="twilio",
-        logs={
-            "inbound_webhook": {
-                "raw_webhook_data": {
-                    "SipCallId": LIVE_CALL_ID,
-                    "SipHeader_X-Correlation-Id": LIVE_CORRELATION_ID,
-                    "SipHeader_X-LiveKit-Room": "sim-6c38334d",
-                    "AccountSid": "AC123",
-                }
-            }
-        },
-    )
-
-    assert extract_inbound_sip_metadata(run) == (
-        LIVE_CALL_ID,
-        {"X-Correlation-Id": LIVE_CORRELATION_ID},
-    )
-
-
-def test_twilio_correlation_header_is_not_used_as_call_id():
-    run = SimpleNamespace(
-        mode="twilio",
-        logs={
-            "inbound_webhook": {
-                "raw_webhook_data": {"SipHeader_X-Correlation-Id": LIVE_CORRELATION_ID}
-            }
-        },
-    )
-
-    assert extract_inbound_sip_metadata(run) == (
-        None,
-        {"X-Correlation-Id": LIVE_CORRELATION_ID},
-    )
-
-
-@pytest.mark.parametrize(
-    "session_data",
-    [
-        pytest.param({"token": "t"}, id="session_without_profile"),
-        pytest.param({"profile": "not-a-dict"}, id="profile_is_str"),
-        pytest.param(
-            {"profile": {"trunk-sip-headers": "not-a-dict"}}, id="headers_are_str"
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sip_call_id", [SIP_CALL_ID, None])
+async def test_runtime_snapshot_uses_stored_sip_identifier(sip_call_id):
+    run = _run(sip_call_id=sip_call_id)
+    run.logs["inbound_webhook"]["raw_webhook_data"] = {"SipCallId": "ignored-raw-id"}
+    snapshot = await asyncio.wait_for(
+        _session(run).on_call_finished(
+            gathered_context={"sip_call_id": "ignored-extracted-id"}
         ),
-        pytest.param({"callIds": []}, id="callIds_empty"),
-        pytest.param({"callIds": [None]}, id="callIds_holds_null"),
-    ],
-)
-def test_malformed_session_data_does_not_raise(session_data: Any):
-    """A provider shape we did not anticipate must not fail the call."""
-    assert extract_inbound_sip_metadata(_run(session_data)) == (None, None)
-
-
-def test_identifier_reaches_the_payload_delivered_to_tuner():
-    """The end of the chain: what the observer snapshots is what Tuner receives."""
-    sip_call_id, sip_headers = extract_inbound_sip_metadata(_run(LIVE_SESSION_DATA))
-    observer = DeferredTunerObserver(
-        workflow_run_id=42,
-        call_type="phone_call",
-        sip_call_id=sip_call_id,
-        sip_headers=sip_headers,
+        timeout=5,
     )
-
-    payload = observer.build_payload_snapshot()
-
-    assert payload["sip_call_id"] == LIVE_CALL_ID
-    assert payload["sip_headers"] == {
-        "CID": LIVE_CALL_ID,
-        "Correlation-Id": LIVE_CORRELATION_ID,
-    }
-
-
-def test_call_without_an_identifier_omits_both_fields():
-    """Production traffic must be delivered exactly as it is today."""
-    payload = DeferredTunerObserver(
-        workflow_run_id=43, call_type="phone_call"
-    ).build_payload_snapshot()
-
-    assert "sip_call_id" not in payload
+    payload = snapshot["tuner_payload"]
+    assert payload["call_id"] == "42"
+    if sip_call_id:
+        assert payload["sip_call_id"] == sip_call_id
+    else:
+        assert "sip_call_id" not in payload
     assert "sip_headers" not in payload
 
 
-# Verbatim from a live Tuner simulation call through a Twilio SIP Domain, as
-# stored on the run by the inbound dispatcher (account ids and source IP masked).
-# ``SipCallId`` is the caller's SIP Call-ID; ``SipHeader_*`` are the INVITE's
-# custom headers.
-LIVE_TWILIO_CALL_ID = "wNKHaE4vIQkwwwLlQZernlM0V5E"
-LIVE_TWILIO_CORRELATION_ID = "0182ab97d2a8433fa272ae690e3d18a0"
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_name", ["twilio", "cloudonix", "plivo"])
+async def test_inbound_metadata_survives_run_creation_and_tuner_delivery(provider_name):
+    from api.routes.telephony import _create_inbound_workflow_run
+    from api.services.telephony import registry
 
-LIVE_TWILIO_WEBHOOK = {
-    "SipDomain": "tuner-sim-test.sip.twilio.com",
-    "ApiVersion": "2010-04-01",
-    "Called": "sip:tuner-sim@tuner-sim-test.sip.twilio.com",
-    "SipHeader_X-LiveKit-Room": "sim-0182ab97",
-    "CallStatus": "ringing",
-    "From": "sip:+15550001111@project.sip.livekit.cloud",
-    "Direction": "inbound",
-    "AccountSid": "ACxxxxxxxx",
-    "SipDomainSid": "SDxxxxxxxx",
-    "SipCallId": LIVE_TWILIO_CALL_ID,
-    "Caller": "sip:+15550001111@project.sip.livekit.cloud",
-    "CallSid": "CA8e7407250cb9282ca05d6f5c43f1872e",
-    "To": "sip:tuner-sim@tuner-sim-test.sip.twilio.com",
-    "SipSourceIp": "203.0.113.10",
-    "CallerName": "+15550001111",
-    "SipHeader_X-Correlation-Id": LIVE_TWILIO_CORRELATION_ID,
-}
-
-
-def _twilio_run(raw_webhook_data: Any) -> SimpleNamespace:
-    return SimpleNamespace(
-        mode="twilio",
-        logs={"inbound_webhook": {"raw_webhook_data": raw_webhook_data}},
-    )
-
-
-def test_extracts_call_id_from_live_twilio_payload():
-    assert extract_inbound_sip_metadata(_twilio_run(LIVE_TWILIO_WEBHOOK)) == (
-        LIVE_TWILIO_CALL_ID,
-        {"X-Correlation-Id": LIVE_TWILIO_CORRELATION_ID},
-    )
-
-
-def test_twilio_provider_metadata_is_never_exported():
-    _, headers = extract_inbound_sip_metadata(_twilio_run(LIVE_TWILIO_WEBHOOK))
-
-    exported = " ".join(f"{name}={value}" for name, value in (headers or {}).items())
-    for leaked in ("ACxxxxxxxx", "SDxxxxxxxx", "203.0.113.10", "sim-0182ab97"):
-        assert leaked not in exported
-
-
-@pytest.mark.parametrize(
-    "sip_call_id",
-    [
-        pytest.param(None, id="missing"),
-        pytest.param("", id="empty"),
-        pytest.param(["", None], id="no_string_in_list"),
-    ],
-)
-def test_twilio_without_a_call_id_reports_none(sip_call_id: Any):
-    webhook = {**LIVE_TWILIO_WEBHOOK, "SipCallId": sip_call_id}
-    if sip_call_id is None:
-        del webhook["SipCallId"]
-
-    call_id, _ = extract_inbound_sip_metadata(_twilio_run(webhook))
-
-    assert call_id is None
-
-
-def test_twilio_pstn_call_reports_nothing():
-    """A regular phone-number call has no SIP fields and must pass through untouched."""
     webhook = {
-        "CallSid": "CA123",
-        "AccountSid": "ACxxxxxxxx",
-        "From": "+15550001111",
-        "To": "+15550002222",
+        "CallSid": "carrier-id",
+        "CallUUID": "carrier-id",
         "Direction": "inbound",
+        "SipCallId": SIP_CALL_ID,
+        "SipHeader_X-Correlation-Id": CORRELATION_ID,
+        "SipHeader_X-Private": "provider-secret",
+        "SessionData": {
+            "callIds": [SIP_CALL_ID],
+            "profile": {
+                "trunk-sip-headers": {
+                    "Correlation-Id": CORRELATION_ID,
+                    "Cloudonix-Signature": "provider-secret",
+                }
+            },
+        },
     }
+    normalized = registry.get(provider_name).provider_cls.parse_inbound_webhook(webhook)
+    workflow = SimpleNamespace(id=33, organization_id=11)
+    run_inputs = SimpleNamespace(definition_id=77, use_draft=False)
+    create_run = AsyncMock(return_value=SimpleNamespace(id=42))
+    with (
+        patch(
+            "api.routes.telephony.db_client.get_workflow",
+            AsyncMock(return_value=workflow),
+        ),
+        patch(
+            "api.routes.telephony.prepare_workflow_run_inputs",
+            AsyncMock(return_value=run_inputs),
+        ),
+        patch("api.routes.telephony.db_client.create_workflow_run", create_run),
+    ):
+        run_id = await asyncio.wait_for(
+            _create_inbound_workflow_run(
+                workflow_id=33,
+                user_id=7,
+                organization_id=11,
+                provider=provider_name,
+                normalized_data=normalized,
+                telephony_configuration_id=55,
+            ),
+            timeout=5,
+        )
 
-    assert extract_inbound_sip_metadata(_twilio_run(webhook)) == (None, None)
+    stored = create_run.await_args.kwargs
+    assert run_id == 42
+    assert stored["gathered_context"]["call_id"] == "carrier-id"
+    assert stored["organization_id"] == 11
+    assert stored["initial_context"]["telephony_configuration_id"] == 55
+    if provider_name == "plivo":
+        assert "sip_call_id" not in stored["gathered_context"]
+        assert "sip_headers" not in stored["logs"]["inbound_webhook"]
+    else:
+        assert stored["gathered_context"]["sip_call_id"] == SIP_CALL_ID
+        assert (
+            stored["logs"]["inbound_webhook"]["sip_headers"] == normalized.sip_headers
+        )
 
-
-def test_twilio_run_ignores_cloudonix_session_data():
-    """The run's provider picks the extractor, not the shape of the body."""
-    assert extract_inbound_sip_metadata(
-        _twilio_run({"SessionData": LIVE_SESSION_DATA})
-    ) == (None, None)
-
-
-def test_twilio_identifier_reaches_the_payload_delivered_to_tuner():
-    sip_call_id, sip_headers = extract_inbound_sip_metadata(
-        _twilio_run(LIVE_TWILIO_WEBHOOK)
+    run = _run(mode=provider_name)
+    run.gathered_context = stored["gathered_context"]
+    run.logs = stored["logs"]
+    snapshot = await asyncio.wait_for(
+        _session(run).on_call_finished(
+            gathered_context={"call_disposition": "completed"}
+        ),
+        timeout=5,
     )
-    observer = DeferredTunerObserver(
-        workflow_run_id=23,
-        call_type="phone_call",
-        sip_call_id=sip_call_id,
-        sip_headers=sip_headers,
-    )
+    run.logs.update(snapshot)
+    post_call = AsyncMock(return_value={"status": "delivered"})
+    with patch("api.services.integrations.tuner.completion.post_call", post_call):
+        result = await asyncio.wait_for(
+            run_completion(
+                [
+                    {
+                        "id": "tuner",
+                        "data": {
+                            "name": "Tuner",
+                            "tuner_api_key": "test-key",
+                            "tuner_workspace_id": 1,
+                            "tuner_agent_id": "agent-1",
+                        },
+                    }
+                ],
+                IntegrationCompletionContext(
+                    workflow_run_id=42,
+                    workflow_run=run,
+                    workflow_definition={},
+                    definition_id=77,
+                    organization_id=11,
+                    public_token=None,
+                ),
+            ),
+            timeout=5,
+        )
 
-    payload = observer.build_payload_snapshot()
-
-    assert payload["sip_call_id"] == LIVE_TWILIO_CALL_ID
-    assert payload["sip_headers"] == {"X-Correlation-Id": LIVE_TWILIO_CORRELATION_ID}
+    assert result["tuner_tuner"]["status"] == "delivered"
+    post_call.assert_awaited_once()
+    payload = post_call.await_args.args[1]
+    assert payload["call_id"] == "42"
+    if provider_name == "plivo":
+        assert "sip_call_id" not in payload
+        assert "sip_headers" not in payload
+    else:
+        assert payload["sip_call_id"] == SIP_CALL_ID
+        header = "X-Correlation-Id" if provider_name == "twilio" else "Correlation-Id"
+        assert payload["sip_headers"] == {header: CORRELATION_ID}
+    assert "provider-secret" not in str(payload)

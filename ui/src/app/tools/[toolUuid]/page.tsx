@@ -54,6 +54,7 @@ import {
     createTransferAgentDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
     DEFAULT_TRANSFER_AGENT_MESSAGE,
+    DEFAULT_TRANSFER_INTRODUCTION_PROMPT,
     type EndCallMessageType,
     getCategoryConfig,
     getToolTypeLabel,
@@ -156,6 +157,10 @@ export default function ToolDetailPage() {
     const [transferMessageType, setTransferMessageType] = useState<EndCallMessageType>("none");
     const [transferTimeout, setTransferTimeout] = useState(30);
     const [transferCallDisposition, setTransferCallDisposition] = useState("");
+    const [transferIntroductionEnabled, setTransferIntroductionEnabled] = useState(false);
+    const [transferIntroductionPrompt, setTransferIntroductionPrompt] = useState(
+        DEFAULT_TRANSFER_INTRODUCTION_PROMPT,
+    );
     const [transferAudioRecordingId, setTransferAudioRecordingId] = useState("");
     const [transferResolverUrl, setTransferResolverUrl] = useState("");
     const [transferResolverCredentialUuid, setTransferResolverCredentialUuid] = useState("");
@@ -254,6 +259,8 @@ export default function ToolDetailPage() {
                 setTransferAudioRecordingId(config.audioRecordingId || "");
                 setTransferTimeout(config.timeout ?? 30);
                 setTransferCallDisposition(config.call_disposition || "");
+                setTransferIntroductionEnabled(config.introduction_enabled ?? false);
+                setTransferIntroductionPrompt(config.introduction_prompt || DEFAULT_TRANSFER_INTRODUCTION_PROMPT);
                 setTransferResolverUrl(resolver?.url || "");
                 setTransferResolverCredentialUuid(resolver?.credential_uuid || "");
                 setTransferResolverHeaders(headersToRows(resolver?.headers));
@@ -289,6 +296,8 @@ export default function ToolDetailPage() {
                 setTransferAudioRecordingId("");
                 setTransferTimeout(30);
                 setTransferCallDisposition("");
+                setTransferIntroductionEnabled(false);
+                setTransferIntroductionPrompt(DEFAULT_TRANSFER_INTRODUCTION_PROMPT);
                 setTransferResolverUrl("");
                 setTransferResolverCredentialUuid("");
                 setTransferResolverHeaders([]);
@@ -645,6 +654,8 @@ export default function ToolDetailPage() {
                     audioRecordingId: transferMessageType === "audio" ? transferAudioRecordingId || undefined : undefined,
                     timeout: transferTimeout,
                     call_disposition: transferCallDisposition.trim() || undefined,
+                    introduction_enabled: transferIntroductionEnabled,
+                    introduction_prompt: transferIntroductionPrompt.trim() || DEFAULT_TRANSFER_INTRODUCTION_PROMPT,
                     resolver: transferDestinationSource === "dynamic"
                         ? {
                             type: "http",
@@ -1032,6 +1043,10 @@ const data = await response.json();`;
                             onTimeoutChange={setTransferTimeout}
                             callDisposition={transferCallDisposition}
                             onCallDispositionChange={setTransferCallDisposition}
+                            introductionEnabled={transferIntroductionEnabled}
+                            onIntroductionEnabledChange={setTransferIntroductionEnabled}
+                            introductionPrompt={transferIntroductionPrompt}
+                            onIntroductionPromptChange={setTransferIntroductionPrompt}
                             resolverUrl={transferResolverUrl}
                             onResolverUrlChange={setTransferResolverUrl}
                             resolverCredentialUuid={transferResolverCredentialUuid}

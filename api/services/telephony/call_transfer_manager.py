@@ -144,10 +144,25 @@ class CallTransferManager:
 
             redis = await self._get_redis()
             channel = TransferRedisChannels.transfer_events(event.transfer_id)
+            # A fast answer can arrive before the dialing worker subscribes.
+            # Retain the event, then subscribe-before-read in the waiter below.
+            result_key = f"transfer:result:{event.transfer_id}"
+            if event.type == TransferEventType.DESTINATION_ANSWERED:
+                # Retries and out-of-order answer callbacks must not overwrite
+                # a terminal failure (e.g. hangup during the introduction).
+                if not await redis.set(result_key, event.to_json(), ex=300, nx=True):
+                    return
+            else:
+                await redis.setex(result_key, 300, event.to_json())
             await redis.publish(channel, event.to_json())
             logger.info(f"Published {event.type} event for {event.transfer_id}")
         except Exception as e:
             logger.error(f"Failed to publish transfer event: {e}")
+
+    async def get_transfer_result(self, transfer_id: str) -> TransferEvent | None:
+        redis = await self._get_redis()
+        saved = await redis.get(f"transfer:result:{transfer_id}")
+        return TransferEvent.from_json(saved) if saved else None
 
     async def wait_for_transfer_completion(
         self, transfer_id: str, timeout_seconds: float = 30.0
@@ -167,6 +182,9 @@ class CallTransferManager:
 
         try:
             await pubsub.subscribe(channel)
+            saved = await self.get_transfer_result(transfer_id)
+            if saved:
+                return saved
             logger.info(
                 f"Waiting for transfer completion on {channel} (timeout: {timeout_seconds}s)"
             )

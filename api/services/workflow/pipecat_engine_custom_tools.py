@@ -24,7 +24,11 @@ from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechPlayback
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.external_pbx import resolve_external_pbx_field_mappings
 from api.services.telephony.factory import get_telephony_provider_for_run
-from api.services.telephony.transfer_event_protocol import TransferContext
+from api.services.telephony.transfer_event_protocol import (
+    TransferContext,
+    TransferEvent,
+    TransferEventType,
+)
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
@@ -34,6 +38,7 @@ from api.services.workflow.tools.transfer_resolver import (
     TransferResolutionError,
     resolve_transfer_config,
 )
+from api.services.workflow.transfer_introduction import prepare_transfer_introduction
 from api.utils.template_renderer import render_template
 
 if TYPE_CHECKING:
@@ -853,6 +858,42 @@ class CustomToolManager:
 
                 # Store initial transfer context in Redis before provider call to avoid race condition
                 call_transfer_manager = await get_call_transfer_manager()
+                introduction_audio_url = None
+                if (
+                    config.get("introduction_enabled")
+                    and getattr(
+                        provider, "supports_transfer_introduction", lambda: False
+                    )()
+                ):
+                    # Finish the caller-facing announcement, then cover the
+                    # bounded summary + TTS preparation with hold audio.
+                    if speech is not None:
+                        await speech.wait()
+                    self._engine.set_mute_pipeline(True)
+                    preparation_stop = asyncio.Event()
+                    preparation_hold = asyncio.create_task(
+                        play_audio_loop(
+                            stop_event=preparation_stop,
+                            sample_rate=(
+                                self._engine._audio_config.transport_out_sample_rate
+                                if self._engine._audio_config
+                                else 8000
+                            ),
+                            queue_frame=self._engine._transport_output.queue_frame,
+                        )
+                    )
+                    try:
+                        introduction_audio_url = await prepare_transfer_introduction(
+                            self._engine, config, organization_id
+                        )
+                    finally:
+                        preparation_stop.set()
+                        await asyncio.gather(preparation_hold, return_exceptions=True)
+                        self._engine.set_mute_pipeline(False)
+                    if introduction_audio_url:
+                        # A retry must never rejoin a previous transfer attempt.
+                        conference_name = f"transfer-{transfer_id}"
+
                 transfer_context = TransferContext(
                     transfer_id=transfer_id,
                     call_sid=None,  # Will be updated after provider response
@@ -862,6 +903,7 @@ class CustomToolManager:
                     conference_name=conference_name,
                     initiated_at=time.time(),
                     workflow_run_id=self._engine._workflow_run_id,
+                    introduction_audio_url=introduction_audio_url,
                 )
                 await call_transfer_manager.store_transfer_context(transfer_context)
 
@@ -884,6 +926,11 @@ class CustomToolManager:
                         transfer_id=transfer_id,
                         conference_name=conference_name,
                         timeout=timeout_seconds,
+                        **(
+                            {"introduction_audio_url": introduction_audio_url}
+                            if introduction_audio_url
+                            else {}
+                        ),
                     )
                 except Exception as e:
                     logger.error(f"Transfer provider failed: {e}")
@@ -972,6 +1019,25 @@ class CustomToolManager:
                         success_disposition=configured_call_disposition,
                     )
                 else:
+                    if introduction_audio_url and call_sid:
+                        # Stop an unanswered destination so it cannot later
+                        # pick up and wait alone after the caller resumes.
+                        await call_transfer_manager.publish_transfer_event(
+                            TransferEvent(
+                                type=TransferEventType.TRANSFER_FAILED,
+                                transfer_id=transfer_id,
+                                original_call_sid=original_call_sid,
+                                status="failed",
+                                action="transfer_failed",
+                                reason="timeout",
+                            )
+                        )
+                        try:
+                            await provider.end_transfer_leg(call_sid)
+                        except Exception:  # noqa: BLE001 - cleanup must allow the caller to resume
+                            logger.warning(
+                                "Could not stop timed-out introduction transfer"
+                            )
                     logger.error(
                         f"Transfer call timed out or failed after {timeout_seconds} seconds"
                     )

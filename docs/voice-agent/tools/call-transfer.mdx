@@ -32,7 +32,23 @@ For a successful transfer:
 5. The caller hears hold music while the destination leg is connecting.
 6. When the destination answers, Dograh connects the caller and ends the AI agent's involvement.
 
-The transfer is a blind transfer. Dograh does not currently pass conversation context to the receiving human as part of the transfer. If you need context to travel with the caller, the destination has to be another Dograh agent — see [Transfer to Agent](/voice-agent/tools/transfer-agent).
+By default, the receiving person joins without a conversation summary. For Twilio calls, you can enable a spoken introduction before the two parties are connected.
+
+## Transfer introduction
+
+In your Call Transfer tool, enable **Play a transfer introduction to both parties**. This setting is off by default and supports Twilio calls using your configured TTS provider. Other telephony providers, external PBX transfers, and realtime speech-to-speech agents skip the introduction and use their usual transfer behavior.
+
+The default instructions ask for a short summary of the caller's request, essential details, and language preference. Edit **Introduction instructions** to change what is included or request a language, such as Brazilian Portuguese. Your configured TTS voice must support that language.
+
+Dograh uses the current conversation, including handoff summaries from earlier agents, and generates audio with the active agent's TTS configuration. After the destination answers, each party hears the same recording on their own line. Speaking does not interrupt playback. They can talk to each other once both have finished hearing it; playback may start at slightly different times on the two lines.
+
+Preparation has an eight-second budget while the caller hears hold music. Introductions are limited to 25 words and 15 seconds of audio. If preparation fails or exceeds its budget, the transfer proceeds without the introduction. If Twilio cannot fetch or play the audio, a fallback connects the parties without it.
+
+Twilio fetches the recording from your publicly reachable Dograh backend using a temporary URL. The recording expires after five minutes; no public storage bucket is required.
+
+<Note>
+Both the caller and whoever answers the destination hear the introduction. For a ring group, that can be any member who picks up. Include only details you intend to share with both parties.
+</Note>
 
 ## Destination source
 

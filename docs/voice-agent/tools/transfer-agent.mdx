@@ -121,4 +121,4 @@ The tool's `workflow_id` is missing or is not an integer. Re-create the tool wit
 
 ### The destination agent re-asks something the caller already answered
 
-The handover note reached it, but its prompt does not tell it to use what it already has. Add an instruction that the caller has already spoken to a colleague and should not be asked to repeat themselves.
+Check that the destination agent's prompt tells it to use the conversation history from previous agents. Add an instruction that the caller has already spoken to a colleague and should not be asked to repeat themselves.

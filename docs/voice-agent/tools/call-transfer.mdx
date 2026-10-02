@@ -8,7 +8,7 @@ The Call Transfer tool lets your AI agent transfer an active telephony call to a
 Use this tool when the caller should speak to a human operator, department, escalation queue, support queue, or another phone system.
 
 <Note>
-To hand the caller to **another Dograh agent** rather than to a phone number, use [Transfer to Agent](/voice-agent/tools/transfer-agent) instead. It carries a handover note across the handoff and works on web calls as well as telephony.
+To hand the caller to **another Dograh agent** rather than to a phone number, use [Transfer to Agent](/voice-agent/tools/transfer-agent) instead. It carries conversation history as a labeled transcript across the handoff and works on web calls as well as telephony.
 </Note>
 
 ## Supported providers
@@ -40,7 +40,7 @@ In your Call Transfer tool, enable **Play a transfer introduction to both partie
 
 The default instructions ask for a short summary of the caller's request, essential details, and language preference. Edit **Introduction instructions** to change what is included or request a language, such as Brazilian Portuguese. Your configured TTS voice must support that language.
 
-Dograh uses the current conversation, including handoff summaries from earlier agents, and generates audio with the active agent's TTS configuration. After the destination answers, each party hears the same recording on their own line. Speaking does not interrupt playback. They can talk to each other once both have finished hearing it; playback may start at slightly different times on the two lines.
+Dograh uses the current conversation, including history from earlier agents, and generates audio with the active agent's TTS configuration. After the destination answers, each party hears the same recording on their own line. Speaking does not interrupt playback. They can talk to each other once both have finished hearing it; playback may start at slightly different times on the two lines.
 
 Preparation has an eight-second budget while the caller hears hold music. Introductions are limited to 25 words and 15 seconds of audio. If preparation fails or exceeds its budget, the transfer proceeds without the introduction. If Twilio cannot fetch or play the audio, a fallback connects the parties without it.
 

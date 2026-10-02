@@ -3,8 +3,9 @@
 Each index downloads once per process and stays in memory,
 so every search runs locally without a network call. The key
 includes the project key, so a rotated key loads a fresh copy.
-An index no workflow has used for an hour is unloaded on the next lookup,
-so a rotated key or a deleted workflow does not hold memory for good.
+An index no workflow has used for an hour is unloaded on the next lookup
+and loads again when a search needs it, so a rotated key or a deleted
+workflow does not hold memory for good.
 """
 
 from __future__ import annotations
@@ -131,9 +132,9 @@ _releasing: set[asyncio.Task] = set()
 
 def get_index(project_id: str, project_key: str, name: str) -> MossIndex:
     now = time.monotonic()
-    for idle_key, idle in list(_indexes.items()):
+    # The entry stays, so a later search reloads this same index instead of a copy.
+    for idle in _indexes.values():
         if now - idle.last_used > _IDLE_SECONDS and idle._loading is None:
-            del _indexes[idle_key]
             idle.unload()
 
     key = (project_id, project_key, name)

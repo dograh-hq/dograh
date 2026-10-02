@@ -55,7 +55,7 @@ Click **Save**, then **Publish** your workflow.
 
 Make a test call and ask a question that the index can answer. The agent answers from the indexed passages. In tool mode, the call transcript shows a `search_moss_index` call before the answer.
 
-The index downloads in the background when the call starts. In ambient mode, a turn that arrives before the download finishes is answered without index results. In tool mode, the first search waits for the download. Later searches on that worker, in the same call or in any later call, run in memory.
+The index downloads in the background when the call starts. In ambient mode, a turn that arrives before the download finishes is answered without index results, and so is a turn whose search takes longer than 250 ms. A search in memory usually takes a few milliseconds. In tool mode, the first search waits for the download. Later searches on that worker, in the same call or in any later call, run in memory.
 
 ## Choosing a mode
 
@@ -70,7 +70,7 @@ Speech to speech (realtime) models have no separate turn to search before, so th
 
 ## How it works
 
-- In ambient mode, Dograh searches the index with the caller's latest message before each answer on **Start Call** and **Agent** nodes, and appends the results to the node prompt for that answer only.
+- In ambient mode, Dograh searches the index with the caller's latest message before each answer on **Start Call** and **Agent** nodes, and appends the results to the node prompt until the next caller turn, marked as reference text that the agent must not follow as instructions.
 - In tool mode, Dograh adds the `search_moss_index` tool to **Start Call** and **Agent** nodes. If a node already has a function with that name, the node keeps its own and Moss is skipped there. **End Call** nodes search in neither mode.
 - If the worker has not loaded the index yet, Dograh starts the download in the background as the call begins, so it is usually ready before the first search.
 - Each worker process keeps one copy of each configured index in memory and reuses it for every call. An index that no call has used for an hour is unloaded and downloads again when it is next needed.
@@ -103,7 +103,7 @@ To stop agents from searching the index, open the Moss node and toggle **Enabled
 |---|---|
 | The agent says the search failed | Check the project ID, project key, and index name. The API logs show `Moss index '<name>' failed to load` with the reason. |
 | The agent never searches (tool mode) | Fill in **Index Contents** so the agent knows what the index holds, mention the knowledge base in the node prompt, or switch to ambient mode. |
-| The first answer misses the index (ambient mode) | The index was still downloading when the caller spoke. Later turns use it. |
+| An answer misses the index (ambient mode) | The index was still downloading, or the search took longer than 250 ms. The API logs show `Integration context skipped for this turn` for a slow search. |
 | New content does not show up | Index updates reach running workers within about 10 minutes. Restart the API to pick them up immediately. |
 | Node shows "Not configured" | Fill in **Index Name**, **Project ID**, and **Project Key**. All three are required while the node is enabled. |
 | Logs show `The moss package is not installed` | The `moss` Python package is missing from the API environment. The API requirements install it everywhere except Intel macOS, which has no prebuilt package. |

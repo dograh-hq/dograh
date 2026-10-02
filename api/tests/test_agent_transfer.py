@@ -14,6 +14,7 @@ The invariants worth protecting are the ones a unit test cannot see:
 
 import asyncio
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -723,7 +724,16 @@ async def test_destination_tool_result_speaks_while_opening_is_still_pending(
 
 
 @pytest.mark.asyncio
-async def test_transfer_compacts_the_conversation_for_the_destination():
+@pytest.mark.parametrize(
+    "caller, announcement",
+    [
+        ("My invoice 4417 looks wrong.", "I'll transfer you to my colleague."),
+        ("Minha fatura 4417 está errada.", "Vou transferir para meu colega."),
+    ],
+)
+async def test_transfer_passes_one_full_transcript_to_the_destination(
+    caller, announcement
+):
     """The destination reads a handover note, not the previous agent's tools."""
     source_llm = MockLLMService(
         mock_steps=[
@@ -744,14 +754,18 @@ async def test_transfer_compacts_the_conversation_for_the_destination():
         source_workflow=build_agent_workflow(
             name="Reception", greeting=None, tool_uuids=[TRANSFER_TOOL_UUID]
         ),
-        destination_workflow=build_agent_workflow(name="Billing", greeting="Billing."),
+        destination_workflow=build_agent_workflow(name="Billing", greeting=None),
     )
     await harness.start()
 
+    source_llm._generate_summary = AsyncMock(
+        side_effect=AssertionError("Must not compact")
+    )
     # Conversation the source agent had before the handoff.
     harness.engine.context.set_messages(
         [
-            {"role": "user", "content": "My invoice 4417 looks wrong."},
+            *[{"role": "user", "content": f"Earlier fact {i:02}."} for i in range(20)],
+            {"role": "user", "content": caller},
             {"role": "assistant", "content": "Let me check who can help."},
             {
                 "role": "assistant",
@@ -767,8 +781,53 @@ async def test_transfer_compacts_the_conversation_for_the_destination():
         ]
     )
 
+    from api.services.workflow.agent_handoff_context import (
+        HandoffMessage,
+        build_handoff_snapshot,
+    )
+
+    destination_started = asyncio.Event()
+    opening_messages = []
+    get_completions = destination_llm.get_chat_completions
+
+    async def capture_opening(context):
+        opening_messages.extend(deepcopy(context.messages))
+        destination_started.set()
+        return await get_completions(context)
+
+    destination_llm.get_chat_completions = capture_opening
+
+    def snapshot_then_caller_speaks(*args, **kwargs):
+        snapshot = build_handoff_snapshot(*args, **kwargs)
+        harness.engine.context.add_message(
+            {"role": "user", "content": "Also check invoice 5528."}
+        )
+        return snapshot
+
     try:
-        await run_transfer(harness, tool=TransferAgentTool())
+        with patch(
+            "api.services.workflow.agent_transfer.build_handoff_snapshot",
+            snapshot_then_caller_speaks,
+        ):
+            await run_transfer(harness, tool=TransferAgentTool(message=announcement))
+        await asyncio.wait_for(destination_started.wait(), 2)
+
+        source_llm._generate_summary.assert_not_awaited()
+        assert len(opening_messages) == 1
+        message = opening_messages[0]
+        assert isinstance(message, HandoffMessage)
+        assert message["role"] == "user"
+        assert set(message) == {"role", "content"}
+        content = message["content"]
+        assert content.count('Conversation with previous agent "Reception":') == 1
+        assert f"Caller: {caller}" in content
+        assert content.count(f"Agent: {announcement}") == 1
+        assert content.count("Caller (during transfer): Also check invoice 5528.") == 1
+        for i in range(20):
+            assert content.count(f"Caller: Earlier fact {i:02}.") == 1
+        assert "conversation_summary" not in content
+        assert "transfer_completed" not in content
+        assert "lookup_account" not in content
 
         messages = harness.engine.context.messages
         # Nothing describing the previous agent's tool work survives: a
@@ -1637,38 +1696,24 @@ def test_call_greeting_override_belongs_only_to_the_initial_visit():
     assert engine.get_start_greeting() == ("text", "Destination greeting")
 
 
-@pytest.mark.asyncio
-async def test_compaction_reads_a_snapshot_and_keeps_history_on_failure():
-    from api.services.workflow.agent_handoff_context import build_handoff_snapshot
+def test_handoff_reads_a_snapshot_without_mutating_the_live_conversation():
+    from api.services.workflow.agent_handoff_context import (
+        build_handoff_snapshot,
+        complete_handoff_message,
+    )
 
     original = [{"role": "user", "content": f"Fact {i}"} for i in range(14)]
     context = LLMContext(messages=original)
-    started = asyncio.Event()
-    finish = asyncio.Event()
-
-    async def summarize(request):
-        started.set()
-        await finish.wait()
-        assert request.context.messages[0]["content"] == "Fact 0"
-        assert len(request.context.messages) == 14
-        raise RuntimeError("provider unavailable")
-
-    task = asyncio.create_task(
-        build_handoff_snapshot(
-            context,
-            SimpleNamespace(_generate_summary=summarize),
-            request_id="snapshot-test",
-        )
-    )
-    await asyncio.wait_for(started.wait(), 2)
+    snapshot = build_handoff_snapshot(context, source_agent_name="Reception")
     context.messages[0]["content"] = "Edited live context"
     context.add_message({"role": "user", "content": "Caller on hold"})
-    finish.set()
-    snapshot = await asyncio.wait_for(task, 2)
     assert snapshot.boundary == 14
-    assert len(snapshot.messages) == 14
-    assert snapshot.messages[0]["content"] == "Fact 0"
-    assert snapshot.summarized is False
+    assert "Caller: Fact 0" in snapshot.transcript
+    assert "Edited live context" not in snapshot.transcript
+    assert "Caller on hold" not in snapshot.transcript
+    message = complete_handoff_message(context, snapshot)
+    assert "Caller (during transfer): Caller on hold" in message["content"]
+    assert context.messages[0]["content"] == "Edited live context"
 
 
 @pytest.mark.asyncio

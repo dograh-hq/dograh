@@ -1,6 +1,6 @@
 ---
 title: "Transfer to Agent"
-description: "Hand a live call from one Dograh agent to another, carrying a handover note so the caller never repeats themselves."
+description: "Hand a live call from one Dograh agent to another, carrying conversation history so the caller can continue where they left off."
 ---
 
 The Transfer to Agent tool hands the caller from the agent they are talking to over to another Dograh agent, without dropping the call. The caller stays on the same call throughout: they hear a short handover line, then a ringer, then the next agent picks up.
@@ -15,7 +15,7 @@ Both tools move the caller somewhere else, but they are not interchangeable.
 |---|---|---|
 | Destination | Another Dograh agent, by `workflow_id` | A phone number or SIP endpoint |
 | Who answers | A Dograh agent | A human, queue, or external phone system |
-| Context | **Warm** — a handover note plus recent turns travel with the caller | **Blind** — no conversation context is passed |
+| Context | A labeled transcript of the previous agents' conversation | Optional spoken introduction on Twilio; otherwise no conversation context is passed |
 | Availability | Any cascade call, including web calls | Telephony only (Twilio, Telnyx, Asterisk ARI) |
 
 If the caller should end up talking to a person, use Call Transfer. If they should end up talking to another one of your agents, use this tool.
@@ -25,20 +25,18 @@ If the caller should end up talking to a person, use Call Transfer. If they shou
 1. The agent calls the Transfer to Agent tool.
 2. The current agent speaks the configured handover message in its own voice.
 3. The caller hears a ringer while Dograh prepares the destination agent.
-4. In parallel, Dograh compacts the conversation so far into a handover note.
-5. The destination agent takes over at its **Start Call** node. By default it plays that node's greeting. With **Play greeting** turned off, it skips the greeting and opens with a reply based on the handover note.
+4. Dograh labels the available conversation as history from the previous agent, including anything the caller said during the handoff.
+5. The destination agent takes over at its **Start Call** node. By default it plays that node's greeting. With **Play greeting** turned off, it skips the greeting and opens with a reply based on the conversation history.
 
-The agent that called the tool does not speak again after the tool fires. Dograh suppresses its next generation deliberately, because the caller is already hearing the handover message and the ringer, and the agent is being handed off regardless of what it would have said.
+After a transfer is accepted, Dograh suppresses the source agent's next generation while the handover message and ringer play. If the transfer is refused, the agent can explain the result and continue helping the caller.
 
 ## What the destination agent receives
 
-The destination does not start cold, and it does not receive the raw transcript either. It starts from:
+The destination receives one historical message containing the available conversation, with a heading such as `Conversation with previous agent "Reception":`. Caller and agent speech are labeled separately. This applies to every handoff, with **no minimum number of turns** and no LLM summary call during the transfer.
 
-- A **handover note** summarizing what the caller wants, every fact they gave (names, numbers, dates, addresses, reference identifiers, reproduced exactly), what has been promised, and what is still outstanding
-- The **most recent turns kept verbatim**, so it can answer an "as I was saying" without re-reading the call
-- Anything the caller said while the handoff was still running
+Earlier agents' history stays in the same transcript across repeated transfers. Speech added while the destination is being prepared is included and marked as happening during the transfer. The destination is told that this is historical context and that the transfer is already complete.
 
-The source agent's tool calls and tool results are filtered out — they belong to the previous agent's execution context, not the conversation.
+The source agent's prompts, tool calls, and tool results are filtered out. Spoken text accompanying a tool call, such as the handover announcement, is retained. Later node transitions preserve the inherited transcript when summarizing the current agent's own conversation.
 
 <Note>
 Because context travels with the caller, the destination agent should not re-ask for information the caller already gave. Say so in its prompt.
@@ -50,7 +48,7 @@ A Transfer to Agent tool has three settings. Everything else about how a handoff
 
 - **Agent** (`workflow_id`, required) — the id of the Dograh agent to transfer to. It must belong to the same organization.
 - **Handover message** (`message`) — spoken by the current agent, in its own voice, just before the handover. Supports [template variables](/voice-agent/template-variables). Maximum 500 characters. Defaults to "Let me connect you with the right person. One moment please." Leave it empty to hand over without saying anything.
-- **Play greeting** (`play_greeting`, default `true`) — whether the destination agent opens with its Start Call greeting. Turn it off when the destination should continue the conversation rather than introduce itself, for example an agent that greets callers on its own phone number but is also a transfer target. It then opens with a reply generated from the handover note.
+- **Play greeting** (`play_greeting`, default `true`) — whether the destination agent opens with its Start Call greeting. Turn it off when the destination should continue the conversation rather than introduce itself, for example an agent that greets callers on its own phone number but is also a transfer target. It then opens with a reply generated from the conversation history.
 
 Set the handover message in the language the destination agent speaks. The default is English, which will sound wrong in front of a Portuguese or Spanish agent.
 

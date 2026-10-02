@@ -11,7 +11,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from loguru import logger
-from pipecat.frames.frames import LLMMessagesAppendFrame
+from pipecat.frames.frames import (
+    LLMAssistantPushAggregationFrame,
+    LLMMessagesAppendFrame,
+)
 
 from api.services.pipecat.agent_runtime_factory import AgentBuildError
 from api.services.pipecat.audio_playback import play_hold_audio_loop
@@ -155,19 +158,10 @@ class AgentTransferCoordinator:
             async with asyncio.timeout(TRANSFER_PREPARE_TIMEOUT_SECONDS):
                 self._phase = TransferPhase.PREPARING
                 await engine.pause_background_context_writers()
-                async with asyncio.TaskGroup() as group:
-                    group.create_task(prepare())
-                    compact = group.create_task(
-                        build_handoff_snapshot(
-                            engine.context,
-                            source.inference_llm,
-                            request_id=request.request_id,
-                            # Resolved here, in the parent task: the compaction
-                            # task has no ambient span of its own to inherit.
-                            parent_context=engine._get_otel_context(),
-                        )
-                    )
-                snapshot = compact.result()
+                snapshot = build_handoff_snapshot(
+                    engine.context, source_agent_name=source.workflow_name
+                )
+                await prepare()
 
             await asyncio.sleep(
                 max(0, TRANSFER_MIN_HOLD_SECONDS - (time.monotonic() - hold_started))
@@ -267,6 +261,11 @@ class AgentTransferCoordinator:
             await speech.wait()
         # Also drain when the tool has no announcement.
         await source.cancel_tools()
+        # A tool-triggered announcement can overlap the source LLM's response
+        # boundary. Playback completion alone need not commit the assistant's
+        # buffered text. Flush it while this visit still owns the call, before
+        # taking the snapshot, so it cannot surface as the destination's speech.
+        await source.queue_frame(LLMAssistantPushAggregationFrame())
         await engine.drain_call_pipeline()
 
     async def _begin_hold(self, request, source):

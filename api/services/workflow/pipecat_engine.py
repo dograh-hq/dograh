@@ -1722,10 +1722,11 @@ class PipecatEngine:
 
     def commit_agent(self, runtime: AgentRuntime, snapshot) -> None:
         """The only handoff commit point. No awaits and no provider work."""
-        from api.services.workflow.agent_handoff_context import messages_after_boundary
+        from api.services.workflow.agent_handoff_context import (
+            complete_handoff_message,
+        )
 
-        tail = messages_after_boundary(self.context, snapshot.boundary)
-        self.context.set_messages([*snapshot.messages, *tail])
+        self.context.set_messages([complete_handoff_message(self.context, snapshot)])
         self.context.set_tools(runtime.tools)
         self.context.set_otel_span_name(f"llm-{runtime.current_node.name}")
         runtime.entered_at = time.time()
@@ -1737,8 +1738,7 @@ class PipecatEngine:
             nodes.append(runtime.current_node.name)
         logger.info(
             f"[transfer] installed {runtime.visit_id}: "
-            f"{len(snapshot.messages)} handoff messages (summarized={snapshot.summarized}) "
-            f"+ {len(tail)} live messages"
+            "conversation handed over as one transcript message"
         )
 
     async def notify_agent_entered(self, runtime: AgentRuntime) -> None:

@@ -646,6 +646,100 @@ async def test_transfer_retires_source_before_starting_destination(monkeypatch, 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "drain_result", ["timeout", "error", "hangup", "pipeline_error"]
+)
+async def test_post_commit_drain_failure_does_not_skip_opening(
+    monkeypatch, drain_result
+):
+    """A live destination opens despite drain failure; an ended call stays silent."""
+    monkeypatch.setattr(
+        "api.services.workflow.agent_transfer.TRANSFER_MIN_HOLD_SECONDS", 0
+    )
+    greeting = "Billing here."
+    harness = TransferHarness()
+    await harness.build(
+        source_llm=MockLLMService(
+            mock_steps=[
+                MockLLMService.create_function_call_chunks("transfer_to_billing", {})
+            ],
+            chunk_delay=0,
+        ),
+        destination_llm=MockLLMService(mock_steps=[], chunk_delay=0),
+        source_workflow=build_agent_workflow(
+            name="Reception", greeting=None, tool_uuids=[TRANSFER_TOOL_UUID]
+        ),
+        destination_workflow=build_agent_workflow(name="Billing", greeting=greeting),
+    )
+    await harness.start()
+    engine = harness.engine
+    source = engine.active_agent
+    drain = engine.drain_call_pipeline
+    drain_started = asyncio.Event()
+    release_drain = asyncio.Event()
+    queue_opening = AsyncMock(wraps=engine.queue_node_opening)
+    notify_entered = AsyncMock(wraps=engine.notify_agent_entered)
+
+    async def fail_destination_drain(*args, **kwargs):
+        if engine.active_agent is source:
+            return await drain(*args, **kwargs)
+        assert source._close_task.done()
+        assert engine.transfer_coordinator._hold_task is None
+        drain_started.set()
+        if drain_result in {"hangup", "pipeline_error"}:
+            await asyncio.wait_for(release_drain.wait(), 5)
+        elif drain_result == "error":
+            raise RuntimeError("Transfer hold-audio drain failed")
+        return False
+
+    monkeypatch.setattr(engine, "drain_call_pipeline", fail_destination_drain)
+    monkeypatch.setattr(engine, "queue_node_opening", queue_opening)
+    monkeypatch.setattr(engine, "notify_agent_entered", notify_entered)
+    transfer_task = asyncio.create_task(
+        run_transfer(harness, tool=TransferAgentTool(message=None))
+    )
+    try:
+        await asyncio.wait_for(drain_started.wait(), 5)
+        ending = drain_result in {"hangup", "pipeline_error"}
+        if ending:
+            reason = (
+                EndTaskReason.USER_HANGUP.value
+                if drain_result == "hangup"
+                else EndTaskReason.PIPELINE_ERROR.value
+            )
+            await asyncio.wait_for(engine.end_call_with_reason(reason), 5)
+        await asyncio.wait_for(transfer_task, 5)
+        coordinator = engine.transfer_coordinator
+        assert not coordinator.in_progress
+        destination = engine.active_agent
+        assert destination is not source
+        destination_openings = [
+            call
+            for call in queue_opening.await_args_list
+            if call.kwargs.get("origin_visit_id") == destination.visit_id
+        ]
+        if ending:
+            assert coordinator.completed[-1]["outcome"] == reason
+            assert not destination_openings
+            notify_entered.assert_not_awaited()
+            assert not harness.destination_tts.received_texts
+        else:
+            assert coordinator.completed[-1]["outcome"] == "completed"
+            assert len(destination_openings) == 1
+            notify_entered.assert_awaited_once_with(destination)
+            async with asyncio.timeout(5):
+                while greeting not in harness.destination_tts.received_texts:
+                    await asyncio.sleep(0.01)
+            assert not engine.is_call_disposed()
+    finally:
+        release_drain.set()
+        if not transfer_task.done():
+            transfer_task.cancel()
+        await asyncio.wait_for(asyncio.gather(transfer_task, return_exceptions=True), 5)
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "refused_transfer", [False, True], ids=["lookup", "refused-transfer"]
 )
 async def test_destination_tool_result_speaks_while_opening_is_still_pending(

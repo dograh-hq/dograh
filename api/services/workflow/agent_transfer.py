@@ -177,9 +177,14 @@ class AgentTransferCoordinator:
             # The finally path can safely await the same retirement again.
             await source.retire("transferred")
             # Cover slow retirement with hold audio, then drain its final chunk
-            # before the destination can start speaking.
-            await self._stop_hold_audio()
-            await engine.drain_call_pipeline()
+            # before the destination can start speaking. Once committed, a
+            # cleanup error must not prevent a live destination from opening.
+            # Cancellation still propagates so a hangup never starts a new turn.
+            try:
+                await self._stop_hold_audio()
+                await engine.drain_call_pipeline()
+            except Exception:  # noqa: BLE001 - Cleanup must not strand a committed agent.
+                logger.exception("Failed to drain transfer hold audio")
             self._check_current(request)
             self._phase = TransferPhase.OPENING
             engine.call_monitor.resume()

@@ -6,6 +6,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from api.services.telephony.transfer_event_protocol import (
+    TransferEvent,
+    TransferEventType,
+)
 from api.services.workflow import pipecat_engine_custom_tools as tools
 from api.services.workflow.tools.transfer_resolver import ResolvedTransferConfig
 from api.tests.test_transfer_message_playback import RecordingEngine, TransferToolModel
@@ -13,31 +17,36 @@ from api.tests.test_transfer_message_playback import RecordingEngine, TransferTo
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "enabled,supported,audio_url",
+    "enabled,supported,audio_url,completion",
     [
-        (True, True, "https://api.example.com/clip"),
-        (True, True, None),
-        (False, True, None),
-        (True, False, None),
+        (True, True, "https://api.example.com/clip", "answered"),
+        (True, True, None, "answered"),
+        (False, True, None, "answered"),
+        (True, False, None, "answered"),
+        (True, True, "https://api.example.com/clip", "timeout"),
+        (True, True, "https://api.example.com/clip", "answer_at_timeout"),
     ],
 )
 async def test_introduction_preparation_and_dial_order(
-    monkeypatch, enabled, supported, audio_url
+    monkeypatch, enabled, supported, audio_url, completion
 ):
     engine = RecordingEngine()
     tool = TransferToolModel()
     tool.definition["config"]["introduction_enabled"] = enabled
     manager = tools.CustomToolManager(engine)
+    outcome = TransferEvent(
+        type=TransferEventType.TRANSFER_FAILED
+        if completion == "timeout"
+        else TransferEventType.DESTINATION_ANSWERED,
+        transfer_id="tx-1",
+        original_call_sid="caller",
+        reason="timeout" if completion == "timeout" else None,
+    )
     transfer_manager = SimpleNamespace(
         store_transfer_context=AsyncMock(),
+        publish_transfer_event=AsyncMock(return_value=outcome),
         wait_for_transfer_completion=AsyncMock(
-            return_value=SimpleNamespace(
-                to_result_dict=lambda: {
-                    "status": "success",
-                    "action": "destination_answered",
-                    "conference_id": "conference",
-                }
-            )
+            return_value=outcome if completion == "answered" else None
         ),
     )
     run = SimpleNamespace(
@@ -64,6 +73,7 @@ async def test_introduction_preparation_and_dial_order(
         validate_config=lambda: True,
         supports_transfer_introduction=lambda: supported,
         transfer_call=dial,
+        end_transfer_leg=AsyncMock(),
     )
     preparation = AsyncMock(side_effect=prepare)
     monkeypatch.setattr(
@@ -112,5 +122,15 @@ async def test_introduction_preparation_and_dial_order(
         assert context.conference_name == "transfer-" + context.transfer_id
     else:
         assert "introduction_audio_url" not in dial_kwargs
-    assert callback.call_args.args[0]["status"] == "transfer_success"
+    if completion != "answered":
+        assert transfer_manager.publish_transfer_event.call_args.kwargs == {
+            "only_if_pending": True
+        }
+    if completion == "timeout":
+        provider.end_transfer_leg.assert_awaited_once_with("destination")
+        assert callback.call_args.args[0]["status"] == "transfer_failed"
+        assert callback.call_args.args[0]["reason"] == "timeout"
+    else:
+        provider.end_transfer_leg.assert_not_awaited()
+        assert callback.call_args.args[0]["status"] == "transfer_success"
     assert not hold_running.is_set()

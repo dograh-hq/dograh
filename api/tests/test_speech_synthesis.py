@@ -109,10 +109,10 @@ async def test_deadline_and_cancellation_stop_pending_synthesis(
         await asyncio.wait_for(started.wait(), 1)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
-            await task
+            await asyncio.wait_for(task, 2)
     else:
         with pytest.raises(TimeoutError):
-            await synthesize_speech(tts, "Hello.", timeout=0.1)
+            await synthesize_speech(tts, "Hello.", timeout=2)
     assert cancelled.is_set()
     assert tts.cleaned
 

@@ -77,7 +77,11 @@ async def process_introduction_status(manager, transfer, provider, data):
             action="transfer_failed",
             reason=status,
         )
-        await manager.publish_transfer_event(event)
+        # Dial failures arriving late cannot undo an answer. A completed call
+        # still cancels the transfer, including a hangup during playback.
+        await manager.publish_transfer_event(
+            event, only_if_pending=status != "completed"
+        )
         if status == "completed":
             # During Play the recipient hasn't joined the conference yet, so
             # endConferenceOnExit cannot remove the waiting caller.

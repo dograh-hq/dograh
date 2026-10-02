@@ -159,7 +159,7 @@ def response_for(provider):
     "provider",
     ["cartesia", "deepgram", "elevenlabs", "openai", "minimax", "speechify"],
 )
-async def test_http_adapter_returns_complete_wav_and_closes_connections(
+async def test_http_adapter_returns_complete_wav_and_respects_session_ownership(
     monkeypatch, provider
 ):
     session = Session(response_for(provider))
@@ -182,11 +182,11 @@ async def test_http_adapter_returns_complete_wav_and_closes_connections(
         audio = await speech_synthesis.synthesize_speech(
             tts, "Hello.", sample_rate=24000, timeout=2
         )
+        assert session.closed is (provider in ("minimax", "speechify"))
     with wave.open(io.BytesIO(audio)) as wav:
         assert wav.getframerate() == 24000
         assert wav.getnchannels() == 1
         assert wav.readframes(wav.getnframes()) == PCM
-    assert session.closed
     if provider == "openai":
         sdk_close.assert_awaited_once()
         assert sdk_create.call_args.kwargs["input"] == "Hello."

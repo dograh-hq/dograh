@@ -9,6 +9,7 @@ from typing import Dict, Optional
 
 import redis.asyncio as aioredis
 from loguru import logger
+from redis.exceptions import RedisError
 
 from api.constants import REDIS_URL
 from api.services.telephony.transfer_event_protocol import (
@@ -131,11 +132,17 @@ class CallTransferManager:
                 f"[Transfer Manager] Error storing transfer channel mapping: {e}"
             )
 
-    async def publish_transfer_event(self, event: TransferEvent) -> None:
+    async def publish_transfer_event(
+        self, event: TransferEvent, *, only_if_pending: bool = False
+    ) -> TransferEvent | None:
         """Publish transfer event to Redis channel.
 
         Args:
             event: Transfer event to publish
+            only_if_pending: Preserve an outcome that arrived before this event.
+
+        Returns:
+            The stored outcome, or None if Redis is unavailable.
         """
         try:
             # Add timestamp if not present
@@ -147,22 +154,28 @@ class CallTransferManager:
             # A fast answer can arrive before the dialing worker subscribes.
             # Retain the event, then subscribe-before-read in the waiter below.
             result_key = f"transfer:result:{event.transfer_id}"
-            if event.type == TransferEventType.DESTINATION_ANSWERED:
+            if only_if_pending or event.type == TransferEventType.DESTINATION_ANSWERED:
                 # Retries and out-of-order answer callbacks must not overwrite
                 # a terminal failure (e.g. hangup during the introduction).
                 if not await redis.set(result_key, event.to_json(), ex=300, nx=True):
-                    return
+                    return await self.get_transfer_result(event.transfer_id)
             else:
                 await redis.setex(result_key, 300, event.to_json())
             await redis.publish(channel, event.to_json())
             logger.info(f"Published {event.type} event for {event.transfer_id}")
+            return event
         except Exception as e:
             logger.error(f"Failed to publish transfer event: {e}")
+            return None
 
     async def get_transfer_result(self, transfer_id: str) -> TransferEvent | None:
-        redis = await self._get_redis()
-        saved = await redis.get(f"transfer:result:{transfer_id}")
-        return TransferEvent.from_json(saved) if saved else None
+        try:
+            redis = await self._get_redis()
+            saved = await redis.get(f"transfer:result:{transfer_id}")
+            return TransferEvent.from_json(saved) if saved else None
+        except (RedisError, ValueError, TypeError) as error:
+            logger.warning("Transfer result unavailable error={}", type(error).__name__)
+            return None
 
     async def wait_for_transfer_completion(
         self, transfer_id: str, timeout_seconds: float = 30.0
@@ -204,7 +217,11 @@ class CallTransferManager:
                                 TransferEventType.DESTINATION_ANSWERED,
                                 TransferEventType.TRANSFER_FAILED,
                             ]:
-                                return event
+                                # A failure can supersede an answer while its
+                                # earlier notification is still in flight.
+                                return (
+                                    await self.get_transfer_result(transfer_id) or event
+                                )
                         except Exception as e:
                             logger.error(f"Failed to parse transfer event: {e}")
                             continue

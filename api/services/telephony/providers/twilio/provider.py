@@ -728,18 +728,25 @@ class TwilioProvider(TelephonyProvider):
 
     async def end_transfer_leg(self, call_sid: str) -> None:
         """Best-effort cleanup when the other party hangs up during introduction."""
-        async with (
-            aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session,
-            session.post(
-                f"{self.base_url}/Calls/{call_sid}.json",
-                data={"Status": "completed"},
-                auth=aiohttp.BasicAuth(self.account_sid, self.auth_token),
-            ) as response,
-        ):
-            if response.status not in (200, 404):
-                logger.warning(
-                    "Twilio transfer cleanup returned {}", response.status
-                )
+        try:
+            async with (
+                aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as session,
+                session.post(
+                    f"{self.base_url}/Calls/{call_sid}.json",
+                    data={"Status": "completed"},
+                    auth=aiohttp.BasicAuth(self.account_sid, self.auth_token),
+                ) as response,
+            ):
+                if response.status not in (200, 404):
+                    logger.warning(
+                        "Twilio transfer cleanup returned {}", response.status
+                    )
+        except (aiohttp.ClientError, TimeoutError) as error:
+            logger.warning(
+                "Twilio transfer cleanup failed error={}", type(error).__name__
+            )
 
     def supports_transfer_introduction(self) -> bool:
         return True

@@ -153,7 +153,9 @@ async def test_realtime_agents_skip_inference_and_synthesis(engine, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_provider_without_http_adapter_uses_normal_factory(engine, monkeypatch):
+async def test_preparation_does_not_require_a_provider_specific_http_adapter(
+    engine, monkeypatch
+):
     engine.active_agent.user_config.tts.provider = "inworld"
     synth = AsyncMock(return_value=b"wav")
     monkeypatch.setattr(introduction, "synthesize_speech", synth)

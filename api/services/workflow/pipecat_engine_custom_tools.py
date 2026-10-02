@@ -1009,6 +1009,26 @@ class CustomToolManager:
                         await hold_music_task
                     self._engine.set_mute_pipeline(False)
 
+                if not transfer_event and introduction_audio_url and call_sid:
+                    # Claim the timeout atomically against a concurrent answer.
+                    # If the answer won, continue the transfer and keep its leg.
+                    transfer_event = await call_transfer_manager.publish_transfer_event(
+                        TransferEvent(
+                            type=TransferEventType.TRANSFER_FAILED,
+                            transfer_id=transfer_id,
+                            original_call_sid=original_call_sid,
+                            status="failed",
+                            action="transfer_failed",
+                            reason="timeout",
+                        ),
+                        only_if_pending=True,
+                    )
+                    if (
+                        transfer_event is None
+                        or transfer_event.type != TransferEventType.DESTINATION_ANSWERED
+                    ):
+                        await provider.end_transfer_leg(call_sid)
+
                 # Handle result (after cleanup)
                 if transfer_event:
                     final_result = transfer_event.to_result_dict()
@@ -1019,25 +1039,6 @@ class CustomToolManager:
                         success_disposition=configured_call_disposition,
                     )
                 else:
-                    if introduction_audio_url and call_sid:
-                        # Stop an unanswered destination so it cannot later
-                        # pick up and wait alone after the caller resumes.
-                        await call_transfer_manager.publish_transfer_event(
-                            TransferEvent(
-                                type=TransferEventType.TRANSFER_FAILED,
-                                transfer_id=transfer_id,
-                                original_call_sid=original_call_sid,
-                                status="failed",
-                                action="transfer_failed",
-                                reason="timeout",
-                            )
-                        )
-                        try:
-                            await provider.end_transfer_leg(call_sid)
-                        except Exception:  # noqa: BLE001 - cleanup must allow the caller to resume
-                            logger.warning(
-                                "Could not stop timed-out introduction transfer"
-                            )
                     logger.error(
                         f"Transfer call timed out or failed after {timeout_seconds} seconds"
                     )

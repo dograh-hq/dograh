@@ -1,5 +1,6 @@
 """Provider playback, media capabilities, and signed introduction webhooks."""
 
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -8,6 +9,7 @@ from xml.etree.ElementTree import fromstring
 import httpx
 import pytest
 from fastapi import FastAPI
+from redis.exceptions import ConnectionError as RedisConnectionError
 from twilio.request_validator import RequestValidator
 
 from api.services.telephony import transfer_audio
@@ -184,6 +186,141 @@ async def test_answer_is_available_even_before_waiter_subscribes(transfer):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["redis", "invalid_json", "invalid_event"])
+async def test_result_read_failure_does_not_break_introduction_webhooks(
+    transfer, monkeypatch, failure
+):
+    original_get = transfer.redis.get
+
+    async def get(key):
+        if key.startswith("transfer:result:"):
+            if failure == "redis":
+                raise RedisConnectionError("unavailable")
+            return "{" if failure == "invalid_json" else "{}"
+        return await original_get(key)
+
+    monkeypatch.setattr(transfer.redis, "get", get)
+    for path in ("transfer-introduction", "transfer-status"):
+        response = await signed_post(
+            transfer.client,
+            f"/api/v1/telephony/twilio/{path}/tx-1",
+            {"CallSid": "CA-destination", "CallStatus": "in-progress"},
+        )
+        assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_result_read_preserves_cancellation(transfer, monkeypatch):
+    monkeypatch.setattr(
+        transfer.redis, "get", AsyncMock(side_effect=asyncio.CancelledError)
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await transfer.manager.get_transfer_result("tx-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer_first", [False, True])
+async def test_timeout_claim_preserves_the_first_outcome(transfer, answer_first):
+    answer = TransferEvent(
+        type=TransferEventType.DESTINATION_ANSWERED,
+        transfer_id="tx-1",
+        original_call_sid="CA-caller",
+    )
+    timeout = TransferEvent(
+        type=TransferEventType.TRANSFER_FAILED,
+        transfer_id="tx-1",
+        original_call_sid="CA-caller",
+        reason="timeout",
+    )
+    if answer_first:
+        await transfer.manager.publish_transfer_event(answer)
+    outcome = await transfer.manager.publish_transfer_event(
+        timeout, only_if_pending=True
+    )
+    if not answer_first:
+        await transfer.manager.publish_transfer_event(answer)
+    expected = answer if answer_first else timeout
+    assert outcome.type == expected.type
+    assert (await transfer.manager.get_transfer_result("tx-1")).type == expected.type
+    assert len(transfer.redis.published) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["busy", "no-answer", "failed", "canceled"])
+async def test_late_dial_failure_cannot_replace_answer(transfer, status):
+    path = "/api/v1/telephony/twilio/transfer-status/tx-1"
+    await signed_post(
+        transfer.client,
+        path,
+        {"CallSid": "CA-destination", "CallStatus": "in-progress"},
+    )
+    await signed_post(
+        transfer.client, path, {"CallSid": "CA-destination", "CallStatus": status}
+    )
+    assert (await transfer.manager.get_transfer_result("tx-1")).type == (
+        TransferEventType.DESTINATION_ANSWERED
+    )
+    assert len(transfer.redis.published) == 1
+    transfer.provider.end_transfer_leg.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_caller_hangup_still_cancels_an_answered_transfer(transfer, monkeypatch):
+    monkeypatch.setattr(routes, "_process_status_update", AsyncMock())
+    await signed_post(
+        transfer.client,
+        "/api/v1/telephony/twilio/transfer-status/tx-1",
+        {"CallSid": "CA-destination", "CallStatus": "in-progress"},
+    )
+    await signed_post(
+        transfer.client,
+        "/api/v1/telephony/twilio/status-callback/42",
+        {"CallSid": "CA-caller", "CallStatus": "completed"},
+    )
+    assert (
+        await transfer.manager.get_transfer_result("tx-1")
+    ).reason == "caller_hangup"
+    transfer.provider.end_transfer_leg.assert_awaited_once_with("CA-destination")
+
+
+@pytest.mark.asyncio
+async def test_waiter_uses_terminal_state_over_a_delayed_answer_notification(
+    transfer, monkeypatch
+):
+    answer = TransferEvent(
+        type=TransferEventType.DESTINATION_ANSWERED,
+        transfer_id="tx-1",
+        original_call_sid="CA-caller",
+    )
+    ended = TransferEvent(
+        type=TransferEventType.TRANSFER_FAILED,
+        transfer_id="tx-1",
+        original_call_sid="CA-caller",
+        reason="caller_hangup",
+    )
+
+    async def listen():
+        await transfer.manager.publish_transfer_event(answer)
+        await transfer.manager.publish_transfer_event(ended)
+        yield {"type": "message", "data": answer.to_json()}
+
+    monkeypatch.setattr(
+        transfer.redis,
+        "pubsub",
+        lambda: SimpleNamespace(
+            subscribe=AsyncMock(),
+            unsubscribe=AsyncMock(),
+            close=AsyncMock(),
+            listen=listen,
+        ),
+    )
+    event = await asyncio.wait_for(
+        transfer.manager.wait_for_transfer_completion("tx-1"), 2
+    )
+    assert event.reason == "caller_hangup"
+
+
+@pytest.mark.asyncio
 async def test_destination_hangup_during_clip_ends_caller_leg(transfer):
     response = await signed_post(
         transfer.client,
@@ -343,6 +480,50 @@ class FakeSession:
 
     async def json(self):
         return {"sid": "CA-destination", "status": "queued"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", [provider_module.aiohttp.ClientConnectionError, TimeoutError]
+)
+async def test_cleanup_network_failure_does_not_interrupt_caller_status_processing(
+    transfer, monkeypatch, failure
+):
+    class FailedSession(FakeSession):
+        async def __aenter__(self):
+            raise failure("unavailable")
+
+    monkeypatch.setattr(
+        provider_module.aiohttp, "ClientSession", lambda **kwargs: FailedSession([])
+    )
+    transfer.provider.end_transfer_leg = TwilioProvider.end_transfer_leg.__get__(
+        transfer.provider
+    )
+    process_status = AsyncMock()
+    monkeypatch.setattr(routes, "_process_status_update", process_status)
+    response = await signed_post(
+        transfer.client,
+        "/api/v1/telephony/twilio/status-callback/42",
+        {"CallSid": "CA-caller", "CallStatus": "completed"},
+    )
+    assert response.status_code == 200
+    process_status.assert_awaited_once()
+    assert (
+        await transfer.manager.get_transfer_result("tx-1")
+    ).reason == "caller_hangup"
+
+
+@pytest.mark.asyncio
+async def test_cleanup_preserves_cancellation(transfer, monkeypatch):
+    class CancelledSession(FakeSession):
+        async def __aenter__(self):
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        provider_module.aiohttp, "ClientSession", lambda **kwargs: CancelledSession([])
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await TwilioProvider.end_transfer_leg(transfer.provider, "CA-destination")
 
 
 @pytest.mark.asyncio

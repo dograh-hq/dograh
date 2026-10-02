@@ -139,6 +139,7 @@ async def test_moving_to_the_end_node_keeps_the_turn_knowledge(three_node_workfl
     llm._update_settings = AsyncMock()
     engine = PipecatEngine(workflow=three_node_workflow, llm=llm, call_context_vars={})
     agent = engine.active_agent
+    agent.context_providers = [AsyncMock(return_value=None)]
     agent.context_blocks = ["1. Refunds take 5 days."]
 
     await engine._prepare_node(agent, three_node_workflow.nodes["end"])

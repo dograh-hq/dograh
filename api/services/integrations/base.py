@@ -54,6 +54,20 @@ CompletionHandler = Callable[
 
 
 @dataclass(frozen=True)
+class IntegrationTool:
+    """An LLM function that an integration adds to every Start Call and Agent node."""
+
+    name: str
+    description: str
+    properties: dict[str, Any]
+    required: tuple[str, ...]
+    handler: Callable[[Any], Awaitable[None]]
+
+
+ToolFactory = Callable[[Any], list[IntegrationTool]]
+
+
+@dataclass(frozen=True)
 class IntegrationNodeRegistration:
     type_name: str
     data_model: type[BaseNodeData]
@@ -69,3 +83,4 @@ class IntegrationPackageSpec:
     create_runtime_sessions: RuntimeFactory | None = None
     run_completion: CompletionHandler | None = None
     call_event_sink: CallEventSinkRegistration | None = None
+    create_tools: ToolFactory | None = None

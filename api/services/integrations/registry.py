@@ -8,6 +8,7 @@ from api.services.integrations.base import (
     IntegrationNodeRegistration,
     IntegrationPackageSpec,
     IntegrationRuntimeContext,
+    IntegrationTool,
 )
 from api.services.workflow.node_data import BaseNodeData
 
@@ -90,6 +91,27 @@ def create_runtime_sessions(
             continue
         sessions.extend(package.create_runtime_sessions(context))
     return sessions
+
+
+def create_integration_tools(workflow_graph: Any) -> list[IntegrationTool]:
+    _ensure_loaded()
+    tools = []
+    for package in all_packages():
+        if package.create_tools is None:
+            continue
+        # A failing integration loses its tools; the conversation keeps going.
+        try:
+            tools.extend(package.create_tools(workflow_graph))
+        except Exception as exc:
+            log_failure(
+                classify_exception(
+                    exc,
+                    source=ErrorSource.INTEGRATION,
+                    provider=package.name,
+                ),
+                integration_package=package.name,
+            )
+    return tools
 
 
 def iter_completion_packages(

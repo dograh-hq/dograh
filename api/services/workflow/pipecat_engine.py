@@ -34,6 +34,7 @@ from api.errors.failure import (
     log_failure,
 )
 from api.schemas.workflow_configurations import CallDispositionOption
+from api.services.integrations import create_integration_tools
 from api.services.pipecat.audio_playback import play_audio
 from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.greeting import GreetingController
@@ -823,6 +824,11 @@ class PipecatEngine:
             await self._register_knowledge_base_function(
                 node.document_uuids, agent=agent
             )
+        integration_tools = (
+            [] if node.is_end else create_integration_tools(agent.workflow)
+        )
+        for tool in integration_tools:
+            agent.llm.register_function(tool.name, agent.bind_tool(self, tool.handler))
         prompt = compose_system_prompt_for_node(
             node=node,
             workflow=agent.workflow,
@@ -830,7 +836,9 @@ class PipecatEngine:
             has_recordings=self._has_recordings,
         )
         functions = await compose_functions_for_node(
-            node=node, custom_tool_manager=manager
+            node=node,
+            custom_tool_manager=manager,
+            integration_tools=integration_tools,
         )
         agent.tools = ToolsSchema(standard_tools=functions)
         agent.system_prompt = prompt.text

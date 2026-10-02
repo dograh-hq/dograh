@@ -104,6 +104,11 @@ class NormalizedInboundData:
     from_country: Optional[str] = None  # Country code of caller
     to_country: Optional[str] = None  # Country code of called number
     raw_data: Dict[str, Any] = field(default_factory=dict)  # Original webhook data
+    # Caller-side SIP identifier, distinct from the provider's call_id.
+    sip_call_id: Optional[str] = None
+    # Normalized forwarded headers for diagnostics. Keep these in inbound logs;
+    # consumers must select which headers may be exported to third parties.
+    sip_headers: Dict[str, str] = field(default_factory=dict)
 
 
 class TelephonyProvider(ABC):

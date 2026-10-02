@@ -104,6 +104,8 @@ ENGINE_OWNED_CONTEXT_KEYS = frozenset(
         CALL_STATUS_CONTEXT_KEY,
         "call_tags",
         "answer_supervisor",
+        # Telephony persists this before the call; extraction must not replace it.
+        "sip_call_id",
     }
 )
 

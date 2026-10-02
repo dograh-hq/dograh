@@ -20,6 +20,7 @@ from api.services.telephony.base import (
     TelephonyProvider,
 )
 from api.services.telephony.providers.twilio.introduction import introduction_urls
+from api.services.telephony.sip import first_sip_string, normalize_sip_headers
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
@@ -375,6 +376,12 @@ class TwilioProvider(TelephonyProvider):
             to_country=webhook_data.get("ToCountry")
             or webhook_data.get("CalledCountry"),
             raw_data=webhook_data,
+            sip_call_id=first_sip_string(webhook_data.get("SipCallId")),
+            sip_headers=normalize_sip_headers(
+                (key.removeprefix("SipHeader_"), value)
+                for key, value in webhook_data.items()
+                if isinstance(key, str) and key.startswith("SipHeader_")
+            ),
         )
 
     @staticmethod

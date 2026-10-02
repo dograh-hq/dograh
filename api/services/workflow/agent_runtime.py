@@ -97,6 +97,9 @@ class AgentRuntime:
     greeting_override: dict | None = None
     tools: Any = None
     system_prompt: str = ""
+    # Integration knowledge for the current user turn, appended to the node prompt.
+    context_providers: list[Any] = field(default_factory=list)
+    context_blocks: list[str] = field(default_factory=list)
     mcp_sessions: dict[str, Any] = field(default_factory=dict)
     tool_tasks: set[asyncio.Task] = field(default_factory=set, repr=False)
 

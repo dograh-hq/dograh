@@ -40,6 +40,7 @@ from api.enums import WorkflowRunMode, WorkflowRunState
 from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.audio_config import create_audio_config
+from api.services.pipecat.integration_context import apply_integration_context
 from api.services.pipecat.pipeline_builder import create_pipeline_task
 from api.services.pipecat.pipeline_metrics_aggregator import (
     PipelineMetricsAggregator,
@@ -780,6 +781,7 @@ async def execute_text_chat_pending_turn(
             generation_marker = capture_processor.activity_count
             response_window.note_direct_context_request()
             engine.expect_response()
+            await apply_integration_context(engine.active_agent, context)
             await llm.queue_frame(LLMContextFrame(context))
             await _wait_for_quiescence(
                 capture_processor=capture_processor,

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import model_validator
 
 from api.services.integrations.base import IntegrationNodeRegistration
 from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs._base import (
+    DisplayOptions,
     GraphConstraints,
     NodeCategory,
     NodeExample,
     NumberInputOptions,
+    PropertyOption,
     PropertyRendererOptions,
     PropertyType,
 )
@@ -26,8 +30,9 @@ from api.services.workflow.node_specs.model_spec import (
     llm_hint=(
         "Moss is a knowledge retrieval configuration node. It does not participate "
         "in the conversation graph and should not be connected to other nodes. When "
-        "enabled, every Start Call and Agent node gets a search_moss_index tool that "
-        "searches the configured Moss index."
+        "enabled, Start Call and Agent nodes search the configured Moss index: in "
+        "ambient mode on every caller turn before the LLM answers, in tool mode "
+        "through a search_moss_index tool the LLM calls."
     ),
     docs_url="https://docs.dograh.com/integrations/moss",
     category=NodeCategory.integration,
@@ -38,6 +43,7 @@ from api.services.workflow.node_specs.model_spec import (
             data={
                 "name": "Support articles",
                 "moss_enabled": True,
+                "moss_mode": "ambient",
                 "moss_index_name": "support-kb",
                 "moss_project_id": "your-project-id",
                 "moss_project_key": "moss_xxxxxxxx",
@@ -51,6 +57,7 @@ from api.services.workflow.node_specs.model_spec import (
     property_order=(
         "name",
         "moss_enabled",
+        "moss_mode",
         "moss_index_name",
         "moss_project_id",
         "moss_project_key",
@@ -65,22 +72,19 @@ from api.services.workflow.node_specs.model_spec import (
         },
         "moss_enabled": {
             "display_name": "Enabled",
-            "description": "When false, agents do not get the Moss search tool.",
+            "description": "When false, agents do not search the Moss index.",
         },
         "moss_index_name": {
             "display_name": "Index Name",
             "description": "Name of the Moss index the agent searches.",
-            "required": True,
         },
         "moss_project_id": {
             "display_name": "Project ID",
             "description": "Moss project that owns the index.",
-            "required": True,
         },
         "moss_project_key": {
             "display_name": "Project Key",
             "description": "Moss project key used to download the index.",
-            "required": True,
         },
     },
 )
@@ -89,7 +93,30 @@ class MossNodeData(BaseNodeData):
         default=True,
         ui_type=PropertyType.boolean,
         display_name="Enabled",
-        description="When false, agents do not get the Moss search tool.",
+        description="When false, agents do not search the Moss index.",
+    )
+    moss_mode: Literal["ambient", "tool"] = spec_field(
+        default="ambient",
+        ui_type=PropertyType.options,
+        display_name="Mode",
+        description="When the agent searches the index.",
+        options=[
+            PropertyOption(
+                value="ambient",
+                label="Ambient",
+                description=(
+                    "Search on every caller turn and give the results to the LLM "
+                    "with the turn. No extra LLM round trip."
+                ),
+            ),
+            PropertyOption(
+                value="tool",
+                label="Tool",
+                description=(
+                    "Give the LLM a search tool to call when it decides it needs one."
+                ),
+            ),
+        ],
     )
     moss_index_name: str | None = spec_field(
         default=None,
@@ -117,6 +144,7 @@ class MossNodeData(BaseNodeData):
             "What the index contains. The agent reads this to decide when to search."
         ),
         editor="textarea",
+        display_options=DisplayOptions(show={"moss_mode": ["tool"]}),
     )
     moss_top_k: int = spec_field(
         default=3,

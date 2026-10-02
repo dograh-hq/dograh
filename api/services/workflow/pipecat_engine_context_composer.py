@@ -5,10 +5,9 @@ reusable functions. Defines recording response mode markers and instructions.
 """
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, Optional
 
 if TYPE_CHECKING:
-    from api.services.integrations import IntegrationTool
     from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
     from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
@@ -97,18 +96,16 @@ async def compose_functions_for_node(
     *,
     node: "Node",
     custom_tool_manager: Optional["CustomToolManager"],
-    integration_tools: Sequence["IntegrationTool"] = (),
 ) -> list[dict]:
     """Compose the function/tool schemas for a workflow node.
 
-    Gathers knowledge-base tools, integration tools, custom tools
-    (including built-in categories like calculator), and transition
-    function schemas into a single list.
+    Gathers knowledge-base tools, custom tools (including built-in
+    categories like calculator), and transition function schemas
+    into a single list.
 
     Args:
         node: The workflow node to compose functions for.
         custom_tool_manager: Manager for custom and built-in tools (may be None).
-        integration_tools: Tools that integration packages add to this node.
 
     Returns:
         A list of function schemas to register with the LLM.
@@ -125,17 +122,6 @@ async def compose_functions_for_node(
             required=kb_tool_def["function"]["parameters"].get("required", []),
         )
         functions.append(kb_schema)
-
-    # Integration tools
-    for tool in integration_tools:
-        functions.append(
-            get_function_schema(
-                tool.name,
-                tool.description,
-                properties=tool.properties,
-                required=list(tool.required),
-            )
-        )
 
     # Custom tools
     if node.tool_uuids and custom_tool_manager:

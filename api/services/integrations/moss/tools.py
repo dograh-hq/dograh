@@ -4,7 +4,7 @@ from typing import Any
 
 from loguru import logger
 
-from api.services.integrations.base import IntegrationTool
+from api.services.integrations.base import ContextProvider, IntegrationTool
 
 from .client import MossIndex, get_index
 from .node import MossNodeData
@@ -26,6 +26,11 @@ _PROPERTIES = {
     }
 }
 
+_AMBIENT_HEADER = (
+    "Knowledge base results for the caller's last message. Use them only if "
+    "they answer it, and don't mention that you searched."
+)
+
 
 class MossSearch:
     """Searches one Moss index with the settings of a Moss node."""
@@ -36,14 +41,17 @@ class MossSearch:
         self._alpha = alpha
         self._options: Any = None
 
+    def _query_options(self) -> Any:
+        if self._options is None:
+            from moss import QueryOptions
+
+            self._options = QueryOptions(top_k=self._top_k, alpha=self._alpha)
+        return self._options
+
     async def search(self, query: str) -> dict[str, Any]:
         try:
             client = await self._index.client()
-            if self._options is None:
-                from moss import QueryOptions
-
-                self._options = QueryOptions(top_k=self._top_k, alpha=self._alpha)
-            result = await client.query(self._index.name, query, self._options)
+            result = await client.query(self._index.name, query, self._query_options())
         except Exception as exc:
             logger.error(f"Moss search on index '{self._index.name}' failed: {exc}")
             return {"error": str(exc), "chunks": [], "query": query, "total_results": 0}
@@ -67,33 +75,80 @@ class MossSearch:
         query = (params.arguments or {}).get("query", "")
         await params.result_callback(await self.search(query))
 
-
-def create_tools(workflow_graph: Any) -> list[IntegrationTool]:
-    for node in workflow_graph.nodes.values():
-        if node.node_type != "moss" or not node.data.moss_enabled:
-            continue
-        data: MossNodeData = node.data
-        project_id = data.moss_project_id
-        project_key = data.moss_project_key
-        index_name = data.moss_index_name
-        if not (project_id and project_key and index_name):
-            continue
-        index = get_index(project_id, project_key, index_name)
-        index.start_loading()
-
-        description = _DESCRIPTION
-        contents = (data.moss_index_description or "").strip()
-        if contents:
-            description = f"{_DESCRIPTION} It contains: {contents}"
-
-        search = MossSearch(index, data.moss_top_k, data.moss_alpha)
-        return [
-            IntegrationTool(
-                name=TOOL_NAME,
-                description=description,
-                properties=_PROPERTIES,
-                required=("query",),
-                handler=search.handle,
+    async def ambient(self, user_text: str) -> str | None:
+        """Results for the caller's turn, or None while the index is still loading."""
+        client = self._index.loaded_client()
+        if client is None:
+            return None
+        try:
+            result = await client.query(
+                self._index.name, user_text, self._query_options()
             )
-        ]
-    return []
+        except Exception as exc:
+            logger.warning(
+                f"Moss ambient search on index '{self._index.name}' failed: {exc}"
+            )
+            return None
+        logger.info(
+            f"Moss ambient search on index '{self._index.name}': "
+            f"{len(result.docs)} results in {result.time_taken_ms} ms"
+        )
+        if not result.docs:
+            return None
+        lines = [f"{n}. {doc.text}" for n, doc in enumerate(result.docs, start=1)]
+        return "\n".join([_AMBIENT_HEADER, *lines])
+
+
+def _enabled_node(workflow_graph: Any) -> MossNodeData | None:
+    for node in workflow_graph.nodes.values():
+        if node.node_type == "moss" and node.data.moss_enabled:
+            return node.data
+    return None
+
+
+def _search_for(data: MossNodeData | None) -> MossSearch | None:
+    if data is None:
+        return None
+    project_id = data.moss_project_id
+    project_key = data.moss_project_key
+    index_name = data.moss_index_name
+    if not (project_id and project_key and index_name):
+        return None
+    index = get_index(project_id, project_key, index_name)
+    index.start_loading()
+    return MossSearch(index, data.moss_top_k, data.moss_alpha)
+
+
+def create_tools(
+    workflow_graph: Any, *, realtime: bool = False
+) -> list[IntegrationTool]:
+    data = _enabled_node(workflow_graph)
+    # Speech to speech models have no turn to search before, so they get the tool.
+    if data is None or (data.moss_mode != "tool" and not realtime):
+        return []
+    search = _search_for(data)
+    if search is None:
+        return []
+
+    description = _DESCRIPTION
+    contents = (data.moss_index_description or "").strip()
+    if contents:
+        description = f"{_DESCRIPTION} It contains: {contents}"
+
+    return [
+        IntegrationTool(
+            name=TOOL_NAME,
+            description=description,
+            properties=_PROPERTIES,
+            required=("query",),
+            handler=search.handle,
+        )
+    ]
+
+
+def create_context_providers(workflow_graph: Any) -> list[ContextProvider]:
+    data = _enabled_node(workflow_graph)
+    if data is None or data.moss_mode != "ambient":
+        return []
+    search = _search_for(data)
+    return [search.ambient] if search else []

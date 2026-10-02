@@ -1,4 +1,5 @@
 from api.services.integrations.base import (
+    ContextProvider,
     IntegrationCompletionContext,
     IntegrationNodeRegistration,
     IntegrationPackageSpec,
@@ -10,6 +11,7 @@ from api.services.integrations.registry import (
     all_node_specs,
     all_packages,
     all_routers,
+    create_integration_context_providers,
     create_integration_tools,
     create_runtime_sessions,
     get_node_data_model,
@@ -22,6 +24,7 @@ from api.services.integrations.registry import (
 )
 
 __all__ = [
+    "ContextProvider",
     "IntegrationCompletionContext",
     "IntegrationNodeRegistration",
     "IntegrationPackageSpec",
@@ -31,6 +34,7 @@ __all__ = [
     "all_node_specs",
     "all_packages",
     "all_routers",
+    "create_integration_context_providers",
     "create_integration_tools",
     "create_runtime_sessions",
     "get_node_data_model",

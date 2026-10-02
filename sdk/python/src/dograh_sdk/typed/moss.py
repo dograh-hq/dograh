@@ -19,26 +19,12 @@ class Moss(TypedNode):
     Let the agent search a Moss index during the call  LLM hint: Moss is a
     knowledge retrieval configuration node. It does not participate in the
     conversation graph and should not be connected to other nodes. When
-    enabled, every Start Call and Agent node gets a search_moss_index tool
-    that searches the configured Moss index.
+    enabled, Start Call and Agent nodes search the configured Moss index: in
+    ambient mode on every caller turn before the LLM answers, in tool mode
+    through a search_moss_index tool the LLM calls.
     """
 
     type: ClassVar[str] = 'moss'
-
-    moss_index_name: str
-    """
-    Name of the Moss index the agent searches.
-    """
-
-    moss_project_id: str
-    """
-    Moss project that owns the index.
-    """
-
-    moss_project_key: str
-    """
-    Moss project key used to download the index.
-    """
 
     name: str = 'Moss'
     """
@@ -47,7 +33,27 @@ class Moss(TypedNode):
 
     moss_enabled: bool = True
     """
-    When false, agents do not get the Moss search tool.
+    When false, agents do not search the Moss index.
+    """
+
+    moss_mode: Literal['ambient', 'tool'] = 'ambient'
+    """
+    When the agent searches the index.
+    """
+
+    moss_index_name: Optional[str] = None
+    """
+    Name of the Moss index the agent searches.
+    """
+
+    moss_project_id: Optional[str] = None
+    """
+    Moss project that owns the index.
+    """
+
+    moss_project_key: Optional[str] = None
+    """
+    Moss project key used to download the index.
     """
 
     moss_index_description: Optional[str] = None

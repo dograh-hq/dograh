@@ -34,10 +34,14 @@ from api.errors.failure import (
     log_failure,
 )
 from api.schemas.workflow_configurations import CallDispositionOption
-from api.services.integrations import create_integration_tools
+from api.services.integrations import (
+    create_integration_context_providers,
+    create_integration_tools,
+)
 from api.services.pipecat.audio_playback import play_audio
 from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.greeting import GreetingController
+from api.services.pipecat.integration_context import compose_system_instruction
 from api.services.pipecat.speech_playback import (
     PlaybackOutcome,
     SpeechPlayback,
@@ -82,6 +86,7 @@ from api.services.workflow.pipecat_engine_context_summarizer import (
 )
 from api.services.workflow.pipecat_engine_custom_tools import (
     CustomToolManager,
+    get_function_schema,
 )
 from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
@@ -824,11 +829,6 @@ class PipecatEngine:
             await self._register_knowledge_base_function(
                 node.document_uuids, agent=agent
             )
-        integration_tools = (
-            [] if node.is_end else create_integration_tools(agent.workflow)
-        )
-        for tool in integration_tools:
-            agent.llm.register_function(tool.name, agent.bind_tool(self, tool.handler))
         prompt = compose_system_prompt_for_node(
             node=node,
             workflow=agent.workflow,
@@ -838,15 +838,42 @@ class PipecatEngine:
         functions = await compose_functions_for_node(
             node=node,
             custom_tool_manager=manager,
-            integration_tools=integration_tools,
         )
+        agent.context_providers = []
+        if not node.is_end:
+            # Registered after the node's own functions, and skipped on a name
+            # clash, so an integration can never replace a workflow's function.
+            for tool in create_integration_tools(
+                agent.workflow,
+                realtime=agent.is_realtime,
+                reserved_names={schema.name for schema in functions},
+            ):
+                agent.llm.register_function(
+                    tool.name, agent.bind_tool(self, tool.handler)
+                )
+                functions.append(
+                    get_function_schema(
+                        tool.name,
+                        tool.description,
+                        properties=tool.properties,
+                        required=list(tool.required),
+                    )
+                )
+            if not agent.is_realtime:
+                agent.context_providers = create_integration_context_providers(
+                    agent.workflow
+                )
         agent.tools = ToolsSchema(standard_tools=functions)
         agent.system_prompt = prompt.text
         if agent.recording_router is not None:
             agent.recording_router.set_enabled(prompt.recording_enabled)
         if apply_settings:
             await agent.llm._update_settings(
-                LLMSettings(system_instruction=prompt.text)
+                LLMSettings(
+                    system_instruction=compose_system_instruction(
+                        prompt.text, agent.context_blocks
+                    )
+                )
             )
 
     async def _setup_llm_context(self, node: Node) -> None:
@@ -855,7 +882,8 @@ class PipecatEngine:
         if agent is self.active_agent:
             self.context.set_otel_span_name(f"llm-{node.name}")
             await self._update_llm_context(
-                agent.system_prompt, agent.tools.standard_tools
+                compose_system_instruction(agent.system_prompt, agent.context_blocks),
+                agent.tools.standard_tools,
             )
 
     async def set_node(

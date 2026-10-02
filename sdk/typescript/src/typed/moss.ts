@@ -8,7 +8,7 @@
 /**
  * Let the agent search a Moss index during the call
  *
- * LLM hint: Moss is a knowledge retrieval configuration node. It does not participate in the conversation graph and should not be connected to other nodes. When enabled, every Start Call and Agent node gets a search_moss_index tool that searches the configured Moss index.
+ * LLM hint: Moss is a knowledge retrieval configuration node. It does not participate in the conversation graph and should not be connected to other nodes. When enabled, Start Call and Agent nodes search the configured Moss index: in ambient mode on every caller turn before the LLM answers, in tool mode through a search_moss_index tool the LLM calls.
  */
 export interface Moss {
     type: "moss";
@@ -17,21 +17,25 @@ export interface Moss {
      */
     name?: string;
     /**
-     * When false, agents do not get the Moss search tool.
+     * When false, agents do not search the Moss index.
      */
     moss_enabled?: boolean;
     /**
+     * When the agent searches the index.
+     */
+    moss_mode?: "ambient" | "tool";
+    /**
      * Name of the Moss index the agent searches.
      */
-    moss_index_name: string;
+    moss_index_name?: string;
     /**
      * Moss project that owns the index.
      */
-    moss_project_id: string;
+    moss_project_id?: string;
     /**
      * Moss project key used to download the index.
      */
-    moss_project_key: string;
+    moss_project_key?: string;
     /**
      * What the index contains. The agent reads this to decide when to search.
      */

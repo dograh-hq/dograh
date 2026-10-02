@@ -23,6 +23,7 @@ from api.services.pipecat.agent_generation_processor import (
     AgentGenerationProcessor,
 )
 from api.services.pipecat.audio_config import AudioConfig
+from api.services.pipecat.integration_context import IntegrationContextProcessor
 from api.services.pipecat.pipeline_builder import (
     build_agent_generation_pipeline,
     create_agent_worker,
@@ -266,6 +267,7 @@ class AgentRuntimeFactory:
             runtime.tts,
             generation_callbacks,
             recording_router=runtime.recording_router,
+            context_processor=IntegrationContextProcessor(runtime),
         )
         call_tracing_context = getattr(self._call_worker, "_tracing_context", None)
         if call_tracing_context is None:

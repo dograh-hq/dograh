@@ -16,8 +16,9 @@ exercised against a live cluster.
 cd deploy/helm/dograh
 
 # Install with defaults (all internal deps, Gateway API exposure).
-# The bundled Postgres/Redis/MinIO are in-chart manifests on official upstream
-# images — no `helm dependency` / subchart pull step needed.
+# The bundled Postgres/Redis/MinIO are in-chart manifests (official Postgres and
+# Redis images, dograh's MinIO build) — no `helm dependency` / subchart pull step
+# needed.
 helm install dograh . \
   --set secrets.ossJwtSecret="$(openssl rand -hex 32)" \
   --set secrets.turnSecret="$(openssl rand -hex 32)" \

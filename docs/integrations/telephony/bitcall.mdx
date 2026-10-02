@@ -1,0 +1,142 @@
+---
+title: "Bitcall (outbound SIP trunk)"
+description: "Use Bitcall as the outbound carrier for a self-hosted Dograh agent through Asterisk ARI"
+---
+
+## Overview
+
+[Bitcall](https://bitcall.io) is a prepaid SIP carrier for outbound calls to most countries. There is no native Bitcall provider in Dograh: you add Bitcall as a SIP trunk on your own Asterisk, and Dograh drives that Asterisk with the [Asterisk ARI](/integrations/telephony/asterisk-ari) provider.
+
+```text
+Dograh (ARI + external media) → your Asterisk → Bitcall SIP trunk → phone network
+```
+
+<Note>
+  Bitcall is outbound-only. It does not provide phone numbers (DIDs), so it
+  cannot deliver inbound calls to your agent. Use it for outbound test calls
+  and campaigns.
+</Note>
+
+## Prerequisites
+
+- An Asterisk server prepared for Dograh as described in [Asterisk ARI](/integrations/telephony/asterisk-ari): ARI user, HTTP server, external media WebSocket client and the Stasis dialplan
+- A Bitcall SIP account (username and password) and prepaid balance
+- A caller ID you are allowed to present on outbound calls
+
+## Bitcall connection values
+
+| Setting | Value |
+| --- | --- |
+| SIP server | `gateway.bitcall.io` |
+| Port | `5060` |
+| Authentication | SIP username and password with registration (UDP, TCP or TLS), or Trusted IP (static public IP, UDP only, no registration) |
+| Codec | `ulaw` (G.711 μ-law), which Dograh's external media uses |
+
+<Warning>
+  Don't set both a Trusted IP and SIP credentials on the same Bitcall SIP
+  account. Bitcall then expects both, and authentication fails.
+</Warning>
+
+## Step 1: Add the Bitcall trunk to Asterisk
+
+Add these sections to `pjsip.conf`, replacing the placeholders with your Bitcall SIP credentials. If `pjsip.conf` already defines a UDP transport on port 5060, reuse it instead of adding a second one.
+
+This configuration uses SIP credentials. If your Bitcall SIP account uses Trusted IP instead, take the trunk sections and the test call from Bitcall's [Asterisk IP authentication guide](https://bitcall.io/help-center/article/how-to-set-up-bitcall-with-asterisk-using-ip-authentication): there is no registration to check, and you use that guide's endpoint name wherever this page says `bitcall-endpoint`. The Dograh steps stay the same.
+
+```ini
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0:5060
+
+[bitcall]
+type=registration
+outbound_auth=bitcall-auth
+server_uri=sip:gateway.bitcall.io
+client_uri=sip:YOUR_BITCALL_USERNAME@gateway.bitcall.io
+retry_interval=60
+contact_user=YOUR_BITCALL_USERNAME
+
+[bitcall-auth]
+type=auth
+auth_type=userpass
+username=YOUR_BITCALL_USERNAME
+password=YOUR_BITCALL_PASSWORD
+
+[bitcall-aor]
+type=aor
+contact=sip:gateway.bitcall.io
+
+[bitcall-endpoint]
+type=endpoint
+transport=transport-udp
+aors=bitcall-aor
+auth=bitcall-auth
+outbound_auth=bitcall-auth
+context=outbound-bitcall
+disallow=all
+allow=ulaw
+allow=alaw
+
+[bitcall-identify]
+type=identify
+endpoint=bitcall-endpoint
+match=gateway.bitcall.io
+```
+
+Restart Asterisk (`core restart now`; PJSIP transport changes need a full restart), then, for the credentials setup, check that `pjsip show registrations` lists `bitcall` as **Registered**.
+
+## Step 2: Add the outbound dialplan
+
+Add a context to `extensions.conf` that sets your caller ID and sends the call to the trunk. Dial destinations in international format: the first pattern matches E.164 numbers with a leading `+` (as Dograh passes campaign numbers), the second matches international numbers dialed without it.
+
+```ini
+[outbound-bitcall]
+exten => _+X.,1,Set(CALLERID(num)=YOUR_CALLER_ID)
+ same => n,Dial(PJSIP/${EXTEN}@bitcall-endpoint,60)
+ same => n,Hangup()
+
+exten => _X.,1,Set(CALLERID(num)=YOUR_CALLER_ID)
+ same => n,Dial(PJSIP/${EXTEN}@bitcall-endpoint,60)
+ same => n,Hangup()
+```
+
+Run `dialplan reload`. You can test the trunk on its own before involving Dograh:
+
+```bash
+asterisk -rx "channel originate PJSIP/+33612345678@bitcall-endpoint application Playback hello-world"
+```
+
+## Step 3: Point the Dograh configuration at the trunk
+
+In your **Asterisk ARI** configuration in Dograh, set the **Dial String Template** so outbound calls enter the dialplan above through a `Local` channel:
+
+```text
+Local/{number}@outbound-bitcall
+```
+
+Mark the configuration as the default outbound, then place a test call from Dograh. See [Outbound Calling](/integrations/telephony/asterisk-ari#outbound-calling) for how the template is applied to campaign rows.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Registration is rejected">
+    Check the username and password from your Bitcall dashboard, and make sure
+    the SIP account doesn't also have a Trusted IP set.
+  </Accordion>
+  <Accordion title="The call connects but there is no audio">
+    The trunk endpoint must allow `ulaw`. Also confirm Asterisk advertises a
+    public IP in the SDP and that your firewall allows its RTP/UDP port range.
+  </Accordion>
+  <Accordion title="Calls drop after about 30 to 60 seconds">
+    The media stream goes quiet while the agent generates a reply, and an RTP
+    inactivity timer somewhere in the path ends the call. Send keepalives
+    (for example `rtp_keepalive=15` on `bitcall-endpoint`) and make sure any
+    `rtp_timeout` is at least 60 seconds.
+  </Accordion>
+</AccordionGroup>
+
+## Further reading
+
+- [Asterisk ARI](/integrations/telephony/asterisk-ari)
+- [Connect Dograh to Bitcall](https://bitcall.io/help-center/article/connect-dograh-to-bitcall) (Bitcall help center)

@@ -177,9 +177,12 @@ to ask, implement `create_context_providers(workflow_graph)` and return async
 callables that take the latest user message and return text, or `None`.
 
 Before the LLM answers each user turn, `IntegrationContextProcessor` (voice) and
-the text chat runner call every provider of the active agent and append their
-text to the node prompt for that inference. This saves the LLM round trip a
-tool call costs. Realtime calls get no providers, so offer a tool there.
+the text chat runner call every provider of the active agent and add their text
+as one `developer` message after the user message. The next turn replaces it, the
+system prompt never changes (so providers can reuse their cached prompt prefix),
+and `without_integration_context` keeps it out of saved and exported
+conversations. This saves the LLM round trip a tool call costs. Realtime calls
+get no providers, so offer a tool there.
 
 Rules for context providers:
 

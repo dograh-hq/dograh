@@ -1,8 +1,10 @@
-"""Integration knowledge composed into the system instruction before each turn.
+"""Integration knowledge added to the conversation before each turn.
 
 An integration that registers context providers is asked for knowledge about the
-caller's latest message before the LLM answers it. The result is appended to the
-node prompt until the next user turn, so the answer needs no tool call round trip.
+caller's latest message before the LLM answers it. The answer goes into one
+developer message after that user message, so the system prompt and the earlier
+history stay unchanged and the provider can reuse its cached prompt prefix. The
+next turn replaces the message, and saved or exported conversations leave it out.
 """
 
 from __future__ import annotations
@@ -14,7 +16,6 @@ from loguru import logger
 
 from pipecat.frames.frames import Frame, LLMContextFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.services.settings import LLMSettings
 
 if TYPE_CHECKING:
     from api.services.integrations import ContextProvider
@@ -23,6 +24,15 @@ if TYPE_CHECKING:
 # A provider that misses this budget is skipped for the turn,
 # so a slow integration delays an answer by this much at most.
 PROVIDER_TIMEOUT_SECONDS = 0.25
+
+
+class IntegrationContextMessage(dict):
+    """A developer message holding integration knowledge for the current turn only."""
+
+
+def without_integration_context(messages: list[Any]) -> list[Any]:
+    """The conversation without per-turn integration knowledge, for saving or export."""
+    return [m for m in messages if not isinstance(m, IntegrationContextMessage)]
 
 
 def last_user_text(messages: list[Any]) -> str:
@@ -52,37 +62,27 @@ async def _provide(provider: "ContextProvider", user_text: str) -> str | None:
         return None
 
 
-def compose_system_instruction(prompt: str, blocks: list[str]) -> str:
-    """The node prompt followed by the integration knowledge for the current turn."""
-    return "\n\n".join([prompt, *blocks])
-
-
 async def apply_integration_context(agent: "AgentRuntime", context: Any) -> None:
-    """Refresh the integration knowledge in the agent's system instruction for this turn.
-
-    The knowledge stays with the agent until the next user turn, so a node
-    transition inside the turn keeps it in the new node's instruction.
-    """
+    """Replace the integration knowledge in ``context`` for its latest user message."""
     providers = agent.context_providers
-    if not providers and not agent.context_blocks:
+    messages = context.messages
+    stale = any(isinstance(m, IntegrationContextMessage) for m in messages)
+    if not providers and not stale:
         return
+    if stale:
+        context.set_messages(without_integration_context(messages))
 
-    blocks: list[str] = []
     user_text = last_user_text(context.messages) if providers else ""
-    if user_text:
-        results = await asyncio.gather(
-            *(_provide(provider, user_text) for provider in providers)
-        )
-        blocks = [block for block in results if block]
-
-    if blocks == agent.context_blocks:
+    if not user_text:
         return
-    agent.context_blocks = blocks
-    await agent.llm._update_settings(
-        LLMSettings(
-            system_instruction=compose_system_instruction(agent.system_prompt, blocks)
-        )
+    results = await asyncio.gather(
+        *(_provide(provider, user_text) for provider in providers)
     )
+    blocks = [block for block in results if block]
+    if blocks:
+        context.add_message(
+            IntegrationContextMessage(role="developer", content="\n\n".join(blocks))
+        )
 
 
 class IntegrationContextProcessor(FrameProcessor):

@@ -12,7 +12,7 @@ The node works in one of two modes:
 - **Ambient** (default): Dograh searches the index with every caller turn and gives the results to the LLM together with the turn. The LLM answers in one step, with no tool call round trip.
 - **Tool**: the agent gets a `search_moss_index` tool and calls it when it decides it needs to look something up.
 
-Use it when your reference content already lives in a Moss index, or when you want to manage a knowledge base outside Dograh. For documents you upload to Dograh itself, see [Knowledge Base](/voice-agent/knowledge-base).
+Use it when your reference content already lives in a Moss index, or when you want to manage a knowledge base outside Dograh. For documents you upload to Dograh itself, see [Knowledge Base](../voice-agent/knowledge-base).
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ Click the Moss node and fill in these fields:
 
 - **Mode**: **Ambient** to search on every caller turn, or **Tool** to let the agent decide when to search. See [Choosing a mode](#choosing-a-mode).
 - **Index Name**, **Project ID**, **Project Key**: the values from step 1. All three are required while the node is enabled.
-- **Index Contents** (tool mode): a short description of what the index holds, for example `Return policy, shipping times and warranty terms`. The agent reads it to decide when to search, so a specific description leads to better tool use.
+- **Index Contents**: a short description of what the index holds, for example `Return policy, shipping times and warranty terms`. In tool mode, and on speech to speech calls, which always use the tool, the agent reads it to decide when to search, so a specific description leads to better tool use.
 - **Results per Search**: how many passages each search returns to the agent (1 to 20, default 3). Fewer results keep the agent's context short, which matters most in ambient mode, where they join every turn.
 - **Semantic Weight**: the blend of semantic and keyword matching, from `1.0` (semantic only) to `0.0` (keyword only). The default `0.8` favors meaning while still rewarding exact terms such as product names.
 - **Enabled**: toggle on to let agents search the index.
@@ -70,7 +70,7 @@ Speech to speech (realtime) models have no separate turn to search before, so th
 
 ## How it works
 
-- In ambient mode, Dograh searches the index with the caller's latest message before each answer on **Start Call** and **Agent** nodes, and appends the results to the node prompt until the next caller turn, marked as reference text that the agent must not follow as instructions.
+- In ambient mode, Dograh searches the index with the caller's latest message before each answer on **Start Call** and **Agent** nodes, and adds the results to that turn, marked as reference text that the agent must not follow as instructions. The next turn replaces them, and the agent's prompt never changes.
 - In tool mode, Dograh adds the `search_moss_index` tool to **Start Call** and **Agent** nodes. If a node already has a function with that name, the node keeps its own and Moss is skipped there. **End Call** nodes search in neither mode.
 - If the worker has not loaded the index yet, Dograh starts the download in the background as the call begins, so it is usually ready before the first search.
 - Each worker process keeps one copy of each configured index in memory and reuses it for every call. An index that no call has used for an hour is unloaded and downloads again when it is next needed.

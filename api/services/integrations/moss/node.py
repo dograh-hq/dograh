@@ -7,7 +7,6 @@ from pydantic import model_validator
 from api.services.integrations.base import IntegrationNodeRegistration
 from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs._base import (
-    DisplayOptions,
     GraphConstraints,
     NodeCategory,
     NodeExample,
@@ -141,10 +140,10 @@ class MossNodeData(BaseNodeData):
         ui_type=PropertyType.string,
         display_name="Index Contents",
         description=(
-            "What the index contains. The agent reads this to decide when to search."
+            "What the index contains. With the search tool, which tool mode and "
+            "speech to speech calls use, the agent reads this to decide when to search."
         ),
         editor="textarea",
-        display_options=DisplayOptions(show={"moss_mode": ["tool"]}),
     )
     moss_top_k: int = spec_field(
         default=3,

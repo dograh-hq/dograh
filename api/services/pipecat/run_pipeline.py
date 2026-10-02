@@ -40,6 +40,7 @@ from api.services.pipecat.event_handlers import (
     register_event_handlers,
 )
 from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
+from api.services.pipecat.integration_context import without_integration_context
 from api.services.pipecat.pipeline_builder import (
     build_pipeline,
     build_realtime_pipeline,
@@ -950,7 +951,9 @@ async def _run_pipeline_impl(
             run_definition=run_definition,
             user_config=user_config,
             is_realtime=is_realtime,
-            context_messages_provider=lambda: context.messages,
+            context_messages_provider=lambda: without_integration_context(
+                context.messages
+            ),
         )
     )
 

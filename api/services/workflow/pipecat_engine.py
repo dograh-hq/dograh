@@ -41,7 +41,6 @@ from api.services.integrations import (
 from api.services.pipecat.audio_playback import play_audio
 from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.greeting import GreetingController
-from api.services.pipecat.integration_context import compose_system_instruction
 from api.services.pipecat.speech_playback import (
     PlaybackOutcome,
     SpeechPlayback,
@@ -869,11 +868,7 @@ class PipecatEngine:
             agent.recording_router.set_enabled(prompt.recording_enabled)
         if apply_settings:
             await agent.llm._update_settings(
-                LLMSettings(
-                    system_instruction=compose_system_instruction(
-                        prompt.text, agent.context_blocks
-                    )
-                )
+                LLMSettings(system_instruction=prompt.text)
             )
 
     async def _setup_llm_context(self, node: Node) -> None:
@@ -882,8 +877,7 @@ class PipecatEngine:
         if agent is self.active_agent:
             self.context.set_otel_span_name(f"llm-{node.name}")
             await self._update_llm_context(
-                compose_system_instruction(agent.system_prompt, agent.context_blocks),
-                agent.tools.standard_tools,
+                agent.system_prompt, agent.tools.standard_tools
             )
 
     async def set_node(

@@ -40,7 +40,10 @@ from api.enums import WorkflowRunMode, WorkflowRunState
 from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.audio_config import create_audio_config
-from api.services.pipecat.integration_context import apply_integration_context
+from api.services.pipecat.integration_context import (
+    apply_integration_context,
+    without_integration_context,
+)
 from api.services.pipecat.pipeline_builder import create_pipeline_task
 from api.services.pipecat.pipeline_metrics_aggregator import (
     PipelineMetricsAggregator,
@@ -807,7 +810,7 @@ async def execute_text_chat_pending_turn(
     assistant_created_at = datetime.now(UTC).isoformat()
     usage = pipeline_metrics_aggregator.get_all_usage_metrics_serialized()
     current_node = engine.active_agent.current_node
-    context_messages = context.get_messages()
+    context_messages = without_integration_context(context.get_messages())
     encoded_messages = _serialize_text_chat_checkpoint_messages(context_messages)
     encoded_gathered_context = jsonable_encoder(gathered_context)
     encoded_tool_state = jsonable_encoder(base_checkpoint.get("tool_state") or {})

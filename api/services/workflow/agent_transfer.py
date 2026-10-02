@@ -166,8 +166,6 @@ class AgentTransferCoordinator:
             await asyncio.sleep(
                 max(0, TRANSFER_MIN_HOLD_SECONDS - (time.monotonic() - hold_started))
             )
-            await self._stop_hold_audio()
-            await engine.drain_call_pipeline()
             self._check_current(request)
             if destination.error:
                 raise AgentBuildError("destination_unusable", destination.error)
@@ -178,6 +176,10 @@ class AgentTransferCoordinator:
             # Finish source cleanup before allowing that destination work to run.
             # The finally path can safely await the same retirement again.
             await source.retire("transferred")
+            # Cover slow retirement with hold audio, then drain its final chunk
+            # before the destination can start speaking.
+            await self._stop_hold_audio()
+            await engine.drain_call_pipeline()
             self._check_current(request)
             self._phase = TransferPhase.OPENING
             engine.call_monitor.resume()

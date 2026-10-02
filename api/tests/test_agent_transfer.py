@@ -535,7 +535,7 @@ async def test_transfer_hands_the_call_over_without_dropping_it():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("hangup", [False, True], ids=["continue", "hangup"])
 async def test_transfer_retires_source_before_starting_destination(monkeypatch, hangup):
-    """Slow source cleanup must finish before the destination starts a turn."""
+    """Hold audio covers slow cleanup and ends before the destination's turn."""
     monkeypatch.setattr(
         "api.services.workflow.agent_transfer.TRANSFER_MIN_HOLD_SECONDS", 0
     )
@@ -562,8 +562,13 @@ async def test_transfer_retires_source_before_starting_destination(monkeypatch, 
     cleanup_started = asyncio.Event()
     release_cleanup = asyncio.Event()
     opening_queued = asyncio.Event()
+    hold_during_cleanup = asyncio.Event()
+    destination_audio = asyncio.Event()
+    hold_after_opening = []
     close_sessions = source.close_mcp_sessions
     queue_opening = engine.queue_node_opening
+    output = harness.transport.output()
+    write_audio = output.write_audio_frame
 
     async def slow_cleanup():
         cleanup_started.set()
@@ -572,11 +577,25 @@ async def test_transfer_retires_source_before_starting_destination(monkeypatch, 
 
     async def watch_opening(**kwargs):
         if engine.active_agent is not source:
+            assert engine.transfer_coordinator._hold_task is None
             opening_queued.set()
         return await queue_opening(**kwargs)
 
+    async def watch_audio(frame):
+        result = await write_audio(frame)
+        if result and isinstance(frame, TTSAudioRawFrame):
+            if opening_queued.is_set():
+                destination_audio.set()
+        elif result:
+            if cleanup_started.is_set() and not release_cleanup.is_set():
+                hold_during_cleanup.set()
+            if opening_queued.is_set():
+                hold_after_opening.append(frame)
+        return result
+
     monkeypatch.setattr(source, "close_mcp_sessions", slow_cleanup)
     monkeypatch.setattr(engine, "queue_node_opening", watch_opening)
+    monkeypatch.setattr(output, "write_audio_frame", watch_audio)
     transfer_task = asyncio.create_task(
         run_transfer(harness, tool=TransferAgentTool(message=None, play_greeting=False))
     )
@@ -585,6 +604,7 @@ async def test_transfer_retires_source_before_starting_destination(monkeypatch, 
         await asyncio.wait_for(cleanup_started.wait(), 5)
         assert engine.transfer_in_progress
         assert not opening_queued.is_set()
+        await asyncio.wait_for(hold_during_cleanup.wait(), 2)
         # Ordinary input must remain blocked while the old agent is retiring.
         await harness.call_worker.queue_frame(LLMContextFrame(engine.context))
         assert await engine.drain_call_pipeline()
@@ -601,6 +621,7 @@ async def test_transfer_retires_source_before_starting_destination(monkeypatch, 
         await asyncio.wait_for(transfer_task, 5)
         assert source._close_task.done()
         assert not engine.transfer_in_progress
+        assert engine.transfer_coordinator._hold_task is None
         outcome = engine.transfer_coordinator.completed[-1]["outcome"]
         if hangup:
             await asyncio.wait_for(hangup_task, 5)
@@ -610,6 +631,9 @@ async def test_transfer_retires_source_before_starting_destination(monkeypatch, 
             assert opening_queued.is_set()
             assert outcome == "completed"
             assert not harness.call_worker.has_finished()
+            await asyncio.wait_for(destination_audio.wait(), 5)
+            assert await engine.drain_call_pipeline()
+        assert not hold_after_opening
     finally:
         release_cleanup.set()
         if not transfer_task.done():

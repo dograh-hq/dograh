@@ -547,6 +547,10 @@ class TelephonyProvider(ABC):
         """
         pass
 
+    def supports_transfer_introduction(self) -> bool:
+        """Whether both legs can play introduction audio before being bridged."""
+        return False
+
     @abstractmethod
     def supports_transfers(self) -> bool:
         """

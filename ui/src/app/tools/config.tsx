@@ -232,11 +232,19 @@ export const DEFAULT_END_CALL_CONFIG: EndCallConfig = {
 export const DEFAULT_TRANSFER_AGENT_MESSAGE =
     "Let me connect you with the right person. One moment please.";
 
+export const DEFAULT_TRANSFER_INTRODUCTION_PROMPT =
+    "Briefly introduce this caller to the person receiving the transfer. " +
+    "Include their reason for calling, essential details, and any explicit " +
+    "language preference. Use the caller's preferred language. Keep it to one " +
+    "sentence, at most 25 words. Do not invent details.";
+
 export const DEFAULT_TRANSFER_CALL_CONFIG: TransferCallConfig = {
     destination: "",
     messageType: "none",
     customMessage: "",
     timeout: 30,
+    introduction_enabled: false,
+    introduction_prompt: DEFAULT_TRANSFER_INTRODUCTION_PROMPT,
 };
 
 export type ToolDefinition =

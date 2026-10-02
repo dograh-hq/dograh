@@ -34,6 +34,10 @@ from api.errors.failure import (
     log_failure,
 )
 from api.schemas.workflow_configurations import CallDispositionOption
+from api.services.integrations import (
+    create_integration_context_providers,
+    create_integration_tools,
+)
 from api.services.pipecat.audio_playback import play_audio
 from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.greeting import GreetingController
@@ -81,6 +85,7 @@ from api.services.workflow.pipecat_engine_context_summarizer import (
 )
 from api.services.workflow.pipecat_engine_custom_tools import (
     CustomToolManager,
+    get_function_schema,
 )
 from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
@@ -832,8 +837,33 @@ class PipecatEngine:
             has_recordings=self._has_recordings,
         )
         functions = await compose_functions_for_node(
-            node=node, custom_tool_manager=manager
+            node=node,
+            custom_tool_manager=manager,
         )
+        agent.context_providers = []
+        if not node.is_end:
+            # Registered after the node's own functions, and skipped on a name
+            # clash, so an integration can never replace a workflow's function.
+            for tool in create_integration_tools(
+                agent.workflow,
+                realtime=agent.is_realtime,
+                reserved_names={schema.name for schema in functions},
+            ):
+                agent.llm.register_function(
+                    tool.name, agent.bind_tool(self, tool.handler)
+                )
+                functions.append(
+                    get_function_schema(
+                        tool.name,
+                        tool.description,
+                        properties=tool.properties,
+                        required=list(tool.required),
+                    )
+                )
+            if not agent.is_realtime:
+                agent.context_providers = create_integration_context_providers(
+                    agent.workflow
+                )
         agent.tools = ToolsSchema(standard_tools=functions)
         agent.system_prompt = prompt.text
         if agent.recording_router is not None:

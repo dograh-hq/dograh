@@ -1250,6 +1250,18 @@ export interface components {
          */
         TransferCallConfig: {
             /**
+             * Introduction Enabled
+             * @description Play a generated introduction in the agent's voice to both parties before connecting them. Supported for Twilio calls with a TTS provider. Realtime speech-to-speech agents and synthesis failures skip the introduction.
+             * @default false
+             */
+            introduction_enabled: boolean;
+            /**
+             * Introduction Prompt
+             * @description Instructions for the transfer introduction, including language.
+             * @default Briefly introduce this caller to the person receiving the transfer. Include their reason for calling, essential details, and any explicit language preference. Use the caller's preferred language. Keep it to one sentence, at most 25 words. Do not invent details.
+             */
+            introduction_prompt: string;
+            /**
              * Destination Source
              * @description Whether the destination is static/template, resolved by HTTP, or selected by ordered gathered/initial-context mapping rules.
              * @default static

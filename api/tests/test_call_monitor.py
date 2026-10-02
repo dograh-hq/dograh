@@ -165,7 +165,9 @@ class ResponseHarness:
             bus=self.runner.bus,
             worker_name="watchdog-call",
             selected_visit=lambda: self.engine.selected_visit_id,
-            allow_inference=lambda: not self.engine.transfer_in_progress,
+            allow_inference=lambda: self.engine.agent_can_generate(
+                self.engine.active_agent
+            ),
         )
         self.monitor = self.engine.call_monitor
         self.monitor.bind_user(self.user, idle_timeout=0.1)
@@ -516,15 +518,27 @@ async def test_deactivation_cancels_watch_and_ignores_retired_inference(response
     assert not response.engine.call_monitor.pending_response
 
 
-@pytest.mark.parametrize("phase", [TransferPhase.PREPARING, TransferPhase.OPENING])
-async def test_transfer_gated_request_does_not_arm_response_deadline(response, phase):
+@pytest.mark.parametrize(
+    "phase",
+    [
+        TransferPhase.ANNOUNCING,
+        TransferPhase.PREPARING,
+        TransferPhase.COMMITTING,
+        TransferPhase.OPENING,
+    ],
+)
+async def test_transfer_request_is_gated_until_opening(response, phase):
     response.engine._transfer_coordinator = SimpleNamespace(
         in_progress=True, phase=phase
     )
     try:
         await response.worker.queue_frame(LLMContextFrame(response.context))
-        await asyncio.sleep(0.2)
-        assert not response.llm.requested.is_set()
+        if phase is TransferPhase.OPENING:
+            await asyncio.wait_for(response.llm.requested.wait(), 1)
+            await asyncio.wait_for(response.output.stopped.wait(), 2)
+        else:
+            await asyncio.sleep(0.2)
+            assert not response.llm.requested.is_set()
         assert not response.engine.call_monitor.pending_response
         assert not response.engine.is_call_disposed()
     finally:

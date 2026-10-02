@@ -26,8 +26,8 @@ from api.services.pipecat.integration_context import (
     without_integration_context,
 )
 from api.services.workflow.agent_handoff_context import (
-    conversation_messages,
-    messages_after_boundary,
+    build_handoff_snapshot,
+    complete_handoff_message,
 )
 from api.services.workflow.pipecat_engine import PipecatEngine
 
@@ -179,11 +179,18 @@ def test_knowledge_does_not_cross_an_agent_handoff():
         ]
     )
 
-    assert conversation_messages(context.messages) == [
-        _user("Refunds?"),
-        {"role": "assistant", "content": "Five days."},
-    ]
-    # Messages added while a handoff is prepared are deep copied before filtering.
-    assert messages_after_boundary(context, 0) == conversation_messages(
-        context.messages
+    snapshot = build_handoff_snapshot(context, source_agent_name="Support")
+    # Speech and knowledge added while the handoff is prepared.
+    context.add_message(_user("Thanks."))
+    context.add_message(
+        IntegrationContextMessage(
+            role="developer", content="1. Store credit never expires."
+        )
     )
+    handoff = complete_handoff_message(context, snapshot)
+
+    assert "Caller: Refunds?" in handoff["content"]
+    assert "Agent: Five days." in handoff["content"]
+    assert "Thanks." in handoff["content"]
+    assert "Refunds take 5 days" not in handoff["content"]
+    assert "Store credit" not in handoff["content"]

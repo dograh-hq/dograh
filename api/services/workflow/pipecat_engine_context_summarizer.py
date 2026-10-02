@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import suppress
+from copy import deepcopy
 from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
@@ -15,8 +16,15 @@ from pipecat.utils.context.llm_context_summarization import (
 )
 from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
-from api.services.pipecat.integration_context import without_integration_context
+from api.services.pipecat.integration_context import (
+    IntegrationContextMessage,
+    without_integration_context,
+)
 from api.services.pipecat.tracing_config import ensure_tracing
+from api.services.workflow.agent_handoff_context import (
+    ConversationSummaryMessage,
+    HandoffMessage,
+)
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -83,18 +91,24 @@ class ContextSummarizationManager:
                     "Skipping context summarization because its engine state is incomplete"
                 )
                 return
-            messages = context.messages
+            # The inherited transcript stays intact across node transitions, and
+            # per-turn integration knowledge stays out of the summary so saving and
+            # exporting can still leave it out. Only this agent's own conversation
+            # is eligible for compaction.
+            messages = [
+                m
+                for m in without_integration_context(context.messages)
+                if not isinstance(m, HandoffMessage)
+            ]
             # Not worth summarizing if context is small
             if len(messages) <= 6:
                 return
 
             config = self._config
-            # Per-turn integration knowledge stays out of the summary, so saving
-            # and exporting can still leave it out.
-            source = LLMContext(messages=without_integration_context(messages))
+            summary_context = LLMContext(messages=deepcopy(messages))
             request_frame = LLMContextSummaryRequestFrame(
                 request_id=f"node-transition-{current_node.id}",
-                context=source,
+                context=summary_context,
                 min_messages_to_keep=config.min_messages_after_summary,
                 target_context_tokens=config.target_context_tokens,
                 summarization_prompt=config.summary_prompt,
@@ -121,7 +135,7 @@ class ContextSummarizationManager:
             if ensure_tracing():
                 summarize_result = (
                     LLMContextSummarizationUtil.get_messages_to_summarize(
-                        source, config.min_messages_after_summary
+                        summary_context, config.min_messages_after_summary
                     )
                 )
                 transcript = LLMContextSummarizationUtil.format_messages_for_summary(
@@ -153,14 +167,25 @@ class ContextSummarizationManager:
 
             # Snapshot current messages at apply-time (not request-time)
             # to preserve anything added while the summary was generating
-            summarized = {id(m) for m in source.messages[: last_index + 1]}
-            current_messages = context.messages
-            recent_messages = [m for m in current_messages if id(m) not in summarized]
+            inherited = [m for m in context.messages if isinstance(m, HandoffMessage)]
+            current_messages = [
+                m for m in context.messages if not isinstance(m, HandoffMessage)
+            ]
+            # last_index counts the summarized messages, which leave out the
+            # integration knowledge; that message is kept where it is.
+            recent_messages = []
+            position = 0
+            for message in current_messages:
+                if isinstance(message, IntegrationContextMessage):
+                    recent_messages.append(message)
+                    continue
+                if position > last_index:
+                    recent_messages.append(message)
+                position += 1
 
-            summary_message = {
-                "role": "user",
-                "content": config.summary_message_template.format(summary=summary_text),
-            }
+            summary = ConversationSummaryMessage(
+                config.summary_message_template.format(summary=summary_text)
+            )
 
             # Preserve the current system message (already set by the new node)
             first_system_msg = next(
@@ -175,7 +200,8 @@ class ContextSummarizationManager:
             new_messages = []
             if first_system_msg:
                 new_messages.append(first_system_msg)
-            new_messages.append(summary_message)
+            new_messages.extend(inherited)
+            new_messages.append(summary)
             new_messages.extend(recent_messages)
 
             context.set_messages(new_messages)

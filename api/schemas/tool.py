@@ -18,6 +18,12 @@ from api.enums import ToolCategory
 DEFAULT_MCP_TIMEOUT_SECS = 30
 DEFAULT_MCP_SSE_READ_TIMEOUT_SECS = 300
 MAX_TRANSFER_CALL_DISPOSITION_LENGTH = 64
+DEFAULT_TRANSFER_INTRODUCTION_PROMPT = (
+    "Briefly introduce this caller to the person receiving the transfer. "
+    "Include their reason for calling, essential details, and any explicit "
+    "language preference. Use the caller's preferred language. Keep it to one "
+    "sentence, at most 25 words. Do not invent details."
+)
 
 ToolParameterType = Literal["string", "number", "boolean", "object", "array"]
 HttpMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
@@ -382,6 +388,20 @@ class ContextDestinationMappingConfig(BaseModel):
 class TransferCallConfig(BaseModel):
     """Configuration for Transfer Call tools."""
 
+    introduction_enabled: bool = Field(
+        default=False,
+        description=(
+            "Play a generated introduction in the agent's voice to both parties "
+            "before connecting them. Supported for Twilio calls with a TTS "
+            "provider. Realtime speech-to-speech agents and synthesis failures "
+            "skip the introduction."
+        ),
+    )
+    introduction_prompt: str = Field(
+        default=DEFAULT_TRANSFER_INTRODUCTION_PROMPT,
+        max_length=2000,
+        description="Instructions for the transfer introduction, including language.",
+    )
     destination_source: Literal["static", "dynamic", "context_mapping"] = Field(
         default="static",
         description=(

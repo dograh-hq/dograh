@@ -7209,6 +7209,18 @@ export type TransferAgentToolDefinition = {
  */
 export type TransferCallConfig = {
     /**
+     * Introduction Enabled
+     *
+     * Play a generated introduction in the agent's voice to both parties before connecting them. Supported for Twilio calls with a TTS provider. Realtime speech-to-speech agents and synthesis failures skip the introduction.
+     */
+    introduction_enabled?: boolean;
+    /**
+     * Introduction Prompt
+     *
+     * Instructions for the transfer introduction, including language.
+     */
+    introduction_prompt?: string;
+    /**
      * Destination Source
      *
      * Whether the destination is static/template, resolved by HTTP, or selected by ordered gathered/initial-context mapping rules.

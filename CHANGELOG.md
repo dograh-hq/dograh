@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.49.0 (2026-10-02)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat(qa): add Google Gemini as a QA LLM provider by @a6kme in https://github.com/dograh-hq/dograh/pull/848
+
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.48.0...dograh-v1.49.0
+
 ## 1.48.0 (2026-10-02)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

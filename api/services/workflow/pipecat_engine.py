@@ -1657,7 +1657,7 @@ class PipecatEngine:
 
     @property
     def transfer_in_progress(self) -> bool:
-        """Whether a handoff is running, so ordinary prompting must hold off."""
+        """Whether a handoff is running, including the destination's opening."""
         coordinator = self.__dict__.get("_transfer_coordinator")
         return coordinator is not None and coordinator.in_progress
 
@@ -1757,6 +1757,19 @@ class PipecatEngine:
 
     def agent_can_act(self, runtime: AgentRuntime) -> bool:
         return not self._call_disposed and self.selected_visit_id == runtime.visit_id
+
+    def agent_can_generate(self, runtime: AgentRuntime) -> bool:
+        """Allow the selected agent's turns once a handoff reaches its opening.
+
+        The handoff still owns its request until the opening has been queued,
+        but tool results during that opening must be able to run the LLM again.
+        """
+        from api.services.workflow.agent_transfer import TransferPhase
+
+        coordinator = self._transfer_coordinator
+        return self.agent_can_act(runtime) and (
+            not self.transfer_in_progress or coordinator.phase is TransferPhase.OPENING
+        )
 
     def install_agent(
         self,
@@ -1927,18 +1940,10 @@ class PipecatEngine:
     def _conversation_enabled(self) -> bool:
         return self.agent_can_act(self.active_agent) and not self.transfer_in_progress
 
-    def _response_watch_enabled(self, runtime: AgentRuntime) -> bool:
-        from api.services.workflow.agent_transfer import TransferPhase
-
-        coordinator = self._transfer_coordinator
-        return self.agent_can_act(runtime) and (
-            not self.transfer_in_progress or coordinator.phase is TransferPhase.OPENING
-        )
-
     def _bind_call_monitor(self, runtime: AgentRuntime) -> None:
         self.speech_playback.observe_responses(runtime.llm)
         self.call_monitor.bind_source(
-            runtime.llm, enabled=lambda: self._response_watch_enabled(runtime)
+            runtime.llm, enabled=lambda: self.agent_can_generate(runtime)
         )
 
     def expect_response(self) -> None:
@@ -1952,7 +1957,7 @@ class PipecatEngine:
             # An interruption or handoff can win the race with this task.
             if (
                 source is not self.active_agent.llm
-                or not self._response_watch_enabled(self.active_agent)
+                or not self.agent_can_generate(self.active_agent)
                 or not self.call_monitor.response_timed_out(source)
             ):
                 return

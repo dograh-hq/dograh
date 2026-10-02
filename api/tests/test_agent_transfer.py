@@ -13,12 +13,14 @@ The invariants worth protecting are the ones a unit test cannot see:
 """
 
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from pipecat.frames.frames import (
     InputAudioRawFrame,
+    LLMContextFrame,
     MetricsFrame,
     OutputAudioRawFrame,
     TTSAudioRawFrame,
@@ -286,7 +288,9 @@ class TransferHarness:
                 bus=self.runner.bus,
                 worker_name=call_worker_name,
                 selected_visit=lambda: self.engine.selected_visit_id,
-                allow_inference=lambda: not self.engine.transfer_in_progress,
+                allow_inference=lambda: self.engine.agent_can_generate(
+                    self.engine.active_agent
+                ),
                 name=f"{call_worker_name}::AgentBridge",
             ),
         ]
@@ -523,6 +527,197 @@ async def test_transfer_hands_the_call_over_without_dropping_it():
         # handoff. It is excluded from the bus precisely so that consuming
         # bridge cannot swallow it.
         assert harness.audio_probe.input_frames > audio_before
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hangup", [False, True], ids=["continue", "hangup"])
+async def test_transfer_retires_source_before_starting_destination(monkeypatch, hangup):
+    """Slow source cleanup must finish before the destination starts a turn."""
+    monkeypatch.setattr(
+        "api.services.workflow.agent_transfer.TRANSFER_MIN_HOLD_SECONDS", 0
+    )
+    destination_llm = MockLLMService(
+        mock_steps=[MockLLMService.create_text_chunks("Billing here.")], chunk_delay=0
+    )
+    harness = TransferHarness()
+    await harness.build(
+        source_llm=MockLLMService(
+            mock_steps=[
+                MockLLMService.create_function_call_chunks("transfer_to_billing", {})
+            ],
+            chunk_delay=0,
+        ),
+        destination_llm=destination_llm,
+        source_workflow=build_agent_workflow(
+            name="Reception", greeting=None, tool_uuids=[TRANSFER_TOOL_UUID]
+        ),
+        destination_workflow=build_agent_workflow(name="Billing", greeting=None),
+    )
+    await harness.start()
+    engine = harness.engine
+    source = engine.active_agent
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    opening_queued = asyncio.Event()
+    close_sessions = source.close_mcp_sessions
+    queue_opening = engine.queue_node_opening
+
+    async def slow_cleanup():
+        cleanup_started.set()
+        await asyncio.wait_for(release_cleanup.wait(), 5)
+        await close_sessions()
+
+    async def watch_opening(**kwargs):
+        if engine.active_agent is not source:
+            opening_queued.set()
+        return await queue_opening(**kwargs)
+
+    monkeypatch.setattr(source, "close_mcp_sessions", slow_cleanup)
+    monkeypatch.setattr(engine, "queue_node_opening", watch_opening)
+    transfer_task = asyncio.create_task(
+        run_transfer(harness, tool=TransferAgentTool(message=None, play_greeting=False))
+    )
+    hangup_task = None
+    try:
+        await asyncio.wait_for(cleanup_started.wait(), 5)
+        assert engine.transfer_in_progress
+        assert not opening_queued.is_set()
+        # Ordinary input must remain blocked while the old agent is retiring.
+        await harness.call_worker.queue_frame(LLMContextFrame(engine.context))
+        assert await engine.drain_call_pipeline()
+        assert destination_llm.get_current_step() == 0
+
+        if hangup:
+            hangup_task = asyncio.create_task(
+                engine.end_call_with_reason(EndTaskReason.USER_HANGUP.value)
+            )
+            async with asyncio.timeout(5):
+                while not engine.is_call_disposed():
+                    await asyncio.sleep(0.01)
+        release_cleanup.set()
+        await asyncio.wait_for(transfer_task, 5)
+        assert source._close_task.done()
+        assert not engine.transfer_in_progress
+        outcome = engine.transfer_coordinator.completed[-1]["outcome"]
+        if hangup:
+            await asyncio.wait_for(hangup_task, 5)
+            assert not opening_queued.is_set()
+            assert outcome == EndTaskReason.USER_HANGUP.value
+        else:
+            assert opening_queued.is_set()
+            assert outcome == "completed"
+            assert not harness.call_worker.has_finished()
+    finally:
+        release_cleanup.set()
+        if not transfer_task.done():
+            transfer_task.cancel()
+        await asyncio.wait_for(asyncio.gather(transfer_task, return_exceptions=True), 5)
+        if hangup_task:
+            await asyncio.wait_for(hangup_task, 5)
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "refused_transfer", [False, True], ids=["lookup", "refused-transfer"]
+)
+async def test_destination_tool_result_speaks_while_opening_is_still_pending(
+    monkeypatch, refused_transfer
+):
+    """An opening tool's result must reach the LLM before handoff cleanup exits."""
+    monkeypatch.setattr(
+        "api.services.workflow.agent_transfer.TRANSFER_MIN_HOLD_SECONDS", 0
+    )
+    followup = (
+        "Vou continuar ajudando por aqui."
+        if refused_transfer
+        else "Sim, temos uma mesa para trinta pessoas."
+    )
+    destination_llm = MockLLMService(
+        mock_steps=[
+            MockLLMService.create_function_call_chunks(
+                "transfer_to_billing" if refused_transfer else "lookup_reservation",
+                {},
+                tool_call_id="destination_tool",
+            ),
+            MockLLMService.create_text_chunks(followup),
+        ],
+        chunk_delay=0,
+    )
+
+    async def lookup_reservation(params):
+        await params.result_callback({"available": True})
+
+    destination_llm.register_function("lookup_reservation", lookup_reservation)
+    harness = TransferHarness()
+    await harness.build(
+        source_llm=MockLLMService(
+            mock_steps=[
+                MockLLMService.create_function_call_chunks("transfer_to_billing", {})
+            ],
+            chunk_delay=0,
+        ),
+        destination_llm=destination_llm,
+        source_workflow=build_agent_workflow(
+            name="Reception", greeting=None, tool_uuids=[TRANSFER_TOOL_UUID]
+        ),
+        destination_workflow=build_agent_workflow(
+            name="Billing",
+            greeting=None,
+            tool_uuids=[TRANSFER_TOOL_UUID] if refused_transfer else [],
+        ),
+    )
+    await harness.start()
+    engine = harness.engine
+    source = engine.active_agent
+    queue_opening = engine.queue_node_opening
+    output = harness.transport.output()
+    write_audio = output.write_audio_frame
+    audio_played = asyncio.Event()
+
+    async def watch_audio(frame):
+        result = await write_audio(frame)
+        if result and isinstance(frame, TTSAudioRawFrame):
+            audio_played.set()
+        return result
+
+    async def wait_for_opening_audio(**kwargs):
+        opening = await queue_opening(**kwargs)
+        if engine.active_agent is not source:
+            # Deliberately keep OPENING pending while the real aggregator and
+            # bridge deliver the tool result and the destination speaks. This
+            # catches the race even when retirement itself completes quickly.
+            await asyncio.wait_for(audio_played.wait(), 3)
+            assert engine.transfer_in_progress
+        return opening
+
+    monkeypatch.setattr(output, "write_audio_frame", watch_audio)
+    monkeypatch.setattr(engine, "queue_node_opening", wait_for_opening_audio)
+    try:
+        await run_transfer(
+            harness, tool=TransferAgentTool(message=None, play_greeting=False)
+        )
+        assert engine.transfer_coordinator.completed[-1]["outcome"] == "completed"
+        assert destination_llm.get_current_step() == 2
+        assert followup in "".join(harness.destination_tts.received_texts)
+        assert audio_played.is_set()
+        assert harness.built_destinations == [DESTINATION_WORKFLOW_ID]
+        results = [
+            json.loads(message["content"])
+            for message in engine.context.messages
+            if isinstance(message, dict)
+            and message.get("role") == "tool"
+            and message.get("tool_call_id") == "destination_tool"
+        ]
+        assert len(results) == 1
+        if refused_transfer:
+            assert results[0]["status"] == "transfer_failed"
+            assert results[0]["reason"] == "transfer_in_progress"
+        else:
+            assert results[0] == {"available": True}
+        assert not harness.call_worker.has_finished()
     finally:
         await harness.stop()
 

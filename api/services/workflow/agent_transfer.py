@@ -180,6 +180,11 @@ class AgentTransferCoordinator:
             self._phase = TransferPhase.COMMITTING
             engine.commit_agent(destination, snapshot)
             committed = True
+            # Opening can immediately call a tool and request another LLM turn.
+            # Finish source cleanup before allowing that destination work to run.
+            # The finally path can safely await the same retirement again.
+            await source.retire("transferred")
+            self._check_current(request)
             self._phase = TransferPhase.OPENING
             engine.call_monitor.resume()
             await engine.notify_agent_entered(destination)

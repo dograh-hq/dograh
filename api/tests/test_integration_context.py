@@ -26,6 +26,8 @@ from api.services.pipecat.integration_context import (
     without_integration_context,
 )
 from api.services.workflow.agent_handoff_context import (
+    ConversationSummaryMessage,
+    HandoffMessage,
     build_handoff_snapshot,
     complete_handoff_message,
 )
@@ -61,6 +63,15 @@ def test_last_user_text_reads_the_newest_user_message():
     ]
     assert last_user_text(messages) == "second question"
     assert last_user_text([{"role": "assistant", "content": "hi"}]) == ""
+
+
+def test_handoff_transcripts_and_summaries_are_not_searched_for():
+    handoff = HandoffMessage("Caller: Do you ship to Canada?\n\nAgent: Yes.")
+    summary = ConversationSummaryMessage("The caller asked about shipping.")
+
+    assert last_user_text([handoff]) == ""
+    assert last_user_text([_user("Refunds?"), summary]) == ""
+    assert last_user_text([handoff, summary, _user("Refunds?")]) == "Refunds?"
 
 
 async def test_knowledge_follows_the_user_message_as_a_developer_message():

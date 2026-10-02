@@ -14,6 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from api.services.workflow.agent_handoff_context import (
+    ConversationSummaryMessage,
+    HandoffMessage,
+)
 from pipecat.frames.frames import Frame, LLMContextFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
@@ -36,10 +40,16 @@ def without_integration_context(messages: list[Any]) -> list[Any]:
 
 
 def last_user_text(messages: list[Any]) -> str:
-    """The text of the newest user message in an LLM context, or an empty string."""
+    """What the caller said last, or an empty string.
+
+    Handoff transcripts and conversation summaries are user messages that
+    the caller did not say, so they are never searched for.
+    """
     for message in reversed(messages):
         if not isinstance(message, dict) or message.get("role") != "user":
             continue
+        if isinstance(message, (HandoffMessage, ConversationSummaryMessage)):
+            return ""
         content = message.get("content")
         if isinstance(content, str):
             return content.strip()

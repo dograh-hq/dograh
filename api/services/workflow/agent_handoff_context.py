@@ -39,6 +39,7 @@ from pipecat.utils.context.llm_context_summarization import (
 from pipecat.utils.tracing.langfuse_helpers import mark_trace_public
 from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
+from api.services.pipecat.integration_context import without_integration_context
 from api.services.pipecat.tracing_config import ensure_tracing
 
 # Messages kept verbatim behind the summary. Enough for the destination to
@@ -94,9 +95,13 @@ def _carries_tool_traffic(message: Any) -> bool:
 
 
 def conversation_messages(messages: list[Any]) -> list[Any]:
-    """Keep only caller/agent turns that a different agent can safely read."""
+    """Keep only caller/agent turns that a different agent can safely read.
+
+    Integration knowledge for a turn belongs to the agent whose integrations
+    produced it, so it does not cross a handoff either.
+    """
     kept: list[Any] = []
-    for message in messages:
+    for message in without_integration_context(messages):
         if _carries_tool_traffic(message):
             continue
         if not message.get("content"):

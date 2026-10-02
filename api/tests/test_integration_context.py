@@ -5,7 +5,8 @@ provider, their answers become one developer message after it, the next
 turn replaces that message, a turn without knowledge removes it, the system
 prompt is never touched, saved conversations leave the message out, and a
 provider that fails or misses its time budget is skipped. Also covers the
-engine clearing providers on End nodes.
+engine clearing providers on End nodes and the knowledge staying behind on
+an agent handoff.
 """
 
 from __future__ import annotations
@@ -23,6 +24,10 @@ from api.services.pipecat.integration_context import (
     apply_integration_context,
     last_user_text,
     without_integration_context,
+)
+from api.services.workflow.agent_handoff_context import (
+    conversation_messages,
+    messages_after_boundary,
 )
 from api.services.workflow.pipecat_engine import PipecatEngine
 
@@ -160,3 +165,25 @@ async def test_end_node_clears_the_providers(three_node_workflow):
     await engine._prepare_node(agent, three_node_workflow.nodes["end"])
 
     assert agent.context_providers == []
+
+
+def test_knowledge_does_not_cross_an_agent_handoff():
+    knowledge = IntegrationContextMessage(
+        role="developer", content="1. Refunds take 5 days."
+    )
+    context = LLMContext(
+        messages=[
+            _user("Refunds?"),
+            knowledge,
+            {"role": "assistant", "content": "Five days."},
+        ]
+    )
+
+    assert conversation_messages(context.messages) == [
+        _user("Refunds?"),
+        {"role": "assistant", "content": "Five days."},
+    ]
+    # Messages added while a handoff is prepared are deep copied before filtering.
+    assert messages_after_boundary(context, 0) == conversation_messages(
+        context.messages
+    )

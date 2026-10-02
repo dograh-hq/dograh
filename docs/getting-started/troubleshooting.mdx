@@ -46,11 +46,6 @@ Check restart policies (should show 'no' for each container):
 docker inspect -f '{{.Name}} - {{.HostConfig.RestartPolicy.Name}}' $(docker ps -a -q)
 ```
 
-## MinIO Image Fails to Pull
-
-Older copies of `docker-compose.yaml` pull MinIO from `quay.io/minio/minio` or `minio/minio`, which MinIO no longer publishes. Startup then fails on the `minio` service with an error such as `no such manifest`, `unauthorized`, or `denied: requested access to the resource is denied`.
-
-Download the current `docker-compose.yaml` and restart as described in [Update](/deployment/update). It uses Dograh's MinIO image, and the recordings in your `minio-data` volume are kept.
 
 ## Stopping Dograh Services
 ##### Stop services or Stop and remove all data (full cleanup)

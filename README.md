@@ -99,8 +99,8 @@ An honest comparison on the axes that matter most to teams evaluating voice AI p
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
 
-> **⚠️ Security Note**
-> The quickstart exposes the API through a public `*.trycloudflare.com` tunnel for inbound telephony webhooks, and signup is enabled by default. To disable signup, set `ENABLE_SIGNUP=false` in `.env` before starting. To skip the tunnel, run `docker compose up` (without `--profile tunnel`).
+> **Security Note**
+> The quickstart exposes the API through a public `*.trycloudflare.com` tunnel for inbound telephony webhooks, and signup is enabled by default. Signup stays open until you create your first account, then set `ENABLE_SIGNUP=false` in `.env` and restart to close registration.
 
 > **⚡ Prefer an AI agent to set it up for you?**
 > If you use **Claude Code** or **Codex**, install the official [Dograh setup skill](https://github.com/dograh-hq/dograh-plugins) and let your agent handle installation, configuration, and troubleshooting — it detects your OS, picks the right deploy path, runs Dograh's own setup scripts, and verifies the result.

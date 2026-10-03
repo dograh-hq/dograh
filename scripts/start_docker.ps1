@@ -216,6 +216,13 @@ Write-Host ''
 Write-Host 'This will run:'
 Write-Host "  `$env:REGISTRY = '$Registry'; `$env:ENABLE_TELEMETRY = '$EnableTelemetry'; docker compose --profile tunnel up --pull always"
 Write-Host ''
+Write-Host 'NOTICE: This quickstart exposes the API through a public *.trycloudflare.com'
+Write-Host '        tunnel for inbound telephony webhooks, and signup is enabled by default.'
+Write-Host '        Signup stays open until you create your first account, then set'
+Write-Host '        ENABLE_SIGNUP=false in .env and restart to close registration.'
+Write-Host ''
+Write-Host "        To change settings before starting: answer 'n' below, edit .env, then re-run this script."
+Write-Host ''
 
 $answer = Read-Host 'Start Dograh now? [Y/n]'
 if ($answer -match '^[Nn]') {

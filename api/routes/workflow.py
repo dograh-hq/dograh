@@ -6,7 +6,7 @@ from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from httpx import HTTPStatusError
+from httpx import HTTPStatusError, RequestError
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
@@ -634,6 +634,17 @@ async def create_workflow_from_template(
 
     except HTTPException:
         raise
+    except RequestError as e:
+        logger.error(f"MPS API connection error: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Building a workflow from a use-case description requires the Dograh "
+                "cloud service (Model Proxy Service), which could not be reached. "
+                "Please check your network connectivity and the MPS_API_URL "
+                "configuration, or build the workflow manually or with the Dograh SDK."
+            ),
+        )
     except HTTPStatusError as e:
         logger.error(f"MPS API error: {e}")
         raise HTTPException(

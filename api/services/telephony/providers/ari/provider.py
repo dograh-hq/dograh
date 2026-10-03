@@ -10,6 +10,10 @@ import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+import redis.asyncio as aioredis
+
+from api.constants import REDIS_URL
+
 import aiohttp
 from fastapi import HTTPException
 from loguru import logger
@@ -113,11 +117,12 @@ class ARIProvider(TelephonyProvider):
         dial_string = build_dial_string(to_number, self.dial_string_template)
 
         # Prepare channel creation data
-        channel_id = f"dograh-call-{uuid.uuid4()}"
+        channel_id = f"dograh-out-{uuid.uuid4()}"
         params = {
             "channelId": channel_id,
             "endpoint": dial_string,
             "app": self.stasis_app_name,
+            "channelId": channel_id,
             "appArgs": ",".join(
                 filter(
                     None,
@@ -136,9 +141,28 @@ class ARIProvider(TelephonyProvider):
             params["callerId"] = from_number
 
         logger.info(
-            f"[ARI] Initiating call to {dial_string} "
-            f"via app={self.stasis_app_name}, workflow_run_id={workflow_run_id}"
+            f"[ARI] Initiating call to {sip_endpoint} "
+            f"via app={self.stasis_app_name}, channel_id={channel_id}, workflow_run_id={workflow_run_id}"
         )
+
+        # Pre-seed channel→workflow_run_id in Redis BEFORE making the POST request.
+        # This guarantees that if the channel is instantly destroyed (e.g. invalid endpoint),
+        # ari_manager will find the mapping and process the ChannelDestroyed event.
+        if workflow_run_id:
+            try:
+                r = aioredis.from_url(
+                    REDIS_URL, decode_responses=True
+                )
+                try:
+                    await r.set(
+                        f"ari:channel:{channel_id}",
+                        str(workflow_run_id),
+                        ex=3600,
+                    )
+                finally:
+                    await r.aclose()
+            except Exception as e:
+                logger.error(f"[ARI] Could not pre-seed channel mapping for {channel_id}: {e}")
 
         async with aiohttp.ClientSession() as session:
             # Asterisk can destroy a rejected/busy channel before this POST
@@ -160,11 +184,13 @@ class ARIProvider(TelephonyProvider):
                     )
 
                 response_data = json.loads(response_text)
+                actual_channel_id = response_data.get("id", channel_id)
 
                 logger.info(
-                    f"[ARI] Channel created: {channel_id} "
+                    f"[ARI] Channel created: {actual_channel_id} "
                     f"state={response_data.get('state')}"
                 )
+
 
                 return CallInitiationResult(
                     call_id=channel_id,

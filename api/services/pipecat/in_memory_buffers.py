@@ -72,7 +72,7 @@ class InMemoryAudioBuffer:
 
         # Encoding is mostly memcpy but can touch ~100MB; keep it off the event loop
         data = await asyncio.to_thread(_encode)
-        logger.info(f"Encoded {total_size} bytes of {self._track} audio")
+        logger.debug(f"Encoded {total_size} bytes of {self._track} audio")
         return data
 
     @property

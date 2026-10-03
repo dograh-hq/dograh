@@ -54,6 +54,7 @@ import {
     createTransferAgentDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
     DEFAULT_TRANSFER_AGENT_MESSAGE,
+    DEFAULT_TRANSFER_INTRODUCTION_PROMPT,
     type EndCallMessageType,
     getCategoryConfig,
     getToolTypeLabel,
@@ -68,6 +69,7 @@ import {
     BuiltinToolConfig,
     EndCallToolConfig,
     HttpApiToolConfig,
+    type HttpBodyFormat,
     HttpToolTestDialog,
     TransferAgentToolConfig,
     type TransferAgentWorkflowOption,
@@ -123,6 +125,7 @@ export default function ToolDetailPage() {
     const [bodyTemplateEnabled, setBodyTemplateEnabled] = useState(false);
     const [bodyTemplate, setBodyTemplate] = useState<Record<string, unknown> | null>(null);
     const [isBodyTemplateValid, setIsBodyTemplateValid] = useState(true);
+    const [bodyFormat, setBodyFormat] = useState<HttpBodyFormat>("json");
     const bodyTemplateSupported = ["POST", "PUT", "PATCH"].includes(httpMethod);
 
     // End Call form state
@@ -143,6 +146,7 @@ export default function ToolDetailPage() {
     const [transferAgentMessage, setTransferAgentMessage] = useState(
         DEFAULT_TRANSFER_AGENT_MESSAGE,
     );
+    const [transferAgentPlayGreeting, setTransferAgentPlayGreeting] = useState(true);
     const [agentOptions, setAgentOptions] = useState<TransferAgentWorkflowOption[]>([]);
     const [agentOptionsLoading, setAgentOptionsLoading] = useState(false);
 
@@ -153,6 +157,10 @@ export default function ToolDetailPage() {
     const [transferMessageType, setTransferMessageType] = useState<EndCallMessageType>("none");
     const [transferTimeout, setTransferTimeout] = useState(30);
     const [transferCallDisposition, setTransferCallDisposition] = useState("");
+    const [transferIntroductionEnabled, setTransferIntroductionEnabled] = useState(false);
+    const [transferIntroductionPrompt, setTransferIntroductionPrompt] = useState(
+        DEFAULT_TRANSFER_INTRODUCTION_PROMPT,
+    );
     const [transferAudioRecordingId, setTransferAudioRecordingId] = useState("");
     const [transferResolverUrl, setTransferResolverUrl] = useState("");
     const [transferResolverCredentialUuid, setTransferResolverCredentialUuid] = useState("");
@@ -251,6 +259,8 @@ export default function ToolDetailPage() {
                 setTransferAudioRecordingId(config.audioRecordingId || "");
                 setTransferTimeout(config.timeout ?? 30);
                 setTransferCallDisposition(config.call_disposition || "");
+                setTransferIntroductionEnabled(config.introduction_enabled ?? false);
+                setTransferIntroductionPrompt(config.introduction_prompt || DEFAULT_TRANSFER_INTRODUCTION_PROMPT);
                 setTransferResolverUrl(resolver?.url || "");
                 setTransferResolverCredentialUuid(resolver?.credential_uuid || "");
                 setTransferResolverHeaders(headersToRows(resolver?.headers));
@@ -286,6 +296,8 @@ export default function ToolDetailPage() {
                 setTransferAudioRecordingId("");
                 setTransferTimeout(30);
                 setTransferCallDisposition("");
+                setTransferIntroductionEnabled(false);
+                setTransferIntroductionPrompt(DEFAULT_TRANSFER_INTRODUCTION_PROMPT);
                 setTransferResolverUrl("");
                 setTransferResolverCredentialUuid("");
                 setTransferResolverHeaders([]);
@@ -302,6 +314,7 @@ export default function ToolDetailPage() {
                 config?.workflow_id ? String(config.workflow_id) : "",
             );
             setTransferAgentMessage(config?.message ?? DEFAULT_TRANSFER_AGENT_MESSAGE);
+            setTransferAgentPlayGreeting(config?.play_greeting ?? true);
         } else if (tool.category === "mcp") {
             // Populate MCP specific fields
             const config = tool.definition?.config as
@@ -332,6 +345,7 @@ export default function ToolDetailPage() {
                 const loadedCustomMessageType = config.customMessageType || "text";
                 const loadedCustomMessageRecordingId = config.customMessageRecordingId || "";
                 const loadedBodyTemplate = config.body_template ?? null;
+                const loadedBodyFormat = config.body_format ?? "json";
                 setHttpMethod(loadedHttpMethod);
                 setUrl(loadedUrl);
                 setCredentialUuid(loadedCredentialUuid);
@@ -342,6 +356,7 @@ export default function ToolDetailPage() {
                 setBodyTemplateEnabled(loadedBodyTemplate !== null);
                 setBodyTemplate(loadedBodyTemplate);
                 setIsBodyTemplateValid(true);
+                setBodyFormat(loadedBodyFormat);
 
                 // Convert headers object to array
                 const loadedHeaders = config.headers
@@ -391,6 +406,7 @@ export default function ToolDetailPage() {
                         presetParameters: loadedPresetParameters,
                         bodyTemplateEnabled: loadedBodyTemplate !== null,
                         bodyTemplate: loadedBodyTemplate,
+                        bodyFormat: loadedBodyFormat,
                         timeoutMs: loadedTimeoutMs,
                         customMessage: loadedCustomMessage,
                         customMessageType: loadedCustomMessageType,
@@ -638,6 +654,8 @@ export default function ToolDetailPage() {
                     audioRecordingId: transferMessageType === "audio" ? transferAudioRecordingId || undefined : undefined,
                     timeout: transferTimeout,
                     call_disposition: transferCallDisposition.trim() || undefined,
+                    introduction_enabled: transferIntroductionEnabled,
+                    introduction_prompt: transferIntroductionPrompt.trim() || DEFAULT_TRANSFER_INTRODUCTION_PROMPT,
                     resolver: transferDestinationSource === "dynamic"
                         ? {
                             type: "http",
@@ -700,6 +718,7 @@ export default function ToolDetailPage() {
                     definition: createTransferAgentDefinition({
                         workflow_id: Number(transferAgentWorkflowId),
                         message: transferAgentMessage.trim(),
+                        play_greeting: transferAgentPlayGreeting,
                     }),
                 };
             } else {
@@ -742,6 +761,7 @@ export default function ToolDetailPage() {
                             body_template: bodyTemplateSupported && bodyTemplateEnabled
                                 ? bodyTemplate || undefined
                                 : undefined,
+                            body_format: bodyFormat,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,
@@ -781,6 +801,7 @@ export default function ToolDetailPage() {
                             presetParameters,
                             bodyTemplateEnabled,
                             bodyTemplate,
+                            bodyFormat,
                             timeoutMs,
                             customMessage,
                             customMessageType,
@@ -800,10 +821,13 @@ export default function ToolDetailPage() {
     const getCodeSnippet = () => {
         if (!tool) return "";
 
+        const isFormBody = bodyTemplateSupported && bodyFormat === "form";
         const headersObj: Record<string, string> = {
-            "Content-Type": "application/json",
+            "Content-Type": isFormBody ? "application/x-www-form-urlencoded" : "application/json",
         };
         headers.filter((h) => h.key && h.value).forEach((h) => {
+            // Form mode owns the Content-Type at runtime; mirror that here.
+            if (isFormBody && h.key.toLowerCase() === "content-type") return;
             headersObj[h.key] = h.value;
         });
 
@@ -841,7 +865,7 @@ export default function ToolDetailPage() {
 const response = await fetch("${url}", {
     method: "${httpMethod}",
     headers: ${JSON.stringify(headersObj, null, 4)},${hasBody ? `
-    body: JSON.stringify(${JSON.stringify(requestBody, null, 4)}),` : ""}
+    body: ${isFormBody ? "new URLSearchParams" : "JSON.stringify"}(${JSON.stringify(requestBody, null, 4)}),` : ""}
 });
 
 const data = await response.json();`;
@@ -907,6 +931,7 @@ const data = await response.json();`;
                 presetParameters,
                 bodyTemplateEnabled,
                 bodyTemplate,
+                bodyFormat,
                 timeoutMs,
                 customMessage,
                 customMessageType,
@@ -1018,6 +1043,10 @@ const data = await response.json();`;
                             onTimeoutChange={setTransferTimeout}
                             callDisposition={transferCallDisposition}
                             onCallDispositionChange={setTransferCallDisposition}
+                            introductionEnabled={transferIntroductionEnabled}
+                            onIntroductionEnabledChange={setTransferIntroductionEnabled}
+                            introductionPrompt={transferIntroductionPrompt}
+                            onIntroductionPromptChange={setTransferIntroductionPrompt}
                             resolverUrl={transferResolverUrl}
                             onResolverUrlChange={setTransferResolverUrl}
                             resolverCredentialUuid={transferResolverCredentialUuid}
@@ -1049,6 +1078,8 @@ const data = await response.json();`;
                             workflowsLoading={agentOptionsLoading}
                             message={transferAgentMessage}
                             onMessageChange={setTransferAgentMessage}
+                            playGreeting={transferAgentPlayGreeting}
+                            onPlayGreetingChange={setTransferAgentPlayGreeting}
                         />
                     ) : isMcpTool ? (
                         <Card>
@@ -1146,6 +1177,8 @@ const data = await response.json();`;
                             bodyTemplate={bodyTemplate}
                             onBodyTemplateChange={setBodyTemplate}
                             onBodyTemplateValidityChange={setIsBodyTemplateValid}
+                            bodyFormat={bodyFormat}
+                            onBodyFormatChange={setBodyFormat}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}
                             customMessage={customMessage}

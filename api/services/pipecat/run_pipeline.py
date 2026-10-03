@@ -35,7 +35,6 @@ from api.services.pipecat.agent_runtime_factory import (
     AgentRuntimeFactory,
 )
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
-from api.services.pipecat.call_duration_processor import CallDurationProcessor
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
     register_event_handlers,
@@ -103,7 +102,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
-    FirstSpeechUserMuteStrategy,
     FunctionCallUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
@@ -165,22 +163,21 @@ def _create_answer_supervisor(
             usage_context="voicemail_detection",
         )
     classifier = AnswerClassificationService(
-        classifier_llm, get_parent_context=get_parent_context
+        classifier_llm,
+        system_prompt=voicemail_config.get("system_prompt"),
+        get_parent_context=get_parent_context,
     )
     return AnswerSupervisor(config, context=context, classify=classifier.classify)
 
 
 def _create_user_mute_strategies(engine, answer_supervisor):
-    first_speech = (
-        FirstSpeechUserMuteStrategy()
-        if answer_supervisor is not None
-        else MuteUntilFirstBotCompleteUserMuteStrategy()
-    )
-    return [
-        first_speech,
+    strategies = [
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
+    if answer_supervisor is None and getattr(engine, "_is_realtime", False):
+        strategies.insert(0, MuteUntilFirstBotCompleteUserMuteStrategy())
+    return strategies
 
 
 def _resolve_user_turn_stop_timeout(
@@ -194,9 +191,10 @@ def _resolve_user_turn_stop_timeout(
 
 
 def _resolve_turn_start_min_words(run_configs: dict) -> int:
+    min_words = run_configs.get("turn_start_min_words")
     return max(
         1,
-        int(run_configs.get("turn_start_min_words", DEFAULT_TURN_START_MIN_WORDS)),
+        int(DEFAULT_TURN_START_MIN_WORDS if min_words is None else min_words),
     )
 
 
@@ -205,18 +203,11 @@ def _create_non_realtime_user_turn_start_strategies(
 ):
     """Return user turn start strategies for non-realtime pipelines."""
 
-    # An STT that reports its own turn boundaries decides the turn start,
-    # whatever `turn_start_strategy` asks for.
-    #
-    # Local VAD is deliberately kept out of these start strategies too: it would
-    # win the race on raw voice activity and start the turn before the STT
-    # confirms a real turn.
-    if uses_external_turns:
-        return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
-
     turn_start_strategy = run_configs.get(
         "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
     )
+    if turn_start_strategy not in ("default", "min_words"):
+        turn_start_strategy = DEFAULT_TURN_START_STRATEGY
 
     if turn_start_strategy == "min_words":
         return [
@@ -224,6 +215,11 @@ def _create_non_realtime_user_turn_start_strategies(
                 min_words=_resolve_turn_start_min_words(run_configs)
             )
         ]
+
+    # Voice activity mode follows provider turn starts when available. Keep local VAD
+    # out of that path so it cannot interrupt before the provider confirms speech.
+    if uses_external_turns:
+        return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
 
     return [TranscriptionUserTurnStartStrategy(), VADUserTurnStartStrategy()]
 
@@ -772,6 +768,8 @@ async def _run_pipeline_impl(
             user_config,
             audio_config,
             correlation_id=mps_correlation_id,
+            organization_id=workflow.organization_id,
+            tts_cache_enabled=run_configs.get("tts_cache_enabled") is True,
         )
         llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None
@@ -908,8 +906,8 @@ async def _run_pipeline_impl(
         embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
         embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
 
-    # Check if the workflow has any active recordings so the engine can
-    # include recording response mode instructions in all node prompts.
+    # Check organization-level recording availability. Node preparation enables
+    # recording instructions and routing only for prompts that reference them.
     has_recordings = await db_client.has_active_recordings(workflow.organization_id)
 
     context_compaction_enabled = (workflow.workflow_configurations or {}).get(
@@ -988,9 +986,8 @@ async def _run_pipeline_impl(
             user_config.realtime.provider, user_config.realtime.model
         )
     else:
-        # Some STT services emit their own turn boundaries, so the aggregator
-        # follows those external signals. Other models use configurable turn
-        # detection.
+        # Provider turn endings stay authoritative even when a word threshold
+        # controls when the caller can interrupt.
         uses_external_turns = stt_uses_external_turns(user_config)
         user_turn_start_strategies = _create_non_realtime_user_turn_start_strategies(
             run_configs,
@@ -999,8 +996,7 @@ async def _run_pipeline_impl(
         turn_start_strategy = run_configs.get(
             "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
         )
-        # `requested` is what the workflow asked for; `resolved` is what the
-        # pipeline built, which differs whenever external turns override it.
+        # Log the configured choice alongside the concrete strategies it selects.
         logger.info(
             f"[run {workflow_run_id}] Non-realtime interrupt strategy "
             f"requested={turn_start_strategy} "
@@ -1024,23 +1020,35 @@ async def _run_pipeline_impl(
 
     user_params = LLMUserAggregatorParams(
         user_turn_strategies=user_turn_strategies,
+        should_interrupt=engine.should_interrupt_user_turn,
         user_mute_strategies=user_mute_strategies,
         user_turn_stop_timeout=user_turn_stop_timeout,
-        user_idle_timeout=max_user_idle_timeout,
+        # The call monitor owns idle reminders and response deadlines together.
+        user_idle_timeout=0,
         vad_analyzer=user_vad_analyzer,
     )
-    context_aggregator = LLMContextAggregatorPair(
-        context,
-        assistant_params=assistant_params,
-        user_params=user_params,
-        # Live publishes final user transcripts before delegation starts.
-        # Record them immediately, including while the assistant is speaking.
-        realtime_service_mode=is_realtime
-        and not (
-            user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
-            and user_config.realtime.model == "gpt-live-1"
-        ),
-    )
+    if is_realtime:
+        context_aggregator = LLMContextAggregatorPair(
+            context,
+            assistant_params=assistant_params,
+            user_params=user_params,
+            # Live publishes final user transcripts before delegation starts.
+            realtime_service_mode=not (
+                user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
+                and user_config.realtime.model == "gpt-live-1"
+            ),
+        )
+        user_context_aggregator, assistant_context_aggregator = context_aggregator
+    else:
+        user_context_aggregator, assistant_context_aggregator = (
+            LLMContextAggregatorPair(
+                context,
+                user_params=user_params,
+                assistant_params=assistant_params,
+                realtime_service_mode=False,
+            )
+        )
+        engine.greeting.bind(user_context_aggregator)
 
     # Every cascade call runs the split pipeline: everything call-scoped stays
     # here and the generation stage (LLM through TTS) runs in a worker per
@@ -1051,10 +1059,11 @@ async def _run_pipeline_impl(
     worker_runner = create_worker_runner()
     call_worker_name = f"call-{workflow_run_id}"
 
-    # The call's clock is call-scoped in both shapes.
-    call_duration_processor = CallDurationProcessor(
-        max_call_duration_seconds=max_call_duration_seconds,
-        max_duration_end_task_callback=engine.create_max_duration_callback(),
+    # One call monitor owns user-idle, response and duration limits in both shapes.
+    call_monitor_processor = engine.call_monitor
+    call_monitor_processor.max_call_duration_seconds = max_call_duration_seconds
+    call_monitor_processor.bind_user(
+        user_context_aggregator, idle_timeout=max_user_idle_timeout
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
@@ -1064,25 +1073,11 @@ async def _run_pipeline_impl(
     # `register_event_handlers` once the task exists.
     termination_funnel = TerminationFunnelProcessor()
 
-    user_context_aggregator = context_aggregator.user()
-    assistant_context_aggregator = context_aggregator.assistant()
-
     if answer_supervisor is not None:
         answer_supervisor.bind(user_context_aggregator)
         engine.set_answer_supervisor(
             answer_supervisor, user_context_aggregator, max_user_idle_timeout
         )
-
-    # Register user idle event handlers
-    user_idle_handler = engine.create_user_idle_handler()
-
-    @user_context_aggregator.event_handler("on_user_turn_idle")
-    async def on_user_turn_idle(aggregator):
-        await user_idle_handler.handle_idle(aggregator)
-
-    @user_context_aggregator.event_handler("on_user_turn_started")
-    async def on_user_turn_started(aggregator, strategy):
-        user_idle_handler.reset()
 
     recording_router = None
 
@@ -1100,7 +1095,8 @@ async def _run_pipeline_impl(
         )
     # Recording router is only meaningful in non-realtime mode (it routes between
     # pre-recorded audio playback and dynamic TTS; realtime LLMs produce audio
-    # directly).
+    # directly). It starts as a passthrough; node preparation enables it using
+    # the same formatted-prompt check that adds recording mode instructions.
     if not is_realtime and has_recordings:
         recording_router = RecordingRouterProcessor(
             audio_sample_rate=audio_config.pipeline_sample_rate,
@@ -1123,7 +1119,7 @@ async def _run_pipeline_impl(
             audio_buffer,
             user_context_aggregator,
             assistant_context_aggregator,
-            call_duration_processor,
+            call_monitor_processor,
             # No agent worker to carry it, so the realtime service's own
             # generation stage reports from the call pipeline.
             AgentGenerationProcessor(
@@ -1140,13 +1136,15 @@ async def _run_pipeline_impl(
             audio_buffer,
             user_context_aggregator,
             assistant_context_aggregator,
-            call_duration_processor,
+            call_monitor_processor,
             [
                 AgentBridgeProcessor(
                     bus=worker_runner.bus,
                     worker_name=call_worker_name,
                     selected_visit=lambda: engine.selected_visit_id,
-                    allow_inference=lambda: not engine.transfer_in_progress,
+                    allow_inference=lambda: engine.agent_can_generate(
+                        engine.active_agent
+                    ),
                     name=f"{call_worker_name}::AgentBridge",
                 )
             ],
@@ -1181,6 +1179,31 @@ async def _run_pipeline_impl(
     engine.call_worker = task
     engine.set_transport_output(transport.output())
 
+    from api.services.observability.call_events.runtime import create_session
+
+    call_events_session = await create_session(
+        organization_id=workflow.organization_id,
+        run_id=workflow_run_id,
+        workflow_id=workflow_id,
+        engine=engine,
+    )
+    if call_events_session is not None:
+        call_events_session.attach(
+            task, user_context_aggregator, call_monitor_processor
+        )
+
+    # Share frame-ID deduplication across the call and all agent workers.
+    feedback_observer = RealtimeFeedbackObserver(
+        ws_sender=ws_sender,
+        logs_buffer=in_memory_logs_buffer,
+        selected_visit=lambda: engine.selected_visit_id,
+        call_event_recorder=call_events_session.recorder
+        if call_events_session
+        else None,
+    )
+    task.add_observer(feedback_observer)
+    engine.greeting.log_generated_speech = feedback_observer.log_speech
+
     if not is_realtime:
 
         def _agent_generation_callbacks(visit_id: str) -> AgentGenerationCallbacks:
@@ -1203,6 +1226,7 @@ async def _run_pipeline_impl(
             mps_correlation_id=mps_correlation_id,
             on_agent_error=engine.handle_agent_error,
             use_draft=bool(workflow_run.extra.get("use_draft")),
+            observers=[feedback_observer],
         )
         engine.set_agent_factory(agent_factory)
         # The agent this call starts on. Its services were resolved above from
@@ -1219,13 +1243,6 @@ async def _run_pipeline_impl(
         agent.runtime_configuration = runtime_configuration
         agent.is_child = True
         agent.worker = None
-
-    # Add the observer before initialization so early ErrorFrames are not missed.
-    feedback_observer = RealtimeFeedbackObserver(
-        ws_sender=ws_sender,
-        logs_buffer=in_memory_logs_buffer,
-    )
-    task.add_observer(feedback_observer)
 
     # Initialize the engine to set the initial context with
     # System Prompt and Tools
@@ -1285,6 +1302,7 @@ async def _run_pipeline_impl(
         answer_supervisor=answer_supervisor,
         user_provider_id=user_provider_id,
         integration_runtime_sessions=integration_runtime_sessions,
+        call_events_session=call_events_session,
         include_transcript_end_timestamps=include_transcript_end_timestamps,
     )
 
@@ -1301,6 +1319,18 @@ async def _run_pipeline_impl(
         # scopes opened by MCPClient.start() in engine.initialize() are
         # task-affine; this finally runs in the same task as initialize(),
         # whereas engine.cleanup() runs in a pipecat event-handler task.
+        if call_events_session is not None:
+            # Fallback for cancellation or failures in unrelated completion
+            # work. Normal completion already sealed this session.
+            try:
+                await call_events_session.finish()
+            except (Exception, asyncio.CancelledError) as exc:
+                # Diagnostic failures must not skip MCP or observer cleanup.
+                logger.warning(
+                    "Error finalizing call events during cleanup for workflow run {} ({})",
+                    workflow_run_id,
+                    type(exc).__name__,
+                )
         await engine.close_mcp_sessions()
         await feedback_observer.cleanup()
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

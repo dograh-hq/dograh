@@ -1,7 +1,7 @@
 export { BuiltinToolConfig, type BuiltinToolConfigProps } from "./BuiltinToolConfig";
 export { EndCallToolConfig, type EndCallToolConfigProps } from "./EndCallToolConfig";
 export { buildHttpToolTestSnapshot, HttpToolTestDialog } from "./http-tool-test";
-export { HttpApiToolConfig, type HttpApiToolConfigProps } from "./HttpApiToolConfig";
+export { HttpApiToolConfig, type HttpApiToolConfigProps, type HttpBodyFormat } from "./HttpApiToolConfig";
 export {
     TransferAgentToolConfig,
     type TransferAgentToolConfigProps,

@@ -286,6 +286,9 @@ function GeneralSection({
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState(
         workflowConfigurations.context_compaction_enabled,
     );
+    const [ttsCacheEnabled, setTtsCacheEnabled] = useState(
+        workflowConfigurations.tts_cache_enabled,
+    );
     const [callDispositionRows, setCallDispositionRows] = useState<CallDispositionRow[]>(
         () => createCallDispositionRows(workflowConfigurations.call_dispositions),
     );
@@ -337,6 +340,7 @@ function GeneralSection({
             turnStartMinWords !== workflowConfigurations.turn_start_min_words ||
             turnStopStrategy !== workflowConfigurations.turn_stop_strategy ||
             contextCompactionEnabled !== workflowConfigurations.context_compaction_enabled ||
+            ttsCacheEnabled !== workflowConfigurations.tts_cache_enabled ||
             JSON.stringify(normalizedCallDispositions) !==
                 JSON.stringify(workflowConfigurations.call_dispositions) ||
             includeTranscriptEndTimestamps !==
@@ -346,7 +350,7 @@ function GeneralSection({
             JSON.stringify(externalPbxLeadHeaders) !==
             JSON.stringify(workflowConfigurations.external_pbx_lead_headers)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, turnStopStrategy, contextCompactionEnabled, normalizedCallDispositions, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, turnStopStrategy, contextCompactionEnabled, ttsCacheEnabled, normalizedCallDispositions, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -423,6 +427,7 @@ function GeneralSection({
                     turn_start_min_words: turnStartMinWords,
                     turn_stop_strategy: turnStopStrategy,
                     context_compaction_enabled: contextCompactionEnabled,
+                    tts_cache_enabled: ttsCacheEnabled,
                     call_dispositions: normalizedCallDispositions,
                     transcript_configuration: {
                         ...(workflowConfigurations.transcript_configuration ?? {}),
@@ -754,6 +759,28 @@ function GeneralSection({
                             id="context-compaction-enabled"
                             checked={contextCompactionEnabled}
                             onCheckedChange={setContextCompactionEnabled}
+                        />
+                    </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-sm font-medium">Speech Caching</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Reuse generated audio for repeated phrases to reduce response time and speech generation costs.
+                            Cached audio expires after 24 hours. Currently available with MiniMax TTS.
+                        </p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <Label htmlFor="tts-cache-enabled" className="text-sm">
+                            Enable Speech Caching
+                        </Label>
+                        <Switch
+                            id="tts-cache-enabled"
+                            checked={ttsCacheEnabled}
+                            onCheckedChange={setTtsCacheEnabled}
                         />
                     </div>
                 </div>
@@ -1160,10 +1187,12 @@ function DictionarySection({
 
 function VoicemailSection({
     workflowConfigurations,
+    defaultAnswerClassifierPrompt,
     workflowName,
     onSave,
 }: {
     workflowConfigurations: WorkflowConfigurations;
+    defaultAnswerClassifierPrompt: string;
     workflowName: string;
     onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
 }) {
@@ -1177,6 +1206,17 @@ function VoicemailSection({
     const [provider, setProvider] = useState(getConfig().provider || "openai");
     const [model, setModel] = useState(getConfig().model || "gpt-4.1");
     const [apiKey, setApiKey] = useState(getConfig().api_key || "");
+    const savedPrompt = getConfig().system_prompt;
+    const [systemPrompt, setSystemPrompt] = useState(savedPrompt || "");
+    const [promptEdited, setPromptEdited] = useState(false);
+
+    // The defaults endpoint resolves after first paint. A workflow that saved its
+    // own instructions keeps showing those; one that never did starts from the
+    // built-in text so it can be edited rather than written from scratch.
+    useEffect(() => {
+        if (promptEdited) return;
+        setSystemPrompt(savedPrompt || defaultAnswerClassifierPrompt);
+    }, [defaultAnswerClassifierPrompt, promptEdited, savedPrompt]);
     const [answerSettings, setAnswerSettings] = useState(readAnswerSupervisorSettings(getConfig()));
     const [isSaving, setIsSaving] = useState(false);
 
@@ -1191,9 +1231,12 @@ function VoicemailSection({
             provider !== (init.provider || "openai") ||
             model !== (init.model || "gpt-4.1") ||
             apiKey !== (init.api_key || "") ||
+            // Showing the built-in text is not a change; editing it is. Match the
+            // prefill's truthiness test, or a stored "" reads as dirty on load.
+            systemPrompt !== (init.system_prompt || defaultAnswerClassifierPrompt) ||
             JSON.stringify(answerSettings) !== JSON.stringify(readAnswerSupervisorSettings(init))
         );
-    }, [enabled, useWorkflowLlm, provider, model, apiKey, answerSettings, workflowConfigurations]);
+    }, [enabled, useWorkflowLlm, provider, model, apiKey, systemPrompt, defaultAnswerClassifierPrompt, answerSettings, workflowConfigurations]);
 
     useUnsavedChanges("voicemail", isDirty);
 
@@ -1207,11 +1250,21 @@ function VoicemailSection({
                 provider: useWorkflowLlm ? undefined : provider,
                 model: useWorkflowLlm ? undefined : model,
                 api_key: useWorkflowLlm ? undefined : apiKey,
+                // Persist only instructions that differ from the built-in text, so a
+                // workflow that never customized them keeps following platform updates
+                // instead of freezing today's copy. Clearing the box reverts to them.
+                system_prompt:
+                    systemPrompt.trim() &&
+                        systemPrompt.trim() !== defaultAnswerClassifierPrompt.trim()
+                        ? systemPrompt.trim()
+                        : undefined,
             };
             await onSave(
                 { ...workflowConfigurations, voicemail_detection: voicemailConfig },
                 workflowName,
             );
+            setSystemPrompt(voicemailConfig.system_prompt || defaultAnswerClassifierPrompt);
+            setPromptEdited(false);
             toast.success(`Voicemail settings saved. ${PUBLISH_WORKFLOW_REMINDER}`);
         } catch (error) {
             console.error("Failed to save voicemail settings:", error);
@@ -1268,6 +1321,34 @@ function VoicemailSection({
                                         onApiKeyChange={setApiKey}
                                     />
                                 )}
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="voicemail-system-prompt">Classifier instructions</Label>
+                                    <Textarea
+                                        id="voicemail-system-prompt"
+                                        disabled={isSaving}
+                                        rows={6}
+                                        maxLength={8000}
+                                        value={systemPrompt}
+                                        placeholder="Leave blank to use the built-in instructions."
+                                        onChange={e => {
+                                            setPromptEdited(true);
+                                            setSystemPrompt(e.target.value);
+                                        }}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        These instructions decide whether the answering party is a person, a
+                                        voicemail, a screening service or an IVR menu. Edit them when your
+                                        calls are not in English: describe the greetings and carrier
+                                        announcements your callers actually hear. Leave them unchanged to
+                                        keep following the built-in instructions as they improve; clear the
+                                        box to go back to them. The reply must be a single label —
+                                        CONVERSATION, VOICEMAIL, NO_MESSAGE, SCREENER, SCREENING_WAIT, IVR
+                                        or UNKNOWN. Anything else is read as UNKNOWN, which lets the call
+                                        through to the agent, so instructions that only answer CONVERSATION
+                                        or VOICEMAIL will silently disable screening and IVR handling.
+                                    </p>
+                                </div>
                             </div>
                         </details>
                     </>
@@ -1609,6 +1690,7 @@ function WorkflowSettingsInner({
         workflowName,
         workflowConfigurations,
         defaultCallDispositions,
+        defaultAnswerClassifierPrompt,
         textChatInactivityTimeoutConstraints,
         widgetTextDefaults,
         templateContextVariables,
@@ -1736,6 +1818,7 @@ function WorkflowSettingsInner({
 
                             {/* Voicemail & Screening */}
                             <VoicemailSection
+                                defaultAnswerClassifierPrompt={defaultAnswerClassifierPrompt}
                                 workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName}
                                 onSave={saveWorkflowConfigurations}

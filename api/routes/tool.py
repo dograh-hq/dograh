@@ -243,8 +243,6 @@ async def test_tool(
 
     status = result.get("status", "error")
     status_code = result.get("status_code")
-    if status_code is not None and status_code >= 400:
-        status = "error"
 
     hint = _hint_for_status_code(status_code, configured_method)
 
@@ -319,9 +317,19 @@ def _hint_for_status_code(
             "necessarily a configuration problem."
         )
     if status_code == 415:
+        # Body Format only applies to methods that send a body; form-encoded
+        # owns its Content-Type, while JSON honours one set in Custom Headers.
+        if configured_method in ("POST", "PUT", "PATCH"):
+            return (
+                "HTTP 415 Unsupported Media Type — check the Body Format "
+                "setting (JSON or form-encoded) matches what this endpoint "
+                "expects. For a JSON body that needs a specific media type, "
+                "set Content-Type in Custom Headers."
+            )
         return (
-            "HTTP 415 Unsupported Media Type — check the Content-Type header "
-            "matches the format this endpoint expects for the body."
+            "HTTP 415 Unsupported Media Type — this request sends no body, so "
+            "check the Content-Type in Custom Headers is present and matches "
+            "what this endpoint expects."
         )
     if status_code == 422:
         return (

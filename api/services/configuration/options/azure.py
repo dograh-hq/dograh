@@ -31,6 +31,7 @@ AZURE_SPEECH_REGIONS = [
     "centralus",
     "northcentralus",
     "southcentralus",
+    "canadacentral",
     "westcentralus",
     "westeurope",
     "northeurope",

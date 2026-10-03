@@ -96,6 +96,8 @@ When [`TELEPHONY_WS_TOKEN_SECRET`](/developer/environment-variables#telephony) i
 
 Asterisk ARI instead connects to `/api/v1/telephony/ws/ari` and passes the same three values as query parameters, plus `token` when a secret is configured — see [Asterisk ARI](/integrations/telephony/asterisk-ari).
 
+The Telnyx call-events webhook is the other exception: it takes `?token=` in the query string, because Telnyx does preserve query strings on webhook POSTs (the restriction above is specific to carrier media-stream URLs). The route verifies it before any database lookup, so an unauthenticated caller cannot tell an existing run from a missing one by status code or by timing.
+
 The `organization_id` segment is the tenant that owns the workflow. Dograh scopes every workflow and workflow-run lookup by it, so a run belonging to one organization can never be served under another's id.
 
 **Audio Formats**:

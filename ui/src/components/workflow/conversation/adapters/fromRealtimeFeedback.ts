@@ -2,6 +2,7 @@ import type {
     ConversationItem,
     RealtimeFeedbackEvent,
     RealtimeFeedbackMessage,
+    TtfbKind,
 } from "../types";
 
 function feedbackEventText(event: RealtimeFeedbackEvent) {
@@ -13,6 +14,12 @@ function feedbackEventText(event: RealtimeFeedbackEvent) {
         event.payload.node_name ??
         ""
     );
+}
+
+// Reasoning delay is the LLM's TTFB. STT and TTS report TTFB too; events
+// without a kind predate that and are LLM measurements.
+export function isLlmTtfb(kind: TtfbKind | undefined) {
+    return (kind ?? "llm") === "llm";
 }
 
 function liveFeedbackItem(message: RealtimeFeedbackMessage, reasoningDurationMs?: number): ConversationItem | null {
@@ -134,7 +141,7 @@ export function conversationItemsFromRealtimeFeedbackEvents(events: RealtimeFeed
 
     events.forEach((event, index) => {
         if (event.type === "rtf-ttfb-metric") {
-            if (event.payload.ttfb_seconds !== undefined) {
+            if (event.payload.ttfb_seconds !== undefined && isLlmTtfb(event.payload.kind)) {
                 pendingReasoningDurationMs = event.payload.ttfb_seconds * 1000;
             }
             return;

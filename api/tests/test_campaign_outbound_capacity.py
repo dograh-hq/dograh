@@ -353,9 +353,15 @@ async def test_rate_and_concurrency_enforce_org_limit_only():
 @pytest.mark.parametrize(
     "body, expected",
     [
-        ({"rate_limit_per_second": 4}, {"rate_limit_per_second": 4}),
-        ({"max_concurrency": None}, {"orchestrator_metadata": {}}),
-        ({"name": "renamed"}, {"name": "renamed"}),
+        (
+            {"rate_limit_per_second": 4},
+            {"settings": {"rate_limit_per_second": 4}, "metadata_patch": {}},
+        ),
+        (
+            {"max_concurrency": None},
+            {"settings": {}, "metadata_patch": {"max_concurrency": None}},
+        ),
+        ({"name": "renamed"}, {"settings": {"name": "renamed"}, "metadata_patch": {}}),
     ],
 )
 async def test_update_round_trips_rate_and_preserves_omitted_settings(body, expected):
@@ -368,7 +374,7 @@ async def test_update_round_trips_rate_and_preserves_omitted_settings(body, expe
     )
     db = SimpleNamespace(
         get_campaign=AsyncMock(return_value=campaign),
-        update_campaign=AsyncMock(),
+        update_campaign_settings=AsyncMock(),
         get_workflow_name=AsyncMock(return_value="test"),
     )
     with (
@@ -388,7 +394,9 @@ async def test_update_round_trips_rate_and_preserves_omitted_settings(body, expe
             UpdateCampaignRequest(**body),
             SimpleNamespace(selected_organization_id=206),
         )
-    db.update_campaign.assert_awaited_once_with(campaign_id=48, **expected)
+    db.update_campaign_settings.assert_awaited_once_with(
+        48, 206, **expected, traffic_split=None
+    )
 
 
 @pytest.mark.asyncio

@@ -31,6 +31,8 @@ export interface RealtimeFeedbackMessage {
     fatal?: boolean;
 }
 
+export type TtfbKind = "stt" | "llm" | "tts";
+
 export interface RealtimeFeedbackEvent {
     type: string;
     payload: {
@@ -50,6 +52,7 @@ export interface RealtimeFeedbackEvent {
         previous_node_name?: string;
         allow_interrupt?: boolean;
         ttfb_seconds?: number;
+        kind?: TtfbKind;
         processor?: string;
         model?: string;
         error?: string;

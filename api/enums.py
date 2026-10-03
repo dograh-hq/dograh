@@ -18,6 +18,8 @@ class CallType(Enum):
 
 
 class AnswerAction(str, Enum):
+    # Start speaking after silence, while continuing to supervise the answer.
+    START_OPENING = "start_opening"
     # Play the workflow opening, then allow normal conversation.
     RELEASE = "release"
     # Play the configured voicemail message, then disconnect.
@@ -26,6 +28,8 @@ class AnswerAction(str, Enum):
     DROP = "drop"
     # Play the screening introduction, then listen again for the subscriber.
     SCREEN_THEN_REARM = "screen_then_rearm"
+    # Stop a provisional greeting and wait silently for a screened subscriber.
+    WAIT_FOR_SCREENING = "wait_for_screening"
     # Stop answer handling because the pipeline has ended.
     CANCELLED = "cancelled"
 
@@ -156,6 +160,7 @@ class WorkflowRunStatus(Enum):
 
 
 class OrganizationConfigurationKey(Enum):
+    CALL_EVENTS = "CALL_EVENTS"
     CONCURRENT_CALL_LIMIT = "CONCURRENT_CALL_LIMIT"
     TELEPHONY_CONFIGURATION = (
         "TELEPHONY_CONFIGURATION"  # Stores all providers + active one
@@ -251,6 +256,7 @@ class PostHogEvent(str, Enum):
     CALL_FAILED = "call_failed"
     TELEPHONY_CONFIGURED = "telephony_configured"
     KNOWLEDGE_BASE_CREATED = "knowledge_base_created"
+    KNOWLEDGE_BASE_UPDATED = "knowledge_base_updated"
     TOOL_CREATED = "tool_created"
     AGENT_EMBEDDED = "agent_embedded"
     SIGNED_UP = "signed_up"

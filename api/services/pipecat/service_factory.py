@@ -18,11 +18,19 @@ from api.services.configuration.options import (
     DEEPGRAM_FLUX_MODELS,
     GOOGLE_VERTEX_DEFAULT_LOCATION,
 )
-from api.services.configuration.registry import ServiceProviders
+from api.services.configuration.registry import (
+    ATLASCLOUD_API_BASE_URL,
+    HOPPER_API_BASE_URL,
+    ServiceProviders,
+)
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
-from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
+from api.services.pipecat.minimax_tts import (
+    MiniMaxCachingTTSService,
+    MiniMaxOwnedSessionTTSService,
+)
+from api.services.pipecat.tts_cache.runtime import get_speech_cache
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
@@ -87,6 +95,11 @@ from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
 from pipecat.services.smallest.stt import SmallestSTTService, SmallestSTTSettings
 from pipecat.services.smallest.tts import SmallestTTSService, SmallestTTSSettings
+from pipecat.services.soniox.stt import (
+    SonioxContextObject,
+    SonioxSTTService,
+    SonioxSTTSettings,
+)
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
 from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
 from pipecat.services.speaches.tts import SpeachesTTSService, SpeachesTTSSettings
@@ -357,10 +370,19 @@ def create_stt_service(
             }
 
             if user_config.stt.model == "flux-general-multi":
-                language = getattr(user_config.stt, "language", None)
-                language_hint = _resolve_deepgram_flux_language_hint(language)
-                if language_hint:
-                    settings_kwargs["language_hints"] = [language_hint]
+                codes = [
+                    getattr(user_config.stt, "language", None),
+                    *(getattr(user_config.stt, "language_hints", None) or []),
+                ]
+                language_hints = list(
+                    dict.fromkeys(
+                        hint
+                        for hint in map(_resolve_deepgram_flux_language_hint, codes)
+                        if hint
+                    )
+                )
+                if language_hints:
+                    settings_kwargs["language_hints"] = language_hints
 
             return DeepgramFluxSTTService(
                 api_key=user_config.stt.api_key,
@@ -559,6 +581,21 @@ def create_stt_service(
             settings=GladiaSTTSettings(**settings_kwargs),
             sample_rate=audio_config.transport_in_sample_rate,
         )
+    elif user_config.stt.provider == ServiceProviders.SONIOX.value:
+        language = getattr(user_config.stt, "language", None) or "multi"
+        settings_kwargs = {"model": user_config.stt.model}
+        if language != "multi":
+            settings_kwargs["language_hints"] = [Language(language)]
+        if keyterms:
+            settings_kwargs["context"] = SonioxContextObject(terms=keyterms)
+        return SonioxSTTService(
+            api_key=user_config.stt.api_key,
+            settings=SonioxSTTSettings(**settings_kwargs),
+            # Local VAD ends the turn and triggers Soniox finalize; Soniox's own
+            # endpoint detection stays off so turn strategies behave as for Nova.
+            vad_force_turn_endpoint=True,
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
         from pipecat.services.speechmatics.stt import (
             AdditionalVocabEntry,
@@ -640,13 +677,21 @@ def create_stt_service(
 
 @_report_service_factory_failures(ErrorSource.TTS, config_section="tts")
 def create_tts_service(
-    user_config, audio_config: "AudioConfig", correlation_id: str | None = None
+    user_config,
+    audio_config: "AudioConfig",
+    correlation_id: str | None = None,
+    *,
+    organization_id: int | None = None,
+    tts_cache_enabled: bool = False,
 ):
     """Create and return appropriate TTS service based on user configuration
 
     Args:
         user_config: User configuration containing TTS settings
-        transport_type: Type of transport (e.g., 'twilio', 'webrtc')
+        audio_config: Pipeline and transport audio configuration.
+        correlation_id: Managed model services correlation ID.
+        organization_id: Trusted tenant scope for TTS caching.
+        tts_cache_enabled: Whether the workflow enables caching for supported providers.
     """
     # Synthesis carries the same residency question as transcription - the text
     # sent for speaking is drawn from the conversation - so the endpoint is
@@ -910,12 +955,20 @@ def create_tts_service(
             base_url = f"{base_url}/t2a_v2"
         _validate_runtime_service_url(base_url, "base_url")
 
+        cache = get_speech_cache(organization_id, enabled=tts_cache_enabled)
+        service_type = (
+            MiniMaxCachingTTSService if cache else MiniMaxOwnedSessionTTSService
+        )
+        cache_kwargs = (
+            {"speech_cache": cache, "organization_id": organization_id} if cache else {}
+        )
         session = aiohttp.ClientSession()
-        return MiniMaxOwnedSessionTTSService(
+        return service_type(
             api_key=user_config.tts.api_key,
             group_id=group_id,
             base_url=base_url,
             aiohttp_session=session,
+            **cache_kwargs,
             settings=MiniMaxTTSSettings(
                 model=user_config.tts.model,
                 voice=voice,
@@ -1075,6 +1128,7 @@ def create_llm_service_from_provider(
     credentials: str | None = None,
     temperature: float | None = None,
     bill_to: str | None = None,
+    provider_order: list[str] | None = None,
     usage_context: str | None = None,
 ):
     """Create an LLM service from explicit provider/model/api_key.
@@ -1103,6 +1157,10 @@ def create_llm_service_from_provider(
         ServiceProviders.OPENAI.value,
         ServiceProviders.ATLASCLOUD.value,
     ):
+        # Voicemail and QA configs with their own provider pass no base_url;
+        # without this default the OpenAI client sends the Atlas Cloud key to OpenAI.
+        if provider == ServiceProviders.ATLASCLOUD.value and not base_url:
+            base_url = ATLASCLOUD_API_BASE_URL
         kwargs = {}
         if base_url:
             _validate_runtime_service_url(base_url, "base_url")
@@ -1126,14 +1184,25 @@ def create_llm_service_from_provider(
             api_key=api_key,
             settings=GroqLLMSettings(model=model, temperature=0.1),
         )
+    elif provider == ServiceProviders.HOPPER.value:
+        return OpenAILLMService(
+            api_key=api_key,
+            base_url=HOPPER_API_BASE_URL,
+            settings=OpenAILLMSettings(model=model, temperature=0.1),
+        )
     elif provider == ServiceProviders.OPENROUTER.value:
         kwargs = {}
         if base_url:
             _validate_runtime_service_url(base_url, "base_url")
             kwargs["base_url"] = base_url
+        extra = {}
+        if provider_order:
+            # OpenRouter's provider preferences are a request-body field the
+            # OpenAI client does not know, so they travel in extra_body.
+            extra["extra_body"] = {"provider": {"order": provider_order}}
         return OpenRouterLLMService(
             api_key=api_key,
-            settings=OpenRouterLLMSettings(model=model, temperature=0.1),
+            settings=OpenRouterLLMSettings(model=model, temperature=0.1, extra=extra),
             **kwargs,
         )
     elif provider == ServiceProviders.GOOGLE.value:
@@ -1210,8 +1279,11 @@ def create_llm_service_from_provider(
             ),
         )
     elif provider == ServiceProviders.SARVAM.value:
+        base_url = base_url or "https://api.sarvam.ai/v1"
+        _validate_runtime_service_url(base_url, "base_url")
         return SarvamLLMService(
             api_key=api_key,
+            base_url=base_url,
             settings=SarvamLLMSettings(
                 model=model,
                 temperature=temperature if temperature is not None else 0.5,
@@ -1485,6 +1557,7 @@ def create_llm_service(
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.OPENROUTER.value:
         kwargs["base_url"] = user_config.llm.base_url
+        kwargs["provider_order"] = getattr(user_config.llm, "provider_order", None)
     elif provider == ServiceProviders.AZURE.value:
         kwargs["endpoint"] = user_config.llm.endpoint
     elif provider == ServiceProviders.SPEACHES.value:
@@ -1504,6 +1577,7 @@ def create_llm_service(
         kwargs["base_url"] = user_config.llm.base_url
         kwargs["temperature"] = user_config.llm.temperature
     elif provider == ServiceProviders.SARVAM.value:
+        kwargs["base_url"] = getattr(user_config.llm, "base_url", None)
         kwargs["temperature"] = user_config.llm.temperature
 
     return create_llm_service_from_provider(

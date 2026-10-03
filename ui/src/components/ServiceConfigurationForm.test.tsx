@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type ServiceConfigurationDefaults, ServiceConfigurationForm } from "./ServiceConfigurationForm";
 
@@ -17,6 +17,12 @@ vi.mock("@/components/ui/select", () => ({
     SelectTrigger: () => null,
     SelectValue: () => null,
     SelectItem: ({ value, children }: { value: string; children: ReactNode }) => <option value={value}>{children}</option>,
+}));
+vi.mock("@/components/ui/tabs", () => ({
+    Tabs: ({ children }: { children: ReactNode }) => <>{children}</>,
+    TabsList: () => null,
+    TabsTrigger: () => null,
+    TabsContent: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
 const defaults: ServiceConfigurationDefaults = {
@@ -77,5 +83,96 @@ describe("OpenAI speech model selection", () => {
         expect(onSave.mock.calls[0][0].realtime.model).toBe("gpt-realtime-2.1");
         expect(onSave.mock.calls[0][0].realtime.voice).toBe("marin");
         expect(onSave.mock.calls[0][0].realtime).not.toHaveProperty("backend_model");
+    });
+});
+
+const listDefaults: ServiceConfigurationDefaults = {
+    llm: {
+        openrouter: {
+            title: "Open Router",
+            properties: {
+                provider: { default: "openrouter" },
+                model: { default: "openai/gpt-4.1" },
+                provider_order: { type: "array", items: { type: "string" } },
+                api_key: { type: "string" },
+            },
+        },
+    },
+    tts: {},
+    stt: {
+        deepgram: {
+            title: "Deepgram",
+            properties: {
+                provider: { default: "deepgram" },
+                model: { default: "nova-3-general", examples: ["nova-3-general", "flux-general-multi"] },
+                language: { default: "multi", examples: ["multi", "en", "hi"] },
+                language_hints: {
+                    type: "array",
+                    items: { type: "string" },
+                    examples: ["en", "hi", "es"],
+                    visible_for_models: ["flux-general-multi"],
+                },
+                api_key: { type: "string" },
+            },
+        },
+    },
+    embeddings: {},
+    default_providers: { llm: "openrouter", stt: "deepgram" },
+};
+
+const listInitialConfig = {
+    llm: { provider: "openrouter", api_key: "llm-key", model: "openai/gpt-4.1", provider_order: ["provider-x"] },
+    stt: { provider: "deepgram", api_key: "stt-key", model: "flux-general-multi", language: "multi", language_hints: ["hi"] },
+};
+
+describe("List fields", () => {
+    beforeEach(() => {
+        vi.stubGlobal("ResizeObserver", class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        });
+    });
+
+    it("saves a multi-select in option order", async () => {
+        const onSave = vi.fn();
+        render(<ServiceConfigurationForm mode="global" configurationDefaults={listDefaults} initialConfig={listInitialConfig} onSave={onSave} />);
+        const hindi = await screen.findByRole("checkbox", { name: "Hindi" });
+        await waitFor(() => expect(hindi.getAttribute("aria-checked")).toBe("true"));
+
+        fireEvent.click(screen.getByRole("checkbox", { name: "English" }));
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        expect(onSave.mock.calls[0][0].stt.language_hints).toEqual(["en", "hi"]);
+    });
+
+    it("drops a multi-select hidden for the chosen model", async () => {
+        const onSave = vi.fn();
+        render(<ServiceConfigurationForm mode="global" configurationDefaults={listDefaults} initialConfig={listInitialConfig} onSave={onSave} />);
+        const modelSelect = await screen.findByDisplayValue("flux-general-multi");
+
+        fireEvent.change(modelSelect, { target: { value: "nova-3-general" } });
+        expect(screen.queryByRole("checkbox", { name: "Hindi" })).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        expect(onSave.mock.calls[0][0].stt).not.toHaveProperty("language_hints");
+    });
+
+    it("saves free-form entries in the order added, skipping blanks", async () => {
+        const onSave = vi.fn();
+        render(<ServiceConfigurationForm mode="global" configurationDefaults={listDefaults} initialConfig={listInitialConfig} onSave={onSave} />);
+        await screen.findByDisplayValue("provider-x");
+
+        fireEvent.click(screen.getByRole("button", { name: "Add" }));
+        fireEvent.click(screen.getByRole("button", { name: "Add" }));
+        const inputs = screen.getAllByPlaceholderText("Enter provider order");
+        expect(inputs).toHaveLength(3);
+        fireEvent.change(inputs[1], { target: { value: "  provider-y " } });
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        expect(onSave.mock.calls[0][0].llm.provider_order).toEqual(["provider-x", "provider-y"]);
     });
 });

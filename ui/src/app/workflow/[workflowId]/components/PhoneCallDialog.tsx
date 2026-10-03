@@ -69,7 +69,6 @@ export const PhoneCallDialog = ({
     const router = useRouter();
     const { refreshConfig } = useUserConfig();
     const [preferences, setPreferences] = useState<OrganizationPreferences>({});
-    const [preferencesLoaded, setPreferencesLoaded] = useState(false);
     const [phoneNumber, setPhoneNumber] = useState("");
     const [callLoading, setCallLoading] = useState(false);
     const [callError, setCallError] = useState<string | null>(null);
@@ -149,18 +148,15 @@ export const PhoneCallDialog = ({
         if (!open) return;
 
         let cancelled = false;
-        setPreferencesLoaded(false);
 
         const loadPreferences = async () => {
             try {
                 const nextPreferences = await fetchPreferences();
                 if (cancelled) return;
                 applyPreferences(nextPreferences);
-                setPreferencesLoaded(true);
             } catch (err) {
                 if (cancelled) return;
                 applyPreferences({});
-                setPreferencesLoaded(false);
                 setCallError(err instanceof Error ? err.message : "Failed to load phone preferences");
             }
         };
@@ -260,11 +256,9 @@ export const PhoneCallDialog = ({
     };
 
     const savePhoneNumberPreference = async () => {
-        const currentPreferences = preferencesLoaded ? preferences : await fetchPreferences();
         const result =
             await savePreferencesApiV1OrganizationsPreferencesPut({
                 body: {
-                    ...currentPreferences,
                     test_phone_number: phoneNumber || null,
                 },
             });
@@ -277,7 +271,6 @@ export const PhoneCallDialog = ({
         }
 
         setPreferences(result.data);
-        setPreferencesLoaded(true);
         setPhoneChanged(false);
         await refreshConfig();
     };

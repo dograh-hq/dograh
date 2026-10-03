@@ -5,6 +5,7 @@ from collections.abc import Callable
 from pipecat.bus.bridge_processor import BusBridgeProcessor
 from pipecat.bus.messages import BusFrameMessage, BusMessage
 from pipecat.frames.frames import (
+    BotSpeakingFrame,
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     CancelFrame,
@@ -32,6 +33,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 # These must reach both the call processors and the selected agent exactly once.
 TEED_FRAMES = (
+    BotSpeakingFrame,
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     InterruptionFrame,

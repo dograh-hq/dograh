@@ -1,0 +1,10 @@
+apiVersion: 1
+datasources:
+  - name: Dograh Prometheus
+    uid: dograh-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 5s

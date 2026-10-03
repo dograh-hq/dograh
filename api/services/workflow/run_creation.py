@@ -20,7 +20,13 @@ def published_definition(workflow) -> object | None:
 _published_definition = published_definition
 
 
-async def definition_to_run(workflow_client, workflow, *, use_draft: bool = False):
+async def definition_to_run(
+    workflow_client,
+    workflow,
+    *,
+    use_draft: bool = False,
+    definition_id: int | None = None,
+):
     """The definition a run of ``workflow`` should pin.
 
     One policy, shared by run creation and by in-call agent transfer, so a
@@ -33,6 +39,15 @@ async def definition_to_run(workflow_client, workflow, *, use_draft: bool = Fals
     to its live definition rather than failing, which is what makes it safe to
     turn on for a whole call rather than per agent.
     """
+    if definition_id is not None:
+        if use_draft:
+            raise ValueError("An explicit version cannot be combined with use_draft")
+        definition = await workflow_client.get_workflow_definition(
+            workflow.id, definition_id, workflow.organization_id
+        )
+        if definition is None or definition.status not in {"published", "archived"}:
+            raise ValueError("Published or archived agent version not found")
+        return definition
     if use_draft:
         draft = await workflow_client.get_draft_version(workflow.id)
         if draft is not None:
@@ -47,6 +62,7 @@ async def prepare_workflow_run_inputs(
     initial_context: dict[str, Any] | None = None,
     use_draft: bool = False,
     include_template_context: bool = False,
+    definition_id: int | None = None,
 ) -> WorkflowRunInputs:
     """Resolve definition binding and optional template defaults for a run.
 
@@ -55,7 +71,7 @@ async def prepare_workflow_run_inputs(
     flows.
     """
     target_definition = await definition_to_run(
-        workflow_client, workflow, use_draft=use_draft
+        workflow_client, workflow, use_draft=use_draft, definition_id=definition_id
     )
 
     default_context = {}

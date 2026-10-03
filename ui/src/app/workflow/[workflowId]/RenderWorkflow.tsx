@@ -7,7 +7,7 @@ import {
     ReactFlow,
 } from "@xyflow/react";
 import { BrushCleaning, Maximize2, Minus, Plus, Settings } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -61,6 +61,7 @@ interface RenderWorkflowProps {
     initialWorkflowConfigurations?: WorkflowConfigurations;
     initialVersionNumber?: number | null;
     initialVersionStatus?: string | null;
+    initialSelectedVersion?: WorkflowVersionResponse;
     user: { id: string; email?: string };
 }
 
@@ -75,9 +76,11 @@ function RenderWorkflow({
     initialWorkflowConfigurations,
     initialVersionNumber,
     initialVersionStatus,
+    initialSelectedVersion,
     user,
 }: RenderWorkflowProps) {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { specs } = useNodeSpecs();
     const { hasCompletedAction } = useOnboarding();
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
@@ -89,7 +92,7 @@ function RenderWorkflow({
     const [versionsLoading, setVersionsLoading] = useState(false);
     const [versionsLoadingMore, setVersionsLoadingMore] = useState(false);
     const [versionsHasMore, setVersionsHasMore] = useState(false);
-    const [activeVersionId, setActiveVersionId] = useState<number | null>(null);
+    const [activeVersionId, setActiveVersionId] = useState<number | null>(initialSelectedVersion?.id ?? null);
     const [comparingVersionId, setComparingVersionId] = useState<number | null>(null);
     const [versionDiffPair, setVersionDiffPair] = useState<{
         previousVersion: WorkflowVersionResponse;
@@ -223,7 +226,7 @@ function RenderWorkflow({
 
     const handleOpenVersionPanel = useCallback(() => {
         setIsVersionPanelOpen(true);
-        void fetchVersions();
+        void fetchVersions(false, true);
     }, [fetchVersions]);
 
     const handleCompareVersion = useCallback(async (version: WorkflowVersionResponse) => {
@@ -288,35 +291,34 @@ function RenderWorkflow({
         setIsVersionPanelOpen(true);
     }, []);
 
-    const handleSelectVersion = useCallback((version: WorkflowVersionResponse) => {
-        setActiveVersionId(version.id);
-        const wfJson = version.workflow_json;
-        const flowNodes = (wfJson.nodes ?? []) as FlowNode[];
-        const flowEdges = (wfJson.edges ?? []) as FlowEdge[];
-
-        // Update the Zustand store directly instead of rfInstance.current.setNodes().
-        // This keeps data flow unidirectional (store → props → ReactFlow) and avoids
-        // xyflow's d3 event handlers interfering with React's event delegation.
-        // The key={activeVersionId} on <ReactFlow> forces a clean remount.
-        setNodes(flowNodes);
-        setEdges(flowEdges);
-        // Never mark dirty when switching versions — historical versions are
-        // read-only, and loading the draft is restoring the saved state.
-        setIsDirty(false);
+    const navigateToVersion = useCallback((version: number | null) => {
+        const query = new URLSearchParams(searchParams.toString());
+        if (version === null) query.delete('version');
+        else query.set('version', String(version));
+        const suffix = query.toString();
+        router.push(`/workflow/${workflowId}${suffix ? `?${suffix}` : ''}`, { scroll: false });
         setIsVersionPanelOpen(false);
-    }, [setNodes, setEdges, setIsDirty]);
+    }, [router, searchParams, workflowId]);
+
+    const handleSelectVersion = useCallback((version: WorkflowVersionResponse) => {
+        const isCurrentVersion = version.status === 'draft'
+            || (version.status === 'published' && !hasDraft);
+        navigateToVersion(isCurrentVersion ? null : version.version_number);
+    }, [hasDraft, navigateToVersion]);
 
     // Determine if we are viewing a historical (non-current) version.
     // The "current" version is the draft if one exists, otherwise the published version.
     // Anything else (archived, or published while a draft exists) is historical.
     const isViewingHistoricalVersion = useMemo(() => {
+        // Explicit version links open a saved snapshot, including the latest release.
+        if (initialSelectedVersion?.id === activeVersionId) return true;
         if (!activeVersionId || versions.length === 0) return false;
         const activeVersion = versions.find((v) => v.id === activeVersionId);
         if (!activeVersion) return false;
         if (activeVersion.status === "draft") return false;
         if (activeVersion.status === "published" && !hasDraft) return false;
         return true;
-    }, [activeVersionId, versions, hasDraft]);
+    }, [activeVersionId, versions, hasDraft, initialSelectedVersion]);
 
     useEffect(() => {
         if (!isViewingHistoricalVersion) {
@@ -327,6 +329,10 @@ function RenderWorkflow({
 
     // Return to the draft version, creating one from published if needed
     const handleBackToDraft = useCallback(async () => {
+        if (initialSelectedVersion) {
+            navigateToVersion(null);
+            return;
+        }
         const existingDraft = versions.find((v) => v.status === "draft");
         if (existingDraft) {
             handleSelectVersion(existingDraft);
@@ -351,7 +357,7 @@ function RenderWorkflow({
             // Refresh the version list so the new draft appears
             fetchVersions(true);
         }
-    }, [versions, handleSelectVersion, workflowId, setNodes, setEdges, setIsDirty, fetchVersions]);
+    }, [versions, handleSelectVersion, workflowId, setNodes, setEdges, setIsDirty, fetchVersions, initialSelectedVersion, navigateToVersion]);
 
     // After a successful publish, refresh the version list and update status
     const handlePublished = useCallback(() => {
@@ -364,8 +370,9 @@ function RenderWorkflow({
     // falling back to the versions list for history navigation.
     const activeVersionLabel = useMemo(() => {
         // When viewing a version from the history panel, use the versions list
-        if (activeVersionId && versions.length > 0) {
-            const v = versions.find((ver) => ver.id === activeVersionId);
+        if (activeVersionId) {
+            const v = versions.find((ver) => ver.id === activeVersionId)
+                ?? (initialSelectedVersion?.id === activeVersionId ? initialSelectedVersion : undefined);
             if (v) {
                 const statusSuffix = v.status === "draft" ? " (Draft)" : v.status === "published" ? " (Published)" : "";
                 return `v${v.version_number}${statusSuffix}`;
@@ -377,7 +384,7 @@ function RenderWorkflow({
             return `v${currentVersionNumber}${statusSuffix}`;
         }
         return undefined;
-    }, [activeVersionId, versions, currentVersionNumber, currentVersionStatus]);
+    }, [activeVersionId, versions, currentVersionNumber, currentVersionStatus, initialSelectedVersion]);
 
     const testerDisabledReason = useMemo(() => {
         if (isViewingHistoricalVersion) {

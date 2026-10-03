@@ -21,8 +21,15 @@ async def create_tool(request: CreateToolRequest) -> dict[str, Any]:
     """Create a reusable tool the agent can invoke during calls.
 
     The request schema is the same `CreateToolRequest` used by the REST API
-    and generated SDKs. Use it to create HTTP API, end-call, transfer-call,
-    calculator, or MCP-server tools. For authenticated HTTP or MCP tools,
+    and generated SDKs, and it is authoritative for the tool categories you
+    can create: `http_api`, `end_call`, `transfer_call`, `transfer_agent`,
+    `calculator`, and `mcp`. Read the `definition` union rather than this
+    list if the two ever disagree.
+
+    `transfer_agent` hands the live call to another Dograh agent by
+    `config.workflow_id` (an integer agent id, not a phone number or SIP
+    endpoint). Create the destination agent first so its id exists, then the
+    tool, then the agent that routes to it. For authenticated HTTP or MCP tools,
     reference an existing `credential_uuid` from `list_credentials`; users
     create credential secrets in the UI, and this flow only stores the UUID
     reference. For MCP tools, the server best-effort discovers the remote
@@ -35,6 +42,8 @@ async def create_tool(request: CreateToolRequest) -> dict[str, Any]:
     - `validation_error` — the request failed schema validation.
     - `credential_not_found` — a supplied credential_uuid is not in this
       organization; ask the user to create/select it in the UI first.
+    - `destination_not_found` — a `transfer_agent` tool's `workflow_id` is
+      not an agent in this organization; confirm the id with `list_workflows`.
     - `organization_required` — the API key user has no selected organization.
     - `create_failed` — unexpected persistence or backend failure; retry once,
       then surface the error.

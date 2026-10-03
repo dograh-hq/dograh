@@ -112,13 +112,20 @@ def build_ttfb_metric_event(
     ttfb_seconds: float,
     processor: str | None,
     model: str | None,
+    kind: str,
 ) -> dict[str, Any]:
+    """``kind`` ("stt" | "llm" | "tts") names the pipeline stage measured.
+
+    Runs recorded before STT and TTS were forwarded carry no ``kind``; those events
+    are LLM measurements, so consumers read a missing ``kind`` as "llm".
+    """
     return {
         "type": RealtimeFeedbackType.TTFB_METRIC.value,
         "payload": {
             "ttfb_seconds": ttfb_seconds,
             "processor": processor,
             "model": model,
+            "kind": kind,
         },
     }
 

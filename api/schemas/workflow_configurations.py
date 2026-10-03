@@ -22,8 +22,8 @@ DEFAULT_MAX_CALL_DURATION_SECONDS = 300
 MAX_CALL_DURATION_SECONDS = 1200
 DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS = 10.0
 DEFAULT_SMART_TURN_STOP_SECS = 2.0
-DEFAULT_TURN_START_STRATEGY = "default"
-DEFAULT_TURN_START_MIN_WORDS = 3
+DEFAULT_TURN_START_STRATEGY = "min_words"
+DEFAULT_TURN_START_MIN_WORDS = 2
 DEFAULT_TURN_STOP_STRATEGY = "transcription"
 DEFAULT_CONTEXT_COMPACTION_ENABLED = False
 MAX_CALL_DISPOSITIONS = 50
@@ -145,12 +145,16 @@ class WorkflowConfigurationDefaults(BaseModel):
     max_user_idle_timeout: float = DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS
     smart_turn_stop_secs: float = DEFAULT_SMART_TURN_STOP_SECS
     turn_start_strategy: Literal["default", "min_words"] = DEFAULT_TURN_START_STRATEGY
-    turn_start_min_words: int = DEFAULT_TURN_START_MIN_WORDS
+    turn_start_min_words: int = Field(default=DEFAULT_TURN_START_MIN_WORDS, ge=1)
     turn_stop_strategy: Literal["transcription", "turn_analyzer"] = (
         DEFAULT_TURN_STOP_STRATEGY
     )
     dictionary: str = ""
     context_compaction_enabled: bool = DEFAULT_CONTEXT_COMPACTION_ENABLED
+    tts_cache_enabled: bool = Field(
+        default=False,
+        description="Reuse generated speech for repeated phrases. Supports MiniMax TTS.",
+    )
     call_dispositions: list[CallDispositionOption] = Field(
         default_factory=list,
         max_length=MAX_CALL_DISPOSITIONS,

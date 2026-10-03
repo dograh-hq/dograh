@@ -60,6 +60,8 @@ from api.services.configuration.options import (
     SMALLEST_TTS_MODELS,
     SMALLEST_TTS_PRO_VOICES,
     SMALLEST_TTS_VOICES,
+    SONIOX_STT_LANGUAGES,
+    SONIOX_STT_MODELS,
     SPEECHMATICS_STT_LANGUAGES,
 )
 from api.services.configuration.options.google import (
@@ -80,6 +82,7 @@ class ServiceType(Enum):
 class ServiceProviders(str, Enum):
     OPENAI = "openai"
     ATLASCLOUD = "atlascloud"
+    HOPPER = "hopper"
     DEEPGRAM = "deepgram"
     GROQ = "groq"
     OPENROUTER = "openrouter"
@@ -113,12 +116,14 @@ class ServiceProviders(str, Enum):
     XAI = "xai"
     LMNT = "lmnt"
     SPEECHIFY = "speechify"
+    SONIOX = "soniox"
 
 
 class BaseServiceConfiguration(BaseModel):
     provider: Literal[
         ServiceProviders.OPENAI,
         ServiceProviders.ATLASCLOUD,
+        ServiceProviders.HOPPER,
         ServiceProviders.DEEPGRAM,
         ServiceProviders.GROQ,
         ServiceProviders.OPENROUTER,
@@ -148,6 +153,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.XAI,
         ServiceProviders.LMNT,
         ServiceProviders.SPEECHIFY,
+        ServiceProviders.SONIOX,
     ]
     api_key: str | list[str]
 
@@ -313,6 +319,10 @@ ATLASCLOUD_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Atlas Cloud",
     description="Atlas Cloud OpenAI-compatible LLM API.",
 )
+HOPPER_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Hopper",
+    provider_docs_url="https://docs.withhopper.com",
+)
 GOOGLE_PROVIDER_MODEL_CONFIG = provider_model_config("Google")
 GROQ_PROVIDER_MODEL_CONFIG = provider_model_config("Groq")
 OPENROUTER_PROVIDER_MODEL_CONFIG = provider_model_config("Open Router")
@@ -351,6 +361,7 @@ GOOGLE_CLOUD_PROVIDER_MODEL_CONFIG = provider_model_config("Google Cloud")
 SPEECHMATICS_PROVIDER_MODEL_CONFIG = provider_model_config("Speechmatics")
 ASSEMBLYAI_PROVIDER_MODEL_CONFIG = provider_model_config("AssemblyAI")
 GLADIA_PROVIDER_MODEL_CONFIG = provider_model_config("Gladia")
+SONIOX_PROVIDER_MODEL_CONFIG = provider_model_config("Soniox")
 SPEACHES_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Local Models (Speaches)",
     description=(
@@ -396,19 +407,19 @@ OPENAI_MODELS = [
     "gpt-3.5-turbo",
 ]
 
+ATLASCLOUD_API_BASE_URL = "https://api.atlascloud.ai/v1"
 ATLASCLOUD_MODELS = [
     "qwen/qwen3.5-flash",
     "deepseek-ai/deepseek-v4-pro",
 ]
 
+HOPPER_API_BASE_URL = "https://api.withhopper.com/v1"
+HOPPER_MODELS = [
+    "gemma-4-31b",
+]
+
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
-    "deepseek-r1-distill-llama-70b",
-    "qwen-qwq-32b",
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
-    "gemma2-9b-it",
-    "llama-3.1-8b-instant",
     "openai/gpt-oss-120b",
 ]
 OPENROUTER_MODELS = [
@@ -455,8 +466,26 @@ class AtlasCloudLLMService(BaseLLMConfiguration):
         json_schema_extra={"examples": ATLASCLOUD_MODELS, "allow_custom_input": True},
     )
     base_url: str = Field(
-        default="https://api.atlascloud.ai/v1",
+        default=ATLASCLOUD_API_BASE_URL,
         description="Atlas Cloud OpenAI-compatible API endpoint.",
+    )
+
+
+@register_llm
+class HopperLLMConfiguration(BaseLLMConfiguration):
+    model_config = HOPPER_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.HOPPER] = ServiceProviders.HOPPER
+    api_key: str | list[str] = Field(
+        description="API key from your Hopper console.",
+        json_schema_extra={
+            "docs_url": "https://withhopper.com/console/keys",
+            "docs_label": "Create a key",
+        },
+    )
+    model: str = Field(
+        default="gemma-4-31b",
+        description="Hopper chat model.",
+        json_schema_extra={"examples": HOPPER_MODELS, "allow_custom_input": True},
     )
 
 
@@ -539,6 +568,15 @@ class OpenRouterLLMConfiguration(BaseLLMConfiguration):
     base_url: str = Field(
         default="https://openrouter.ai/api/v1",
         description="Override only if proxying OpenRouter through your own gateway.",
+    )
+    provider_order: list[str] = Field(
+        default_factory=list,
+        description=(
+            "OpenRouter provider slugs to try first, in order, one per entry "
+            "(e.g. groq), as listed on the model's OpenRouter page. Pinning a "
+            "low-latency provider avoids OpenRouter's default price-weighted "
+            "routing; other providers are still used if these are unavailable."
+        ),
     )
 
 
@@ -681,9 +719,13 @@ class SarvamLLMConfiguration(BaseLLMConfiguration):
     model_config = SARVAM_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="sarvam-105b",
+        default="sarvam-105b-conversations",
         description="Sarvam chat model.",
         json_schema_extra={"examples": SARVAM_LLM_MODELS, "allow_custom_input": True},
+    )
+    base_url: str = Field(
+        default="https://api.sarvam.ai/v1",
+        description="Sarvam API base URL.",
     )
     temperature: float = Field(
         default=0.5,
@@ -957,7 +999,7 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
         ServiceProviders.GOOGLE_REALTIME
     )
     model: str = Field(
-        default="gemini-3.1-flash-live-preview",
+        default="gemini-3.8-live",
         description="Gemini Live model on Google AI Studio (not Vertex).",
         json_schema_extra={
             "examples": GOOGLE_REALTIME_MODELS,
@@ -1094,6 +1136,7 @@ LLMConfig = Annotated[
     Union[
         OpenAILLMService,
         AtlasCloudLLMService,
+        HopperLLMConfiguration,
         GoogleVertexLLMConfiguration,
         GroqLLMService,
         OpenRouterLLMConfiguration,
@@ -1302,7 +1345,7 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
     model_config = CARTESIA_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.CARTESIA] = ServiceProviders.CARTESIA
     model: str = Field(
-        default="sonic-3.5",
+        default="sonic-3.6",
         description="Cartesia TTS model.",
         json_schema_extra={"examples": CARTESIA_TTS_MODELS},
     )
@@ -1825,6 +1868,19 @@ class DeepgramSTTConfiguration(FluxEOTConfigMixin, BaseSTTConfiguration):
             },
         },
     )
+    language_hints: list[str] = Field(
+        default_factory=list,
+        description=(
+            "More languages to bias Flux multilingual toward, on top of the "
+            "language above. Pick several when callers switch between known "
+            "languages; leave empty to rely on the language above."
+        ),
+        json_schema_extra={
+            "examples": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
+            "visible_for_models": ["flux-general-multi"],
+        },
+    )
+
     base_url: str = Field(
         default=DEEPGRAM_DEFAULT_BASE_URL,
         description=(
@@ -1838,6 +1894,23 @@ class DeepgramSTTConfiguration(FluxEOTConfigMixin, BaseSTTConfiguration):
             "allow_custom_input": True,
         },
     )
+
+    @field_validator("language_hints")
+    @classmethod
+    def validate_language_hints(cls, hints: list[str]) -> list[str]:
+        # Deepgram rejects the whole stream for an unsupported hint, so catch it
+        # when the configuration is saved rather than when a call connects.
+        unsupported = [
+            hint
+            for hint in hints
+            if hint.split("-", 1)[0].lower() not in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES
+        ]
+        if unsupported:
+            raise ValueError(
+                "Unsupported Flux multilingual language hints: "
+                + ", ".join(unsupported)
+            )
+        return hints
 
 
 @register_stt
@@ -2093,6 +2166,28 @@ class GladiaSTTConfiguration(BaseSTTConfiguration):
 
 
 @register_stt
+class SonioxSTTConfiguration(BaseSTTConfiguration):
+    model_config = SONIOX_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SONIOX] = ServiceProviders.SONIOX
+    model: str = Field(
+        default="stt-rt-v5",
+        description="Soniox real-time STT model.",
+        json_schema_extra={"examples": SONIOX_STT_MODELS, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="multi",
+        description=(
+            "ISO 639-1 language code, sent as a language hint. 'multi' sends no "
+            "hint and lets Soniox auto-detect the language."
+        ),
+        json_schema_extra={
+            "examples": SONIOX_STT_LANGUAGES,
+            "docs_url": "https://soniox.com/docs/stt/concepts/supported-languages",
+        },
+    )
+
+
+@register_stt
 class AzureSpeechSTTConfiguration(BaseSTTConfiguration):
     model_config = AZURE_SPEECH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AZURE_SPEECH] = ServiceProviders.AZURE_SPEECH
@@ -2220,6 +2315,7 @@ STTConfig = Annotated[
         HuggingFaceSTTConfiguration,
         AssemblyAISTTConfiguration,
         GladiaSTTConfiguration,
+        SonioxSTTConfiguration,
         AzureSpeechSTTConfiguration,
         SmallestAISTTConfiguration,
         ElevenlabsSTTConfiguration,

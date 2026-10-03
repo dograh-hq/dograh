@@ -666,6 +666,36 @@ async def test_tool_test_hint_for_status_code(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,mentions_body_format",
+    [("POST", True), ("PUT", True), ("PATCH", True), ("GET", False), ("DELETE", False)],
+)
+async def test_tool_test_415_hint_depends_on_method(
+    monkeypatch, method, mentions_body_format
+):
+    import api.routes.tool as tool_route
+
+    tool = _http_tool_model(method=method)
+    monkeypatch.setattr(
+        tool_route.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+    )
+    monkeypatch.setattr(
+        tool_route,
+        "execute_http_tool",
+        AsyncMock(
+            return_value={"status": "error", "status_code": 415, "error": "boom"}
+        ),
+    )
+
+    resp = await call_test_tool_route(
+        "tu-http", request=ToolTestRequest(), user=_fake_user()
+    )
+
+    assert ("Body Format" in resp.hint) is mentions_body_format
+    assert "Content-Type in Custom Headers" in resp.hint
+
+
+@pytest.mark.asyncio
 async def test_tool_test_no_hint_on_success(monkeypatch):
     import api.routes.tool as tool_route
 

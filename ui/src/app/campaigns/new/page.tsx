@@ -10,10 +10,9 @@ import { toast } from 'sonner';
 import {
     createCampaignApiV1CampaignCreatePost,
     getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet,
-    getWorkflowsSummaryApiV1WorkflowSummaryGet,
     listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet
 } from '@/client/sdk.gen';
-import type { TelephonyConfigurationListItem, WorkflowSummaryResponse } from '@/client/types.gen';
+import type { TelephonyConfigurationListItem, TrafficVariantRequest } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -26,10 +25,12 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 
 import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../CampaignAdvancedSettings';
 import CsvUploadSelector from '../CsvUploadSelector';
+import TrafficSplitEditor, { trafficSplitError } from '../TrafficSplitEditor';
 
 export default function NewCampaignPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
@@ -37,16 +38,12 @@ export default function NewCampaignPage() {
 
     // Form state
     const [campaignName, setCampaignName] = useState('');
-    const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
+    const [variants, setVariants] = useState<TrafficVariantRequest[]>([{ workflow_id: 0, workflow_definition_id: null, weight: 100 }]);
     const [sourceType, setSourceType] = useState<'csv'>('csv');
     const [sourceId, setSourceId] = useState('');
     const [selectedFileName, setSelectedFileName] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [createError, setCreateError] = useState<string | null>(null);
-
-    // Workflows state
-    const [workflows, setWorkflows] = useState<WorkflowSummaryResponse[]>([]);
-    const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(true);
 
     // Telephony configurations state
     const [telephonyConfigs, setTelephonyConfigs] = useState<TelephonyConfigurationListItem[]>([]);
@@ -90,31 +87,6 @@ export default function NewCampaignPage() {
             redirectToLogin();
         }
     }, [loading, user, redirectToLogin]);
-
-    // Fetch workflows
-    const fetchWorkflows = useCallback(async () => {
-        if (!user) return;
-        try {
-            const accessToken = await getAccessToken();
-            const response = await getWorkflowsSummaryApiV1WorkflowSummaryGet({
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                },
-                query: {
-                    status: 'active',
-                },
-            });
-
-            if (response.data) {
-                setWorkflows(response.data);
-            }
-        } catch (error) {
-            console.error('Failed to fetch workflows:', error);
-            toast.error('Failed to load workflows');
-        } finally {
-            setIsLoadingWorkflows(false);
-        }
-    }, [user, getAccessToken]);
 
     // Fetch telephony configurations
     const fetchTelephonyConfigs = useCallback(async () => {
@@ -217,12 +189,11 @@ export default function NewCampaignPage() {
 
     // Initial load
     useEffect(() => {
-        if (user) {
-            fetchWorkflows();
+        if (!loading && user) {
             fetchCampaignDefaults();
             fetchTelephonyConfigs();
         }
-    }, [fetchWorkflows, fetchCampaignDefaults, fetchTelephonyConfigs, user]);
+    }, [fetchCampaignDefaults, fetchTelephonyConfigs, user, loading]);
 
     // Phone-number count for the selected telephony config drives concurrency
     // bounds. Falls back to the campaign-defaults endpoint's count (org default
@@ -239,7 +210,7 @@ export default function NewCampaignPage() {
         e.preventDefault();
         setCreateError(null);
 
-        if (!campaignName || !selectedWorkflowId || !sourceId || !selectedTelephonyConfigId) {
+        if (!campaignName || !!trafficSplitError(variants) || !sourceId || !selectedTelephonyConfigId) {
             toast.error('Please fill in all fields');
             return;
         }
@@ -293,7 +264,7 @@ export default function NewCampaignPage() {
             const response = await createCampaignApiV1CampaignCreatePost({
                 body: {
                     name: campaignName,
-                    workflow_id: parseInt(selectedWorkflowId),
+                    traffic_split: { variants },
                     source_type: sourceType,
                     source_id: sourceId,
                     telephony_configuration_id: parseInt(selectedTelephonyConfigId),
@@ -310,8 +281,7 @@ export default function NewCampaignPage() {
 
             if (response.error) {
                 // Extract error message from API response
-                const errorDetail = (response.error as { detail?: string })?.detail;
-                const errorMessage = errorDetail || 'Failed to create campaign';
+                const errorMessage = detailFromError(response.error, 'Failed to create campaign');
                 setCreateError(errorMessage);
                 toast.error(errorMessage);
                 return;
@@ -382,41 +352,7 @@ export default function NewCampaignPage() {
                                 </p>
                             </div>
 
-                            <div className="space-y-2">
-                                <Label htmlFor="workflow">Workflow</Label>
-                                <Select
-                                    value={selectedWorkflowId}
-                                    onValueChange={setSelectedWorkflowId}
-                                    required
-                                >
-                                    <SelectTrigger id="workflow">
-                                        <SelectValue placeholder="Select a workflow" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {isLoadingWorkflows ? (
-                                            <SelectItem value="loading" disabled>
-                                                Loading workflows...
-                                            </SelectItem>
-                                        ) : workflows.length === 0 ? (
-                                            <SelectItem value="none" disabled>
-                                                No workflows found
-                                            </SelectItem>
-                                        ) : (
-                                            workflows.map((workflow) => (
-                                                <SelectItem
-                                                    key={workflow.id}
-                                                    value={workflow.id.toString()}
-                                                >
-                                                    {workflow.name} (#{workflow.id})
-                                                </SelectItem>
-                                            ))
-                                        )}
-                                    </SelectContent>
-                                </Select>
-                                <p className="text-sm text-muted-foreground">
-                                    Select the workflow to execute for each row in the data source
-                                </p>
-                            </div>
+                            <TrafficSplitEditor value={variants} onChange={setVariants} disabled={isSubmitting} />
 
                             <div className="space-y-2">
                                 <Label htmlFor="telephony-config">Telephony Configuration</Label>
@@ -555,7 +491,7 @@ export default function NewCampaignPage() {
                             <div className="flex gap-4 pt-4">
                                 <Button
                                     type="submit"
-                                    disabled={isSubmitting || !campaignName || !selectedWorkflowId || !sourceId || !selectedTelephonyConfigId}
+                                    disabled={isSubmitting || !campaignName || !!trafficSplitError(variants) || !sourceId || !selectedTelephonyConfigId}
                                 >
                                     {isSubmitting ? 'Creating...' : 'Create Campaign'}
                                 </Button>

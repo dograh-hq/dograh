@@ -8,7 +8,7 @@ from pipecat.services.openai.realtime import events
 from api.services.pipecat.realtime.openai_realtime import (
     DograhOpenAIRealtimeLLMService,
 )
-from api.services.workflow.pipecat_engine_callbacks import UserIdleHandler
+from api.services.workflow.pipecat_engine_callbacks import handle_user_idle
 
 
 @pytest.mark.asyncio
@@ -43,9 +43,7 @@ async def test_user_idle_handler_uses_realtime_append_path():
         end_call_with_reason=AsyncMock(),
     )
     aggregator = SimpleNamespace(push_frame=AsyncMock())
-    handler = UserIdleHandler(engine)
-
-    await handler.handle_idle(aggregator)
+    await handle_user_idle(engine, aggregator, 1)
 
     aggregator.push_frame.assert_awaited_once()
     frame = aggregator.push_frame.await_args.args[0]

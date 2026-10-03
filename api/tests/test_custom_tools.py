@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
+import httpx
 import pytest
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
@@ -23,6 +24,7 @@ from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMServiceMetadataFrame,
+    TTSSpeakFrame,
     UserTurnInferenceCompletedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -1028,6 +1030,226 @@ class TestExecuteHttpTool:
                 # Verify credential lookup was NOT called
                 mock_db.get_credential_by_uuid.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_http_error_response_is_reported_as_an_error(self):
+        """A 4xx reaches the agent as status error, with the code and body."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-error",
+            name="Book Slot",
+            description="Book a slot",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {"method": "POST", "url": "https://api.example.com/book"},
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 400
+            mock_response.text = '{"detail": "slot taken"}'
+            mock_response.json.return_value = {"detail": "slot taken"}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, {"slot": "10:00"})
+
+        assert result["status"] == "error"
+        assert result["status_code"] == 400
+        assert result["data"] == {"detail": "slot taken"}
+
+    @pytest.mark.asyncio
+    async def test_form_body_format_sends_form_encoded_fields(self):
+        """Form mode sends data= instead of json=, flattening what cannot nest."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-form",
+            name="Send SMS",
+            description="Send an SMS",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/messages",
+                    "body_format": "form",
+                },
+            },
+        )
+        arguments = {
+            "To": "+15550100",
+            "MediaUrl": ["https://a.example/1.png", "https://a.example/2.png"],
+            "Meta": {"campaign": "spring"},
+            "Urgent": True,
+        }
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 201
+            mock_response.json.return_value = {"sid": "SM1"}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, arguments)
+
+        call_kwargs = mock_client.request.call_args.kwargs
+        assert call_kwargs["json"] is None
+        assert call_kwargs["data"] == {
+            "To": "+15550100",
+            "MediaUrl": ["https://a.example/1.png", "https://a.example/2.png"],
+            "Meta": '{"campaign": "spring"}',
+            "Urgent": True,
+        }
+        assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_form_body_is_encoded_on_the_wire(self):
+        """The request httpx builds carries a form content type and body."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-form-wire",
+            name="Send SMS",
+            description="Send an SMS",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/messages",
+                    "body_format": "form",
+                    "headers": {"Content-Type": "application/json"},
+                },
+            },
+        )
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["content_type"] = request.headers["content-type"]
+            captured["body"] = request.content.decode()
+            return httpx.Response(201, json={"sid": "SM1"})
+
+        real_client = httpx.AsyncClient
+
+        def client_factory(**kwargs):
+            return real_client(transport=httpx.MockTransport(handler), **kwargs)
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient",
+            side_effect=client_factory,
+        ):
+            result = await execute_http_tool(
+                tool, {"To": "+15550100", "Body": "Hi there"}
+            )
+
+        assert result["status"] == "success"
+        # The configured JSON Content-Type is dropped, not sent with a form body.
+        assert captured["content_type"] == "application/x-www-form-urlencoded"
+        assert captured["body"] == "To=%2B15550100&Body=Hi+there"
+
+    @pytest.mark.asyncio
+    async def test_form_body_overrides_credential_content_type(self):
+        """A Content-Type from a shared credential does not reach a form request."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-form-credential",
+            name="Send SMS",
+            description="Send an SMS",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/messages",
+                    "body_format": "form",
+                    "credential_uuid": "cred-uuid-ct",
+                },
+            },
+        )
+        credential = Mock()
+        credential.name = "JSON API header"
+        credential.credential_type = "custom_header"
+        credential.credential_data = {
+            "header_name": "Content-Type",
+            "header_value": "application/json",
+        }
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["content_type"] = request.headers["content-type"]
+            return httpx.Response(201, json={"sid": "SM1"})
+
+        real_client = httpx.AsyncClient
+
+        def client_factory(**kwargs):
+            return real_client(transport=httpx.MockTransport(handler), **kwargs)
+
+        with (
+            patch(
+                "api.services.workflow.tools.custom_tool.httpx.AsyncClient",
+                side_effect=client_factory,
+            ),
+            patch("api.services.workflow.tools.custom_tool.db_client") as mock_db,
+        ):
+            mock_db.get_credential_by_uuid = AsyncMock(return_value=credential)
+            result = await execute_http_tool(
+                tool,
+                {"To": "+15550100"},
+                organization_id=1,
+                include_request_headers=True,
+            )
+
+        assert result["status"] == "success"
+        assert captured["content_type"] == "application/x-www-form-urlencoded"
+        # The preview shows only headers that were actually sent.
+        assert result["request_headers"] == {}
+
+    @pytest.mark.parametrize("method", ["GET", "DELETE"])
+    @pytest.mark.asyncio
+    async def test_form_body_format_ignored_without_body(self, method):
+        """A form format left over on a GET/DELETE tool keeps its headers."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-form-no-body",
+            name="Lookup",
+            description="Look up a record",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": method,
+                    "url": "https://api.example.com/records",
+                    "body_format": "form",
+                    "headers": {"Content-Type": "application/json"},
+                },
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"ok": True}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, {"id": "42"})
+
+        call_kwargs = mock_client.request.call_args.kwargs
+        assert call_kwargs["headers"] == {"Content-Type": "application/json"}
+        assert call_kwargs["json"] is None
+        assert call_kwargs["data"] is None
+        assert call_kwargs["params"] == {"id": "42"}
+        assert result["status"] == "success"
+
 
 class TestCoerceParameterValue:
     """Tests for _coerce_parameter_value function."""
@@ -1771,7 +1993,6 @@ class TestCustomToolManagerUnit:
         mock_engine._gathered_context = {}
         mock_engine._get_organization_id = AsyncMock(return_value=1)
         mock_engine.flush_variable_extraction = AsyncMock()
-        mock_engine.arm_speech_playback = Mock()
 
         manager = CustomToolManager(mock_engine)
         tool = MockToolModel(
@@ -1842,11 +2063,7 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine import PipecatEngine
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
-        mock_engine = Mock()
-        mock_engine._is_realtime = False
-        mock_engine.queue_text_message = PipecatEngine.queue_text_message.__get__(
-            mock_engine
-        )
+        mock_engine = PipecatEngine(workflow=None, call_context_vars={})
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._gathered_context = {"state": "TX"}
@@ -1979,9 +2196,11 @@ class TestCustomToolManagerUnit:
         spoken_texts = [
             call.args[0].text
             for call in mock_engine._active_agent.worker.queue_frame.await_args_list
+            if isinstance(call.args[0], TTSSpeakFrame)
         ]
         assert "One moment while I find the right team." in spoken_texts
         assert "I will connect you with our Texas partner now." in spoken_texts
+        mock_engine.speech_playback.cancel_all()
 
     @pytest.mark.asyncio
     async def test_transfer_call_resolver_failure_does_not_toggle_pipeline_mute(self):
@@ -1989,11 +2208,7 @@ class TestCustomToolManagerUnit:
         from api.services.workflow.pipecat_engine import PipecatEngine
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
-        mock_engine = Mock()
-        mock_engine._is_realtime = False
-        mock_engine.queue_text_message = PipecatEngine.queue_text_message.__get__(
-            mock_engine
-        )
+        mock_engine = PipecatEngine(workflow=None, call_context_vars={})
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
         mock_engine._gathered_context = {"state": "TX"}
@@ -2066,6 +2281,7 @@ class TestCustomToolManagerUnit:
         assert result_received["status"] == "transfer_failed"
         assert result_received["reason"] == "no_destination"
         mock_engine.set_mute_pipeline.assert_not_called()
+        mock_engine.speech_playback.cancel_all()
 
     @pytest.mark.asyncio
     async def test_transfer_call_propagates_provider_destination_error(self):
@@ -2660,6 +2876,7 @@ class TestUrlPathParameters:
                 url="https://api.com/users/123",
                 headers={},
                 json=None,
+                data=None,
                 params={"userId": "123"},
             )
 
@@ -2692,6 +2909,7 @@ class TestUrlPathParameters:
                 url="https://api.apaleo.com/booking/v1/reservations/AWAEYPKI-1/actions/cancel",
                 headers={},
                 json={"reservationId": "AWAEYPKI-1"},
+                data=None,
                 params=None,
             )
 
@@ -2790,5 +3008,6 @@ class TestUrlPathParameters:
                 url="https://api.com/users/123",
                 headers={},
                 json=None,
+                data=None,
                 params={"userId": "123"},
             )

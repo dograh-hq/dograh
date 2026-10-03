@@ -2,7 +2,7 @@ import json
 import re
 import uuid
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -807,17 +807,41 @@ async def get_workflow(
     }
 
 
+class WorkflowVersionSummaryResponse(BaseModel):
+    id: int
+    version_number: int | None
+    status: str
+    published_at: datetime | None
+
+
+@router.get("/{workflow_id}/version-summaries")
+async def get_workflow_version_summaries(
+    workflow_id: int, user: UserModel = Depends(get_user)
+) -> list[WorkflowVersionSummaryResponse]:
+    workflow_name = await db_client.get_workflow_name(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow_name is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return await db_client.get_workflow_version_summaries(
+        workflow_id, user.selected_organization_id
+    )
+
+
 @router.get("/{workflow_id}/versions")
 async def get_workflow_versions(
     workflow_id: int,
     limit: int | None = Query(None, ge=1, le=100),
     offset: int = Query(0, ge=0),
     user: UserModel = Depends(get_user),
+    version_number: Annotated[int | None, Query(ge=1)] = None,
+    status: Literal["draft", "published", "archived"] | None = None,
 ) -> list[WorkflowVersionResponse]:
     """List versions for a workflow, newest first.
 
     Pass `limit`/`offset` to page through long histories. With no `limit`,
-    returns every version (legacy behavior).
+    returns every version (legacy behavior). Filter by `version_number` to
+    open an exact version, or by `status=published` for the latest release.
     """
     workflow = await db_client.get_workflow(
         workflow_id, organization_id=user.selected_organization_id
@@ -828,7 +852,11 @@ async def get_workflow_versions(
         )
 
     versions = await db_client.get_workflow_versions(
-        workflow_id, limit=limit, offset=offset
+        workflow_id,
+        limit=limit,
+        offset=offset,
+        version_number=version_number,
+        status=status,
     )
     return [
         WorkflowVersionResponse(

@@ -900,6 +900,7 @@ class WebhookNodeData(BaseNodeData):
                 PropertyOption(value="openai", label="OpenAI"),
                 PropertyOption(value="azure", label="Azure OpenAI"),
                 PropertyOption(value="openrouter", label="OpenRouter"),
+                PropertyOption(value="google", label="Google Gemini"),
                 PropertyOption(value="anthropic", label="Anthropic"),
             ],
             "display_options": DisplayOptions(show={"qa_use_workflow_llm": [False]}),

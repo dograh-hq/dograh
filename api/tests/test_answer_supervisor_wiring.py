@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pipecat.turns.user_mute import (
-    FirstSpeechUserMuteStrategy,
+    FunctionCallUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 
@@ -13,18 +13,21 @@ from api.services.pipecat.run_pipeline import _create_user_mute_strategies
 from api.services.pipecat.termination_funnel_processor import TerminationFunnelProcessor
 from api.services.workflow import answer_classification_service
 from api.services.workflow.pipecat_engine import PipecatEngine
-from api.services.workflow.pipecat_engine_callbacks import UserIdleHandler
 
 
 @pytest.mark.parametrize(
-    "enabled, expected",
+    "realtime, enabled, expected",
     [
-        (False, MuteUntilFirstBotCompleteUserMuteStrategy),
-        (True, FirstSpeechUserMuteStrategy),
+        (False, False, FunctionCallUserMuteStrategy),
+        (False, True, FunctionCallUserMuteStrategy),
+        (True, False, MuteUntilFirstBotCompleteUserMuteStrategy),
+        (True, True, FunctionCallUserMuteStrategy),
     ],
 )
-def test_answer_handling_listens_before_the_first_bot_speech(enabled, expected):
-    engine = SimpleNamespace(should_mute_user=AsyncMock())
+def test_initial_user_mute_depends_on_realtime_and_answer_handling(
+    realtime, enabled, expected
+):
+    engine = SimpleNamespace(should_mute_user=AsyncMock(), _is_realtime=realtime)
     supervisor = SimpleNamespace() if enabled else None
     assert isinstance(_create_user_mute_strategies(engine, supervisor)[0], expected)
 
@@ -41,20 +44,6 @@ async def test_start_node_sets_up_context_without_sleeping(monkeypatch, enabled)
     await engine._handle_start_node(node)
     sleep.assert_not_awaited()
     engine._setup_llm_context.assert_awaited_once_with(node)
-
-
-@pytest.mark.asyncio
-async def test_already_dispatched_idle_event_cannot_prompt_main_llm_while_supervised():
-    engine = PipecatEngine(workflow=None, call_context_vars={}, workflow_run_id=1)
-    engine.answer_supervisor = SimpleNamespace(blocks_workflow=True)
-    aggregator = SimpleNamespace(push_frame=AsyncMock())
-    handler = UserIdleHandler(engine)
-    await handler.handle_idle(aggregator)
-    aggregator.push_frame.assert_not_awaited()
-    engine.answer_supervisor.blocks_workflow = False
-    await handler.handle_idle(aggregator)
-    aggregator.push_frame.assert_awaited_once()
-    assert handler._retry_count == 1
 
 
 class EventSource:
@@ -81,8 +70,10 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
         set_node=AsyncMock(),
         queue_node_opening=AsyncMock(),
         handle_answer_supervision=AsyncMock(side_effect=permission.wait),
+        call_monitor=Mock(),
         # Readiness now also waits for the agent this call starts on.
         start_initial_agent=AsyncMock(return_value=True),
+        is_call_disposed=Mock(return_value=False),
     )
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
@@ -133,11 +124,13 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
                 await asyncio.sleep(0)
         engine.set_node.assert_awaited_once_with("start")
         engine.queue_node_opening.assert_not_awaited()
+        engine.call_monitor.activate.assert_not_called()
         permission.set()
         await asyncio.wait_for(connected, 1)
         # Repeated readiness notifications cannot run the supervised action twice.
         await task.handlers["on_pipeline_started"](task, None)
         engine.handle_answer_supervision.assert_awaited_once()
+        engine.call_monitor.activate.assert_not_called()
     finally:
         connected.cancel()
         fetch_task.cancel()
@@ -145,8 +138,149 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
 
 
 @pytest.mark.asyncio
+async def test_no_supervisor_activates_monitor_before_the_opening(monkeypatch):
+    task, transport = EventSource(), EventSource()
+    engine = PipecatEngine(workflow=None, call_context_vars={})
+    engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
+    engine.start_initial_agent = AsyncMock(return_value=True)
+    engine.set_node = AsyncMock()
+
+    async def opening(**_kwargs):
+        assert engine.call_monitor.active
+        # Activation enables monitoring; it doesn't declare the user idle.
+        assert engine.call_monitor._deadline is None
+
+    engine.queue_node_opening = AsyncMock(side_effect=opening)
+    monkeypatch.setattr(
+        "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
+    )
+    register_event_handlers(
+        task=task,
+        transport=transport,
+        workflow_run_id=1,
+        engine=engine,
+        audio_buffer=SimpleNamespace(
+            start_recording=AsyncMock(), stop_recording=AsyncMock()
+        ),
+        in_memory_logs_buffer=SimpleNamespace(),
+        transcript_log_coordinator=SimpleNamespace(),
+        pipeline_metrics_aggregator=SimpleNamespace(),
+        termination_funnel=TerminationFunnelProcessor(),
+        audio_config=SimpleNamespace(pipeline_sample_rate=16000),
+    )
+    await transport.handlers["on_client_connected"](transport, None)
+    assert not engine.call_monitor.active
+    await task.handlers["on_pipeline_started"](task, None)
+    await task.handlers["on_pipeline_started"](task, None)
+    engine.queue_node_opening.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "hangup_phase, started",
+    [
+        ("before", True),
+        ("startup", True),
+        ("startup", False),
+        ("node", True),
+        (None, True),
+        (None, False),
+    ],
+    ids=[
+        "already-ended",
+        "ends-during-success",
+        "ends-during-failure",
+        "ends-during-node-setup",
+        "live",
+        "failed",
+    ],
+)
+async def test_initial_response_respects_call_disposal(
+    monkeypatch, hangup_phase, started
+):
+    task, transport = EventSource(), EventSource()
+    engine = PipecatEngine(workflow=None, call_context_vars={})
+    engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
+    engine._call_disposed = hangup_phase == "before"
+    engine.queue_node_opening = AsyncMock()
+    engine.end_call_with_reason = AsyncMock()
+    entered, release = asyncio.Event(), asyncio.Event()
+    node_entered, node_release = asyncio.Event(), asyncio.Event()
+    if hangup_phase != "node":
+        node_release.set()
+
+    async def start():
+        entered.set()
+        await release.wait()
+        return started
+
+    async def set_node(_node_id):
+        node_entered.set()
+        await node_release.wait()
+
+    engine.start_initial_agent = AsyncMock(side_effect=start)
+    engine.set_node = AsyncMock(side_effect=set_node)
+    logger = Mock()
+    monkeypatch.setattr("api.services.pipecat.event_handlers.logger", logger)
+    monkeypatch.setattr(
+        "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
+    )
+    register_event_handlers(
+        task=task,
+        transport=transport,
+        workflow_run_id=1,
+        engine=engine,
+        audio_buffer=SimpleNamespace(start_recording=AsyncMock()),
+        in_memory_logs_buffer=SimpleNamespace(),
+        transcript_log_coordinator=SimpleNamespace(),
+        pipeline_metrics_aggregator=SimpleNamespace(),
+        termination_funnel=TerminationFunnelProcessor(),
+        audio_config=SimpleNamespace(pipeline_sample_rate=16000),
+    )
+    await transport.handlers["on_client_connected"](transport, None)
+    startup = asyncio.create_task(task.handlers["on_pipeline_started"](task, None))
+    try:
+        if hangup_phase != "before":
+            await asyncio.wait_for(entered.wait(), 1)
+            engine._call_disposed = hangup_phase == "startup"
+            release.set()
+        if hangup_phase == "node":
+            await asyncio.wait_for(node_entered.wait(), 1)
+            engine._call_disposed = True
+            node_release.set()
+        await asyncio.wait_for(startup, 1)
+    finally:
+        release.set()
+        node_release.set()
+        startup.cancel()
+        await asyncio.wait_for(asyncio.gather(startup, return_exceptions=True), 1)
+
+    if hangup_phase == "before":
+        engine.start_initial_agent.assert_not_awaited()
+    else:
+        engine.start_initial_agent.assert_awaited_once()
+    if hangup_phase in ("before", "startup") or not started:
+        engine.set_node.assert_not_awaited()
+    else:
+        engine.set_node.assert_awaited_once_with("start")
+    disposed = hangup_phase is not None
+    if disposed or not started:
+        engine.queue_node_opening.assert_not_awaited()
+        assert not engine.call_monitor.active
+    else:
+        engine.queue_node_opening.assert_awaited_once()
+        assert engine.call_monitor.active
+    if not disposed and not started:
+        engine.end_call_with_reason.assert_awaited_once_with("pipeline_error")
+        logger.error.assert_called_once()
+    else:
+        engine.end_call_with_reason.assert_not_awaited()
+        logger.error.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("use_workflow_llm", [False, True])
-async def test_saved_detector_settings_build_a_private_classifier_with_fixed_instructions(
+async def test_saved_detector_settings_build_a_private_classifier_with_saved_instructions(
     monkeypatch, use_workflow_llm
 ):
     from pipecat.processors.aggregators.llm_context import LLMContext
@@ -172,7 +306,7 @@ async def test_saved_detector_settings_build_a_private_classifier_with_fixed_ins
             "provider": "openai",
             "model": "gpt-4.1",
             "api_key": "test-key",
-            "system_prompt": "Obsolete binary classifier prompt",
+            "system_prompt": "Rispondi con una sola etichetta: SCREENER o CONVERSATION.",
             "long_speech_timeout": 8,
         },
         is_realtime=False,
@@ -200,20 +334,53 @@ async def test_saved_detector_settings_build_a_private_classifier_with_fixed_ins
             workflow_factory.assert_not_called()
         # A completed ambiguous machine turn reaches the private inference path.
         await supervisor._classify_turn("An ambiguous machine answer", 0)
-        assert (await supervisor.wait_for_verdict()).action == "screen_then_rearm"
+        verdict = await asyncio.wait_for(supervisor.wait_for_verdict(), 1)
+        assert verdict.action == "screen_then_rearm"
+        assert verdict.diagnostics["transcript"] == "An ambiguous machine answer"
+        assert verdict.diagnostics["pattern_subtype"] == "UNKNOWN"
+        assert verdict.subtype.value == "SCREENER"
+        assert verdict.diagnostics["classifier_status"] == "completed"
         inference = llm.run_inference.call_args
         assert inference.args[0] is not context
+        # A workflow's own instructions replace the built-in ones, which is how a
+        # non-English deployment describes the greetings its callers actually hear.
         assert (
             inference.kwargs["system_instruction"]
-            == answer_classification_service._SYSTEM_PROMPT
-        )
-        assert (
-            "Obsolete binary classifier prompt"
-            not in inference.kwargs["system_instruction"]
+            == "Rispondi con una sola etichetta: SCREENER o CONVERSATION."
         )
         assert context.messages == [
             {"role": "system", "content": "Workflow instructions"}
         ]
+    finally:
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_without_saved_instructions_uses_the_built_in_prompt(
+    monkeypatch,
+):
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    from api.services.pipecat.run_pipeline import _create_answer_supervisor
+
+    llm = SimpleNamespace(run_inference=AsyncMock(return_value="SCREENER"))
+    monkeypatch.setattr(
+        "api.services.pipecat.run_pipeline.create_llm_service", Mock(return_value=llm)
+    )
+    supervisor = _create_answer_supervisor(
+        {"enabled": True, "use_workflow_llm": True},
+        is_realtime=False,
+        start_node=None,
+        context=LLMContext(),
+        user_config=object(),
+        correlation_id="test-run",
+    )
+    try:
+        await supervisor._classify_turn("An ambiguous machine answer", 0)
+        assert (
+            llm.run_inference.call_args.kwargs["system_instruction"]
+            == answer_classification_service.ANSWER_CLASSIFIER_SYSTEM_PROMPT
+        )
     finally:
         await supervisor.close()
 

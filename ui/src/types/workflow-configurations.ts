@@ -20,7 +20,8 @@ export type AmbientNoiseConfiguration = Omit<
 
 export type TurnStopStrategy = NonNullable<GeneratedWorkflowConfigurationDefaults["turn_stop_strategy"]>;
 export type TurnStartStrategy = NonNullable<GeneratedWorkflowConfigurationDefaults["turn_start_strategy"]>;
-export const DEFAULT_TURN_START_MIN_WORDS = 3;
+export const DEFAULT_TURN_START_STRATEGY: TurnStartStrategy = 'min_words';
+export const DEFAULT_TURN_START_MIN_WORDS = 2;
 
 // "provisional_vad" was retired. Definitions saved before then still carry it,
 // so map it onto the option the backend now resolves such a value to, rather
@@ -28,7 +29,7 @@ export const DEFAULT_TURN_START_MIN_WORDS = 3;
 function coerceTurnStartStrategy(value: string): TurnStartStrategy {
     return TURN_START_STRATEGY_OPTIONS.some(o => o.value === value)
         ? (value as TurnStartStrategy)
-        : 'default';
+        : DEFAULT_TURN_START_STRATEGY;
 }
 
 export const TURN_START_STRATEGY_OPTIONS: Array<{
@@ -38,8 +39,8 @@ export const TURN_START_STRATEGY_OPTIONS: Array<{
 }> = [
     {
         value: 'default',
-        label: 'Default',
-        description: 'Use the platform default: external STT turn signals when available, otherwise local VAD.',
+        label: 'Voice activity',
+        description: 'Interrupt when the STT provider or local voice activity detection signals speech.',
     },
     {
         value: 'min_words',
@@ -72,6 +73,7 @@ export interface VoicemailDetectionConfiguration extends AnswerSupervisorSetting
     provider?: string;
     model?: string;
     api_key?: string;
+    system_prompt?: string;  // Overrides the built-in classifier instructions
 }
 
 export const DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION: VoicemailDetectionConfiguration = {
@@ -136,6 +138,7 @@ type WorkflowConfigurationBase = Omit<
     | "turn_stop_strategy"
     | "dictionary"
     | "context_compaction_enabled"
+    | "tts_cache_enabled"
     | "call_dispositions"
     | "text_chat_inactivity_timeout_seconds"
     | "external_pbx_field_mappings"
@@ -154,6 +157,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     voicemail_detection?: VoicemailDetectionConfiguration;
     transcript_configuration: TranscriptConfiguration;
     context_compaction_enabled: boolean;  // Summarize context on node transitions to remove stale tool calls
+    tts_cache_enabled: boolean;
     call_dispositions: CallDispositionOption[];  // Allowed terminal business outcomes
     text_chat_inactivity_timeout_seconds?: number;  // End inactive text chats after this many seconds
     external_pbx_field_mappings: ExternalPBXFieldMapping[];
@@ -171,12 +175,13 @@ const FALLBACK_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     max_call_duration: 300,
     max_user_idle_timeout: 10,  // 10 seconds
     smart_turn_stop_secs: 2,  // 2 seconds
-    turn_start_strategy: 'default',  // Default to platform-chosen user turn start detection
+    turn_start_strategy: DEFAULT_TURN_START_STRATEGY,
     turn_start_min_words: DEFAULT_TURN_START_MIN_WORDS,
     turn_stop_strategy: 'transcription',  // Default to transcription-based detection
     dictionary: '',
     transcript_configuration: DEFAULT_TRANSCRIPT_CONFIGURATION,
     context_compaction_enabled: false,
+    tts_cache_enabled: false,
     call_dispositions: [],
     external_pbx_field_mappings: [],
     external_pbx_lead_headers: [],
@@ -228,6 +233,10 @@ export function resolveWorkflowConfigurations(
             configurations?.context_compaction_enabled
             ?? defaults?.context_compaction_enabled
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.context_compaction_enabled,
+        tts_cache_enabled:
+            configurations?.tts_cache_enabled
+            ?? defaults?.tts_cache_enabled
+            ?? FALLBACK_WORKFLOW_CONFIGURATIONS.tts_cache_enabled,
         call_dispositions:
             configurations?.call_dispositions
             ?? defaults?.call_dispositions

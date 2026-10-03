@@ -11,7 +11,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from loguru import logger
-from pipecat.frames.frames import LLMMessagesAppendFrame
+from pipecat.frames.frames import (
+    LLMAssistantPushAggregationFrame,
+    LLMMessagesAppendFrame,
+)
 
 from api.services.pipecat.agent_runtime_factory import AgentBuildError
 from api.services.pipecat.audio_playback import play_hold_audio_loop
@@ -37,6 +40,7 @@ class TransferRequest:
     destination_label: str
     origin_visit_id: str
     announcement: str | None = None
+    play_greeting: bool = True
     request_id: str = field(default_factory=lambda: f"xfer-{uuid.uuid4().hex[:10]}")
     cancelled_reason: str | None = None
 
@@ -77,6 +81,7 @@ class AgentTransferCoordinator:
             return False
         self._request = request
         self._phase = TransferPhase.ANNOUNCING
+        self._engine.call_monitor.suspend()
         return True
 
     def start(self, request, *, context_ready=None):
@@ -153,32 +158,41 @@ class AgentTransferCoordinator:
             async with asyncio.timeout(TRANSFER_PREPARE_TIMEOUT_SECONDS):
                 self._phase = TransferPhase.PREPARING
                 await engine.pause_background_context_writers()
-                async with asyncio.TaskGroup() as group:
-                    group.create_task(prepare())
-                    compact = group.create_task(
-                        build_handoff_snapshot(
-                            engine.context,
-                            source.inference_llm,
-                            request_id=request.request_id,
-                        )
-                    )
-                snapshot = compact.result()
+                snapshot = build_handoff_snapshot(
+                    engine.context, source_agent_name=source.workflow_name
+                )
+                await prepare()
 
             await asyncio.sleep(
                 max(0, TRANSFER_MIN_HOLD_SECONDS - (time.monotonic() - hold_started))
             )
-            await self._stop_hold_audio()
-            await engine.drain_call_pipeline()
             self._check_current(request)
             if destination.error:
                 raise AgentBuildError("destination_unusable", destination.error)
             self._phase = TransferPhase.COMMITTING
             engine.commit_agent(destination, snapshot)
             committed = True
+            # Opening can immediately call a tool and request another LLM turn.
+            # Finish source cleanup before allowing that destination work to run.
+            # The finally path can safely await the same retirement again.
+            await source.retire("transferred")
+            # Cover slow retirement with hold audio, then drain its final chunk
+            # before the destination can start speaking. Once committed, a
+            # cleanup error must not prevent a live destination from opening.
+            # Cancellation still propagates so a hangup never starts a new turn.
+            try:
+                await self._stop_hold_audio()
+                await engine.drain_call_pipeline()
+            except Exception:  # noqa: BLE001 - Cleanup must not strand a committed agent.
+                logger.exception("Failed to drain transfer hold audio")
+            self._check_current(request)
             self._phase = TransferPhase.OPENING
+            engine.call_monitor.resume()
             await engine.notify_agent_entered(destination)
+            start_node_id = destination.workflow.start_node_id
             await engine.queue_node_opening(
-                node_id=destination.workflow.start_node_id,
+                node_id=start_node_id,
+                previous_node_id=None if request.play_greeting else start_node_id,
                 generate_if_no_greeting=True,
                 origin_visit_id=destination.visit_id,
             )
@@ -224,6 +238,7 @@ class AgentTransferCoordinator:
                 )
 
         if not committed and engine.agent_can_act(source):
+            engine.expect_response()
             await source.queue_frame(
                 LLMMessagesAppendFrame(
                     [
@@ -243,14 +258,21 @@ class AgentTransferCoordinator:
     async def _announce(self, request, source):
         engine = self._engine
         if request.announcement:
-            engine.arm_speech_playback()
-            spoken = await engine.queue_text_message(
-                request.announcement, append_to_context=True, mute_user=True
+            # The assistant turn logs context speech; logging it here duplicates it.
+            speech = await engine.queue_speech(
+                request.announcement,
+                append_to_context=True,
+                persist_to_logs=False,
+                mute_user=True,
             )
-            if not spoken or not await engine.wait_for_speech_playback():
-                engine.clear_queued_speech_mute()
+            await speech.wait()
         # Also drain when the tool has no announcement.
         await source.cancel_tools()
+        # A tool-triggered announcement can overlap the source LLM's response
+        # boundary. Playback completion alone need not commit the assistant's
+        # buffered text. Flush it while this visit still owns the call, before
+        # taking the snapshot, so it cannot surface as the destination's speech.
+        await source.queue_frame(LLMAssistantPushAggregationFrame())
         await engine.drain_call_pipeline()
 
     async def _begin_hold(self, request, source):
@@ -280,6 +302,7 @@ class AgentTransferCoordinator:
     def _finish(self, request, outcome, source, destination):
         self._phase = TransferPhase.IDLE
         self._request = None
+        self._engine.call_monitor.resume()
         self._engine.record_transfer_outcome(
             {
                 "request_id": request.request_id,

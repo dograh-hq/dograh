@@ -18,6 +18,11 @@ change and is left to a follow-up.
 Backward-compatible by construction: with no secret set, :func:`build_media_ws_url`
 returns exactly the legacy URL and :func:`verify_ws_token` is never consulted, so
 adopting the builder in a provider is a no-op until an operator opts in.
+
+The same secret also backs the Telnyx call-events webhook token
+(:func:`mint_events_token`), HMAC'd over a distinct message prefix so the two
+are not interchangeable. Rotating ``TELEPHONY_WS_TOKEN_SECRET`` invalidates
+both surfaces at once.
 """
 
 import hashlib
@@ -77,6 +82,43 @@ def verify_ws_token(
         # Compare as bytes: hmac.compare_digest rejects non-ASCII *str* args with
         # TypeError, and ``token`` is attacker-controlled from the query string.
         # Anything that can't be compared is simply an invalid token, not a 500.
+        return hmac.compare_digest(expected.encode("utf-8"), token.encode("utf-8"))
+    except (TypeError, UnicodeError):
+        return False
+
+
+_EVENTS_MSG_PREFIX = "telnyx-events:"
+
+
+def mint_events_token(workflow_run_id: Id) -> str | None:
+    """Return the HMAC capability token for a call-events webhook URL.
+
+    Bound to the workflow run id alone: the events route only knows the run id
+    from its path, so the token must be verifiable from the request itself with
+    zero database lookups on the reject path. Telnyx preserves query strings on
+    webhook POSTs (verified live 2026-09-16; unlike media stream URLs, which it
+    strips), so the token rides as ``?token=``.
+
+    Returns ``None`` when no secret is set, mirroring :func:`mint_ws_token`.
+    """
+    secret = constants.TELEPHONY_WS_TOKEN_SECRET
+    if not secret:
+        return None
+    msg = f"{_EVENTS_MSG_PREFIX}{workflow_run_id}".encode()
+    return hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
+
+
+def verify_events_token(workflow_run_id: Id, token: str | None) -> bool:
+    """Constant-time compare for the call-events webhook token.
+
+    Returns ``False`` when no secret is configured or no token was presented,
+    so callers should gate on :func:`token_configured` before treating
+    ``False`` as a rejection.
+    """
+    expected = mint_events_token(workflow_run_id)
+    if not expected or not token:
+        return False
+    try:
         return hmac.compare_digest(expected.encode("utf-8"), token.encode("utf-8"))
     except (TypeError, UnicodeError):
         return False

@@ -32,6 +32,7 @@ from api.services.pipecat.realtime.ultravox_realtime import (
     DograhUltravoxOneShotInputParams,
     DograhUltravoxRealtimeLLMService,
 )
+from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
@@ -213,7 +214,11 @@ async def test_edge_speech_policy_preserves_node_transition(
     if is_realtime:
         engine.call_worker.queue_frame.assert_not_awaited()
     else:
-        frame = engine.call_worker.queue_frame.await_args.args[0]
+        frame = next(
+            call.args[0]
+            for call in engine.call_worker.queue_frame.await_args_list
+            if isinstance(call.args[0], TTSSpeakFrame)
+        )
         assert frame.text == "Let me ask a few questions."
         assert not frame.append_to_context
     assert await engine.should_mute_user(InputAudioRawFrame(bytes(640), 16000, 1)) == (
@@ -223,6 +228,7 @@ async def test_edge_speech_policy_preserves_node_transition(
         "agent", origin_visit_id=engine.active_agent.visit_id
     )
     assert result.await_args.args == ({"status": "done"},)
+    engine.speech_playback.cancel_all()
 
 
 @pytest.mark.asyncio
@@ -237,14 +243,18 @@ async def test_tool_message_reports_playback_only_when_text_is_queued(
         is_realtime=is_realtime,
     )
     manager = CustomToolManager(engine)
-    queued = await manager._play_config_message(
+    speech = await manager._play_config_message(
         {"messageType": "custom", "customMessage": "Goodbye!"}, append_to_context=True
     )
-    assert queued == (not is_realtime)
+    assert speech.outcome is (PlaybackOutcome.SKIPPED if is_realtime else None)
     if is_realtime:
         engine.call_worker.queue_frame.assert_not_awaited()
     else:
-        frame = engine.call_worker.queue_frame.await_args.args[0]
+        frame = next(
+            call.args[0]
+            for call in engine.call_worker.queue_frame.await_args_list
+            if isinstance(call.args[0], TTSSpeakFrame)
+        )
         assert frame.text == "Goodbye!"
         assert frame.append_to_context
 
@@ -253,7 +263,9 @@ async def test_tool_message_reports_playback_only_when_text_is_queued(
     assert await engine.should_mute_user(audio) == (not is_realtime)
     if not is_realtime:
         assert await engine.should_mute_user(BotStartedSpeakingFrame())
-        assert not await engine.should_mute_user(BotStoppedSpeakingFrame())
+        assert await engine.should_mute_user(BotStoppedSpeakingFrame())
+    engine.speech_playback.cancel_all()
+    assert not await engine.should_mute_user(audio)
 
 
 @pytest.mark.asyncio

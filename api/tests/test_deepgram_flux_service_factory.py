@@ -131,8 +131,8 @@ def test_create_deepgram_flux_defaults_eot_params_when_unset():
     assert kwargs["settings"].eot_timeout_ms == defaults["eot_timeout_ms"].default
     assert kwargs["settings"].eot_threshold == defaults["eot_threshold"].default
     assert kwargs["settings"].eager_eot_threshold == defaults["eager_eot_threshold"].default
-    
-    
+
+
 def test_deepgram_stt_rejects_out_of_range_eot_threshold():
     with pytest.raises(ValidationError):
         DeepgramSTTConfiguration(
@@ -152,8 +152,8 @@ def test_deepgram_stt_rejects_eager_eot_threshold_above_eot_threshold():
             eot_threshold=0.6,
             eager_eot_threshold=0.7,
         )
-        
-        
+
+
 def test_deepgram_stt_rejects_eager_eot_threshold_below_range():
     with pytest.raises(ValidationError):
         DeepgramSTTConfiguration(
@@ -191,4 +191,54 @@ def test_deepgram_stt_rejects_eot_timeout_ms_above_range():
             api_key="test-key",
             model="flux-general-en",
             eot_timeout_ms=15000,
+        )
+
+
+def _create_flux_multi(language: str, language_hints: list[str]):
+    config = DeepgramSTTConfiguration(
+        api_key="test-key",
+        model="flux-general-multi",
+        language=language,
+        language_hints=language_hints,
+    )
+    audio_config = AudioConfig(
+        transport_in_sample_rate=16000,
+        transport_out_sample_rate=16000,
+    )
+
+    with patch(
+        "api.services.pipecat.service_factory.DeepgramFluxSTTService"
+    ) as mock_service:
+        create_stt_service(SimpleNamespace(stt=config), audio_config)
+    return mock_service.call_args.kwargs["settings"]
+
+
+def test_deepgram_stt_schema_shows_language_hints_only_for_flux_multi():
+    hints_schema = DeepgramSTTConfiguration.model_json_schema()["properties"][
+        "language_hints"
+    ]
+
+    assert hints_schema["type"] == "array"
+    assert hints_schema["visible_for_models"] == ["flux-general-multi"]
+    assert "hi" in hints_schema["examples"]
+
+
+def test_create_deepgram_flux_multi_sends_every_language_hint():
+    settings = _create_flux_multi("multi", ["hi", "en"])
+
+    assert settings.language_hints == [Language.HI, Language.EN]
+
+
+def test_create_deepgram_flux_multi_combines_language_with_hints_once():
+    settings = _create_flux_multi("hi", ["en", "hi"])
+
+    assert settings.language_hints == [Language.HI, Language.EN]
+
+
+def test_deepgram_stt_rejects_language_hints_flux_does_not_support():
+    with pytest.raises(ValueError, match="ta"):
+        DeepgramSTTConfiguration(
+            api_key="test-key",
+            model="flux-general-multi",
+            language_hints=["en", "ta"],
         )

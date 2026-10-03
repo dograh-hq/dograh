@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { FileText, Pencil, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -17,6 +17,8 @@ import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
 import { formatDateTime } from '@/lib/dateTime';
 import logger from '@/lib/logger';
 
+import DocumentEditor, { isEditableDocument } from './DocumentEditor';
+
 interface DocumentListProps {
   refreshTrigger: number;
 }
@@ -27,6 +29,7 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [editingDoc, setEditingDoc] = useState<DocumentResponseSchema | null>(null);
 
   const fetchDocuments = useCallback(async () => {
     try {
@@ -96,8 +99,26 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const isBusy = (doc: DocumentResponseSchema) =>
+    doc.processing_status === 'processing' || doc.processing_status === 'pending';
+
+  const canOpen = (doc: DocumentResponseSchema) =>
+    isEditableDocument(doc.filename) && !isBusy(doc);
+
+  const getStatusBadge = (doc: DocumentResponseSchema) => {
+    // A previously indexed document keeps serving agents while it is re-indexed
+    // after an edit, and after that re-index fails.
+    if (doc.has_live_content && isBusy(doc)) {
+      return (
+        <Badge variant="secondary" className="animate-pulse">
+          Updating
+        </Badge>
+      );
+    }
+    if (doc.has_live_content && doc.processing_status === 'failed') {
+      return <Badge variant="destructive">Update failed</Badge>;
+    }
+    switch (doc.processing_status) {
       case 'completed':
         return <Badge className="bg-green-500">Completed</Badge>;
       case 'processing':
@@ -111,7 +132,7 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
       case 'failed':
         return <Badge variant="destructive">Failed</Badge>;
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return <Badge variant="outline">{doc.processing_status}</Badge>;
     }
   };
 
@@ -189,7 +210,22 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
           {filteredDocuments.map((doc) => (
             <div
               key={doc.document_uuid}
-              className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+              role={canOpen(doc) ? 'button' : undefined}
+              tabIndex={canOpen(doc) ? 0 : undefined}
+              aria-label={canOpen(doc) ? `Edit ${doc.filename}` : undefined}
+              className={`flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors ${
+                canOpen(doc)
+                  ? 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
+                  : ''
+              }`}
+              onClick={canOpen(doc) ? () => setEditingDoc(doc) : undefined}
+              onKeyDown={(event) => {
+                if (!canOpen(doc) || event.target !== event.currentTarget) return;
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setEditingDoc(doc);
+                }
+              }}
             >
               <div className="flex items-center gap-4 flex-1">
                 <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -198,7 +234,7 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium truncate">{doc.filename}</span>
-                    {getStatusBadge(doc.processing_status)}
+                    {getStatusBadge(doc)}
                     {doc.retrieval_mode === 'full_document' ? (
                       <Badge variant="outline" className="text-xs">Full Document</Badge>
                     ) : (
@@ -212,12 +248,19 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
                     )}
                     <span>{formatDateTime(doc.created_at, organizationTimezone)}</span>
                   </div>
+                  {doc.has_live_content && isBusy(doc) && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Agents keep using the previous version until the update finishes.
+                    </p>
+                  )}
                   {doc.processing_error && (
                     <p className="text-xs text-destructive mt-1">
                       Error: {doc.processing_error}
+                      {doc.has_live_content && ' Agents are still using the previous version.'}
                     </p>
                   )}
-                  {doc.docling_metadata &&
+                  {doc.processing_status === 'failed' &&
+                   doc.docling_metadata &&
                    typeof doc.docling_metadata === 'object' &&
                    'duplicate_of' in doc.docling_metadata && (
                     <p className="text-xs text-muted-foreground mt-1">
@@ -226,18 +269,43 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
                   )}
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleDelete(doc.document_uuid, doc.filename)}
-                className="text-destructive hover:text-destructive/90"
+              <div
+                className="flex items-center gap-1"
+                onClick={(event) => event.stopPropagation()}
               >
-                <Trash2 className="w-4 h-4" />
-              </Button>
+                {isEditableDocument(doc.filename) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEditingDoc(doc)}
+                    disabled={isBusy(doc)}
+                    title={isBusy(doc) ? 'Available once processing finishes' : 'Edit'}
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDelete(doc.document_uuid, doc.filename)}
+                  className="text-destructive hover:text-destructive/90"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>
       )}
+
+      <DocumentEditor
+        doc={editingDoc}
+        onClose={() => setEditingDoc(null)}
+        onSaved={() => {
+          setEditingDoc(null);
+          fetchDocuments();
+        }}
+      />
     </div>
   );
 }

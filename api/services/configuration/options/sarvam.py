@@ -98,4 +98,7 @@ SARVAM_STT_LANGUAGES_V3 = SARVAM_STT_LANGUAGES_V25 + (
 # model the service rejects turns every call using it into a hard failure at
 # pipeline start. sarvam-30b was listed here after Sarvam withdrew it and was
 # the default, which is what broke those runs.
-SARVAM_LLM_MODELS = ("sarvam-105b",)
+SARVAM_LLM_MODELS = (
+    "sarvam-105b-conversations",
+    "sarvam-105b",
+)

@@ -74,51 +74,64 @@ async def duplicate_workflow(
     if workflow_definition:
         workflow_definition = _regenerate_trigger_uuids(workflow_definition)
 
-    # 4. Create the new workflow
+    # 4. Create the new workflow with the source configuration and template
+    #    variables, so its published V1 carries them. Passing them afterwards
+    #    via update_workflow would only create an unpublished draft, leaving
+    #    production runs (which pin the published definition) with an empty
+    #    configuration until someone publishes.
+    source_tcv = copy.deepcopy(source_def.template_context_variables or None)
+    source_wc = copy.deepcopy(source_def.workflow_configurations or None)
     new_name = f"{source.name} - Duplicate"
     new_workflow = await db_client.create_workflow(
         name=new_name,
         workflow_definition=workflow_definition,
         user_id=user_id,
         organization_id=organization_id,
+        workflow_configurations=source_wc,
+        template_context_variables=source_tcv,
     )
 
-    # 5. Copy template_context_variables and workflow_configurations from source definition
-    source_tcv = source_def.template_context_variables
-    source_wc = (
-        copy.deepcopy(source_def.workflow_configurations)
-        if source_def.workflow_configurations
-        else None
-    )
-
-    # 5a. Copy custom ambient noise file if present
-    if source_wc:
-        ambient_cfg = source_wc.get("ambient_noise_configuration")
-        if ambient_cfg and ambient_cfg.get("storage_key"):
-            old_key = ambient_cfg["storage_key"]
-            filename = posixpath.basename(old_key)
-            new_key = f"ambient-noise/{organization_id}/{new_workflow.id}/{filename}"
+    # 5. Copy a custom ambient noise file if present. Its storage key embeds
+    #    the new workflow id, so this has to happen after creation; the
+    #    rewritten configuration is then published as V2.
+    ambient_cfg = (source_wc or {}).get("ambient_noise_configuration")
+    if ambient_cfg and ambient_cfg.get("storage_key"):
+        old_key = ambient_cfg["storage_key"]
+        filename = posixpath.basename(old_key)
+        new_key = f"ambient-noise/{organization_id}/{new_workflow.id}/{filename}"
+        copied = False
+        try:
+            copied = await _copy_storage_object(
+                old_key, new_key, ambient_cfg.get("storage_backend", "")
+            )
+        except Exception as e:
+            logger.error(f"Error copying ambient noise file: {e}")
+        if copied:
+            ambient_cfg["storage_key"] = new_key
+            # The copy is already durable (workflow + storage object), so a
+            # failure here must not escape and leave it half-built: the V1
+            # published above keeps the source reference, exactly like the
+            # copy-failed branch below, and the copied object stays under
+            # new_key for a manual retry.
             try:
-                if await _copy_storage_object(
-                    old_key, new_key, ambient_cfg.get("storage_backend", "")
-                ):
-                    ambient_cfg["storage_key"] = new_key
-                else:
-                    logger.warning(
-                        f"Failed to copy ambient noise file {old_key}, keeping original reference"
-                    )
+                await db_client.update_workflow(
+                    workflow_id=new_workflow.id,
+                    name=None,
+                    workflow_definition=None,
+                    template_context_variables=None,
+                    workflow_configurations=source_wc,
+                    organization_id=organization_id,
+                )
+                await db_client.publish_workflow_draft(new_workflow.id)
             except Exception as e:
-                logger.error(f"Error copying ambient noise file: {e}")
-
-    if source_tcv or source_wc:
-        new_workflow = await db_client.update_workflow(
-            workflow_id=new_workflow.id,
-            name=None,
-            workflow_definition=None,
-            template_context_variables=copy.deepcopy(source_tcv),
-            workflow_configurations=source_wc,
-            organization_id=organization_id,
-        )
+                logger.error(
+                    f"Failed to publish rewritten ambient noise key {new_key} for "
+                    f"workflow {new_workflow.id}, keeping original reference: {e}"
+                )
+        else:
+            logger.warning(
+                f"Failed to copy ambient noise file {old_key}, keeping original reference"
+            )
 
     # 6. Sync triggers for the new workflow
     if workflow_definition:

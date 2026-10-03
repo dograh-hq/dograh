@@ -221,4 +221,12 @@ esac
 postgres_password="$(dotenv_value POSTGRES_PASSWORD || true)"
 sync_postgres_password "$postgres_password"
 
+echo ""
+echo "⚠️  NOTICE: This quickstart exposes your API through a public *.trycloudflare.com"
+echo "    tunnel for inbound telephony webhooks, and signup is enabled by default."
+echo ""
+echo "    To disable signup: Set ENABLE_SIGNUP=false in .env before starting."
+echo "    To skip the tunnel: Run 'docker compose up' without --profile tunnel."
+echo ""
+
 REGISTRY="$REGISTRY" ENABLE_TELEMETRY="$ENABLE_TELEMETRY" docker compose --profile tunnel up --pull always

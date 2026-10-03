@@ -88,3 +88,45 @@ async def test_custom_tool_collision_is_scoped_to_its_node():
         errors = await validate_workflow_tool_name_collisions(definition, 11)
 
     assert errors == []
+
+
+
+@pytest.mark.asyncio
+async def test_unresolved_tool_reference_is_flagged():
+    definition = {
+        "nodes": [
+            {
+                "id": "agent-1",
+                "data": {"tool_uuids": ["tool-1", "tool-archived"]},
+            }
+        ],
+        "edges": [],
+    }
+    tools = [
+        SimpleNamespace(
+            tool_uuid="tool-1",
+            name="Book Appointment",
+            category="http_api",
+        ),
+        # "tool-archived" deliberately absent: get_tools_by_uuids only returns
+        # ACTIVE tools, so archived tools resolve to nothing.
+    ]
+
+    with patch(
+        "api.services.workflow.tool_name_validation.db_client.get_tools_by_uuids",
+        AsyncMock(return_value=tools),
+    ):
+        errors = await validate_workflow_tool_name_collisions(definition, 11)
+
+    assert errors == [
+        {
+            "kind": "node",
+            "id": "agent-1",
+            "field": "data.tool_uuids",
+            "message": (
+                'Tool "tool-archived" does not exist or is archived, so '
+                "the agent cannot call it. Restore the tool or remove "
+                "it from this node."
+            ),
+        }
+    ]

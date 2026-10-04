@@ -711,7 +711,10 @@ def create_tts_service(
             api_key=user_config.tts.api_key,
             # Wants wss://host with no path; it appends /v1/speak itself.
             base_url=_deepgram_websocket_url(deepgram_base_url),
-            settings=DeepgramTTSSettings(voice=user_config.tts.voice),
+            settings=DeepgramTTSSettings(
+                voice=user_config.tts.voice,
+                speed=getattr(user_config.tts, "speed", None),
+            ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,

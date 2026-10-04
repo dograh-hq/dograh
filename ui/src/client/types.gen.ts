@@ -2090,6 +2090,12 @@ export type DeepgramTtsConfiguration = {
      */
     voice?: string;
     /**
+     * Speed
+     *
+     * Speaking rate multiplier (1.0 is normal speed). Leave blank to use Deepgram's default. Supported by Aura-2 English and Spanish voices; 0.9–1.5 is recommended for Spanish.
+     */
+    speed?: number | null;
+    /**
      * Base Url
      *
      * Deepgram API endpoint. This is what decides where your text is processed: use https://api.eu.deepgram.com to keep processing inside the EU, or https://api.au.deepgram.com for Australia. The same API key works on every regional endpoint.

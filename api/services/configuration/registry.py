@@ -1176,6 +1176,16 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
         default="aura-2-helena-en",
         description="Deepgram voice ID (model is inferred from the 'aura-N' prefix).",
     )
+    speed: float | None = Field(
+        default=None,
+        ge=0.7,
+        le=1.5,
+        description=(
+            "Speaking rate multiplier (1.0 is normal speed). Leave blank to use "
+            "Deepgram's default. Supported by Aura-2 English and Spanish voices; "
+            "0.9–1.5 is recommended for Spanish."
+        ),
+    )
     base_url: str = Field(
         default=DEEPGRAM_DEFAULT_BASE_URL,
         description=(

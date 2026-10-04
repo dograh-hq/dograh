@@ -4,6 +4,11 @@ Uses two Redis sorted sets (ZSETs) per campaign — one for failures, one for
 successes — as sliding windows.  ZCARD gives O(1) counts without iterating
 members, keeping the Lua scripts simple.
 
+A per-run claim key (``cb_run_outcome:{workflow_run_id}``) makes recording
+one-shot so a call attempt cannot contribute more than one sample even when
+several producers report it (dispatch failure, pipeline error, provider
+status callbacks and their retries).
+
 A separate capped Redis list (``cb_recent_failures:{campaign_id}``) stores the
 last N failing ``{workflow_run_id, reason, ts}`` entries so the campaign log
 written when the breaker trips can show *which* calls pushed it over.
@@ -98,6 +103,38 @@ class CircuitBreaker:
             except (TypeError, ValueError):
                 continue
         return decoded
+
+    @staticmethod
+    def _outcome_claim_key(workflow_run_id: int) -> str:
+        """Return the Redis key used to claim a run's outcome."""
+        return f"cb_run_outcome:{workflow_run_id}"
+
+    async def _claim_run_outcome(
+        self, workflow_run_id: int, window_seconds: int
+    ) -> bool:
+        """Atomically claim the single breaker outcome for a workflow run.
+
+        The same run can be reported by more than one producer (dispatch
+        failure, pipeline error, provider status callbacks and their retries).
+        Only the first report may change the window. Returns True when the
+        caller may record; Redis errors fail open so claim bookkeeping can
+        never drop an outcome by itself.
+        """
+        redis_client = await self._get_redis()
+        try:
+            claimed = await redis_client.set(
+                self._outcome_claim_key(workflow_run_id),
+                "1",
+                ex=window_seconds + 60,
+                nx=True,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to claim circuit breaker outcome for run "
+                f"{workflow_run_id}: {e}"
+            )
+            return True
+        return bool(claimed)
 
     async def record_call_outcome(
         self,
@@ -320,6 +357,18 @@ class CircuitBreaker:
             cb_config = {}
             if campaign.orchestrator_metadata:
                 cb_config = campaign.orchestrator_metadata.get("circuit_breaker", {})
+
+            if workflow_run_id is not None:
+                window_seconds = (cb_config or {}).get(
+                    "window_seconds",
+                    DEFAULT_CIRCUIT_BREAKER_CONFIG["window_seconds"],
+                )
+                if not await self._claim_run_outcome(workflow_run_id, window_seconds):
+                    logger.info(
+                        f"campaign_id: {campaign.id} - Duplicate outcome report "
+                        f"for run {workflow_run_id}; keeping the first"
+                    )
+                    return
 
             if is_failure and workflow_run_id is not None:
                 await self._push_recent_failure(

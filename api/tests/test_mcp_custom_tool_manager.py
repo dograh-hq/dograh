@@ -70,6 +70,7 @@ async def test_get_tool_schemas_and_handler_for_mcp(monkeypatch):
 
             class P:
                 function_name = "mcp__acme_mcp__echo"
+                tool_call_id = "echo-1"
                 arguments = {"text": "yo"}
 
                 async def result_callback(self, r, *, properties=None):

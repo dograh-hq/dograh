@@ -72,7 +72,8 @@ async def test_node_transition_flushes_at_playback_stop_before_gemini_turn_compl
         function_name="next_node",
         arguments={},
     )
-    service._pending_node_transition_function_calls = [function_call]
+    service.register_function("next_node", AsyncMock(), is_node_transition=True)
+    await service._run_or_defer_function_calls([function_call])
     assert service._turn_complete_pending_idle is None
 
     # Playback ends before Gemini sends turn_complete, so flush the transition
@@ -83,7 +84,7 @@ async def test_node_transition_flushes_at_playback_stop_before_gemini_turn_compl
     service._schedule_node_transition_function_calls.assert_called_once_with(
         [function_call]
     )
-    assert service._pending_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []
     assert service._bot_is_responding is True
     service.push_frame.assert_awaited_once_with(frame, FrameDirection.UPSTREAM)
 
@@ -101,7 +102,8 @@ async def test_node_transition_waits_for_gemini_idle_across_an_audio_gap():
         function_name="next_node",
         arguments={},
     )
-    service._pending_node_transition_function_calls = [function_call]
+    service.register_function("next_node", AsyncMock(), is_node_transition=True)
+    await service._run_or_defer_function_calls([function_call])
 
     await service._handle_server_message(
         LiveServerMessage(
@@ -338,7 +340,7 @@ async def test_non_transition_call_is_not_deferred_while_bot_is_responding():
     await service._run_or_defer_function_calls([function_call])
 
     service.run_function_calls.assert_awaited_once_with([function_call])
-    assert service._pending_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []
     assert service._transition_function_call_task is None
 
 
@@ -363,7 +365,7 @@ async def test_node_transition_call_is_deferred_while_bot_is_responding():
     await service._run_or_defer_function_calls([function_call])
 
     service.run_function_calls.assert_not_awaited()
-    assert service._pending_node_transition_function_calls == [function_call]
+    assert service._workflow_tool_deferral.pending == [function_call]
     assert service._transition_function_call_task is None
 
 

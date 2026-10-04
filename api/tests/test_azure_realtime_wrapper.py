@@ -101,7 +101,7 @@ async def test_non_transition_function_call_runs_while_bot_is_speaking():
     )
 
     service.run_function_calls.assert_awaited_once()
-    assert service._deferred_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []
 
 
 @pytest.mark.asyncio
@@ -122,9 +122,9 @@ async def test_node_transition_function_call_waits_until_bot_stops_speaking():
     )
 
     service.run_function_calls.assert_not_awaited()
-    assert len(service._deferred_node_transition_function_calls) == 1
+    assert len(service._workflow_tool_deferral.pending) == 1
 
     await service._run_pending_node_transition_function_calls()
 
     service.run_function_calls.assert_awaited_once()
-    assert service._deferred_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []

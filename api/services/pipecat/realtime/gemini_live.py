@@ -9,8 +9,8 @@ Layers Dograh engine integration quirks onto upstream-pristine
 - **Reconnect on node transitions.** Gemini Live cannot update
   ``system_instruction`` mid-session, so a setting change triggers a
   reconnect (deferred until the bot turn ends if currently responding).
-- **Node-transition deferral.** Node-transition calls emitted mid-turn are
-  queued and run when the bot stops speaking, to avoid cutting off its audio.
+- **Node-transition deferral.** A lone transition waits for playback;
+  mixed batches run immediately and interruptions discard queued transitions.
 - **Silent audio while muted.** The shared conversation mixin replaces muted
   caller audio while preserving Gemini's readiness and activity windows.
 - **TTSSpeakFrame as greeting trigger.** The engine queues a TTSSpeakFrame
@@ -34,12 +34,9 @@ from api.services.pipecat.gemini_json_schema_adapter import (
 from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
-    BotStoppedSpeakingFrame,
-    Frame,
     FunctionCallFromLLM,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.utils.tracing.service_decorators import traced_gemini_live
 
@@ -62,9 +59,8 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Node-transition calls emitted mid-bot-turn are deferred here so the
-        # transition does not tear down Gemini while it is still producing audio.
-        self._pending_node_transition_function_calls: list[FunctionCallFromLLM] = []
+        self._transcription_grace_calls: list[FunctionCallFromLLM] = []
+        self._transcription_grace_generation = 0
         # Text greeting captured from the first TTSSpeakFrame while the Gemini
         # session is still connecting.
         self._pending_initial_greeting_text: str | None = None
@@ -112,10 +108,8 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
         if "system_instruction" not in changed:
             return set()
 
-        # PipecatEngine updates system_instruction only from set_node(). The
-        # first set_node happens before a Live session exists; every later one
-        # is a node transition whose tool call has already been deferred until
-        # the current bot turn finishes.
+        # The first node configures the initial session; later nodes reconnect
+        # with the updated prompt and tools.
         if not self._session:
             # First-time setting after deferred-connect.
             await self._connect()
@@ -126,33 +120,29 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     async def _run_or_defer_function_calls(
         self, function_calls_llm: list[FunctionCallFromLLM]
     ):
-        if not self._contains_node_transition(function_calls_llm):
-            await super()._run_or_defer_function_calls(function_calls_llm)
-            return
+        task = self._transition_function_call_task
+        if task is not None and not task.done():
+            # A second tool makes this a mixed batch even if playback already
+            # ended and the transition is only waiting for input transcription.
+            if (
+                self._transcription_grace_generation
+                == self._workflow_tool_deferral.generation
+            ):
+                function_calls_llm = (
+                    self._transcription_grace_calls + function_calls_llm
+                )
+            await self.cancel_task(task)
+        await self._workflow_tool_deferral.submit(
+            function_calls_llm,
+            speaking=self._bot_is_responding or self._workflow_bot_is_speaking,
+            dispatch=self._dispatch_workflow_tool_calls,
+        )
 
-        # Keep a provider tool-call batch together. Splitting a mixed batch here
-        # would discard Pipecat's shared function-call group and could trigger an
-        # LLM run before every result from the original batch has arrived.
-        if self._bot_is_responding:
-            # Latest batch wins; Gemini emits tool calls as one batch per
-            # tool_call message, so this overwrite is intentional.
-            self._pending_node_transition_function_calls = function_calls_llm
-            logger.debug(
-                f"{self}: deferring {len(function_calls_llm)} node-transition "
-                "function call(s) "
-                "until bot turn ends"
-            )
-            return
-
-        self._schedule_node_transition_function_calls(function_calls_llm)
-
-    def _contains_node_transition(
-        self, function_calls_llm: list[FunctionCallFromLLM]
-    ) -> bool:
-        return any(self._is_node_transition(fc) for fc in function_calls_llm)
-
-    def _is_node_transition(self, function_call: FunctionCallFromLLM) -> bool:
-        return self._function_is_node_transition(function_call.function_name)
+    async def _dispatch_workflow_tool_calls(self, function_calls):
+        if self._workflow_tool_deferral.is_single_transition(function_calls):
+            self._schedule_node_transition_function_calls(function_calls)
+        else:
+            await self.run_function_calls(function_calls)
 
     def _schedule_node_transition_function_calls(
         self, function_calls_llm: list[FunctionCallFromLLM]
@@ -168,13 +158,21 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
             )
             return
 
+        generation = self._workflow_tool_deferral.generation
+        self._transcription_grace_calls = function_calls_llm
+        self._transcription_grace_generation = generation
+
         async def _run_after_transcription_grace() -> None:
             try:
                 await asyncio.sleep(self._NODE_TRANSITION_TRANSCRIPTION_GRACE_SECONDS)
+                if generation != self._workflow_tool_deferral.generation:
+                    return
                 await self._flush_pending_user_transcription()
-                await self.run_function_calls(function_calls_llm)
+                if generation == self._workflow_tool_deferral.generation:
+                    await self.run_function_calls(function_calls_llm)
             finally:
                 self._transition_function_call_task = None
+                self._transcription_grace_calls = []
 
         self._transition_function_call_task = self.create_task(
             _run_after_transcription_grace(),
@@ -205,20 +203,11 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     async def _set_bot_is_responding(self, responding: bool):
         was_responding = self._bot_is_responding
         await super()._set_bot_is_responding(responding)
-        if was_responding and not responding:
+        if was_responding and not responding and self._workflow_playback_stopped:
             await self._run_pending_node_transition_function_calls()
 
     async def _run_pending_node_transition_function_calls(self):
-        """Run any node-transition calls deferred during the bot's last turn."""
-        if not self._pending_node_transition_function_calls:
-            return
-        fcs = self._pending_node_transition_function_calls
-        self._pending_node_transition_function_calls = []
-        logger.debug(
-            f"{self}: executing {len(fcs)} deferred node-transition call(s) "
-            "after bot turn ended"
-        )
-        self._schedule_node_transition_function_calls(fcs)
+        await self._workflow_tool_deferral.release()
 
     async def _disconnect_for_reconnect(self) -> bool:
         """Disconnect without discarding a pending graceful shutdown.
@@ -269,19 +258,9 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     # Frame handling: mute, TTSSpeakFrame, BotStoppedSpeakingFrame flush
     # ------------------------------------------------------------------
 
-    async def process_frame(self, frame: Frame, direction: FrameDirection):
-        if (
-            isinstance(frame, BotStoppedSpeakingFrame)
-            and self._turn_complete_pending_idle is None
-        ):
-            # Belt-and-suspenders: the main drain happens in
-            # _set_bot_is_responding(False), but if Gemini delays turn_complete
-            # past the audible end of the turn, flushing here ensures a pending
-            # node transition fires promptly. A turn held open by Gemini's
-            # IN_PROGRESS status can resume speaking after this audio gap.
-            await self._run_pending_node_transition_function_calls()
-            # Fall through to super for the actual push.
-        await super().process_frame(frame, direction)
+    def _can_release_workflow_tools_at_playback_stop(self) -> bool:
+        # IN_PROGRESS can resume speaking after an audio gap.
+        return self._turn_complete_pending_idle is None
 
     # ------------------------------------------------------------------
     # Context lifecycle: Dograh pre-populates self._context via the engine,

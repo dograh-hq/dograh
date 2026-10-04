@@ -48,6 +48,7 @@ def campaign_call(monkeypatch):
         get_gathered_context=AsyncMock(return_value=context),
         record_call_tags=Mock(),
         cleanup=AsyncMock(),
+        finish_tool_calls=AsyncMock(),
     )
     monkeypatch.setattr(
         event_handlers.db_client,
@@ -94,6 +95,38 @@ def campaign_call(monkeypatch):
         transcript_log_coordinator=transcript_log_coordinator,
         call_events_session=call_events_session,
     )
+
+
+@pytest.mark.asyncio
+async def test_completion_waits_for_tools_before_persisting_and_finalizing(
+    campaign_call,
+):
+    call = campaign_call
+    started, release = asyncio.Event(), asyncio.Event()
+    result = {"tool_call_id": "booking-1", "result": {"saved": True}}
+
+    async def finish_tools():
+        started.set()
+        await release.wait()
+        call.engine.get_gathered_context.return_value["tool_results"] = [result]
+
+    call.engine.finish_tool_calls.side_effect = finish_tools
+    finishing = asyncio.create_task(
+        call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        event_handlers.db_client.update_workflow_run.assert_not_awaited()
+        call.call_events_session.finish.assert_not_awaited()
+    finally:
+        release.set()
+        await asyncio.wait_for(finishing, 1)
+    updates = event_handlers.db_client.update_workflow_run.await_args_list
+    completed = [u.kwargs for u in updates if u.kwargs.get("is_completed")]
+    assert completed[0]["gathered_context"]["tool_results"] == [result]
+    assert call.call_events_session.finish.await_args.args[0]["tool_results"] == [
+        result
+    ]
 
 
 @pytest.mark.asyncio

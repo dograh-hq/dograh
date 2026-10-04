@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConversationRailFrame, RealtimeFeedback, WorkflowRunLogs } from '@/components/workflow/conversation';
+import { conversationItemsFromRealtimeFeedbackEvents } from '@/components/workflow/conversation/adapters/fromRealtimeFeedback';
 import { PostHogEvent } from '@/constants/posthog-events';
 import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
 import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
@@ -74,7 +75,8 @@ function getTranscriptMetrics(logs: WorkflowRunLogs | null, gatheredContext: Rec
     const events = logs?.realtime_feedback_events ?? [];
     const userTurns = events.filter((event) => event.type === 'rtf-user-transcription' && event.payload.final).length;
     const botTurns = events.filter((event) => event.type === 'rtf-bot-text').length;
-    const toolCalls = events.filter((event) => event.type === 'rtf-function-call-end').length;
+    const toolCalls = conversationItemsFromRealtimeFeedbackEvents(events, gatheredContext?.tool_results)
+        .filter((item) => item.kind === 'tool-call' && item.status !== 'running').length;
     const nodeNames = new Set(
         events
             .map((event) => event.payload.node_name)
@@ -877,7 +879,11 @@ export default function WorkflowRunPage() {
 
                 <div className="h-full min-h-0 w-[420px] shrink-0 border-l border-border bg-background p-5">
                     <ConversationRailFrame className="h-full">
-                        <RealtimeFeedback mode="historical" logs={workflowRun?.logs ?? null} />
+                        <RealtimeFeedback
+                            mode="historical"
+                            logs={workflowRun?.logs ?? null}
+                            toolResults={workflowRun?.gathered_context?.tool_results}
+                        />
                     </ConversationRailFrame>
                 </div>
             </div>

@@ -351,6 +351,7 @@ def register_event_handlers(
         # campaign retry tags -- are not merged in here: `update_workflow_run` reconciles
         # them under a row lock at write time, so re-merging a staler unlocked
         # copy would only be a second, worse answer.
+        await engine.finish_tool_calls()
         gathered_context = await engine.get_gathered_context()
 
         # Store disposition code in workflow for dynamic filtering

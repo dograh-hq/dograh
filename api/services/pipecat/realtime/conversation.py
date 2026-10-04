@@ -4,10 +4,19 @@ from dataclasses import replace
 
 from loguru import logger
 
+from api.services.pipecat.realtime.tool_call_deferral import WorkflowToolCallDeferral
 from pipecat.audio.resamplers.base_audio_resampler import BaseAudioResampler
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
+    CancelFrame,
+    EndFrame,
     Frame,
     InputAudioRawFrame,
+    InterruptionFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    StopFrame,
     TTSSpeakFrame,
     UserMuteStartedFrame,
     UserMuteStoppedFrame,
@@ -27,13 +36,67 @@ class RealtimeConversationMixin:
     reconnects remain upstream concerns.
     """
 
+    _workflow_tools_follow_voice_response = True
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._user_is_muted = False
         # The engine assigns _context before the first context frame arrives.
         self._handled_initial_context = False
+        self._workflow_tool_deferral = WorkflowToolCallDeferral(self)
+        self._workflow_response_open = False
+        self._workflow_playback_stopped = False
+        self._workflow_bot_is_speaking = False
+        self.add_event_handler("on_before_push_frame", self._observe_workflow_response)
+
+    def _observe_workflow_response(self, _processor, frame: Frame) -> None:
+        if isinstance(frame, LLMFullResponseStartFrame):
+            if (
+                not self._workflow_response_open
+                and self._workflow_tools_follow_voice_response
+            ):
+                self._workflow_tool_deferral.begin_response()
+            self._workflow_response_open = True
+            self._workflow_playback_stopped = False
+        elif isinstance(frame, LLMFullResponseEndFrame):
+            self._workflow_response_open = False
+
+    def _can_release_workflow_tools_at_playback_stop(self) -> bool:
+        return True
+
+    async def broadcast_interruption(self):
+        # Provider-originated barge-in can close its response before the
+        # interruption frame makes the round trip through the call pipeline.
+        self._workflow_tool_deferral.discard("provider_interrupted")
+        self._workflow_response_open = False
+        await super().broadcast_interruption()
+
+    async def cleanup(self):
+        self._workflow_tool_deferral.discard("cleanup", close=True)
+        await super().cleanup()
+
+    async def _disconnect(self, *args, **kwargs):
+        self._workflow_tool_deferral.discard("disconnect")
+        self._workflow_response_open = False
+        await super()._disconnect(*args, **kwargs)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
+        if isinstance(frame, BotStartedSpeakingFrame):
+            self._workflow_playback_stopped = False
+            self._workflow_bot_is_speaking = True
+        elif isinstance(frame, (CancelFrame, EndFrame, StopFrame)):
+            self._workflow_tool_deferral.discard(type(frame).__name__, close=True)
+        elif isinstance(frame, InterruptionFrame) or (
+            isinstance(frame, BotStoppedSpeakingFrame) and frame.interrupted
+        ):
+            self._workflow_bot_is_speaking = False
+            self._workflow_response_open = False
+            self._workflow_tool_deferral.discard("interrupted")
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            self._workflow_bot_is_speaking = False
+            self._workflow_playback_stopped = True
+            if self._can_release_workflow_tools_at_playback_stop():
+                await self._workflow_tool_deferral.release()
         if isinstance(frame, (UserMuteStartedFrame, UserMuteStoppedFrame)):
             self._user_is_muted = isinstance(frame, UserMuteStartedFrame)
             await self.push_frame(frame, direction)

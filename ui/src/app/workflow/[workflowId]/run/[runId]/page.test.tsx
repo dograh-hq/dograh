@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RealtimeFeedbackEvent } from '@/components/workflow/conversation/types';
 
@@ -85,4 +85,114 @@ afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+});
+
+async function renderPlayer() {
+    const view = render(<WorkflowRunPage />);
+    await screen.findByRole('button', { name: 'Play split tracks' });
+    const [user, bot] = Array.from(view.container.querySelectorAll('audio'));
+    await waitFor(() => expect(bot.getAttribute('src')).toBe('/bot.wav'));
+    return { user, bot };
+}
+
+function loadMetadata(audio: HTMLAudioElement, duration: number) {
+    Object.defineProperty(audio, 'duration', { configurable: true, value: duration });
+    fireEvent.loadedMetadata(audio);
+}
+
+function seek(time: number) {
+    fireEvent.change(screen.getByRole('slider', { name: 'Playback position' }), {
+        target: { value: String(time) },
+    });
+}
+
+async function clickPlayback(name: string) {
+    await act(async () => fireEvent.click(screen.getByRole('button', { name })));
+}
+
+describe('split track seeking', () => {
+    it('waits for both track durations, then skips and scrubs both tracks while paused', async () => {
+        const { user, bot } = await renderPlayer();
+        const slider = screen.getByRole('slider') as HTMLInputElement;
+        expect(slider.disabled).toBe(true);
+        loadMetadata(user, 65);
+        expect(slider.disabled).toBe(true);
+        loadMetadata(bot, 65);
+        expect(slider.disabled).toBe(false);
+
+        await clickPlayback('Skip forward 10 seconds');
+        expect([user.currentTime, bot.currentTime]).toEqual([10, 10]);
+        expect(slider.getAttribute('aria-valuetext')).toBe('0:10 of 1:05');
+
+        seek(4);
+        await clickPlayback('Skip backward 10 seconds');
+        expect([user.currentTime, bot.currentTime]).toEqual([0, 0]);
+        expect((screen.getByRole('button', { name: 'Skip backward 10 seconds' }) as HTMLButtonElement).disabled).toBe(true);
+        expect(user.play).not.toHaveBeenCalled();
+
+        seek(62);
+        await clickPlayback('Skip forward 10 seconds');
+        expect([user.currentTime, bot.currentTime]).toEqual([65, 65]);
+        expect((screen.getByRole('button', { name: 'Skip forward 10 seconds' }) as HTMLButtonElement).disabled).toBe(true);
+        await clickPlayback('Play split tracks');
+        expect([user.currentTime, bot.currentTime]).toEqual([0, 0]);
+    });
+
+    it('keeps playback running when seeking and stops when skipping to the end', async () => {
+        const { user, bot } = await renderPlayer();
+        loadMetadata(user, 25);
+        loadMetadata(bot, 25);
+        await clickPlayback('Play split tracks');
+        await clickPlayback('Skip forward 10 seconds');
+        expect([user.currentTime, bot.currentTime]).toEqual([10, 10]);
+        expect([user.paused, bot.paused]).toEqual([false, false]);
+        expect(screen.getByRole('button', { name: 'Pause split tracks' })).toBeTruthy();
+
+        seek(22);
+        await clickPlayback('Skip forward 10 seconds');
+        expect([user.currentTime, bot.currentTime]).toEqual([25, 25]);
+        expect([user.paused, bot.paused]).toEqual([true, true]);
+        expect(screen.getByRole('button', { name: 'Play split tracks' })).toBeTruthy();
+
+        await clickPlayback('Skip backward 10 seconds');
+        await clickPlayback('Play split tracks');
+        expect([user.currentTime, bot.currentTime]).toEqual([15, 15]);
+    });
+
+    it('resumes an ended shorter track when seeking back without restarting it past its end', async () => {
+        const { user, bot } = await renderPlayer();
+        loadMetadata(user, 20);
+        loadMetadata(bot, 40);
+        await clickPlayback('Play split tracks');
+        seek(25);
+        expect([user.currentTime, bot.currentTime]).toEqual([20, 25]);
+        expect([user.paused, bot.paused]).toEqual([true, false]);
+
+        await clickPlayback('Pause split tracks');
+        await clickPlayback('Play split tracks');
+        expect([user.currentTime, bot.currentTime]).toEqual([20, 25]);
+        expect(user.paused).toBe(true);
+
+        await clickPlayback('Skip backward 10 seconds');
+        expect([user.currentTime, bot.currentTime]).toEqual([15, 15]);
+        expect([user.paused, bot.paused]).toEqual([false, false]);
+    });
+
+    it('preserves the seek position when switching between solo and combined playback', async () => {
+        const { user, bot } = await renderPlayer();
+        loadMetadata(user, 50);
+        loadMetadata(bot, 70);
+        await clickPlayback('Play user track only');
+        seek(30);
+        await clickPlayback('Play user track');
+        await clickPlayback('Skip backward 10 seconds');
+        expect([user.currentTime, bot.currentTime]).toEqual([20, 20]);
+        expect([user.paused, bot.paused]).toEqual([false, true]);
+        expect((screen.getByRole('slider') as HTMLInputElement).max).toBe('50');
+
+        await clickPlayback('Play both tracks');
+        expect([user.currentTime, bot.currentTime]).toEqual([20, 20]);
+        expect([user.paused, bot.paused]).toEqual([false, false]);
+        expect((screen.getByRole('slider') as HTMLInputElement).max).toBe('70');
+    });
 });

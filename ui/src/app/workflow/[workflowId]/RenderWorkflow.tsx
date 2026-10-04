@@ -793,6 +793,7 @@ function RenderWorkflow({
                 />
 
                 <VersionHistoryPanel
+                    workflowId={workflowId}
                     isOpen={isVersionPanelOpen}
                     onClose={() => setIsVersionPanelOpen(false)}
                     versions={versions}
@@ -804,6 +805,9 @@ function RenderWorkflow({
                     hasMore={versionsHasMore}
                     loadingMore={versionsLoadingMore}
                     onLoadMore={handleLoadMoreVersions}
+                    onVersionUpdated={(metadata) => setVersions((previous) => previous.map((version) => (
+                        version.id === metadata.id ? { ...version, ...metadata } : version
+                    )))}
                 />
 
                 {versionDiffPair && (

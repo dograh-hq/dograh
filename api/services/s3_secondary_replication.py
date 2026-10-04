@@ -63,15 +63,16 @@ def _artifact_refs(audit: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     calm_scoring = audit.get("calm_scoring", {})
-    if calm_scoring.get("status") == "success" and calm_scoring.get("object_key"):
-        refs.append(
-            {
-                "type": "calm_scoring",
-                "object_key": calm_scoring["object_key"],
-                "size_bytes": calm_scoring.get("size_bytes"),
-                "checksum_sha256": calm_scoring.get("checksum_sha256"),
-            }
-        )
+    objects = calm_scoring.get("objects")
+    if objects is not None:
+        for item in objects:
+            if item.get("status") == "success" and item.get("object_key"):
+                refs.append({"type": item["type"], "object_key": item["object_key"],
+                             "size_bytes": item.get("size_bytes"), "checksum_sha256": item.get("checksum_sha256")})
+    elif calm_scoring.get("status") == "success" and calm_scoring.get("object_key"):
+        # Compatibility with v1.47.0.23 jobs and audits.
+        refs.append({"type": "calm_scoring", "object_key": calm_scoring["object_key"],
+                     "size_bytes": calm_scoring.get("size_bytes"), "checksum_sha256": calm_scoring.get("checksum_sha256")})
     return refs
 
 

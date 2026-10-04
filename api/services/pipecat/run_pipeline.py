@@ -933,6 +933,10 @@ async def _run_pipeline_impl(
             if not turn:
                 return
             await engine._update_llm_context(turn["prompt_sent_to_llm"], [])
+            turn["llm_messages"] = [
+                {"role": message.get("role"), "content": message.get("content")}
+                for message in context.get_messages() if isinstance(message, dict)
+            ]
             await live_calm.persist()
             await publish_calm_turn(turn)
             live_calm.schedule_evaluation(turn)

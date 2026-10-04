@@ -38,6 +38,8 @@ class UserConfigurationValidator:
         self._validator_map = {
             ServiceProviders.OPENAI.value: self._check_openai_api_key,
             ServiceProviders.ATLASCLOUD.value: self._check_openai_api_key,
+            ServiceProviders.HUMAIN_IQ.value: self._check_openai_api_key,
+            ServiceProviders.HUMAIN.value: self._check_humain_api_key,
             ServiceProviders.DEEPGRAM.value: self._check_deepgram_api_key,
             ServiceProviders.GROQ.value: self._check_groq_api_key,
             ServiceProviders.OPENROUTER.value: self._check_openrouter_api_key,
@@ -235,16 +237,31 @@ class UserConfigurationValidator:
         if provider in (
             ServiceProviders.OPENAI.value,
             ServiceProviders.ATLASCLOUD.value,
+            ServiceProviders.HUMAIN_IQ.value,
+            ServiceProviders.HUMAIN.value,
             ServiceProviders.OPENAI_REALTIME.value,
         ):
             return validator(provider, api_key, service_config)
         return validator(provider, api_key)
 
+    def _check_humain_api_key(self, model, api_key, service_config=None):
+        # This validator runs synchronously inside the existing configuration API.
+        # Use the SDK's bounded synchronous discovery, never a fabricated REST path.
+        from humain_voice import tts
+        client = tts.TTSClient(api_url=service_config.base_url, api_key=api_key, api_path=service_config.api_path)
+        try:
+            client.list_voices_sync(timeout_seconds=5)
+            return True
+        except Exception:
+            raise ValueError("Humain Voice validation failed. Check the issued URL, Socket.IO path and API key.")
+        finally:
+            client.close_sync()
+
     def _check_openai_api_key(
         self, model: str, api_key: str, service_config: Optional[ServiceConfig] = None
     ) -> bool:
         provider_name = (
-            "Atlas Cloud" if model == ServiceProviders.ATLASCLOUD.value else "OpenAI"
+            "Humain IQ" if model == ServiceProviders.HUMAIN_IQ.value else "Atlas Cloud" if model == ServiceProviders.ATLASCLOUD.value else "OpenAI"
         )
         client_kwargs: dict[str, str] = {"api_key": api_key}
         base_url = getattr(service_config, "base_url", None) if service_config else None

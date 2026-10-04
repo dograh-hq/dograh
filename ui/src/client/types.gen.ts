@@ -522,6 +522,8 @@ export type ByokPipelineAiModelConfiguration = {
     } & OpenAillmService) | ({
         provider: 'atlascloud';
     } & AtlasCloudLlmService) | ({
+        provider: 'humain_iq';
+    } & HumainIqllmService) | ({
         provider: 'google_vertex';
     } & GoogleVertexLlmConfiguration) | ({
         provider: 'groq';
@@ -554,6 +556,8 @@ export type ByokPipelineAiModelConfiguration = {
     } & GoogleTtsConfiguration) | ({
         provider: 'openai';
     } & OpenAittsService) | ({
+        provider: 'humain';
+    } & HumainTtsConfiguration) | ({
         provider: 'elevenlabs';
     } & ElevenlabsTtsConfiguration) | ({
         provider: 'cartesia';
@@ -590,6 +594,8 @@ export type ByokPipelineAiModelConfiguration = {
     } & CartesiaSttConfiguration) | ({
         provider: 'openai';
     } & OpenAisttConfiguration) | ({
+        provider: 'humain';
+    } & HumainSttConfiguration) | ({
         provider: 'google';
     } & GoogleSttConfiguration) | ({
         provider: 'dograh';
@@ -654,6 +660,8 @@ export type ByokRealtimeAiModelConfiguration = {
     } & OpenAillmService) | ({
         provider: 'atlascloud';
     } & AtlasCloudLlmService) | ({
+        provider: 'humain_iq';
+    } & HumainIqllmService) | ({
         provider: 'google_vertex';
     } & GoogleVertexLlmConfiguration) | ({
         provider: 'groq';
@@ -3553,6 +3561,96 @@ export type HuggingFaceSttConfiguration = {
      * Request timestamp chunks when supported by the selected provider/model.
      */
     return_timestamps?: boolean;
+};
+
+/**
+ * Humain IQ (ALLAM 34B)
+ */
+export type HumainIqllmService = {
+    /**
+     * Provider
+     */
+    provider?: 'humain_iq';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Exact IQ deployment model ID, including ALLAM 34B when provisioned.
+     */
+    model: string;
+    /**
+     * Base Url
+     *
+     * Issued OpenAI-compatible Humain IQ API base URL. No public endpoint is assumed.
+     */
+    base_url: string;
+};
+
+/**
+ * Humain Voice
+ */
+export type HumainSttConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'humain';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     */
+    model?: 'realtime';
+    /**
+     * Language
+     */
+    language?: 'ar' | 'en' | 'codeswitch';
+    /**
+     * Base Url
+     */
+    base_url?: string;
+    /**
+     * Api Path
+     */
+    api_path?: string;
+};
+
+/**
+ * Humain Voice
+ */
+export type HumainTtsConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'humain';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     */
+    model?: 'nebula';
+    /**
+     * Voice
+     *
+     * Multilingual profile ID from Humain voice discovery.
+     */
+    voice: string;
+    /**
+     * Base Url
+     */
+    base_url?: string;
+    /**
+     * Api Path
+     *
+     * Use /realtime/socket.io for legacy sautech deployments.
+     */
+    api_path?: string;
 };
 
 /**
@@ -6594,7 +6692,9 @@ export type TelephonyConfigurationCreateRequest = {
         provider: 'vobiz';
     } & VobizConfigurationRequest) | ({
         provider: 'vonage';
-    } & VonageConfigurationRequest);
+    } & VonageConfigurationRequest) | ({
+        provider: 'whatsapp';
+    } & WhatsAppConfigurationRequest);
 };
 
 /**
@@ -6758,7 +6858,9 @@ export type TelephonyConfigurationUpdateRequest = {
         provider: 'vobiz';
     } & VobizConfigurationRequest) | ({
         provider: 'vonage';
-    } & VonageConfigurationRequest) | null;
+    } & VonageConfigurationRequest) | ({
+        provider: 'whatsapp';
+    } & WhatsAppConfigurationRequest) | null;
 };
 
 /**
@@ -7969,6 +8071,66 @@ export type VonageConfigurationRequest = {
  * Webhook credential authentication types
  */
 export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
+
+/**
+ * WhatsAppConfigurationRequest
+ *
+ * Request schema for WhatsApp configuration.
+ *
+ * This schema validates incoming configuration save requests and
+ * integrates with Dograh's metadata-driven UI forms.
+ *
+ * Attributes:
+ * provider: Literal discriminator for union typing
+ * access_token: WhatsApp Business API access token
+ * phone_number_id: Business phone number ID from Meta
+ * webhook_verify_token: Token for webhook verification
+ * app_secret: App secret for webhook signature validation
+ * business_initiated_calls_enabled: Enable outbound calling
+ * call_icon_visibility: Control call icon display in WhatsApp
+ */
+export type WhatsAppConfigurationRequest = {
+    /**
+     * Provider
+     */
+    provider?: 'whatsapp';
+    /**
+     * Access Token
+     *
+     * WhatsApp Business API access token
+     */
+    access_token: string;
+    /**
+     * Phone Number Id
+     *
+     * Business phone number ID
+     */
+    phone_number_id: string;
+    /**
+     * Webhook Verify Token
+     *
+     * Webhook verification token
+     */
+    webhook_verify_token: string;
+    /**
+     * App Secret
+     *
+     * App secret for webhook signature validation
+     */
+    app_secret: string;
+    /**
+     * Business Initiated Calls Enabled
+     *
+     * Enable business-initiated calls to WhatsApp users
+     */
+    business_initiated_calls_enabled?: boolean;
+    /**
+     * Call Icon Visibility
+     *
+     * Control when call icon appears to users
+     */
+    call_icon_visibility?: 'enabled' | 'disabled' | 'business_hours';
+};
 
 /**
  * WidgetTexts
@@ -9466,6 +9628,88 @@ export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostErrors = {
 };
 
 export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Hub.Mode
+         */
+        'hub.mode': string;
+        /**
+         * Hub.Verify Token
+         */
+        'hub.verify_token': string;
+        /**
+         * Hub.Challenge
+         */
+        'hub.challenge': string;
+    };
+    url: '/api/v1/telephony/whatsapp/webhook';
+};
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetError = HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetErrors[keyof HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetErrors];
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleWhatsappWebhookApiV1TelephonyWhatsappWebhookPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/whatsapp/webhook';
+};
+
+export type HandleWhatsappWebhookApiV1TelephonyWhatsappWebhookPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleWhatsappWebhookApiV1TelephonyWhatsappWebhookPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandlePermissionCallbackApiV1TelephonyWhatsappPermissionsPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/whatsapp/permissions';
+};
+
+export type HandlePermissionCallbackApiV1TelephonyWhatsappPermissionsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandlePermissionCallbackApiV1TelephonyWhatsappPermissionsPostResponses = {
     /**
      * Successful Response
      */
@@ -11271,7 +11515,7 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetData = {
         /**
          * Provider
          */
-        provider: 'elevenlabs' | 'deepgram' | 'sarvam' | 'cartesia' | 'dograh' | 'rime';
+        provider: 'elevenlabs' | 'deepgram' | 'sarvam' | 'cartesia' | 'dograh' | 'rime' | 'humain';
     };
     query?: {
         /**
@@ -13178,6 +13422,50 @@ export type UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfig
 };
 
 export type UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutResponse = UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutResponses[keyof UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutResponses];
+
+export type SyncTelephonyConfigurationPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdSyncPhoneNumbersPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/sync-phone-numbers';
+};
+
+export type SyncTelephonyConfigurationPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdSyncPhoneNumbersPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SyncTelephonyConfigurationPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdSyncPhoneNumbersPostError = SyncTelephonyConfigurationPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdSyncPhoneNumbersPostErrors[keyof SyncTelephonyConfigurationPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdSyncPhoneNumbersPostErrors];
+
+export type SyncTelephonyConfigurationPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdSyncPhoneNumbersPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProviderSyncStatus;
+};
+
+export type SyncTelephonyConfigurationPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdSyncPhoneNumbersPostResponse = SyncTelephonyConfigurationPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdSyncPhoneNumbersPostResponses[keyof SyncTelephonyConfigurationPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdSyncPhoneNumbersPostResponses];
 
 export type SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostData = {
     body?: never;

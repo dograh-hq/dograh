@@ -57,6 +57,7 @@ function baseHookReturn(opts: {
         stop: vi.fn(),
         isStarting: opts.isStarting ?? false,
         feedbackMessages: [],
+        calmTurns: [],
         appConfig: opts.backendStatus ? { backendStatus: opts.backendStatus } : null,
         appConfigLoading: opts.appConfigLoading,
         refreshAppConfig: opts.refreshAppConfig,

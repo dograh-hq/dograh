@@ -20,6 +20,7 @@ def _run(**overrides):
         "full_transcript": "ASSISTANT: hello",
         "recording_object_key": "recordings/7/call.wav",
         "extra": {},
+        "annotations": {},
         "created_at": datetime.now(UTC),
     }
     values.update(overrides)

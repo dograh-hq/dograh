@@ -300,6 +300,10 @@ def create_stt_service(
             should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
             sample_rate=audio_config.transport_in_sample_rate,
         )
+    elif user_config.stt.provider == ServiceProviders.HUMAIN.value:
+        from api.services.pipecat.humain import HumainSTTService
+        _validate_runtime_service_url(user_config.stt.base_url, "base_url")
+        return HumainSTTService(config=user_config.stt)
     elif user_config.stt.provider == ServiceProviders.OPENAI.value:
         kwargs = {}
         base_url = getattr(user_config.stt, "base_url", None)
@@ -573,6 +577,10 @@ def create_tts_service(
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
+    elif user_config.tts.provider == ServiceProviders.HUMAIN.value:
+        from api.services.pipecat.humain import HumainTTSService
+        _validate_runtime_service_url(user_config.tts.base_url, "base_url")
+        return HumainTTSService(config=user_config.tts, text_filters=[xml_function_tag_filter], skip_aggregator_types=["recording_router", "recording"])
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
         kwargs = {}
         base_url = getattr(user_config.tts, "base_url", None)
@@ -961,9 +969,12 @@ def create_llm_service_from_provider(
             provider; ignored by other providers.
     """
     logger.info(f"Creating LLM service: provider={provider}, model={model}")
+    if provider == ServiceProviders.HUMAIN_IQ.value and not base_url:
+        raise HTTPException(status_code=400, detail="Humain IQ requires its issued API base URL.")
     if provider in (
         ServiceProviders.OPENAI.value,
         ServiceProviders.ATLASCLOUD.value,
+        ServiceProviders.HUMAIN_IQ.value,
     ):
         kwargs = {}
         if base_url:
@@ -1298,6 +1309,7 @@ def create_llm_service(
     if provider in (
         ServiceProviders.OPENAI.value,
         ServiceProviders.ATLASCLOUD.value,
+        ServiceProviders.HUMAIN_IQ.value,
     ):
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.OPENROUTER.value:

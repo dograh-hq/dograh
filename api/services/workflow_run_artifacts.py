@@ -162,36 +162,55 @@ async def persist_calm_scoring_artifact(
     data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if not await _upload_bytes(workflow_run_id, data, object_key, "CALM scoring"):
         return None
+    # Queued replication must read immutable bytes, even as new turns arrive.
+    revision = hashlib.sha256(data).hexdigest()
+    revision_root = f"calm-scoring/{artifact_root}/revisions/{revision}"
+    rows = [{"role": role, **turn} for role in ("caller", "sakinah") for turn in payload.get(role, [])]
+    rows.sort(key=lambda row: (row.get("turn_id", 0), row.get("role") == "sakinah"))
+    table = {
+        "workflow_run_id": workflow_run_id, "updated_at": payload.get("updated_at"),
+        "rows": [{key: row.get(key) for key in (
+            "turn_id", "role", "timestamp", "emotional_scores", "safety_scores",
+            "clinical_scores", "calm_scores", "scores", "trend", "confidence",
+            "calm_confidence", "clinical_evaluation", "safety_evaluation", "evaluation",
+        )} for row in rows],
+    }
+    prompts = {
+        "workflow_run_id": workflow_run_id, "updated_at": payload.get("updated_at"),
+        "turns": [{key: row.get(key) for key in (
+            "turn_id", "role", "utterance_verbatim", "text", "prompt_sent_to_llm",
+            "response_strategy", "llm_response_raw", "response_delivered",
+            "post_response_evaluation", "significant_changes", "safety_state", "llm_messages",
+        )} for row in rows],
+    }
+    objects = []
+    for name, content in (("turn-by-turn", payload), ("scoring-table", table), ("prompt-engineering", prompts)):
+        body = json.dumps(content, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        key = f"{revision_root}/{name}.json"
+        saved = await _upload_bytes(workflow_run_id, body, key, name)
+        objects.append({
+            "type": name, "object_key": key, "status": "success" if saved else "failed",
+            "size_bytes": len(body), "checksum_sha256": hashlib.sha256(body).hexdigest(),
+        })
     metadata = {
         "storage_backend": get_current_storage_backend().value,
-        "bucket": _storage_bucket(),
-        "object_key": object_key,
-        "size_bytes": len(data),
-        "checksum_sha256": hashlib.sha256(data).hexdigest(),
-        "format": "json",
-        "updated_at": datetime.now(UTC).isoformat(),
+        "bucket": _storage_bucket(), "object_key": object_key,
+        "size_bytes": len(data), "checksum_sha256": revision,
+        "format": "json", "updated_at": datetime.now(UTC).isoformat(), "objects": objects,
+        "status": "success" if all(item["status"] == "success" for item in objects) else "partial",
     }
-    await _persist_run_fields(
-        workflow_run_id,
-        extra={"calm_scoring": metadata},
-    )
+    metadata_saved = await _persist_run_fields(workflow_run_id, extra={"calm_scoring": metadata})
+    if not metadata_saved and metadata["status"] == "success":
+        metadata["status"] = "partial"
     if replicate:
         try:
-            await schedule_s3_replication(
-                workflow_run_id,
-                {
-                    "storage_backend": metadata["storage_backend"],
-                    "calm_scoring": {"status": "success", **metadata},
-                    "recordings": {"objects": []},
-                    "transcript": {"status": "not_expected"},
-                },
-            )
-        except Exception as exc:  # secondary storage must not fail the run
-            logger.warning(
-                "CALM S3 replication scheduling failed for run {} ({})",
-                workflow_run_id,
-                type(exc).__name__,
-            )
+            await schedule_s3_replication(workflow_run_id, {
+                "storage_backend": metadata["storage_backend"], "calm_scoring": metadata,
+                "recordings": {"objects": [], "bucket": metadata["bucket"]},
+                "transcript": {"status": "not_expected"},
+            })
+        except Exception as exc:
+            logger.warning("CALM S3 replication scheduling failed for run {} ({})", workflow_run_id, type(exc).__name__)
     return metadata
 
 
@@ -427,37 +446,11 @@ async def upload_workflow_run_artifacts(
             audit["postgres"]["transcript_saved"] = transcript_saved
 
     if calm_scoring_payload:
-        calm_key = f"calm-scoring/{artifact_root}/turn-by-turn.json"
-        calm_bytes = json.dumps(
-            calm_scoring_payload, ensure_ascii=False, separators=(",", ":")
-        ).encode("utf-8")
-        audit["calm_scoring"] = {
-            "status": "failed",
-            "backend": backend_name,
-            "bucket": bucket,
-            "object_key": calm_key,
-            "size_bytes": len(calm_bytes),
-            "checksum_sha256": hashlib.sha256(calm_bytes).hexdigest(),
-        }
-        if await _upload_bytes(
-            workflow_run_id, calm_bytes, calm_key, "CALM scoring"
-        ):
-            metadata_saved = await _persist_run_fields(
-                workflow_run_id,
-                extra={
-                    "calm_scoring": {
-                        "storage_backend": backend_name,
-                        "bucket": bucket,
-                        "object_key": calm_key,
-                        "size_bytes": len(calm_bytes),
-                        "checksum_sha256": audit["calm_scoring"]["checksum_sha256"],
-                        "format": "json",
-                    }
-                },
-            )
-            audit["calm_scoring"]["status"] = (
-                "success" if metadata_saved else "partial"
-            )
+        try:
+            metadata = await persist_calm_scoring_artifact(workflow_run_id, calm_scoring_payload)
+            audit["calm_scoring"] = metadata or {"status": "failed"}
+        except Exception:
+            audit["calm_scoring"] = {"status": "failed"}
 
     audit["artifact_count"] = (
         len(audit["recordings"]["objects"])

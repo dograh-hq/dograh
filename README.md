@@ -130,7 +130,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 ## CALMOS / Sakinah Scenario Console
 
-CALMOS Connect v1.47.0.23 includes the Sakinah Scenario Console at `/sakinah` and
+CALMOS Connect v1.47.0.24 includes the Sakinah Scenario Console at `/sakinah` and
 its AI-to-AI simulation console at `/sakinah/sim`. The white-label release adds:
 
 - Durable Agent Runs/Call History records for active and completed calls,
@@ -283,3 +283,60 @@ Founded by YC alumni and exit founders committed to keeping voice AI open and ac
     <a href="https://app.dograh.com">☁️ Try Cloud Version</a> |
     <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-4787daqcn-3TDiQUh~3xrr3pwAqR9wpQ">💬 Join Slack</a>
   </p>
+
+
+### v1.47.0.24 scoring persistence and Humain
+
+This release builds on `codex/v1.47.0.23-calm-s3` (71e91d14) and keeps its
+scoring toggle, live graphs, call routing, recording and transcript behavior.
+
+CALM saves caller and Sakinah scores after each turn and evaluator update.
+Finalization waits for evaluation and flushes the final snapshot. MinIO keeps
+`calm-scoring/YYYY/MM/<service-user>/<call>/turn-by-turn.json` for existing readers.
+Each revision also stores `turn-by-turn.json`, `scoring-table.json` and
+`prompt-engineering.json` under `revisions/<snapshot-sha256>/`. The scoring table
+includes both roles and full evaluation data. Prompt data includes CALM prompts,
+message context, response strategy and delivered responses. Immutable revision
+keys prevent queued AWS copies from reading a newer turn with an older checksum.
+Run metadata identifies the latest revision. Upload failures remain isolated
+from calls and are reported as failed/partial, never as successful writes.
+
+AWS copies use the existing ARQ replication worker and reconciliation job.
+Configure `ENABLE_AWS_S3_SECONDARY=true`, `AWS_RECORDINGS_BUCKET`, `AWS_REGION`
+and optional `AWS_S3_PREFIX`, with MinIO as primary. The worker needs AWS bucket
+permissions. Disabled or unconfigured AWS storage is reported explicitly.
+
+Scenario Library now offers **Download all scenarios as ZIP**. It fetches the
+whole current organization library, regardless of search, and exports one
+importable UTF-8 JSON file per scenario.
+
+Select **Humain Voice** for TTS or STT in BYOK model configuration. TTS uses
+`nebula`, 24 kHz mono PCM16 and a multilingual profile ID. Save the provider
+configuration, then load the voice catalog or enter the issued profile ID.
+STT streams 16 kHz PCM16 and supports `ar`, `en` and `codeswitch`. Telephone
+8 kHz input is resampled. The backend uses `humain-voice==0.18.0`, bounded
+requests and owned client cleanup. API keys never go to the browser.
+The standard endpoint is `https://api.voice.humain.com` with `/socket.io`.
+Legacy issued `sautech.humain.com` deployments require `/realtime/socket.io`.
+
+Select **Humain IQ (ALLAM 34B)** for an issued OpenAI-compatible IQ deployment.
+Enter the exact base URL and model ID from your IQ account, including the
+ALLAM 34B deployment ID when provisioned. Neither an IQ endpoint nor a model
+slug is guessed. This adapter supports streaming chat and existing evaluation
+inference through the same LLM factory. Account access, protocol compatibility
+and live ALLAM availability must be verified with the issued IQ contract.
+
+Voice implementation references:
+- https://docs.voice.humain.com/en/sdk/python
+- https://docs.voice.humain.com/en/models
+- https://www.humain.com/iq
+
+Local validation for v1.47.0.24: 61 selected backend tests, 142 UI tests,
+18 display-option cases and `npx tsc --noEmit` passed. Tests cover artifacts,
+replication, scoring, model configuration, Humain adapters and ZIP round-trip.
+The unmodified v1.47.0.23 baseline reproduced nine UI and two storage-audit
+fixture failures; this release updates only their missing CALM fixture fields.
+Backend checks used Python 3.12 in this workspace; production remains Python
+3.13 as declared by the project. Live Humain/IQ calls, audible browser calls,
+and writes to deployed MinIO/AWS were not exercised without issued credentials
+and running infrastructure. No deployment or main-branch merge is included.

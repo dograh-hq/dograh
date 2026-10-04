@@ -1,3 +1,19 @@
+# v1.47.0.24 (2026-10-04)
+
+- Base: v1.47.0.23 CALM/S3 branch, commit 71e91d14.
+- Persist live caller and Sakinah scores, scoring-table rows and prompt data as
+  immutable MinIO revisions, replicated by existing AWS jobs and reconciliation.
+- Flush scores at finalization even without an evaluator. Save delivered responses
+  and the message context used for prompt engineering.
+- Restore Download all scenarios as ZIP with tenant-scoped full-library retrieval.
+- Add Humain Voice TTS, live STT, real profile discovery and manual voice selection.
+- Add configurable Humain IQ LLM support for issued ALLAM 34B deployments.
+- Keep all other v1.47.0.23 production behavior. Update stale CALM test fixtures.
+- Bump API, UI, lockfile and root version markers to 1.47.0.24.
+- Validation: 61 backend tests, 142 UI tests, 18 display-option cases and TypeScript
+  checking passed locally. Live provider/storage verification requires deployment
+  credentials. Backend tests ran on workspace Python 3.12, not production 3.13.
+
 # Changelog
 
 ## 1.47.0.21 (2026-09-27)

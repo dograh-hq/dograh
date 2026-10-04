@@ -1,5 +1,7 @@
 "use client";
 
+import { scenarioArchive } from "@/lib/sakinahScenarioExport";
+
 import { Copy, Pencil, Play, Plus, Search, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -172,6 +174,23 @@ export default function ScenarioLibraryPage() {
         setSearch("");
         void runScenarioSearch("");
     };
+    const downloadAll = async () => {
+        setSaving(true);
+        try {
+            // Fetch the entire tenant library, regardless of the current search.
+            const all = await listSakinahScenarios();
+            if (!all.length) { setImportMessage("No scenarios to download."); return; }
+            const zip = scenarioArchive(all);
+            const url = URL.createObjectURL(await zip.generateAsync({ type: "blob" }));
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "Sakinah-all-scenarios.zip";
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (error) {
+            setImportMessage(error instanceof Error ? error.message : "Unable to download scenarios.");
+        } finally { setSaving(false); }
+    };
     const handleImport = async (file: File | undefined) => {
         if (!file) return;
         if (!file.name.toLowerCase().endsWith(".json")) {
@@ -239,7 +258,7 @@ export default function ScenarioLibraryPage() {
             .catch((loadError) => setImportMessage(loadError instanceof Error ? loadError.message : "Unable to refresh scenarios."));
     };
     return <main className="mx-auto w-full max-w-6xl space-y-6 p-4 md:p-8">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div className="space-y-2"><p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">Sakinah</p><h1 className="text-3xl font-bold tracking-tight">Scenario Library</h1><p className="text-muted-foreground">Create and manage simulated service-user scenarios for Sakinah testing.</p></div><div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => void handleImport(event.target.files?.[0])} />{isAdmin ? <Button variant="outline" disabled={saving} onClick={() => setBulkImportOpen(true)}><Upload />Bulk Import Scenarios</Button> : null}<Button variant="outline" disabled={saving} onClick={() => importInputRef.current?.click()}><Upload />Import JSON</Button><Button disabled={saving} onClick={openCreate}><Plus />Create Scenario</Button></div></header>
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div className="space-y-2"><p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">Sakinah</p><h1 className="text-3xl font-bold tracking-tight">Scenario Library</h1><p className="text-muted-foreground">Create and manage simulated service-user scenarios for Sakinah testing.</p></div><div className="flex flex-wrap gap-2"><input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => void handleImport(event.target.files?.[0])} />{isAdmin ? <Button variant="outline" disabled={saving} onClick={() => setBulkImportOpen(true)}><Upload />Bulk Import Scenarios</Button> : null}<Button variant="outline" disabled={saving} onClick={() => importInputRef.current?.click()}><Upload />Import JSON</Button><Button variant="outline" disabled={saving || !loaded} onClick={() => void downloadAll()}>Download all scenarios as ZIP</Button><Button disabled={saving} onClick={openCreate}><Plus />Create Scenario</Button></div></header>
         {importMessage ? <p role="status" className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">{importMessage}</p> : null}
         <form className="flex flex-col gap-2 sm:flex-row" onSubmit={(event) => { event.preventDefault(); void runScenarioSearch(); }}><div className="relative flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search scenarios..." aria-label="Search scenarios" className="pl-9" /></div><Button type="submit" disabled={searching}><Search />Search</Button>{appliedSearch ? <Button type="button" variant="outline" disabled={searching} onClick={clearScenarioSearch}>Clear / Show all</Button> : null}</form>
         {loaded ? <p className="text-sm text-muted-foreground">{appliedSearch ? `${scenarios.length} match${scenarios.length === 1 ? "" : "es"}` : `${scenarios.length} scenario${scenarios.length === 1 ? "" : "s"}`}</p> : null}

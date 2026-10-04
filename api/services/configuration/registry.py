@@ -66,6 +66,8 @@ class ServiceType(Enum):
 
 class ServiceProviders(str, Enum):
     OPENAI = "openai"
+    HUMAIN = "humain"
+    HUMAIN_IQ = "humain_iq"
     ATLASCLOUD = "atlascloud"
     DEEPGRAM = "deepgram"
     GROQ = "groq"
@@ -104,6 +106,8 @@ class BaseServiceConfiguration(BaseModel):
     provider: Literal[
         ServiceProviders.OPENAI,
         ServiceProviders.ATLASCLOUD,
+        ServiceProviders.HUMAIN,
+        ServiceProviders.HUMAIN_IQ,
         ServiceProviders.DEEPGRAM,
         ServiceProviders.GROQ,
         ServiceProviders.OPENROUTER,
@@ -411,6 +415,14 @@ class OpenAILLMService(BaseLLMConfiguration):
         default="https://api.openai.com/v1",
         description="Override only if using an OpenAI-compatible API (e.g. local LLM, proxy).",
     )
+
+
+@register_llm
+class HumainIQLLMService(BaseLLMConfiguration):
+    model_config = provider_model_config("Humain IQ (ALLAM 34B)")
+    provider: Literal[ServiceProviders.HUMAIN_IQ] = ServiceProviders.HUMAIN_IQ
+    model: str = Field(min_length=1, description="Exact IQ deployment model ID, including ALLAM 34B when provisioned.", json_schema_extra={"allow_custom_input": True})
+    base_url: str = Field(min_length=1, description="Issued OpenAI-compatible Humain IQ API base URL. No public endpoint is assumed.")
 
 
 @register_llm
@@ -908,6 +920,7 @@ LLMConfig = Annotated[
     Union[
         OpenAILLMService,
         AtlasCloudLLMService,
+        HumainIQLLMService,
         GoogleVertexLLMConfiguration,
         GroqLLMService,
         OpenRouterLLMConfiguration,
@@ -1050,6 +1063,16 @@ class GoogleTTSConfiguration(BaseTTSConfiguration):
 
 
 OPENAI_TTS_MODELS = ["gpt-4o-mini-tts"]
+
+
+@register_tts
+class HumainTTSConfiguration(BaseTTSConfiguration):
+    model_config = provider_model_config("Humain Voice")
+    provider: Literal[ServiceProviders.HUMAIN] = ServiceProviders.HUMAIN
+    model: Literal["nebula"] = "nebula"
+    voice: str = Field(min_length=1, description="Multilingual profile ID from Humain voice discovery.")
+    base_url: str = "https://api.voice.humain.com"
+    api_path: str = Field(default="/socket.io", description="Use /realtime/socket.io for legacy sautech deployments.")
 
 
 @register_tts
@@ -1464,6 +1487,7 @@ TTSConfig = Annotated[
         DeepgramTTSConfiguration,
         GoogleTTSConfiguration,
         OpenAITTSService,
+        HumainTTSConfiguration,
         ElevenlabsTTSConfiguration,
         CartesiaTTSConfiguration,
         InworldTTSConfiguration,
@@ -1535,6 +1559,16 @@ class CartesiaSTTConfiguration(BaseSTTConfiguration):
 
 
 OPENAI_STT_MODELS = ["gpt-4o-transcribe"]
+
+
+@register_stt
+class HumainSTTConfiguration(BaseSTTConfiguration):
+    model_config = provider_model_config("Humain Voice")
+    provider: Literal[ServiceProviders.HUMAIN] = ServiceProviders.HUMAIN
+    model: Literal["realtime"] = "realtime"
+    language: Literal["ar", "en", "codeswitch"] = "codeswitch"
+    base_url: str = "https://api.voice.humain.com"
+    api_path: str = "/socket.io"
 
 
 @register_stt
@@ -1883,6 +1917,7 @@ STTConfig = Annotated[
         DeepgramSTTConfiguration,
         CartesiaSTTConfiguration,
         OpenAISTTConfiguration,
+        HumainSTTConfiguration,
         GoogleSTTConfiguration,
         DograhSTTService,
         SpeechmaticsSTTConfiguration,

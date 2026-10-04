@@ -12,10 +12,11 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 
 // Providers that have MPS voice endpoints
-type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh" | "rime";
-const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"];
+type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh" | "rime" | "humain";
+const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime", "humain"];
 const ALL_FILTER_VALUE = "__all__";
 
 interface VoiceSelectorProps {
@@ -39,6 +40,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     allowManualInput = true,
     className,
 }) => {
+    const { user, loading: authLoading } = useAuth();
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [genderFilter, setGenderFilter] = useState(ALL_FILTER_VALUE);
@@ -66,6 +68,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             cartesia: "cartesia",
             dograh: "dograh",
             rime: "rime",
+            humain: "humain",
         };
         return providerMap[providerName.toLowerCase()] || null;
     }, []);
@@ -89,6 +92,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                 query: Object.keys(query).length > 0 ? query : undefined,
             });
 
+            if (response.error) throw new Error("Unable to load voices. Save the provider configuration and check credentials.");
             if (response.data?.voices) {
                 setVoices(response.data.voices);
             }
@@ -102,10 +106,10 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     }, [provider, model, language, getProviderKey]);
 
     useEffect(() => {
-        if (provider) {
+        if (provider && !authLoading && user) {
             fetchVoices();
         }
-    }, [provider, fetchVoices]);
+    }, [provider, fetchVoices, authLoading, user]);
 
     // Check if the current value exists in the voices list
     useEffect(() => {

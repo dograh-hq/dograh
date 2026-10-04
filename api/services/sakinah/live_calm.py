@@ -92,6 +92,7 @@ class LiveCalmSession:
         text = (response or "").strip()
         if not text:
             return None
+        self.runtime.record_response(text)
         scores = score_utterance(
             text, ("empathy", "emotional_attunement", "validation")
         )
@@ -167,10 +168,14 @@ class LiveCalmSession:
             for task in pending:
                 task.cancel()
             if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
                 logger.warning(
                     "CALM evaluation timeout for run {} ({} turns)",
                     self.workflow_run_id, len(pending),
                 )
+
+        # Flush even with no evaluator or after its final task times out.
+        await self.persist()
 
     def payload(self) -> dict[str, Any]:
         return {

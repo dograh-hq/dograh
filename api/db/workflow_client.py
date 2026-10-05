@@ -109,6 +109,45 @@ class WorkflowClient(BaseDBClient):
     # Versioning methods
     # ------------------------------------------------------------------
 
+    async def update_workflow_version_metadata(
+        self,
+        workflow_id: int,
+        definition_id: int,
+        organization_id: int,
+        updates: dict[str, str | None],
+    ) -> WorkflowDefinitionModel | None:
+        """Update release notes while preserving the version's behavioral snapshot."""
+        async with self.async_session() as session:
+            version = await session.scalar(
+                select(WorkflowDefinitionModel)
+                .join(
+                    WorkflowModel,
+                    WorkflowModel.id == WorkflowDefinitionModel.workflow_id,
+                )
+                .where(
+                    WorkflowDefinitionModel.id == definition_id,
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowModel.organization_id == organization_id,
+                    WorkflowDefinitionModel.status.in_(["published", "archived"]),
+                )
+                .with_for_update(of=WorkflowDefinitionModel)
+            )
+            if version is None:
+                return None
+
+            metadata = dict(version.extra_metadata or {})
+            for key in ("version_name", "change_description"):
+                if key not in updates:
+                    continue
+                if updates[key] is None:
+                    metadata.pop(key, None)
+                else:
+                    metadata[key] = updates[key]
+            version.extra_metadata = metadata
+            await session.commit()
+            await session.refresh(version)
+            return version
+
     async def save_workflow_draft(
         self,
         workflow_id: int,
@@ -189,6 +228,9 @@ class WorkflowClient(BaseDBClient):
     async def publish_workflow_draft(
         self,
         workflow_id: int,
+        *,
+        version_name: str | None = None,
+        change_description: str | None = None,
     ) -> WorkflowDefinitionModel:
         """Promote the current draft to published.
 
@@ -223,6 +265,17 @@ class WorkflowClient(BaseDBClient):
             draft.status = "published"
             draft.published_at = datetime.now(UTC)
             draft.is_current = True
+            metadata = dict(draft.extra_metadata or {})
+            for key, value in {
+                "version_name": version_name,
+                "change_description": change_description,
+            }.items():
+                if value is None:
+                    metadata.pop(key, None)
+                else:
+                    metadata[key] = value
+            # Assign a new object so SQLAlchemy persists the JSON update.
+            draft.extra_metadata = metadata
 
             # Update workflow's released pointer + legacy fields
             wf_result = await session.execute(

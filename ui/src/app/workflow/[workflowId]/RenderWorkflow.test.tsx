@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     query: 'version=3&source=campaign',
     push: vi.fn(),
     versions: vi.fn(),
+    updateMetadata: vi.fn(),
     save: vi.fn(),
     state: {
         rfInstance: { current: null },
@@ -29,6 +30,9 @@ vi.mock('@/client', () => ({
     listDocumentsApiV1KnowledgeBaseDocumentsGet: async () => ({ data: { documents: [] } }),
     listToolsApiV1ToolsGet: async () => ({ data: [] }),
     listRecordingsApiV1WorkflowRecordingsGet: async () => ({ data: { recordings: [] } }),
+}));
+vi.mock('@/client/sdk.gen', () => ({
+    updateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatch: mocks.updateMetadata,
 }));
 vi.mock('./hooks/useWorkflowState', () => ({ useWorkflowState: () => ({ ...mocks.state, saveWorkflow: mocks.save }) }));
 vi.mock('@/components/flow/renderer', () => ({ useNodeSpecs: () => ({ specs: [] }) }));
@@ -84,6 +88,20 @@ it.each(['archived', 'published'])('opens a linked %s version read-only before h
     await screen.findByRole('button', { name: /^v20/ });
     expect(screen.getByTestId('version-label').textContent).toContain('v3');
     expect(screen.getByTestId('canvas').getAttribute('data-editable')).toBe('false');
+});
+
+it('updates version metadata in history while preserving the selected historical version', async () => {
+    mocks.updateMetadata.mockResolvedValueOnce({ data: { id: 120, version_name: 'Updated release', change_description: 'Corrected notes' } });
+    render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" user={{ id: '1' }} initialSelectedVersion={version(3, 'archived')} />);
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit details for v20' }));
+    fireEvent.change(screen.getByLabelText('Version name (optional)'), { target: { value: 'Updated release' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await screen.findByText('Updated release');
+    expect(screen.getByText('Corrected notes')).toBeTruthy();
+    expect(screen.getByTestId('version-label').textContent).toContain('v3');
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.versions).toHaveBeenCalledOnce();
 });
 
 it('updates shareable URLs from history and clears only the version when returning to the draft', async () => {

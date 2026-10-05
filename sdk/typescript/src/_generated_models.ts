@@ -1594,6 +1594,13 @@ export interface components {
          * @enum {string}
          */
         PropertyType: "string" | "number" | "boolean" | "options" | "multi_options" | "fixed_collection" | "json" | "tool_refs" | "document_refs" | "recording_ref" | "credential_ref" | "mention_textarea" | "url";
+        /** PublishWorkflowRequest */
+        PublishWorkflowRequest: {
+            /** Version Name */
+            version_name?: string | null;
+            /** Change Description */
+            change_description?: string | null;
+        };
         /**
          * RecordingListResponseSchema
          * @description Response schema for list of recordings.
@@ -2311,6 +2318,7 @@ export type PropertyOption = components['schemas']['PropertyOption'];
 export type PropertyRendererOptions = components['schemas']['PropertyRendererOptions'];
 export type PropertySpec = components['schemas']['PropertySpec'];
 export type PropertyType = components['schemas']['PropertyType'];
+export type PublishWorkflowRequest = components['schemas']['PublishWorkflowRequest'];
 export type RecordingListResponseSchema = components['schemas']['RecordingListResponseSchema'];
 export type RecordingResponseSchema = components['schemas']['RecordingResponseSchema'];
 export type RetryConfigRequest = components['schemas']['RetryConfigRequest'];
@@ -2564,7 +2572,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PublishWorkflowRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

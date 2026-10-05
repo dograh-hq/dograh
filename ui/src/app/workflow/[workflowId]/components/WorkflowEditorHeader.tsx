@@ -1,14 +1,13 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { AlertCircle, ArrowLeft, Bot, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Pencil, Phone, Rocket } from "lucide-react";
+import { AlertCircle, ArrowLeft, Bot, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Pencil, Phone } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
     duplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePost,
-    publishWorkflowApiV1WorkflowWorkflowIdPublishPost,
 } from "@/client/sdk.gen";
 import { WorkflowError } from "@/client/types.gen";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
@@ -28,6 +27,8 @@ import {
 } from "@/components/ui/popover";
 import { useSidebar } from "@/components/ui/sidebar";
 import { copyTextToClipboard } from "@/lib/clipboard";
+
+import { PublishWorkflowPopover } from "./PublishWorkflowPopover";
 
 interface WorkflowEditorHeaderProps {
     workflowName: string;
@@ -71,7 +72,6 @@ export const WorkflowEditorHeader = ({
     const { toggleSidebar } = useSidebar();
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [duplicating, setDuplicating] = useState(false);
-    const [publishing, setPublishing] = useState(false);
     // One discriminated-union state instead of (isEditingName, nameDraft,
     // nameError, isRenaming): they're not independent — error and saving are
     // mutually exclusive, and both are meaningless in the display state. The
@@ -92,25 +92,6 @@ export const WorkflowEditorHeader = ({
         setSavingWorkflow(true);
         await saveWorkflow();
         setSavingWorkflow(false);
-    };
-
-    const handlePublish = async () => {
-        if (publishing) return;
-        setPublishing(true);
-        const promise = publishWorkflowApiV1WorkflowWorkflowIdPublishPost({
-            path: { workflow_id: workflowId },
-        });
-        toast.promise(promise, {
-            loading: "Publishing...",
-            success: "Workflow published successfully",
-            error: "Failed to publish workflow",
-        });
-        try {
-            await promise;
-            onPublished();
-        } finally {
-            setPublishing(false);
-        }
     };
 
     const handleBack = () => {
@@ -388,24 +369,12 @@ export const WorkflowEditorHeader = ({
 
                 {/* Publish button (only when on draft with no unsaved changes) */}
                 {!isViewingHistoricalVersion && hasDraft && (
-                    <Button
-                        onClick={handlePublish}
-                        disabled={isDirty || publishing || hasValidationErrors}
-                        variant="outline"
-                        className="border-[#3a3a3a] bg-transparent hover:bg-[#2a2a2a] text-white px-4"
-                    >
-                        {publishing ? (
-                            <>
-                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
-                                Publishing...
-                            </>
-                        ) : (
-                            <>
-                                <Rocket className="w-4 h-4 mr-2" />
-                                Publish
-                            </>
-                        )}
-                    </Button>
+                    <PublishWorkflowPopover
+                        key={workflowId}
+                        workflowId={workflowId}
+                        canPublish={!isDirty && !hasValidationErrors}
+                        onPublished={onPublished}
+                    />
                 )}
 
                 {!isViewingHistoricalVersion && (

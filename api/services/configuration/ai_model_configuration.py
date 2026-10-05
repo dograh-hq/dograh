@@ -431,6 +431,7 @@ def _convert_any_dograh_legacy_configuration(
         mode="dograh",
         dograh=DograhManagedAIModelConfiguration(
             api_key=dograh_key,
+            temperature=getattr(configuration.llm, "temperature", None),
             voice=getattr(configuration.tts, "voice", DOGRAH_DEFAULT_VOICE)
             or DOGRAH_DEFAULT_VOICE,
             speed=speed,

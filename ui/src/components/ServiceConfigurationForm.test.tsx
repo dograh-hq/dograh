@@ -25,6 +25,14 @@ vi.mock("@/components/ui/tabs", () => ({
     TabsContent: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
+beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+    });
+});
+
 const defaults: ServiceConfigurationDefaults = {
     llm: {}, tts: {}, stt: {}, embeddings: {},
     default_providers: { realtime: "openai_realtime" },
@@ -42,6 +50,87 @@ const defaults: ServiceConfigurationDefaults = {
         },
     },
 };
+
+const temperatureDefaults: ServiceConfigurationDefaults = {
+    llm: {
+        openrouter: {
+            properties: {
+                provider: { default: "openrouter" },
+                model: {
+                    default: "openai/gpt-4.1",
+                    examples: ["openai/gpt-4.1", "anthropic/claude-sonnet-4", "openai/gpt-5-mini"],
+                    allow_custom_input: true,
+                },
+                api_key: { type: "string" },
+                temperature: {
+                    default: 0.1,
+                    anyOf: [{ type: "number", minimum: 0, maximum: 2 }, { type: "null" }],
+                    model_constraints: [
+                        { pattern: "^openai/gpt-5", supported: false },
+                        { pattern: "claude-", maximum: 1 },
+                    ],
+                },
+            },
+        },
+    },
+    tts: {}, stt: {}, embeddings: {}, default_providers: { llm: "openrouter" },
+};
+
+describe("LLM temperature", () => {
+    it.each([0, 0.73, null])("saves %s without replacing zero or a cleared value", async temperature => {
+        const onSave = vi.fn();
+        render(<ServiceConfigurationForm mode="global" configurationDefaults={temperatureDefaults} onSave={onSave} />);
+        const input = await screen.findByPlaceholderText("Enter temperature");
+        fireEvent.change(input, { target: { value: temperature ?? "" } });
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        expect(onSave.mock.calls[0][0].llm.temperature).toBe(temperature);
+    });
+
+    it("reloads an explicitly unset temperature without restoring 0.1", async () => {
+        const onSave = vi.fn();
+        render(<ServiceConfigurationForm mode="global" configurationDefaults={temperatureDefaults} initialConfig={{ llm: { provider: "openrouter", model: "openai/gpt-4.1", temperature: null } }} onSave={onSave} />);
+        const input = await screen.findByPlaceholderText("Enter temperature") as HTMLInputElement;
+        expect(input.value).toBe("");
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        expect(onSave.mock.calls[0][0].llm.temperature).toBeNull();
+    });
+
+    it("updates the allowed range when the model changes", async () => {
+        render(<ServiceConfigurationForm mode="global" configurationDefaults={temperatureDefaults} onSave={vi.fn()} />);
+        const input = await screen.findByPlaceholderText("Enter temperature") as HTMLInputElement;
+        expect(input.max).toBe("2");
+        fireEvent.change(input, { target: { value: "1.5" } });
+        fireEvent.change(screen.getByDisplayValue("openai/gpt-4.1"), { target: { value: "anthropic/claude-sonnet-4" } });
+        expect(input.max).toBe("1");
+        expect(input.checkValidity()).toBe(false);
+        fireEvent.change(screen.getByDisplayValue("anthropic/claude-sonnet-4"), { target: { value: "openai/gpt-4.1" } });
+        expect(input.max).toBe("2");
+        expect(input.checkValidity()).toBe(true);
+    });
+
+    it("does not save hidden temperature for an unsupported model", async () => {
+        const onSave = vi.fn();
+        render(<ServiceConfigurationForm mode="global" configurationDefaults={temperatureDefaults} onSave={onSave} />);
+        await screen.findByPlaceholderText("Enter temperature");
+        fireEvent.change(screen.getByDisplayValue("openai/gpt-4.1"), { target: { value: "openai/gpt-5-mini" } });
+        expect(screen.queryByPlaceholderText("Enter temperature")).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        expect(onSave.mock.calls[0][0].llm).not.toHaveProperty("temperature");
+    });
+
+    it("saves temperature in workflow overrides", async () => {
+        const onSave = vi.fn();
+        render(<ServiceConfigurationForm mode="override" configurationDefaults={temperatureDefaults} currentOverrides={{ llm: { provider: "openrouter", model: "openai/gpt-4.1", temperature: 0.5 } }} onSave={onSave} />);
+        const input = await screen.findByPlaceholderText("Enter temperature");
+        fireEvent.change(input, { target: { value: "0" } });
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        expect(onSave.mock.calls[0][0].model_overrides.llm.temperature).toBe(0);
+    });
+});
 
 const initialConfig = {
     is_realtime: true,
@@ -126,14 +215,6 @@ const listInitialConfig = {
 };
 
 describe("List fields", () => {
-    beforeEach(() => {
-        vi.stubGlobal("ResizeObserver", class {
-            observe() {}
-            unobserve() {}
-            disconnect() {}
-        });
-    });
-
     it("saves a multi-select in option order", async () => {
         const onSave = vi.fn();
         render(<ServiceConfigurationForm mode="global" configurationDefaults={listDefaults} initialConfig={listInitialConfig} onSave={onSave} />);

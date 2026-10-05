@@ -17,6 +17,7 @@ from api.services.pipecat.realtime.grok_realtime import (
     DograhGrokRealtimeLLMService,
 )
 from api.services.pipecat.service_factory import create_realtime_llm_service
+from api.tests.test_streamed_tool_response import response_done
 
 
 def _make_service() -> DograhGrokRealtimeLLMService:
@@ -181,6 +182,7 @@ async def test_node_transition_function_call_waits_until_bot_stops_speaking():
     assert len(service._workflow_tool_deferral.pending) == 1
 
     service.push_frame = AsyncMock()
+    await response_done(service)
     await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
 
     service.run_function_calls.assert_awaited_once()

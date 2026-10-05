@@ -23,6 +23,7 @@ from pipecat.services.llm_service import FunctionCallFromLLM, LLMService
 from pipecat.utils.asyncio.task_manager import TaskManager
 
 from api.tests import test_realtime_conversation_contract as conversation_contract
+from api.tests.test_streamed_tool_response import live_event, response_done, tool_event
 
 realtime_service = conversation_contract.realtime_service
 
@@ -30,6 +31,7 @@ realtime_service = conversation_contract.realtime_service
 @pytest_asyncio.fixture
 async def tools_service(realtime_service, monkeypatch):
     service = realtime_service
+    service._connect = AsyncMock()
     service._start_connecting = AsyncMock()
     await service.setup(
         FrameProcessorSetup(
@@ -72,28 +74,43 @@ def calls(service, names):
     ]
 
 
-async def submit(service, names):
+async def submit(service, names, *, complete=True):
     """Use each provider's actual tool-entry hook."""
     name = type(service).__name__
     batch = calls(service, names)
-    if "Gemini" in name:
+    if name in {
+        "DograhOpenAIRealtimeLLMService",
+        "DograhAzureRealtimeLLMService",
+        "DograhGrokRealtimeLLMService",
+        "DograhOpenAILiveLLMService",
+    }:
+        if not getattr(service, "_test_response_open", False):
+            service._test_response_number = (
+                getattr(service, "_test_response_number", 0) + 1
+            )
+            service._test_response_open = True
+            response_id = f"response-{service._test_response_number}"
+            if "Live" in name:
+                await service._handle_evt_response(
+                    live_event("response.created", response_id=response_id)
+                )
+            elif "Grok" in name:
+                await service._handle_evt_response_created(
+                    SimpleNamespace(response=SimpleNamespace(id=response_id))
+                )
+        response_id = f"response-{service._test_response_number}"
+        for fc in batch:
+            await tool_event(
+                service, fc.function_name, fc.tool_call_id, response_id=response_id
+            )
+        if complete:
+            await response_done(service, response_id=response_id)
+            service._test_response_open = False
+    elif "Gemini" in name:
         await service._run_or_defer_function_calls(batch)
     elif "Ultravox" in name:
         for fc in batch:
             await service._handle_tool_invocation(fc.function_name, fc.tool_call_id, {})
-    elif "Realtime" in name and "AWS" not in name:
-        for fc in batch:
-            service._pending_function_calls[fc.tool_call_id] = SimpleNamespace(
-                name=fc.function_name
-            )
-            await service._handle_evt_function_call_arguments_done(
-                SimpleNamespace(
-                    name=fc.function_name,
-                    call_id=fc.tool_call_id,
-                    response_id="response-1",
-                    arguments="{}",
-                )
-            )
     else:
         await service.run_function_calls(batch)
 
@@ -119,9 +136,9 @@ def dispatched_names(dispatch):
 async def test_ordinary_and_multiple_tools_run_without_playback(tools_service, names):
     service, dispatch = tools_service
     await submit(service, names)
-    assert dispatched_names(dispatch) == names
+    assert sorted(dispatched_names(dispatch)) == sorted(names)
     await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
-    assert dispatched_names(dispatch) == names
+    assert sorted(dispatched_names(dispatch)) == sorted(names)
 
 
 @pytest.mark.asyncio
@@ -209,9 +226,9 @@ async def test_separate_tool_events_release_transition_in_either_order(
     tools_service, names
 ):
     service, dispatch = tools_service
-    await submit(service, names[:1])
+    await submit(service, names[:1], complete=False)
     await submit(service, names[1:])
-    assert dispatched_names(dispatch) == names
+    assert sorted(dispatched_names(dispatch)) == sorted(names)
 
 
 @pytest.mark.asyncio
@@ -421,3 +438,15 @@ async def test_gemini_second_tool_does_not_cancel_or_replay_started_transition(
     assert not transition_task.cancelled()
     assert completed == ["end_call"]
     assert dispatched_names(dispatch) == ["end_call", "save_booking"]
+
+
+@pytest.mark.asyncio
+async def test_disconnect_resets_shared_playback_state(tools_service):
+    service, dispatch = tools_service
+    await submit(service, ["end_call"])
+    await service._disconnect()
+    assert not service._workflow_bot_is_speaking
+    assert service._workflow_playback_stopped
+    assert not service._workflow_tool_deferral.pending
+    await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+    dispatch.assert_not_awaited()

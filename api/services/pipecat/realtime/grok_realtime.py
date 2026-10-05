@@ -42,6 +42,8 @@ from pipecat.utils.time import time_now_iso8601
 class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMService):
     """Grok Realtime with Dograh engine integration quirks."""
 
+    _workflow_tools_follow_voice_response = False
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._pending_initial_greeting_text: str | None = None
@@ -259,6 +261,18 @@ class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMSer
             )
         )
 
+    async def _handle_evt_response_created(self, evt):
+        self._workflow_tool_deferral.begin_response(collecting=True)
+        await super()._handle_evt_response_created(evt)
+
+    async def _handle_evt_response_done(self, evt):
+        await super()._handle_evt_response_done(evt)
+        await self._workflow_tool_deferral.complete_response(
+            evt.response.id,
+            speaking=self._workflow_bot_is_speaking,
+            succeeded=evt.response.status == "completed",
+        )
+
     async def _handle_evt_function_call_arguments_done(self, evt):
         """Only a response's sole workflow-control call may wait for playback."""
         try:
@@ -279,7 +293,7 @@ class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMSer
                 ]
 
                 self._workflow_tool_deferral.select_response(
-                    getattr(evt, "response_id", None)
+                    self._current_response_id, collecting=True
                 )
                 await self._workflow_tool_deferral.submit(
                     function_calls,

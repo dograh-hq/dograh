@@ -160,6 +160,27 @@ async def test_transition_after_hangup_is_not_executed(running_engine):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("through_llm", [False, True])
+async def test_new_ordinary_tool_after_hangup_is_not_accepted(
+    running_engine, through_llm
+):
+    engine, llm = running_engine
+    handler = AsyncMock()
+    bound = engine.active_agent.bind_tool(engine, handler)
+    llm.register_function("save_booking", bound)
+    engine._call_disposed = True
+
+    if through_llm:
+        await llm.run_function_calls([call(engine, "save_booking")])
+    else:
+        await bound(params(engine))
+    await asyncio.wait_for(engine.active_agent.finish_tool_calls(), 1)
+
+    handler.assert_not_awaited()
+    assert not engine._gathered_context.get("tool_results")
+
+
+@pytest.mark.asyncio
 async def test_hangup_cancels_running_transition_while_waiting_for_save(running_engine):
     engine, _llm = running_engine
     transition_started, save_started = asyncio.Event(), asyncio.Event()

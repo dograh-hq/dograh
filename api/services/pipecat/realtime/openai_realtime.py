@@ -51,6 +51,9 @@ class DograhOpenAIRealtimeLLMService(
 ):
     """OpenAI Realtime with Dograh engine integration quirks. See module docstring."""
 
+    # Tool responses can span several assistant items and playback gaps.
+    _workflow_tools_follow_voice_response = False
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Track bot speech locally so workflow-control calls can wait until the
@@ -300,7 +303,7 @@ class DograhOpenAIRealtimeLLMService(
                 ]
 
                 self._workflow_tool_deferral.select_response(
-                    getattr(evt, "response_id", None)
+                    getattr(evt, "response_id", None), collecting=True
                 )
                 await self._workflow_tool_deferral.submit(
                     function_calls,
@@ -317,6 +320,14 @@ class DograhOpenAIRealtimeLLMService(
 
         except Exception as e:
             logger.error(f"Failed to process function call arguments: {e}")
+
+    async def _handle_evt_response_done(self, evt):
+        await super()._handle_evt_response_done(evt)
+        await self._workflow_tool_deferral.complete_response(
+            evt.response.id,
+            speaking=self._workflow_bot_is_speaking,
+            succeeded=evt.response.status == "completed",
+        )
 
     # ------------------------------------------------------------------
     # Transcription: broadcast with finalized=True for every

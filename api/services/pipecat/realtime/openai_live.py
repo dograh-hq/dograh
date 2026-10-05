@@ -60,8 +60,25 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
 
     async def _handle_evt_response(self, evt: events.ResponseEventEnvelope):
         if evt.inner_type == "response.created":
-            self._workflow_tool_deferral.begin_response()
+            self._workflow_tool_deferral.begin_response(collecting=True)
+            self._workflow_tool_deferral.select_response(
+                evt.delegation_id, collecting=True
+            )
+        elif evt.inner_type == "response.output_item.done":
+            self._workflow_tool_deferral.select_response(
+                evt.delegation_id, collecting=True
+            )
         await super()._handle_evt_response(evt)
+        if evt.inner_type in (
+            "response.completed",
+            "response.incomplete",
+            "response.failed",
+        ):
+            await self._workflow_tool_deferral.complete_response(
+                evt.delegation_id,
+                speaking=self._workflow_bot_is_speaking,
+                succeeded=evt.inner_type == "response.completed",
+            )
 
     def __init__(self, *, backend_model: str, settings=None, **kwargs):
         settings = settings or self.Settings()

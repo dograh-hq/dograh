@@ -135,11 +135,7 @@ class AgentRuntime:
                 )
 
         def can_accept() -> bool:
-            return engine.agent_can_act(self) or (
-                engine.is_call_disposed()
-                and engine.active_agent is self
-                and not self.retired
-            )
+            return engine.agent_can_act(self)
 
         @wraps(handler)
         async def bound(params: FunctionCallParams) -> None:

@@ -97,6 +97,7 @@ class DograhUltravoxRealtimeLLMService(
         return changed
 
     async def _disconnect(self):
+        self._reset_workflow_playback_on_disconnect()
         self._disconnecting = True
         await self.stop_all_metrics()
         if self._socket:
@@ -109,8 +110,6 @@ class DograhUltravoxRealtimeLLMService(
         self._call_started = False
         self._started_placeholder_sent = set()
         self._pending_node_transition_tool_call_ids = set()
-        self._workflow_tool_deferral.discard("disconnect")
-        self._workflow_response_open = False
         self._disconnecting = False
 
     async def _prepare_user_audio(self, frame):

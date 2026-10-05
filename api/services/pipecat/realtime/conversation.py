@@ -78,9 +78,14 @@ class RealtimeConversationMixin:
         await super().cleanup()
 
     async def _disconnect(self, *args, **kwargs):
+        self._reset_workflow_playback_on_disconnect()
+        await super()._disconnect(*args, **kwargs)
+
+    def _reset_workflow_playback_on_disconnect(self):
         self._workflow_tool_deferral.discard("disconnect")
         self._workflow_response_open = False
-        await super()._disconnect(*args, **kwargs)
+        self._workflow_bot_is_speaking = False
+        self._workflow_playback_stopped = True
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         if isinstance(frame, BotStartedSpeakingFrame):

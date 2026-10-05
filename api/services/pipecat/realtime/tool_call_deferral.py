@@ -12,9 +12,10 @@ Dispatch = Callable[[list[FunctionCallFromLLM]], Awaitable[None]]
 class WorkflowToolCallDeferral:
     """Only a response's sole transition may wait for playback.
 
-    Some providers deliver one tool per event. Keep the IDs already seen in
-    this response so a second tool releases a held transition in either order.
-    Ordinary calls are never retained here.
+    Providers with streamed tool events collect transitions until their response
+    ends, so all ordinary siblings are accepted before a transition can retire
+    the visit. Ordinary calls are never retained here. Only a sole transition
+    waits for playback after the response is complete.
     """
 
     def __init__(self, service: LLMService):
@@ -24,6 +25,7 @@ class WorkflowToolCallDeferral:
         self._seen: set[str] = set()
         self._discarded: set[str] = set()
         self._response_id: str | None = None
+        self._collecting = False
         self.closed = False
         self.generation = 0
 
@@ -41,18 +43,40 @@ class WorkflowToolCallDeferral:
             )
         self.pending = []
         self._dispatch = None
+        self._collecting = False
 
-    def begin_response(self) -> None:
+    def begin_response(self, *, collecting: bool = False) -> None:
         self.discard("new_response")
         self._seen.clear()
         self._response_id = None
+        self._collecting = collecting
 
-    def select_response(self, response_id: str | None) -> None:
+    def select_response(
+        self, response_id: str | None, *, collecting: bool = False
+    ) -> None:
         if response_id is None or response_id == self._response_id:
+            self._collecting |= collecting
             return
         if self._response_id is not None:
             self.begin_response()
         self._response_id = response_id
+        self._collecting = collecting
+
+    async def complete_response(
+        self, response_id: str | None, *, speaking: bool, succeeded: bool = True
+    ) -> None:
+        if (
+            response_id is not None
+            and self._response_id is not None
+            and response_id != self._response_id
+        ):
+            return
+        if not succeeded:
+            self.discard("response_not_completed")
+            return
+        self._collecting = False
+        if self.pending and self._dispatch:
+            await self.submit([], speaking=speaking, dispatch=self._dispatch)
 
     def is_single_transition(self, calls: Sequence[FunctionCallFromLLM]) -> bool:
         return (
@@ -78,7 +102,21 @@ class WorkflowToolCallDeferral:
             if not self.service._function_is_node_transition(call.function_name)
             or (not self.closed and call.tool_call_id not in self._discarded)
         ]
-        if speaking and self.is_single_transition(ready):
+        if self._collecting:
+            self.pending = [
+                call
+                for call in ready
+                if self.service._function_is_node_transition(call.function_name)
+            ]
+            self._dispatch = dispatch if self.pending else None
+            ordinary = [
+                call
+                for call in ready
+                if not self.service._function_is_node_transition(call.function_name)
+            ]
+            if ordinary:
+                await dispatch(ordinary)
+        elif speaking and self.is_single_transition(ready):
             self.pending = ready
             self._dispatch = dispatch
             logger.debug(
@@ -91,6 +129,8 @@ class WorkflowToolCallDeferral:
             await dispatch(ready)
 
     async def release(self) -> None:
+        if self._collecting:
+            return
         calls, dispatch = self.pending, self._dispatch
         self.pending, self._dispatch = [], None
         if calls and dispatch and not self.closed:

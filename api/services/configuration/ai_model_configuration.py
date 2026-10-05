@@ -297,14 +297,18 @@ def reject_mixed_dograh_legacy_configuration(
     configuration: EffectiveAIModelConfiguration,
 ) -> None:
     """v2 is all Dograh or all BYOK, so a mixed config would drop the BYOK services."""
-    middle = ["realtime"] if configuration.is_realtime else ["tts", "stt"]
-    names = ["llm", *middle, "embeddings"]
+    # same sections that _first_dograh_api_key scans during conversion
+    names = ("llm", "tts", "stt", "embeddings", "realtime")
     services = {
         n: getattr(configuration, n) for n in names if getattr(configuration, n)
     }
     dograh = [n for n, s in services.items() if _provider(s) == ServiceProviders.DOGRAH]
-    if dograh and len(dograh) < len(services):
-        raise ValueError(f"BYOK {dograh[0]} cannot use Dograh provider")
+    byok = [n for n in services if n not in dograh]
+    if dograh and byok:
+        raise ValueError(
+            f"Cannot mix Dograh and BYOK providers: {', '.join(byok)} use BYOK "
+            f"but {', '.join(dograh)} still use Dograh. Move every service off Dograh."
+        )
 
 
 def convert_legacy_ai_model_configuration_to_v2(

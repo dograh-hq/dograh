@@ -55,4 +55,15 @@ describe("Managed Dograh temperature", () => {
         expect(await screen.findByText(/Temperature must be zero or greater/)).toBeTruthy();
         expect(onSave).not.toHaveBeenCalled();
     });
+
+    it("normalizes incomplete numeric input to the provider default", async () => {
+        const onSave = vi.fn();
+        render(<AIModelConfigurationV2Editor defaults={defaults} configuration={configuration} onSave={onSave} />);
+        const input = screen.getByLabelText("LLM Temperature") as HTMLInputElement;
+        fireEvent.change(input, { target: { value: "1e" } });
+        expect(input.value).toBe("");
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        expect(onSave.mock.calls[0][0].dograh.temperature).toBeNull();
+    });
 });

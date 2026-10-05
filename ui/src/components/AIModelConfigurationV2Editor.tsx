@@ -567,10 +567,13 @@ export function AIModelConfigurationV2Editor({
                                         step="any"
                                         value={dograh.temperature ?? ""}
                                         placeholder="Provider default"
-                                        onChange={(event) => setDograh({
-                                            ...dograh,
-                                            temperature: event.target.value === "" ? null : event.currentTarget.valueAsNumber,
-                                        })}
+                                        onChange={(event) => {
+                                            const temperature = event.currentTarget.valueAsNumber;
+                                            setDograh({
+                                                ...dograh,
+                                                temperature: Number.isFinite(temperature) ? temperature : null,
+                                            });
+                                        }}
                                     />
                                     <p className="text-xs text-muted-foreground">Lower values give more predictable responses. Leave blank to use the provider default.</p>
                                 </div>

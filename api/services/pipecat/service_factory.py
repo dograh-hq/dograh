@@ -1164,7 +1164,12 @@ def create_llm_service_from_provider(
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
     if isinstance(temperature, NotGiven):
         temperature = config_cls.model_fields["temperature"].default
-    temperature = resolve_temperature(provider, model, temperature)
+    try:
+        temperature = resolve_temperature(
+            provider, model, temperature, base_url=base_url
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     # None means omit the parameter, not send JSON null. This matters for
     # reasoning models and for providers with their own sampling defaults.
     sampling_settings = {} if temperature is None else {"temperature": temperature}

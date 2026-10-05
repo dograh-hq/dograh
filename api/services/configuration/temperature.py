@@ -6,6 +6,7 @@ the same as the model vendor's limits. Keep source links beside each policy.
 
 import math
 import re
+from urllib.parse import urlsplit
 
 from pydantic import Field
 
@@ -21,11 +22,17 @@ OPENAI_REASONING_RULE = {
     "pattern": r"(^|/)(gpt-5|o[134](?:-|$))",
     "supported": False,
 }
-# Azure uses deployment names. Recognizable original GPT-5/o-series names can
-# be handled automatically; for opaque names users can leave temperature blank.
+# Azure uses deployment names. Recognizable GPT-5/o-series names can be
+# handled automatically; for opaque names users can leave temperature blank.
 # https://learn.microsoft.com/azure/foundry/openai/how-to/reasoning
+# Numbered mini/nano/pro variants also omit sampling. Do not blanket-match
+# full GPT-5.1/5.2/5.4, which can support temperature with reasoning disabled.
+# https://openrouter.ai/api/v1/models/openai/gpt-5.4-mini/endpoints
+UNSUPPORTED_GPT5_PATTERN = (
+    r"gpt-5(?:(?:\.\d+)?-(?:mini|nano|pro))?(?:-\d{4}-\d{2}-\d{2})?$"
+)
 AZURE_REASONING_RULE = {
-    "pattern": r"^(gpt-5(?:-(?:mini|nano|pro))?(?:-\d{4}-\d{2}-\d{2})?$|o[134](?:-|$))",
+    "pattern": rf"^({UNSUPPORTED_GPT5_PATTERN}|o[134](?:-|$))",
     "supported": False,
 }
 # Claude's documented range is 0..1; post-4.6 models no longer support sampling.
@@ -61,6 +68,13 @@ GEMINI_RULES = [
 TEMPERATURE_POLICIES = {
     "openai": {
         "maximum": 2.0,
+        "custom_endpoint": {
+            "field": "base_url",
+            "default_hostname": "api.openai.com",
+            "maximum": 2.0,
+            "description": TEMPERATURE_DESCRIPTION
+            + " Limits depend on your server and model.",
+        },
         "docs_url": "https://developers.openai.com/api/reference/resources/chat",
         "model_constraints": [OPENAI_REASONING_RULE],
     },
@@ -96,9 +110,7 @@ TEMPERATURE_POLICIES = {
         # OpenRouter forwards explicit sampling settings to the selected model.
         "model_constraints": [
             AZURE_REASONING_RULE
-            | {
-                "pattern": r"^openai/(gpt-5(?:-(?:mini|nano|pro))?(?:-\d{4}-\d{2}-\d{2})?$|o[134](?:-|$))"
-            },
+            | {"pattern": rf"^openai/({UNSUPPORTED_GPT5_PATTERN}|o[134](?:-|$))"},
             *CLAUDE_RULES,
             *GEMINI_RULES,
         ],
@@ -142,7 +154,8 @@ def temperature_field(provider: str, default: float | None):
     return Field(
         default=default,
         ge=0.0,
-        le=policy.get("maximum"),
+        # Endpoint-dependent maxima are checked by the model validator.
+        le=None if "custom_endpoint" in policy else policy.get("maximum"),
         allow_inf_nan=False,
         description=policy.get("description", TEMPERATURE_DESCRIPTION),
         json_schema_extra={
@@ -156,9 +169,22 @@ def temperature_field(provider: str, default: float | None):
     )
 
 
-def resolve_temperature(provider: str, model: str, value: float | None) -> float | None:
+def resolve_temperature(
+    provider: str,
+    model: str,
+    value: float | None,
+    *,
+    base_url: str | None = None,
+) -> float | None:
     """Apply model restrictions, including after model_copy-based overrides."""
     policy = TEMPERATURE_POLICIES[provider]
+    custom_endpoint = policy.get("custom_endpoint")
+    if (
+        custom_endpoint
+        and base_url
+        and urlsplit(base_url).hostname != custom_endpoint["default_hostname"]
+    ):
+        policy = {**policy, "maximum": None}
     for rule in policy.get("model_constraints", []):
         if re.search(rule["pattern"], model):
             policy = {**policy, **rule}

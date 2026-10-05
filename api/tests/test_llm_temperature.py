@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from google.auth.credentials import AnonymousCredentials
 from openai import NotGiven as OpenAINotGiven
 from pydantic import ValidationError
@@ -125,7 +126,11 @@ def test_model_specific_upper_bound(provider, model, maximum):
         ("openai", "gpt-5-mini-2025-08-07"),
         ("openai", "o3-mini"),
         ("azure", "gpt-5-nano"),
+        ("azure", "gpt-5.4-mini"),
+        ("azure", "gpt-5.4-nano-2026-03-17"),
         ("openrouter", "openai/gpt-5-mini"),
+        ("openrouter", "openai/gpt-5.4-mini"),
+        ("openrouter", "openai/gpt-5.4-mini-2026-03-17"),
         ("openrouter", "anthropic/claude-opus-4.7"),
         ("openrouter", "anthropic/claude-sonnet-5"),
         ("aws_bedrock", "us.anthropic.claude-opus-4-7-v1:0"),
@@ -145,8 +150,43 @@ def test_workflow_override_preserves_zero_and_enforces_model_range():
     )
     overridden = resolve_effective_config(user_config, {"llm": {"temperature": 0}})
     assert _request_temperature(create_llm_service(overridden)) == 0
-    with pytest.raises(ValueError, match="Temperature"):
+    with pytest.raises(HTTPException) as exc:
         create_llm_service_with_model_override(user_config, "anthropic/claude-sonnet-4")
+    assert exc.value.status_code == 400
+    assert "Temperature" in exc.value.detail
+    assert "between 0 and 1.0" in exc.value.detail
+
+
+@pytest.mark.parametrize("provider", ["azure", "openrouter"])
+@pytest.mark.parametrize("model", ["gpt-5.1", "gpt-5.2", "gpt-5.4"])
+def test_supported_numbered_gpt_models_keep_temperature(provider, model):
+    if provider == "openrouter":
+        model = f"openai/{model}"
+    config = _config(provider, model=model, temperature=0.4)
+    assert _request_temperature(create_llm_service(SimpleNamespace(llm=config))) == 0.4
+
+
+@pytest.mark.parametrize(
+    "base_url", ["http://localhost:11434/v1", "https://custom.example.com/v1"]
+)
+def test_custom_openai_endpoint_preserves_server_defined_upper_bound(base_url):
+    config = _config("openai", base_url=base_url, model="llama3", temperature=3)
+    saved = EffectiveAIModelConfiguration(llm=config).model_dump_json()
+    reloaded = EffectiveAIModelConfiguration.model_validate_json(saved)
+    assert _request_temperature(create_llm_service(reloaded)) == 3
+
+
+@pytest.mark.parametrize(
+    "base_url", ["https://api.openai.com/v1", "https://API.OPENAI.COM/v1/"]
+)
+def test_standard_openai_endpoint_enforces_upper_bound(base_url):
+    with pytest.raises(ValidationError):
+        _config("openai", base_url=base_url, temperature=3)
+    with pytest.raises(HTTPException) as exc:
+        create_llm_service_from_provider(
+            "openai", "gpt-4.1", "test-key", base_url=base_url, temperature=3
+        )
+    assert exc.value.status_code == 400
 
 
 def test_dograh_managed_conversion_keeps_temperature():
@@ -183,6 +223,27 @@ def test_realtime_temperature_schema_coverage():
         assert ("temperature" in config.model_fields) == (
             provider in {"ultravox_realtime", "aws_nova_sonic"}
         )
+
+
+def test_legacy_ultravox_config_preserves_existing_sdk_temperature():
+    from api.services.pipecat.realtime.ultravox_realtime import (
+        DograhUltravoxOneShotInputParams,
+    )
+
+    config = REGISTRY[ServiceType.REALTIME]["ultravox_realtime"](api_key="test-key")
+    service = create_realtime_llm_service(
+        SimpleNamespace(realtime=config),
+        SimpleNamespace(
+            transport_in_sample_rate=16000, transport_out_sample_rate=24000
+        ),
+    )
+    params = service._build_one_shot_params(
+        greeting_text=None, agent_speaks_first=False
+    )
+    # Before this PR the factory omitted temperature from the SDK constructor,
+    # whose default was already serialized into every one-shot call request.
+    old_params = DograhUltravoxOneShotInputParams(api_key="test-key")
+    assert params.temperature == old_params.temperature == 0
 
 
 def test_nova_sonic_zero_temperature_reaches_session_start():

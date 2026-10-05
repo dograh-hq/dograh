@@ -201,7 +201,10 @@ class BaseChatLLMConfiguration(BaseLLMConfiguration):
     @model_validator(mode="after")
     def validate_model_temperature(self):
         self.temperature = resolve_temperature(
-            self.provider, self.model, self.temperature
+            self.provider,
+            self.model,
+            self.temperature,
+            base_url=getattr(self, "base_url", None),
         )
         return self
 
@@ -1010,6 +1013,7 @@ class UltravoxRealtimeLLMConfiguration(BaseLLMConfiguration):
         description="Ultravox voice name or voice ID.",
     )
     temperature: float = Field(
+        # Preserve OneShotInputParams' pre-existing on-wire default.
         default=0.0,
         ge=0.0,
         le=1.0,

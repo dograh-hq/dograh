@@ -35,6 +35,7 @@ interface SchemaProperty {
     hidden_for_models?: string[];
     supported?: boolean;
     model_constraints?: (SchemaProperty & { pattern: string })[];
+    custom_endpoint?: { field: string; default_hostname: string; maximum: number; description: string };
     allow_custom_input?: boolean;
     $ref?: string;
     description?: string;
@@ -167,7 +168,23 @@ function getNumberSchema(schema: SchemaProperty | undefined): SchemaProperty | u
     return schema?.anyOf?.find(option => option.type === "number");
 }
 
-function getModelSchema(schema: SchemaProperty | undefined, model?: string): SchemaProperty | undefined {
+function getModelSchema(schema: SchemaProperty | undefined, model?: string, endpoint?: string): SchemaProperty | undefined {
+    const endpointRules = schema?.custom_endpoint;
+    if (endpointRules) {
+        let customEndpoint = false;
+        try {
+            customEndpoint = endpoint ? new URL(endpoint).hostname !== endpointRules.default_hostname : false;
+        } catch {
+            // Keep the standard limit while the URL is incomplete.
+        }
+        const maximum = customEndpoint ? undefined : endpointRules.maximum;
+        schema = {
+            ...schema,
+            maximum,
+            description: customEndpoint ? endpointRules.description : schema?.description,
+            anyOf: schema?.anyOf?.map(option => option.type === "number" ? { ...option, maximum } : option),
+        };
+    }
     const rule = schema?.model_constraints?.find(rule => new RegExp(rule.pattern).test(model || ""));
     if (!rule) return schema;
     return {
@@ -531,6 +548,10 @@ export function ServiceConfigurationForm({
             if (field === "api_key" || field === "provider") return;
             const fieldSchema = schemas?.[service]?.[serviceProviders[service]]?.properties[field];
             if (!isVisibleForModel(fieldSchema, data[`${service}_model`] as string)) return;
+            if (getNumberSchema(fieldSchema) && (value === "" || value == null)) {
+                if (fieldSchema?.anyOf?.some(option => option.type === "null")) config[field] = null;
+                return;
+            }
             if (Array.isArray(value)) {
                 config[field] = value.map(item => item.trim()).filter(item => item.length > 0);
                 return;
@@ -733,7 +754,7 @@ export function ServiceConfigurationForm({
         if (!schema) return null;
         const actualSchema = getModelSchema(schema.$ref && providerSchema.$defs
             ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
-            : schema, watch(`${service}_model`) as string);
+            : schema, watch(`${service}_model`) as string, watch(`${service}_${schema.custom_endpoint?.field || "base_url"}`) as string);
         if (!actualSchema?.description && !actualSchema?.docs_url) return null;
         return (
             <p className="text-xs text-muted-foreground">
@@ -825,7 +846,7 @@ export function ServiceConfigurationForm({
         const schema = providerSchema.properties[field];
         const actualSchema = getModelSchema(schema.$ref && providerSchema.$defs
             ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
-            : schema, watch(`${service}_model`) as string);
+            : schema, watch(`${service}_model`) as string, watch(`${service}_${schema.custom_endpoint?.field || "base_url"}`) as string);
         const dropdownOptions = getSchemaDropdownOptions(
             actualSchema,
             watch(`${service}_model`) as string | undefined,

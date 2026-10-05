@@ -62,6 +62,7 @@ export function MediaPreviewDialog() {
                     });
                 } catch (error) {
                     console.error('Error fetching transcript:', error);
+                    toast.error('Failed to load transcript');
                 }
             }
 

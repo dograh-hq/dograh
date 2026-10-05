@@ -345,6 +345,8 @@ class UpdateWorkflowRequest(BaseModel):
 
 
 class PublishWorkflowRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     version_name: (
         Annotated[
             str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
@@ -361,8 +363,6 @@ class PublishWorkflowRequest(BaseModel):
 
 class UpdateWorkflowVersionMetadataRequest(PublishWorkflowRequest):
     """Omitted fields are preserved; null clears a release note."""
-
-    model_config = ConfigDict(extra="forbid")
 
 
 class WorkflowVersionMetadataResponse(BaseModel):

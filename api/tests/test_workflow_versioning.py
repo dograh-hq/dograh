@@ -509,6 +509,7 @@ class TestPublishDraft:
             {"version_name": "x" * 101},
             {"change_description": "\n "},
             {"change_description": "x" * 501},
+            {"versionName": "New name"},
         ],
     )
     async def test_invalid_release_notes_do_not_publish(

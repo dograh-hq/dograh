@@ -66,6 +66,11 @@ const WAVEFORM_BAR_COUNT = 96;
 const PLAYBACK_SKIP_SECONDS = 10;
 type SplitTrackPlaybackMode = 'both' | 'user' | 'bot';
 
+// play() rejects with AbortError when a later pause() interrupts it; whatever paused it owns playback now.
+function isPlaybackInterrupted(error: unknown) {
+    return error instanceof DOMException && error.name === 'AbortError';
+}
+
 function formatPlaybackTime(seconds: number) {
     const wholeSeconds = Math.floor(seconds);
     return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`;
@@ -376,6 +381,7 @@ function SplitTracksSection({
                 if (audio.paused) return audio.play();
             }));
         } catch (error) {
+            if (isPlaybackInterrupted(error)) return;
             pauseTracks();
             console.error('Error seeking split tracks:', error);
         }
@@ -425,6 +431,7 @@ function SplitTracksSection({
                 .map((audio) => audio.play()));
             setIsPlaying(true);
         } catch (error) {
+            if (isPlaybackInterrupted(error)) return;
             pauseTracks();
             console.error('Error switching split track playback:', error);
         }
@@ -458,6 +465,7 @@ function SplitTracksSection({
                 .map((audio) => audio.play()));
             setIsPlaying(true);
         } catch (error) {
+            if (isPlaybackInterrupted(error)) return;
             pauseTracks();
             console.error('Error playing split tracks:', error);
         }
@@ -609,12 +617,12 @@ function SplitTracksSection({
                             size="sm"
                             onClick={() => skipPlayback(-PLAYBACK_SKIP_SECONDS)}
                             disabled={!canSeek || currentTime <= 0}
-                            aria-label="Skip backward 10 seconds"
-                            title="Skip backward 10 seconds"
+                            aria-label={`Skip backward ${PLAYBACK_SKIP_SECONDS} seconds`}
+                            title={`Skip backward ${PLAYBACK_SKIP_SECONDS} seconds`}
                             className="gap-1.5"
                         >
                             <RotateCcw className="h-4 w-4" />
-                            10s
+                            {PLAYBACK_SKIP_SECONDS}s
                         </Button>
                         <Button
                             type="button"
@@ -633,12 +641,12 @@ function SplitTracksSection({
                             size="sm"
                             onClick={() => skipPlayback(PLAYBACK_SKIP_SECONDS)}
                             disabled={!canSeek || currentTime >= timeline.duration}
-                            aria-label="Skip forward 10 seconds"
-                            title="Skip forward 10 seconds"
+                            aria-label={`Skip forward ${PLAYBACK_SKIP_SECONDS} seconds`}
+                            title={`Skip forward ${PLAYBACK_SKIP_SECONDS} seconds`}
                             className="gap-1.5"
                         >
                             <RotateCw className="h-4 w-4" />
-                            10s
+                            {PLAYBACK_SKIP_SECONDS}s
                         </Button>
                     </div>
                 </div>

@@ -110,6 +110,18 @@ async function clickPlayback(name: string) {
     await act(async () => fireEvent.click(screen.getByRole('button', { name })));
 }
 
+// Leaves the next play() pending; the returned callback rejects it the way browsers do once a pause() interrupts it.
+function holdNextPlay() {
+    let interrupt = () => {};
+    vi.mocked(HTMLMediaElement.prototype.play).mockImplementationOnce(function (this: HTMLMediaElement) {
+        Object.defineProperty(this, 'paused', { configurable: true, value: false });
+        return new Promise<void>((_, reject) => {
+            interrupt = () => reject(new DOMException('The play() request was interrupted by a call to pause().', 'AbortError'));
+        });
+    });
+    return () => act(async () => interrupt());
+}
+
 describe('split track seeking', () => {
     it('waits for both track durations, then skips and scrubs both tracks while paused', async () => {
         const { user, bot } = await renderPlayer();
@@ -194,5 +206,53 @@ describe('split track seeking', () => {
         expect([user.currentTime, bot.currentTime]).toEqual([20, 20]);
         expect([user.paused, bot.paused]).toEqual([false, false]);
         expect((screen.getByRole('slider') as HTMLInputElement).max).toBe('70');
+    });
+
+    it('keeps playing when a later seek interrupts the pending resume of a shorter track', async () => {
+        const { user, bot } = await renderPlayer();
+        loadMetadata(user, 20);
+        loadMetadata(bot, 40);
+        await clickPlayback('Play split tracks');
+        seek(25);
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const interruptPlay = holdNextPlay();
+
+        seek(10);
+        seek(30);
+        await interruptPlay();
+        expect([user.paused, bot.paused]).toEqual([true, false]);
+        expect(screen.getByRole('button', { name: 'Pause split tracks' })).toBeTruthy();
+        expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it('keeps the latest track selection playing when it interrupts a pending switch', async () => {
+        const { user, bot } = await renderPlayer();
+        loadMetadata(user, 50);
+        loadMetadata(bot, 70);
+        await clickPlayback('Play split tracks');
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const interruptPlay = holdNextPlay();
+
+        await clickPlayback('Play user track only');
+        await clickPlayback('Play both tracks');
+        await interruptPlay();
+        expect([user.paused, bot.paused]).toEqual([false, false]);
+        expect(screen.getByRole('button', { name: 'Pause split tracks' })).toBeTruthy();
+        expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it('starts playback when a second play click interrupts the first', async () => {
+        const { user, bot } = await renderPlayer();
+        loadMetadata(user, 50);
+        loadMetadata(bot, 70);
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const interruptPlay = holdNextPlay();
+
+        await clickPlayback('Play split tracks');
+        await clickPlayback('Play split tracks');
+        await interruptPlay();
+        expect([user.paused, bot.paused]).toEqual([false, false]);
+        expect(screen.getByRole('button', { name: 'Pause split tracks' })).toBeTruthy();
+        expect(consoleError).not.toHaveBeenCalled();
     });
 });

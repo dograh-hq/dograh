@@ -4,10 +4,13 @@ import { formatDistanceToNow } from "date-fns";
 import { FileDiff, FileText, LoaderCircle, X } from "lucide-react";
 import { useEffect } from "react";
 
-import type { WorkflowVersionResponse } from "@/client/types.gen";
+import type { WorkflowVersionMetadataResponse, WorkflowVersionResponse } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 
+import { EditVersionMetadataPopover } from "./EditVersionMetadataPopover";
+
 interface VersionHistoryPanelProps {
+    workflowId: number;
     isOpen: boolean;
     onClose: () => void;
     versions: WorkflowVersionResponse[];
@@ -19,6 +22,7 @@ interface VersionHistoryPanelProps {
     hasMore: boolean;
     loadingMore: boolean;
     onLoadMore: () => void;
+    onVersionUpdated: (metadata: WorkflowVersionMetadataResponse) => void;
 }
 
 const statusLabel: Record<string, string> = {
@@ -34,6 +38,7 @@ const statusColor: Record<string, string> = {
 };
 
 export const VersionHistoryPanel = ({
+    workflowId,
     isOpen,
     onClose,
     versions,
@@ -45,10 +50,11 @@ export const VersionHistoryPanel = ({
     hasMore,
     loadingMore,
     onLoadMore,
+    onVersionUpdated,
 }: VersionHistoryPanelProps) => {
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === "Escape" && isOpen) {
+            if (event.key === "Escape" && !event.defaultPrevented && isOpen) {
                 onClose();
             }
         };
@@ -127,6 +133,16 @@ export const VersionHistoryPanel = ({
                                                 </span>
                                             )}
                                         </div>
+                                        {version.version_name && (
+                                            <p className="mb-1 break-words text-sm font-medium text-white">
+                                                {version.version_name}
+                                            </p>
+                                        )}
+                                        {version.change_description && (
+                                            <p className="mb-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-400">
+                                                {version.change_description}
+                                            </p>
+                                        )}
                                         <p className="text-xs text-gray-500">
                                             {formatDistanceToNow(new Date(date), {
                                                 addSuffix: true,
@@ -134,23 +150,32 @@ export const VersionHistoryPanel = ({
                                         </p>
                                     </button>
 
-                                    {canCompare && (
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            aria-label={compareLabel}
-                                            disabled={comparingVersionId !== null}
-                                            onClick={() => onCompareVersion(version)}
-                                            className="mr-2 h-7 w-7 shrink-0 self-center rounded-md border border-[#3a3a3a] text-gray-400 hover:bg-[#303030] hover:text-white"
-                                        >
-                                            {comparingVersionId === version.id ? (
-                                                <LoaderCircle className="h-4 w-4 animate-spin" />
-                                            ) : (
-                                                <FileDiff className="h-4 w-4" />
-                                            )}
-                                        </Button>
-                                    )}
+                                    <div className="mr-2 flex shrink-0 flex-col items-center gap-1 self-start pt-3">
+                                        {isOpen && (version.status === "published" || version.status === "archived") && (
+                                            <EditVersionMetadataPopover
+                                                workflowId={workflowId}
+                                                version={version}
+                                                onUpdated={onVersionUpdated}
+                                            />
+                                        )}
+                                        {canCompare && (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                aria-label={compareLabel}
+                                                disabled={comparingVersionId !== null}
+                                                onClick={() => onCompareVersion(version)}
+                                                className="h-7 w-7 rounded-md border border-[#3a3a3a] text-gray-400 hover:bg-[#303030] hover:text-white"
+                                            >
+                                                {comparingVersionId === version.id ? (
+                                                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                                                ) : (
+                                                    <FileDiff className="h-4 w-4" />
+                                                )}
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                             );
                         })}

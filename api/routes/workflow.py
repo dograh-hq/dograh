@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from httpx import HTTPStatusError, RequestError
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
@@ -344,12 +344,41 @@ class UpdateWorkflowRequest(BaseModel):
     workflow_configurations: WorkflowConfigurationDefaults | None = None
 
 
+class PublishWorkflowRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version_name: (
+        Annotated[
+            str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+        ]
+        | None
+    ) = None
+    change_description: (
+        Annotated[
+            str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+        ]
+        | None
+    ) = None
+
+
+class UpdateWorkflowVersionMetadataRequest(PublishWorkflowRequest):
+    """Omitted fields are preserved; null clears a release note."""
+
+
+class WorkflowVersionMetadataResponse(BaseModel):
+    id: int
+    version_name: str | None
+    change_description: str | None
+
+
 class WorkflowVersionResponse(BaseModel):
     id: int
     version_number: int
     status: str
     created_at: datetime
     published_at: datetime | None = None
+    version_name: str | None = None
+    change_description: str | None = None
     workflow_json: dict
     workflow_configurations: dict | None = None
     template_context_variables: dict | None = None
@@ -876,6 +905,8 @@ async def get_workflow_versions(
             status=v.status,
             created_at=v.created_at,
             published_at=v.published_at,
+            version_name=(v.extra_metadata or {}).get("version_name"),
+            change_description=(v.extra_metadata or {}).get("change_description"),
             workflow_json=mask_workflow_definition(v.workflow_json),
             workflow_configurations=mask_workflow_configurations(
                 v.workflow_configurations
@@ -887,9 +918,34 @@ async def get_workflow_versions(
     ]
 
 
+@router.patch("/{workflow_id}/versions/{definition_id}/metadata")
+async def update_workflow_version_metadata(
+    workflow_id: int,
+    definition_id: int,
+    request: UpdateWorkflowVersionMetadataRequest,
+    user: Annotated[UserModel, Depends(get_user)],
+) -> WorkflowVersionMetadataResponse:
+    """Edit release notes on a published or archived version without republishing."""
+    version = await db_client.update_workflow_version_metadata(
+        workflow_id=workflow_id,
+        definition_id=definition_id,
+        organization_id=user.selected_organization_id,
+        updates=request.model_dump(exclude_unset=True),
+    )
+    if version is None:
+        raise HTTPException(status_code=404, detail="Published version not found")
+    metadata = version.extra_metadata or {}
+    return WorkflowVersionMetadataResponse(
+        id=version.id,
+        version_name=metadata.get("version_name"),
+        change_description=metadata.get("change_description"),
+    )
+
+
 @router.post("/{workflow_id}/publish")
 async def publish_workflow(
     workflow_id: int,
+    request: PublishWorkflowRequest | None = None,
     user: UserModel = Depends(get_user),
 ):
     """Publish the current draft version of a workflow.
@@ -919,7 +975,11 @@ async def publish_workflow(
         raise _validation_errors_http_exception(errors)
 
     try:
-        published = await db_client.publish_workflow_draft(workflow_id)
+        published = await db_client.publish_workflow_draft(
+            workflow_id,
+            version_name=request.version_name if request else None,
+            change_description=request.change_description if request else None,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -938,6 +998,10 @@ async def publish_workflow(
         "version_number": published.version_number,
         "status": published.status,
         "published_at": published.published_at,
+        "version_name": (published.extra_metadata or {}).get("version_name"),
+        "change_description": (published.extra_metadata or {}).get(
+            "change_description"
+        ),
     }
 
 
@@ -965,6 +1029,8 @@ async def create_workflow_draft(
         status=draft.status,
         created_at=draft.created_at,
         published_at=draft.published_at,
+        version_name=(draft.extra_metadata or {}).get("version_name"),
+        change_description=(draft.extra_metadata or {}).get("change_description"),
         workflow_json=mask_workflow_definition(draft.workflow_json),
         workflow_configurations=mask_workflow_configurations(
             draft.workflow_configurations

@@ -5435,6 +5435,20 @@ export type PublicEmbedChatTurn = {
 };
 
 /**
+ * PublishWorkflowRequest
+ */
+export type PublishWorkflowRequest = {
+    /**
+     * Version Name
+     */
+    version_name?: string | null;
+    /**
+     * Change Description
+     */
+    change_description?: string | null;
+};
+
+/**
  * RecordingCreateRequestSchema
  *
  * Request schema for creating a recording record after upload.
@@ -7739,6 +7753,22 @@ export type UpdateWorkflowStatusRequest = {
 };
 
 /**
+ * UpdateWorkflowVersionMetadataRequest
+ *
+ * Omitted fields are preserved; null clears a release note.
+ */
+export type UpdateWorkflowVersionMetadataRequest = {
+    /**
+     * Version Name
+     */
+    version_name?: string | null;
+    /**
+     * Change Description
+     */
+    change_description?: string | null;
+};
+
+/**
  * UsageHistoryResponse
  */
 export type UsageHistoryResponse = {
@@ -8848,6 +8878,24 @@ export type WorkflowTemplateResponse = {
 };
 
 /**
+ * WorkflowVersionMetadataResponse
+ */
+export type WorkflowVersionMetadataResponse = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Version Name
+     */
+    version_name: string | null;
+    /**
+     * Change Description
+     */
+    change_description: string | null;
+};
+
+/**
  * WorkflowVersionResponse
  */
 export type WorkflowVersionResponse = {
@@ -8871,6 +8919,14 @@ export type WorkflowVersionResponse = {
      * Published At
      */
     published_at?: string | null;
+    /**
+     * Version Name
+     */
+    version_name?: string | null;
+    /**
+     * Change Description
+     */
+    change_description?: string | null;
     /**
      * Workflow Json
      */
@@ -10000,8 +10056,59 @@ export type GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetResponses = {
 
 export type GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetResponse = GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetResponses[keyof GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetResponses];
 
+export type UpdateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatchData = {
+    body: UpdateWorkflowVersionMetadataRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Definition Id
+         */
+        definition_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/versions/{definition_id}/metadata';
+};
+
+export type UpdateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatchErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatchError = UpdateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatchErrors[keyof UpdateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatchErrors];
+
+export type UpdateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowVersionMetadataResponse;
+};
+
+export type UpdateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatchResponse = UpdateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatchResponses[keyof UpdateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatchResponses];
+
 export type PublishWorkflowApiV1WorkflowWorkflowIdPublishPostData = {
-    body?: never;
+    /**
+     * Request
+     */
+    body?: PublishWorkflowRequest | null;
     headers?: {
         /**
          * Authorization

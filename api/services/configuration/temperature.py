@@ -179,11 +179,8 @@ def resolve_temperature(
     """Apply model restrictions, including after model_copy-based overrides."""
     policy = TEMPERATURE_POLICIES[provider]
     custom_endpoint = policy.get("custom_endpoint")
-    if (
-        custom_endpoint
-        and base_url
-        and urlsplit(base_url).hostname != custom_endpoint["default_hostname"]
-    ):
+    hostname = urlsplit(base_url).hostname if custom_endpoint and base_url else None
+    if custom_endpoint and hostname and hostname != custom_endpoint["default_hostname"]:
         policy = {**policy, "maximum": None}
     for rule in policy.get("model_constraints", []):
         if re.search(rule["pattern"], model):

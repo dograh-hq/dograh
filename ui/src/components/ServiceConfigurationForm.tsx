@@ -173,7 +173,8 @@ function getModelSchema(schema: SchemaProperty | undefined, model?: string, endp
     if (endpointRules) {
         let customEndpoint = false;
         try {
-            customEndpoint = endpoint ? new URL(endpoint).hostname !== endpointRules.default_hostname : false;
+            const hostname = endpoint ? new URL(endpoint).hostname : "";
+            customEndpoint = Boolean(hostname) && hostname !== endpointRules.default_hostname;
         } catch {
             // Keep the standard limit while the URL is incomplete.
         }

@@ -239,6 +239,14 @@ def test_standard_openai_endpoint_enforces_upper_bound(base_url):
     assert exc.value.status_code == 400
 
 
+@pytest.mark.parametrize(
+    "base_url", ["api.example.com/v1", "api.openai.com/v1", "https://"]
+)
+def test_incomplete_openai_endpoint_does_not_relax_temperature_limit(base_url):
+    with pytest.raises(ValidationError, match="between 0 and 2.0"):
+        _config("openai", base_url=base_url, temperature=3)
+
+
 def test_dograh_managed_conversion_keeps_temperature():
     legacy = EffectiveAIModelConfiguration(llm=_config("dograh", temperature=0))
     config = convert_legacy_ai_model_configuration_to_v2(legacy)

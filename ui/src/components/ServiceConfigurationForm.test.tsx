@@ -161,6 +161,9 @@ describe("Custom OpenAI endpoint temperature", () => {
         expect(input.max).toBe("2");
         fireEvent.change(input, { target: { value: "3" } });
         expect(input.checkValidity()).toBe(false);
+        fireEvent.change(endpoint, { target: { value: "api.example.com/v1" } });
+        expect(input.max).toBe("2");
+        expect(input.checkValidity()).toBe(false);
         fireEvent.change(endpoint, { target: { value: "http://localhost:11434/v1" } });
         expect(input.max).toBe("");
         expect(input.checkValidity()).toBe(true);

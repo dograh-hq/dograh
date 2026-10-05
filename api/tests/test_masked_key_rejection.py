@@ -6,7 +6,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.user import router
-from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.schemas.ai_model_configuration import (
+    DograhManagedAIModelConfiguration,
+    EffectiveAIModelConfiguration,
+    OrganizationAIModelConfigurationV2,
+    compile_ai_model_configuration_v2,
+)
 from api.services.auth.depends import get_user
 from api.services.configuration.ai_model_configuration import (
     ResolvedAIModelConfiguration,
@@ -267,3 +272,21 @@ class TestMaskedKeyRejection:
             mock_db.update_user_configuration.assert_not_called()
             mock_validator.return_value.validate.assert_not_called()
             upsert_preferences.assert_awaited_once()
+
+
+class TestMixedDograhRejection:
+    def test_rejects_partial_switch_off_dograh(self):
+        # Moving only the LLM off Dograh used to be saved as Dograh mode (#615).
+        dograh = DograhManagedAIModelConfiguration(api_key="mps-secret")
+        existing = compile_ai_model_configuration_v2(
+            OrganizationAIModelConfigurationV2(mode="dograh", dograh=dograh)
+        )
+        client = TestClient(_make_test_app())
+
+        with _patch_config_update(existing) as mocks:
+            llm = {"provider": "openai", "api_key": REAL_KEY, "model": "gpt-4.1"}
+            response = client.put("/user/configurations/user", json={"llm": llm})
+
+            assert response.status_code == 422
+            assert "cannot use Dograh provider" in response.json()["detail"]
+            mocks.upsert_config.assert_not_awaited()

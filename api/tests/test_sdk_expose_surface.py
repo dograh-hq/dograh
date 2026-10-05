@@ -52,11 +52,11 @@ def test_sdk_openapi_includes_agent_workflow_methods():
 
 
 def test_create_campaign_rate_limit_is_optional_in_sdk_schema():
-    """Typed SDK clients must be able to omit the rate and use the server default.
+    """Callers may omit the rate. The schema default is 1 and the field is not required.
 
-    A JSON Schema ``default`` makes openapi-typescript mark the property
-    required on root types, so the published schema leaves the default off.
-    The request model still applies 1 when the field is missing.
+    ``scripts/generate_sdk.sh`` strips that default before openapi-typescript
+    runs, because a component ``default`` would mark the TypeScript property
+    required. The Python model keeps the default so a plain dump sends 1.
     """
     sdk_routes = [
         r
@@ -69,7 +69,7 @@ def test_create_campaign_rate_limit_is_optional_in_sdk_schema():
     assert "rate_limit_per_second" not in schema.get("required", [])
     prop = schema["properties"]["rate_limit_per_second"]
     assert prop["type"] == "integer"
-    assert "default" not in prop
+    assert prop["default"] == 1
     assert "1" in prop["description"]
     omitted = CreateCampaignRequest(
         name="SDK campaign",

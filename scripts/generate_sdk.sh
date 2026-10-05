@@ -92,6 +92,23 @@ datamodel-codegen \
     --field-constraints \
     --wrap-string-literal
 
+# openapi-typescript treats a component property that declares "default" as
+# required. Python codegen has already turned that default into a model
+# default, so an omitted rate limit dumps as 1 rather than JSON null.
+# Strip it only for the TypeScript types.
+python - <<PY
+import json
+path = "$OPENAPI_JSON"
+with open(path) as f:
+    spec = json.load(f)
+prop = spec["components"]["schemas"]["CreateCampaignRequest"]["properties"][
+    "rate_limit_per_second"
+]
+prop.pop("default", None)
+with open(path, "w") as f:
+    json.dump(spec, f)
+PY
+
 echo "→ Generating TypeScript types (openapi-typescript)..."
 if [ ! -d "sdk/typescript/node_modules" ]; then
     (cd sdk/typescript && npm install --silent)

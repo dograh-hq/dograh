@@ -29,8 +29,6 @@ from loguru import logger
 from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
-    BotStartedSpeakingFrame,
-    BotStoppedSpeakingFrame,
     Frame,
     LLMFullResponseStartFrame,
     LLMMessagesAppendFrame,
@@ -57,7 +55,6 @@ class DograhOpenAIRealtimeLLMService(
         super().__init__(**kwargs)
         # Track bot speech locally so workflow-control calls can wait until the
         # bot has finished speaking without delaying ordinary tools.
-        self._bot_is_speaking: bool = False
         self._pending_initial_greeting_text: str | None = None
         # A recorded greeting can open the conversation before the API session
         # is ready; its seed then waits for session.updated. Kept separate from
@@ -73,10 +70,6 @@ class DograhOpenAIRealtimeLLMService(
         if isinstance(frame, LLMMessagesAppendFrame):
             await self._handle_messages_append(frame)
             return
-        if isinstance(frame, BotStartedSpeakingFrame):
-            self._bot_is_speaking = True
-        elif isinstance(frame, BotStoppedSpeakingFrame):
-            self._bot_is_speaking = False
         await super().process_frame(frame, direction)
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
@@ -288,9 +281,6 @@ class DograhOpenAIRealtimeLLMService(
             )
         )
 
-    async def _run_pending_node_transition_function_calls(self):
-        await self._workflow_tool_deferral.release()
-
     async def _handle_evt_function_call_arguments_done(self, evt):
         """Only a response's sole workflow-control call may wait for playback."""
         try:
@@ -314,7 +304,7 @@ class DograhOpenAIRealtimeLLMService(
                 )
                 await self._workflow_tool_deferral.submit(
                     function_calls,
-                    speaking=self._bot_is_speaking,
+                    speaking=self._workflow_bot_is_speaking,
                     dispatch=self.run_function_calls,
                 )
             else:

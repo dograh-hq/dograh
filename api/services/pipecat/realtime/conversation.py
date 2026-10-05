@@ -69,6 +69,8 @@ class RealtimeConversationMixin:
         # interruption frame makes the round trip through the call pipeline.
         self._workflow_tool_deferral.discard("provider_interrupted")
         self._workflow_response_open = False
+        self._workflow_bot_is_speaking = False
+        self._workflow_playback_stopped = True
         await super().broadcast_interruption()
 
     async def cleanup(self):
@@ -89,9 +91,11 @@ class RealtimeConversationMixin:
         elif isinstance(frame, InterruptionFrame) or (
             isinstance(frame, BotStoppedSpeakingFrame) and frame.interrupted
         ):
-            self._workflow_bot_is_speaking = False
-            self._workflow_response_open = False
-            self._workflow_tool_deferral.discard("interrupted")
+            if self._interrupt_tool_response(frame):
+                self._workflow_bot_is_speaking = False
+                self._workflow_playback_stopped = True
+                self._workflow_response_open = False
+                self._workflow_tool_deferral.discard("interrupted")
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._workflow_bot_is_speaking = False
             self._workflow_playback_stopped = True

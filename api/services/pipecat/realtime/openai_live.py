@@ -280,7 +280,7 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
     async def run_function_calls(self, function_calls: Sequence[FunctionCallFromLLM]):
         await self._workflow_tool_deferral.submit(
             function_calls,
-            speaking=self._bot_is_speaking,
+            speaking=self._workflow_bot_is_speaking,
             dispatch=super().run_function_calls,
         )
 

@@ -121,7 +121,7 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
         self, function_calls_llm: list[FunctionCallFromLLM]
     ):
         task = self._transition_function_call_task
-        if task is not None and not task.done():
+        if task is not None and not task.done() and self._transcription_grace_calls:
             # A second tool makes this a mixed batch even if playback already
             # ended and the transition is only waiting for input transcription.
             if (
@@ -169,6 +169,9 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
                     return
                 await self._flush_pending_user_transcription()
                 if generation == self._workflow_tool_deferral.generation:
+                    # After dispatch starts this batch must not be cancelled
+                    # and replayed when another tool arrives.
+                    self._transcription_grace_calls = []
                     await self.run_function_calls(function_calls_llm)
             finally:
                 self._transition_function_call_task = None

@@ -89,6 +89,36 @@ describe("tools finishing after hangup", () => {
         expect(items[0]).toMatchObject({ status: "timeout", result: timeout.result });
     });
 
+    it("preserves the event result when a saved outcome omits it", () => {
+        const result = { booking_id: "booking-1" };
+        const end: RealtimeFeedbackEvent = {
+            type: "rtf-function-call-end", payload: { ...start.payload, result }, timestamp, turn: 3,
+        };
+        const items = conversationItemsFromRealtimeFeedbackEvents([start, end], [{
+            function_name: timeout.function_name, tool_call_id: timeout.tool_call_id, status: "completed",
+        }]);
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({ status: "completed", result });
+    });
+
+    it("keeps an explicit null result from the saved outcome", () => {
+        const end: RealtimeFeedbackEvent = {
+            type: "rtf-function-call-end", payload: { ...start.payload, result: "old result" }, timestamp, turn: 3,
+        };
+        const items = conversationItemsFromRealtimeFeedbackEvents([end], [{ ...timeout, result: null }]);
+        expect(items[0]).toMatchObject({ status: "timeout", result: null });
+    });
+
+    it.each(["rtf-function-call-start", "rtf-function-call-end"] as const)(
+        "restores a missing name from the saved outcome for %s", (type) => {
+            const event: RealtimeFeedbackEvent = {
+                ...start, type, payload: { tool_call_id: timeout.tool_call_id },
+            };
+            const items = conversationItemsFromRealtimeFeedbackEvents([event], [timeout]);
+            expect(items[0]).toMatchObject({ functionName: "long_wait_http_tool", status: "timeout" });
+        }
+    );
+
     it("matches invocation IDs instead of tool names and preserves other running calls", () => {
         const other = { ...start, payload: { ...start.payload, tool_call_id: "another-call" } };
         const items = conversationItemsFromRealtimeFeedbackEvents([start, other], [timeout]);

@@ -52,7 +52,7 @@ async def tools_service(realtime_service, monkeypatch):
     for name in ("end_call", "next_node"):
         service.register_function(name, AsyncMock(), is_node_transition=True)
     service.register_function("save_booking", AsyncMock())
-    service._bot_is_speaking = True
+    await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
     service._bot_is_responding = True
     service._assistant_is_responding = True
     service._bot_responding = "voice"
@@ -332,3 +332,92 @@ async def test_fresh_response_after_interruption_forgets_previous_tool_count(
     await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
     await submit(service, ["next_node"])
     dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delayed_interrupted_stop_preserves_fresh_realtime_transition(
+    tools_service,
+):
+    service, dispatch = tools_service
+    await submit(service, ["end_call"])
+    upstream, downstream = InterruptionFrame(), InterruptionFrame()
+    upstream.broadcast_sibling_id = downstream.id
+    downstream.broadcast_sibling_id = upstream.id
+    await service.process_frame(upstream, FrameDirection.UPSTREAM)
+    if type(service).__name__ == "DograhOpenAILiveLLMService":
+        await service._handle_evt_response(
+            SimpleNamespace(
+                inner_type="response.created",
+                delegation_id="new-response",
+            )
+        )
+    else:
+        await service._call_event_handler(
+            "on_before_push_frame", LLMFullResponseStartFrame()
+        )
+    await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    await submit(service, ["next_node"])
+    await service.process_frame(
+        BotStoppedSpeakingFrame(interrupted=True, interruption_id=upstream.id),
+        FrameDirection.UPSTREAM,
+    )
+    dispatch.assert_not_awaited()
+    await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+    task = getattr(service, "_transition_function_call_task", None)
+    if task:
+        await asyncio.wait_for(task, 1)
+    assert dispatched_names(dispatch) == ["next_node"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_originated", [False, True])
+async def test_tool_after_interruption_does_not_wait_for_stopped_playback(
+    tools_service, provider_originated
+):
+    service, dispatch = tools_service
+    await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
+    if provider_originated:
+        await service.broadcast_interruption()
+    else:
+        await service.process_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
+    # Native generation has finished, and no more audio will arrive.
+    service._bot_is_responding = False
+    service._assistant_is_responding = False
+    service._bot_responding = None
+    await submit(service, ["next_node"])
+    task = getattr(service, "_transition_function_call_task", None)
+    if task:
+        await asyncio.wait_for(task, 1)
+    assert dispatched_names(dispatch) == ["next_node"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("realtime_service", ["gemini", "vertex"], indirect=True)
+async def test_gemini_second_tool_does_not_cancel_or_replay_started_transition(
+    tools_service,
+):
+    service, dispatch = tools_service
+    started, release = asyncio.Event(), asyncio.Event()
+    completed = []
+
+    async def run(batch):
+        if [call.function_name for call in batch] == ["end_call"]:
+            started.set()
+            await asyncio.wait_for(release.wait(), 1)
+            completed.append("end_call")
+
+    dispatch.side_effect = run
+    await submit(service, ["end_call"])
+    await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+    transition_task = service._transition_function_call_task
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        await asyncio.wait_for(submit(service, ["save_booking"]), 1)
+    finally:
+        release.set()
+        await asyncio.wait_for(
+            asyncio.gather(transition_task, return_exceptions=True), 1
+        )
+    assert not transition_task.cancelled()
+    assert completed == ["end_call"]
+    assert dispatched_names(dispatch) == ["end_call", "save_booking"]

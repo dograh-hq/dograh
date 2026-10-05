@@ -313,9 +313,10 @@ export function conversationItemsFromRealtimeFeedbackEvents(
         if (existingIndex !== undefined && existingItem?.kind === "tool-call") {
             items[existingIndex] = {
                 ...existingItem,
+                functionName: existingItem.functionName === "tool" ? record.function_name : existingItem.functionName,
                 arguments: existingItem.arguments ?? record.arguments,
                 status,
-                result: record.result,
+                result: record.result === undefined ? existingItem.result : record.result,
             };
         } else {
             toolCallIndexById.set(record.tool_call_id, items.length);

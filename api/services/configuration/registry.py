@@ -208,6 +208,7 @@ class BaseChatLLMConfiguration(BaseLLMConfiguration):
         if (
             info.exclude_none
             and self.temperature is None
+            and (not info.exclude_unset or "temperature" in self.model_fields_set)
             and (info.include is None or "temperature" in info.include)
             and (info.exclude is None or "temperature" not in info.exclude)
         ):
@@ -216,11 +217,16 @@ class BaseChatLLMConfiguration(BaseLLMConfiguration):
 
     @model_validator(mode="after")
     def validate_model_temperature(self):
-        self.temperature = resolve_temperature(
-            self.provider,
-            self.model,
-            self.temperature,
-            base_url=getattr(self, "base_url", None),
+        # Normalization must not mark an omitted field as explicitly supplied.
+        object.__setattr__(
+            self,
+            "temperature",
+            resolve_temperature(
+                self.provider,
+                self.model,
+                self.temperature,
+                base_url=getattr(self, "base_url", None),
+            ),
         )
         return self
 

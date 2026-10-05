@@ -156,6 +156,7 @@ def test_workflow_model_and_temperature_can_be_overridden_together(temperature):
             }
         },
     )
+    assert effective.llm.model == "anthropic/claude-sonnet-4"
     assert _request_temperature(create_llm_service(effective)) == temperature
 
 
@@ -167,6 +168,22 @@ def test_temperature_serialization_respects_explicit_field_filters():
     assert config.model_dump(exclude_none=True, include={"model"}) == {
         "model": "gpt-4.1"
     }
+
+
+@pytest.mark.parametrize("provider", PROVIDERS)
+def test_sparse_temperature_serialization_distinguishes_unset_from_explicit_null(
+    provider,
+):
+    unset = _config(provider)
+    assert "temperature" not in unset.model_dump(exclude_none=True, exclude_unset=True)
+    explicit_null = _config(provider, temperature=None)
+    assert "temperature" in explicit_null.model_dump(
+        exclude_none=True, exclude_unset=True
+    )
+    assert (
+        explicit_null.model_dump(exclude_none=True, exclude_unset=True)["temperature"]
+        is None
+    )
 
 
 @pytest.mark.parametrize(

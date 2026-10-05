@@ -68,6 +68,19 @@ for (const wf of workflows) {
 ```
 </CodeGroup>
 
+## For AI agents
+
+The Python and TypeScript clients are generated from routes tagged `@sdk_expose` on the API. A runnable walkthrough — create an agent with the Workflow SDK, save a draft, validate, publish, then optionally create and start a campaign — lives in `examples/python/publish_agent_and_campaign.py` (TypeScript twin: `examples/typescript/publish_agent_and_campaign.ts`).
+
+Methods added for that flow, in addition to `create_workflow`, `update_workflow`, `get_workflow`, and `list_workflows` (camelCase on TypeScript, for example `validateWorkflow`):
+
+- Workflows: `validate_workflow`, `publish_workflow`, `list_workflow_runs`, `get_workflow_run`
+- Tools: `get_tool`, `update_tool`, `delete_tool` (archives the tool)
+- Campaigns: `list_campaigns`, `create_campaign`, `get_campaign`, `start_campaign`, `pause_campaign`, `resume_campaign`, `get_campaign_progress`
+- Folders: `list_folders`, `create_folder`
+
+`create_workflow` publishes version 1 immediately. `save_workflow` / `update_workflow` writes a draft; call `publish_workflow` after `validate_workflow` before the new graph serves calls. Creating a campaign still needs a CSV `source_id` from the Dograh uploader and a telephony configuration on the organization.
+
 ## Next steps
 
 - [Build an agent](/sdks/build-an-agent) — assemble nodes and edges, save as a draft

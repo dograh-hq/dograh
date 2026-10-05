@@ -25,6 +25,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow/{workflow_id}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate Workflow
+         * @description Validate all nodes in a workflow to ensure they have required fields.
+         *
+         *     Args:
+         *         workflow_id: The ID of the workflow to validate
+         *         user: The authenticated user
+         *
+         *     Returns:
+         *         Object indicating if workflow is valid and any invalid nodes/edges
+         */
+        post: operations["validate_workflow_api_v1_workflow__workflow_id__validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflow/create/definition": {
         parameters: {
             query?: never;
@@ -95,6 +122,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow/{workflow_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish Workflow
+         * @description Publish the current draft version of a workflow.
+         *
+         *     Drafts are allowed to be incomplete (so the editor can save mid-edit),
+         *     but a published version is what runtime executes — so this is the gate
+         *     where the full DTO + graph + trigger-conflict checks must pass.
+         */
+        post: operations["publish_workflow_api_v1_workflow__workflow_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflow/{workflow_id}": {
         parameters: {
             query?: never;
@@ -118,6 +169,186 @@ export interface paths {
          *         HTTPException: If the workflow is not found or if there's a database error
          */
         put: operations["update_workflow_api_v1_workflow__workflow_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow/{workflow_id}/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Workflow Run */
+        get: operations["get_workflow_run_api_v1_workflow__workflow_id__runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow/{workflow_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Workflow Runs
+         * @description Get workflow runs with optional filtering and sorting.
+         *
+         *     Filters should be provided as a JSON-encoded array of filter criteria.
+         *     Example: [{"attribute": "dateRange", "value": {"from": "2024-01-01", "to": "2024-01-31"}}]
+         */
+        get: operations["get_workflow_runs_api_v1_workflow__workflow_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign/create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Campaign
+         * @description Create a new campaign
+         */
+        post: operations["create_campaign_api_v1_campaign_create_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Campaigns
+         * @description Get campaigns for user's organization
+         */
+        get: operations["get_campaigns_api_v1_campaign__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Campaign
+         * @description Get campaign details
+         */
+        get: operations["get_campaign_api_v1_campaign__campaign_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign/{campaign_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Campaign
+         * @description Start campaign execution
+         */
+        post: operations["start_campaign_api_v1_campaign__campaign_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign/{campaign_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause Campaign
+         * @description Pause campaign execution
+         */
+        post: operations["pause_campaign_api_v1_campaign__campaign_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign/{campaign_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume Campaign
+         * @description Resume a paused campaign
+         */
+        post: operations["resume_campaign_api_v1_campaign__campaign_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaign/{campaign_id}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Campaign Progress
+         * @description Get current campaign progress and statistics
+         */
+        get: operations["get_campaign_progress_api_v1_campaign__campaign_id__progress_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -185,6 +416,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tools/{tool_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tool
+         * @description Get a specific tool by UUID.
+         *
+         *     Args:
+         *         tool_uuid: The UUID of the tool
+         *
+         *     Returns:
+         *         The tool
+         */
+        get: operations["get_tool_api_v1_tools__tool_uuid__get"];
+        /**
+         * Update Tool
+         * @description Update a tool.
+         *
+         *     Args:
+         *         tool_uuid: The UUID of the tool to update
+         *         request: The update request
+         *
+         *     Returns:
+         *         The updated tool
+         */
+        put: operations["update_tool_api_v1_tools__tool_uuid__put"];
+        post?: never;
+        /**
+         * Delete Tool
+         * @description Archive (soft delete) a tool.
+         *
+         *     Args:
+         *         tool_uuid: The UUID of the tool to delete
+         *
+         *     Returns:
+         *         Success message
+         */
+        delete: operations["delete_tool_api_v1_tools__tool_uuid__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/knowledge-base/documents": {
         parameters: {
             query?: never;
@@ -222,6 +500,30 @@ export interface paths {
         get: operations["list_recordings_api_v1_workflow_recordings__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/folder/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Folders
+         * @description List all folders in the authenticated user's organization.
+         */
+        get: operations["list_folders_api_v1_folder__get"];
+        put?: never;
+        /**
+         * Create Folder
+         * @description Create a new folder in the authenticated user's organization.
+         */
+        post: operations["create_folder_api_v1_folder__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -329,6 +631,173 @@ export interface components {
             description: string;
         };
         /**
+         * CallType
+         * @enum {string}
+         */
+        CallType: "inbound" | "outbound";
+        /**
+         * CampaignLogEntryResponse
+         * @description A single timestamped entry from the campaign's append-only log.
+         *
+         *     Surfaced in the UI so operators can see why a campaign moved to
+         *     paused / failed without digging through server logs.
+         */
+        CampaignLogEntryResponse: {
+            /** Ts */
+            ts: string;
+            /** Level */
+            level: string;
+            /** Event */
+            event: string;
+            /** Message */
+            message: string;
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** CampaignProgressResponse */
+        CampaignProgressResponse: {
+            /** Campaign Id */
+            campaign_id: number;
+            /** State */
+            state: string;
+            /** Total Rows */
+            total_rows: number;
+            /** Processed Rows */
+            processed_rows: number;
+            /** Failed Calls */
+            failed_calls: number;
+            /** Progress Percentage */
+            progress_percentage: number;
+            /** Source Sync */
+            source_sync: {
+                [key: string]: unknown;
+            };
+            /** Rate Limit */
+            rate_limit: number;
+            /** Started At */
+            started_at: string | null;
+            /** Completed At */
+            completed_at: string | null;
+        };
+        /** CampaignResponse */
+        CampaignResponse: {
+            traffic_split?: components["schemas"]["TrafficSplitResponse"] | null;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Workflow Id */
+            workflow_id: number;
+            /** Workflow Name */
+            workflow_name: string;
+            /** State */
+            state: string;
+            /** Source Type */
+            source_type: string;
+            /** Source Id */
+            source_id: string;
+            /** Total Rows */
+            total_rows: number | null;
+            /** Processed Rows */
+            processed_rows: number;
+            /** Failed Rows */
+            failed_rows: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Completed At */
+            completed_at: string | null;
+            retry_config: components["schemas"]["RetryConfigResponse"];
+            /** Max Concurrency */
+            max_concurrency?: number | null;
+            /**
+             * Rate Limit Per Second
+             * @default 1
+             */
+            rate_limit_per_second: number;
+            schedule_config?: components["schemas"]["ScheduleConfigResponse"] | null;
+            circuit_breaker?: components["schemas"]["CircuitBreakerConfigResponse"] | null;
+            /**
+             * Executed Count
+             * @default 0
+             */
+            executed_count: number;
+            /**
+             * Total Queued Count
+             * @default 0
+             */
+            total_queued_count: number;
+            /** Parent Campaign Id */
+            parent_campaign_id?: number | null;
+            /** Redialed Campaign Id */
+            redialed_campaign_id?: number | null;
+            /** Telephony Configuration Id */
+            telephony_configuration_id?: number | null;
+            /** Telephony Configuration Name */
+            telephony_configuration_name?: string | null;
+            /** Logs */
+            logs?: components["schemas"]["CampaignLogEntryResponse"][];
+            /** Warnings */
+            warnings?: string[];
+        };
+        /** CampaignsResponse */
+        CampaignsResponse: {
+            /** Campaigns */
+            campaigns: components["schemas"]["CampaignResponse"][];
+        };
+        /** CircuitBreakerConfigRequest */
+        CircuitBreakerConfigRequest: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Failure Threshold
+             * @default 0.5
+             */
+            failure_threshold: number;
+            /**
+             * Window Seconds
+             * @default 120
+             */
+            window_seconds: number;
+            /**
+             * Min Calls In Window
+             * @default 5
+             */
+            min_calls_in_window: number;
+        };
+        /** CircuitBreakerConfigResponse */
+        CircuitBreakerConfigResponse: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Failure Threshold
+             * @default 0.5
+             */
+            failure_threshold: number;
+            /**
+             * Window Seconds
+             * @default 120
+             */
+            window_seconds: number;
+            /**
+             * Min Calls In Window
+             * @default 5
+             */
+            min_calls_in_window: number;
+        };
+        /**
          * ContextDestinationMappingConfig
          * @description Resolve a transfer destination from gathered or initial context.
          *
@@ -386,6 +855,35 @@ export interface components {
             context_path: string;
             /** Routes */
             routes: components["schemas"]["ContextDestinationRoute"][];
+        };
+        /** CreateCampaignRequest */
+        CreateCampaignRequest: {
+            /** Name */
+            name: string;
+            /** Workflow Id */
+            workflow_id?: number | null;
+            traffic_split?: components["schemas"]["TrafficSplitRequest"] | null;
+            /** Source Type */
+            source_type: string;
+            /** Source Id */
+            source_id: string;
+            /** Telephony Configuration Id */
+            telephony_configuration_id?: number | null;
+            retry_config?: components["schemas"]["RetryConfigRequest"] | null;
+            /** Max Concurrency */
+            max_concurrency?: number | null;
+            /**
+             * Rate Limit Per Second
+             * @default 1
+             */
+            rate_limit_per_second: number;
+            schedule_config?: components["schemas"]["ScheduleConfigRequest"] | null;
+            circuit_breaker?: components["schemas"]["CircuitBreakerConfigRequest"] | null;
+        };
+        /** CreateFolderRequest */
+        CreateFolderRequest: {
+            /** Name */
+            name: string;
         };
         /**
          * CreateToolRequest
@@ -629,6 +1127,18 @@ export interface components {
             /** Destination Field */
             destination_field: string;
         };
+        /** FolderResponse */
+        FolderResponse: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /**
          * GraphConstraints
          * @description Per-node-type graph rules. WorkflowGraph enforces these at validation.
@@ -809,6 +1319,11 @@ export interface components {
             /** From Phone Number Id */
             from_phone_number_id?: number | null;
         };
+        /**
+         * ItemKind
+         * @enum {string}
+         */
+        ItemKind: "node" | "edge" | "workflow";
         /**
          * McpToolConfig
          * @description Configuration for a customer MCP server tool definition.
@@ -1128,6 +1643,96 @@ export interface components {
             /** Is Active */
             is_active: boolean;
         };
+        /** RetryConfigRequest */
+        RetryConfigRequest: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Max Retries
+             * @default 2
+             */
+            max_retries: number;
+            /**
+             * Retry Delay Seconds
+             * @default 120
+             */
+            retry_delay_seconds: number;
+            /**
+             * Retry On Busy
+             * @default true
+             */
+            retry_on_busy: boolean;
+            /**
+             * Retry On No Answer
+             * @default true
+             */
+            retry_on_no_answer: boolean;
+            /**
+             * Retry On Voicemail
+             * @default true
+             */
+            retry_on_voicemail: boolean;
+        };
+        /** RetryConfigResponse */
+        RetryConfigResponse: {
+            /** Enabled */
+            enabled: boolean;
+            /** Max Retries */
+            max_retries: number;
+            /** Retry Delay Seconds */
+            retry_delay_seconds: number;
+            /** Retry On Busy */
+            retry_on_busy: boolean;
+            /** Retry On No Answer */
+            retry_on_no_answer: boolean;
+            /** Retry On Voicemail */
+            retry_on_voicemail: boolean;
+        };
+        /** ScheduleConfigRequest */
+        ScheduleConfigRequest: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Timezone
+             * @default UTC
+             */
+            timezone: string;
+            /** Slots */
+            slots: components["schemas"]["TimeSlotRequest"][];
+        };
+        /** ScheduleConfigResponse */
+        ScheduleConfigResponse: {
+            /** Enabled */
+            enabled: boolean;
+            /** Timezone */
+            timezone: string;
+            /** Slots */
+            slots: components["schemas"]["TimeSlotResponse"][];
+        };
+        /** TimeSlotRequest */
+        TimeSlotRequest: {
+            /** Day Of Week */
+            day_of_week: number;
+            /** Start Time */
+            start_time: string;
+            /** End Time */
+            end_time: string;
+        };
+        /** TimeSlotResponse */
+        TimeSlotResponse: {
+            /** Day Of Week */
+            day_of_week: number;
+            /** Start Time */
+            start_time: string;
+            /** End Time */
+            end_time: string;
+        };
         /**
          * ToolParameter
          * @description A parameter that the tool accepts from the model at call time.
@@ -1189,6 +1794,42 @@ export interface components {
             /** Updated At */
             updated_at: string | null;
             created_by?: components["schemas"]["CreatedByResponse"] | null;
+        };
+        /** TrafficSplitRequest */
+        TrafficSplitRequest: {
+            /** Variants */
+            variants: components["schemas"]["TrafficVariantRequest"][];
+        };
+        /** TrafficSplitResponse */
+        TrafficSplitResponse: {
+            /** Revision */
+            revision: number;
+            /** Variants */
+            variants: components["schemas"]["TrafficVariantResponse"][];
+        };
+        /** TrafficVariantRequest */
+        TrafficVariantRequest: {
+            /** Workflow Id */
+            workflow_id: number;
+            /** Workflow Definition Id */
+            workflow_definition_id?: number | null;
+            /** Weight */
+            weight: number;
+        };
+        /** TrafficVariantResponse */
+        TrafficVariantResponse: {
+            /** Workflow Id */
+            workflow_id: number;
+            /** Workflow Definition Id */
+            workflow_definition_id?: number | null;
+            /** Weight */
+            weight: number;
+            /** Id */
+            id: string;
+            /** Workflow Name */
+            workflow_name: string;
+            /** Version Number */
+            version_number?: number | null;
         };
         /**
          * TransferAgentConfig
@@ -1331,6 +1972,24 @@ export interface components {
             /** @description Transfer Call configuration. */
             config: components["schemas"]["TransferCallConfig"];
         };
+        /**
+         * UpdateToolRequest
+         * @description Request schema for updating a reusable tool.
+         */
+        UpdateToolRequest: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Icon */
+            icon?: string | null;
+            /** Icon Color */
+            icon_color?: string | null;
+            /** Definition */
+            definition?: (components["schemas"]["HttpApiToolDefinition"] | components["schemas"]["EndCallToolDefinition"] | components["schemas"]["TransferCallToolDefinition"] | components["schemas"]["TransferAgentToolDefinition"] | components["schemas"]["CalculatorToolDefinition"] | components["schemas"]["McpToolDefinition"]) | null;
+            /** Status */
+            status?: string | null;
+        };
         /** UpdateWorkflowRequest */
         UpdateWorkflowRequest: {
             /** Name */
@@ -1344,6 +2003,13 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             workflow_configurations?: components["schemas"]["WorkflowConfigurationDefaults"] | null;
+        };
+        /** ValidateWorkflowResponse */
+        ValidateWorkflowResponse: {
+            /** Is Valid */
+            is_valid: boolean;
+            /** Errors */
+            errors: components["schemas"]["WorkflowError"][];
         };
         /** ValidationError */
         ValidationError: {
@@ -1426,6 +2092,16 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** WorkflowError */
+        WorkflowError: {
+            kind: components["schemas"]["ItemKind"];
+            /** Id */
+            id: string | null;
+            /** Field */
+            field: string | null;
+            /** Message */
+            message: string;
+        };
         /**
          * WorkflowListResponse
          * @description Lightweight response for workflow listings (excludes large fields).
@@ -1486,6 +2162,101 @@ export interface components {
             /** Workflow Uuid */
             workflow_uuid?: string | null;
         };
+        /** WorkflowRunResponseSchema */
+        WorkflowRunResponseSchema: {
+            /** Id */
+            id: number;
+            /** Workflow Id */
+            workflow_id: number;
+            /** Workflow Name */
+            workflow_name?: string | null;
+            /** Version Number */
+            version_number?: number | null;
+            /** Name */
+            name: string;
+            /** Mode */
+            mode: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Is Completed */
+            is_completed: boolean;
+            /** Transcript Url */
+            transcript_url: string | null;
+            /** Recording Url */
+            recording_url: string | null;
+            /** User Recording Url */
+            user_recording_url?: string | null;
+            /** Bot Recording Url */
+            bot_recording_url?: string | null;
+            /** Transcript Public Url */
+            transcript_public_url?: string | null;
+            /** Recording Public Url */
+            recording_public_url?: string | null;
+            /** User Recording Public Url */
+            user_recording_public_url?: string | null;
+            /** Bot Recording Public Url */
+            bot_recording_public_url?: string | null;
+            /** Public Access Token */
+            public_access_token?: string | null;
+            /** Cost Info */
+            cost_info: {
+                [key: string]: unknown;
+            } | null;
+            /** Usage Info */
+            usage_info?: {
+                [key: string]: unknown;
+            } | null;
+            /** Definition Id */
+            definition_id: number | null;
+            /** Initial Context */
+            initial_context?: {
+                [key: string]: unknown;
+            } | null;
+            /** Gathered Context */
+            gathered_context?: {
+                [key: string]: unknown;
+            } | null;
+            call_type: components["schemas"]["CallType"];
+            /** Logs */
+            logs?: {
+                [key: string]: unknown;
+            } | null;
+            /** Annotations */
+            annotations?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** WorkflowRunsResponse */
+        WorkflowRunsResponse: {
+            /** Runs */
+            runs: components["schemas"]["WorkflowRunResponseSchema"][];
+            /** Total Count */
+            total_count: number;
+            /** Page */
+            page: number;
+            /** Limit */
+            limit: number;
+            /** Total Pages */
+            total_pages: number;
+            /** Applied Filters */
+            applied_filters?: {
+                [key: string]: unknown;
+            }[] | null;
+        };
+        /** WorkflowVersionSummaryResponse */
+        WorkflowVersionSummaryResponse: {
+            /** Id */
+            id: number;
+            /** Version Number */
+            version_number: number | null;
+            /** Status */
+            status: string;
+            /** Published At */
+            published_at: string | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -1497,9 +2268,18 @@ export type AmbientNoiseConfigurationDefaults = components['schemas']['AmbientNo
 export type CalculatorToolDefinition = components['schemas']['CalculatorToolDefinition'];
 export type CallDispositionCodes = components['schemas']['CallDispositionCodes'];
 export type CallDispositionOption = components['schemas']['CallDispositionOption'];
+export type CallType = components['schemas']['CallType'];
+export type CampaignLogEntryResponse = components['schemas']['CampaignLogEntryResponse'];
+export type CampaignProgressResponse = components['schemas']['CampaignProgressResponse'];
+export type CampaignResponse = components['schemas']['CampaignResponse'];
+export type CampaignsResponse = components['schemas']['CampaignsResponse'];
+export type CircuitBreakerConfigRequest = components['schemas']['CircuitBreakerConfigRequest'];
+export type CircuitBreakerConfigResponse = components['schemas']['CircuitBreakerConfigResponse'];
 export type ContextDestinationMappingConfig = components['schemas']['ContextDestinationMappingConfig'];
 export type ContextDestinationRoute = components['schemas']['ContextDestinationRoute'];
 export type ContextDestinationRule = components['schemas']['ContextDestinationRule'];
+export type CreateCampaignRequest = components['schemas']['CreateCampaignRequest'];
+export type CreateFolderRequest = components['schemas']['CreateFolderRequest'];
 export type CreateToolRequest = components['schemas']['CreateToolRequest'];
 export type CreateWorkflowRequest = components['schemas']['CreateWorkflowRequest'];
 export type CreatedByResponse = components['schemas']['CreatedByResponse'];
@@ -1510,12 +2290,14 @@ export type DocumentResponseSchema = components['schemas']['DocumentResponseSche
 export type EndCallConfig = components['schemas']['EndCallConfig'];
 export type EndCallToolDefinition = components['schemas']['EndCallToolDefinition'];
 export type ExternalPbxFieldMapping = components['schemas']['ExternalPBXFieldMapping'];
+export type FolderResponse = components['schemas']['FolderResponse'];
 export type GraphConstraints = components['schemas']['GraphConstraints'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HttpApiConfig = components['schemas']['HttpApiConfig'];
 export type HttpApiToolDefinition = components['schemas']['HttpApiToolDefinition'];
 export type HttpTransferResolverConfig = components['schemas']['HttpTransferResolverConfig'];
 export type InitiateCallRequest = components['schemas']['InitiateCallRequest'];
+export type ItemKind = components['schemas']['ItemKind'];
 export type McpToolConfig = components['schemas']['McpToolConfig'];
 export type McpToolDefinition = components['schemas']['McpToolDefinition'];
 export type NodeCategory = components['schemas']['NodeCategory'];
@@ -1531,17 +2313,33 @@ export type PropertySpec = components['schemas']['PropertySpec'];
 export type PropertyType = components['schemas']['PropertyType'];
 export type RecordingListResponseSchema = components['schemas']['RecordingListResponseSchema'];
 export type RecordingResponseSchema = components['schemas']['RecordingResponseSchema'];
+export type RetryConfigRequest = components['schemas']['RetryConfigRequest'];
+export type RetryConfigResponse = components['schemas']['RetryConfigResponse'];
+export type ScheduleConfigRequest = components['schemas']['ScheduleConfigRequest'];
+export type ScheduleConfigResponse = components['schemas']['ScheduleConfigResponse'];
+export type TimeSlotRequest = components['schemas']['TimeSlotRequest'];
+export type TimeSlotResponse = components['schemas']['TimeSlotResponse'];
 export type ToolParameter = components['schemas']['ToolParameter'];
 export type ToolResponse = components['schemas']['ToolResponse'];
+export type TrafficSplitRequest = components['schemas']['TrafficSplitRequest'];
+export type TrafficSplitResponse = components['schemas']['TrafficSplitResponse'];
+export type TrafficVariantRequest = components['schemas']['TrafficVariantRequest'];
+export type TrafficVariantResponse = components['schemas']['TrafficVariantResponse'];
 export type TransferAgentConfig = components['schemas']['TransferAgentConfig'];
 export type TransferAgentToolDefinition = components['schemas']['TransferAgentToolDefinition'];
 export type TransferCallConfig = components['schemas']['TransferCallConfig'];
 export type TransferCallToolDefinition = components['schemas']['TransferCallToolDefinition'];
+export type UpdateToolRequest = components['schemas']['UpdateToolRequest'];
 export type UpdateWorkflowRequest = components['schemas']['UpdateWorkflowRequest'];
+export type ValidateWorkflowResponse = components['schemas']['ValidateWorkflowResponse'];
 export type ValidationError = components['schemas']['ValidationError'];
 export type WorkflowConfigurationDefaults = components['schemas']['WorkflowConfigurationDefaults'];
+export type WorkflowError = components['schemas']['WorkflowError'];
 export type WorkflowListResponse = components['schemas']['WorkflowListResponse'];
 export type WorkflowResponse = components['schemas']['WorkflowResponse'];
+export type WorkflowRunResponseSchema = components['schemas']['WorkflowRunResponseSchema'];
+export type WorkflowRunsResponse = components['schemas']['WorkflowRunsResponse'];
+export type WorkflowVersionSummaryResponse = components['schemas']['WorkflowVersionSummaryResponse'];
 export type $defs = Record<string, never>;
 export interface operations {
     initiate_call_api_v1_telephony_initiate_call_post: {
@@ -1567,6 +2365,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_workflow_api_v1_workflow__workflow_id__validate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidateWorkflowResponse"];
                 };
             };
             /** @description Not found */
@@ -1713,6 +2552,47 @@ export interface operations {
             };
         };
     };
+    publish_workflow_api_v1_workflow__workflow_id__publish_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowVersionSummaryResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_workflow_api_v1_workflow__workflow_id__put: {
         parameters: {
             query?: never;
@@ -1738,6 +2618,387 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workflow_run_api_v1_workflow__workflow_id__runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                workflow_id: number;
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunResponseSchema"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workflow_runs_api_v1_workflow__workflow_id__runs_get: {
+        parameters: {
+            query?: {
+                /** @description Page number (starts from 1) */
+                page?: number;
+                /** @description Number of items per page */
+                limit?: number;
+                /** @description JSON-encoded filter criteria */
+                filters?: string | null;
+                /** @description Field to sort by (e.g., 'duration', 'created_at') */
+                sort_by?: string | null;
+                /** @description Sort order ('asc' or 'desc') */
+                sort_order?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                workflow_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunsResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_campaign_api_v1_campaign_create_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCampaignRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_campaigns_api_v1_campaign__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignsResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_campaign_api_v1_campaign__campaign_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                campaign_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_campaign_api_v1_campaign__campaign_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                campaign_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pause_campaign_api_v1_campaign__campaign_id__pause_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                campaign_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_campaign_api_v1_campaign__campaign_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                campaign_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_campaign_progress_api_v1_campaign__campaign_id__progress_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                campaign_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignProgressResponse"];
                 };
             };
             /** @description Not found */
@@ -1882,6 +3143,135 @@ export interface operations {
             };
         };
     };
+    get_tool_api_v1_tools__tool_uuid__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                tool_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_tool_api_v1_tools__tool_uuid__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                tool_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateToolRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_tool_api_v1_tools__tool_uuid__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                tool_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_documents_api_v1_knowledge_base_documents_get: {
         parameters: {
             query?: {
@@ -1954,6 +3344,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecordingListResponseSchema"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_folders_api_v1_folder__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"][];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_folder_api_v1_folder__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFolderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"];
                 };
             };
             /** @description Not found */

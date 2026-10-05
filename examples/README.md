@@ -34,6 +34,10 @@ python python/build_workflow_with_sdk.py
 # Load an existing workflow, edit the startCall prompt, and save as a draft.
 # Edit WORKFLOW_ID at the top of the file first.
 python python/load_and_edit_workflow.py
+
+# Create an agent with the Workflow SDK, validate, publish, then
+# optionally create and start a campaign (set CAMPAIGN_SOURCE_ID first).
+python python/publish_agent_and_campaign.py
 ```
 
 ## TypeScript
@@ -47,8 +51,9 @@ npm install
 export DOGRAH_API_ENDPOINT=http://localhost:8000
 export DOGRAH_API_TOKEN=sk-...
 
-npm run call    # fetch_workflow_and_call.ts
-npm run create  # create_workflow.ts
-npm run build   # build_workflow_with_sdk.ts  (edit WORKFLOW_ID in the file first)
-npm run edit    # load_and_edit_workflow.ts  (edit WORKFLOW_ID in the file first)
+npm run call     # fetch_workflow_and_call.ts
+npm run create   # create_workflow.ts
+npm run build    # build_workflow_with_sdk.ts  (edit WORKFLOW_ID in the file first)
+npm run edit     # load_and_edit_workflow.ts  (edit WORKFLOW_ID in the file first)
+npm run publish  # publish_agent_and_campaign.ts
 ```

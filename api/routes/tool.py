@@ -160,7 +160,13 @@ async def create_tool(
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 
-@router.get("/{tool_uuid}")
+@router.get(
+    "/{tool_uuid}",
+    **sdk_expose(
+        method="get_tool",
+        description="Get a tool by UUID, including archived tools.",
+    ),
+)
 async def get_tool(
     tool_uuid: str,
     user: UserModel = Depends(get_user),
@@ -351,7 +357,13 @@ def _hint_for_status_code(
     return None
 
 
-@router.put("/{tool_uuid}")
+@router.put(
+    "/{tool_uuid}",
+    **sdk_expose(
+        method="update_tool",
+        description="Update a tool's name, description, definition, or status.",
+    ),
+)
 async def update_tool(
     tool_uuid: str,
     request: UpdateToolRequest,
@@ -407,7 +419,13 @@ async def update_tool(
     return build_tool_response(tool, include_created_by=True)
 
 
-@router.delete("/{tool_uuid}")
+@router.delete(
+    "/{tool_uuid}",
+    **sdk_expose(
+        method="delete_tool",
+        description="Archive (soft-delete) a tool by UUID.",
+    ),
+)
 async def delete_tool(
     tool_uuid: str,
     user: UserModel = Depends(get_user),

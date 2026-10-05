@@ -380,7 +380,13 @@ class CreateWorkflowTemplateRequest(BaseModel):
     activity_description: str
 
 
-@router.post("/{workflow_id}/validate")
+@router.post(
+    "/{workflow_id}/validate",
+    **sdk_expose(
+        method="validate_workflow",
+        description="Validate a workflow draft, or the published definition when no draft exists.",
+    ),
+)
 async def validate_workflow(
     workflow_id: int,
     user: UserModel = Depends(get_user),
@@ -887,11 +893,17 @@ async def get_workflow_versions(
     ]
 
 
-@router.post("/{workflow_id}/publish")
+@router.post(
+    "/{workflow_id}/publish",
+    **sdk_expose(
+        method="publish_workflow",
+        description="Publish the current draft of a workflow after validation.",
+    ),
+)
 async def publish_workflow(
     workflow_id: int,
     user: UserModel = Depends(get_user),
-):
+) -> WorkflowVersionSummaryResponse:
     """Publish the current draft version of a workflow.
 
     Drafts are allowed to be incomplete (so the editor can save mid-edit),
@@ -1483,7 +1495,13 @@ async def create_workflow_run(
     }
 
 
-@router.get("/{workflow_id}/runs/{run_id}")
+@router.get(
+    "/{workflow_id}/runs/{run_id}",
+    **sdk_expose(
+        method="get_workflow_run",
+        description="Get a single workflow run, including transcript and recording links.",
+    ),
+)
 async def get_workflow_run(
     workflow_id: int, run_id: int, user: UserModel = Depends(get_user)
 ) -> WorkflowRunResponseSchema:
@@ -1550,7 +1568,13 @@ class WorkflowRunsResponse(BaseModel):
     applied_filters: Optional[List[dict]] = None
 
 
-@router.get("/{workflow_id}/runs")
+@router.get(
+    "/{workflow_id}/runs",
+    **sdk_expose(
+        method="list_workflow_runs",
+        description="List workflow runs for a workflow in the authenticated organization.",
+    ),
+)
 async def get_workflow_runs(
     workflow_id: int,
     page: int = Query(1, ge=1, description="Page number (starts from 1)"),

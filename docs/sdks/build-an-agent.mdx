@@ -71,6 +71,8 @@ await client.saveWorkflow(123, wf);
 ```
 </CodeGroup>
 
+`save_workflow` writes a draft. Call `validate_workflow`, then `publish_workflow`, before that draft serves calls. See `examples/python/publish_agent_and_campaign.py`.
+
 ## Edit an existing agent
 
 Load an agent into an editable `Workflow`, mutate it, then save:

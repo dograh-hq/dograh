@@ -303,7 +303,9 @@ def reject_mixed_dograh_legacy_configuration(
         n: getattr(configuration, n) for n in names if getattr(configuration, n)
     }
     dograh = [n for n, s in services.items() if _provider(s) == ServiceProviders.DOGRAH]
-    byok = [n for n in services if n not in dograh]
+    # a BYOK block the selected mode doesn't use is dropped on save anyway
+    inactive = ("tts", "stt") if configuration.is_realtime else ("realtime",)
+    byok = [n for n in services if n not in dograh and n not in inactive]
     if dograh and byok:
         raise ValueError(
             f"Cannot mix Dograh and BYOK providers: {', '.join(byok)} use BYOK "

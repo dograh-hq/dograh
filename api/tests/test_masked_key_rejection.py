@@ -317,3 +317,26 @@ class TestMixedDograhRejection:
 
             assert response.status_code == 200
             assert mocks.upsert_config.await_args.args[1].mode == "byok"
+
+    def test_allows_switch_from_byok_realtime_to_dograh(self):
+        # The merge keeps the stored realtime block, but is_realtime=False
+        # makes it inactive, so it must not count as BYOK.
+        existing = EffectiveAIModelConfiguration.model_validate(
+            {"is_realtime": True, "realtime": RT, "llm": LLM, "embeddings": EMB}
+        )
+        dograh = {"provider": "dograh", "api_key": "mps-secret", "model": "default"}
+        body = {
+            "is_realtime": False,
+            "realtime": None,
+            "llm": dograh,
+            "tts": {**dograh, "voice": "default"},
+            "stt": {**dograh, "language": "multi"},
+            "embeddings": {**dograh, "model": "dograh_embedding_v1"},
+        }
+        client = TestClient(_make_test_app())
+
+        with _patch_config_update(existing) as mocks:
+            response = client.put("/user/configurations/user", json=body)
+
+            assert response.status_code == 200
+            assert mocks.upsert_config.await_args.args[1].mode == "dograh"

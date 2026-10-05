@@ -23,6 +23,9 @@ from api.constants import (
     AWS_REGION,
     AWS_S3_PREFIX,
     ENABLE_AWS_S3_SECONDARY,
+    S3_ADDRESSING_STYLE,
+    S3_ENDPOINT_URL,
+    S3_SIGNATURE_VERSION,
 )
 from api.enums import StorageBackend
 from api.services.filesystem.s3 import S3FileSystem
@@ -139,7 +142,10 @@ def secondary_status(artifact_refs: list[dict[str, Any]]) -> dict[str, Any]:
         "prefix": AWS_S3_PREFIX or None,
         "objects": objects,
     }
-    if not ENABLE_AWS_S3_SECONDARY:
+    # A configured bucket is an explicit request to retain the secondary copy.
+    # Keep the flag for deployments that want the old opt-in behaviour, while
+    # ensuring an already-configured AWS bucket is not silently ignored.
+    if not ENABLE_AWS_S3_SECONDARY and not AWS_RECORDINGS_BUCKET:
         result["status"] = "disabled"
     elif not AWS_RECORDINGS_BUCKET:
         result["status"] = "not_configured"
@@ -355,6 +361,9 @@ async def replicate_workflow_run_artifacts_to_s3(
         s3_storage = S3FileSystem(
             bucket_name=AWS_RECORDINGS_BUCKET,
             region_name=AWS_REGION,
+            endpoint_url=S3_ENDPOINT_URL,
+            signature_version=S3_SIGNATURE_VERSION,
+            addressing_style=S3_ADDRESSING_STYLE,
         )
     except Exception as exc:  # noqa: BLE001 - disabled/isolated secondary path
         error_class = _error_class(exc)
@@ -386,8 +395,10 @@ async def replicate_workflow_run_artifacts_to_s3(
 
 async def reconcile_pending_s3_replications(_ctx: Any) -> dict[str, Any]:
     """Periodic, idempotent repair for primary objects lacking an S3 copy."""
-    if not ENABLE_AWS_S3_SECONDARY or not AWS_RECORDINGS_BUCKET:
-        return {"status": "disabled" if not ENABLE_AWS_S3_SECONDARY else "not_configured", "runs": 0}
+    if not ENABLE_AWS_S3_SECONDARY and not AWS_RECORDINGS_BUCKET:
+        return {"status": "disabled", "runs": 0}
+    if not AWS_RECORDINGS_BUCKET:
+        return {"status": "not_configured", "runs": 0}
 
     from api.db import db_client
 

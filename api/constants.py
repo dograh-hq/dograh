@@ -131,9 +131,12 @@ MINIO_ALLOW_ANONYMOUS = (
 AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("S3_REGION", "eu-west-2")
 # ``AWS_RECORDINGS_BUCKET`` is the white-label name. Keep ``S3_BUCKET`` as the
 # existing generic storage setting so existing deployments continue to work.
-AWS_RECORDINGS_BUCKET = os.environ.get("AWS_RECORDINGS_BUCKET")
+# Both names identify the same configured AWS bucket; the dedicated name wins.
+AWS_RECORDINGS_BUCKET = os.environ.get("AWS_RECORDINGS_BUCKET") or os.environ.get(
+    "S3_BUCKET"
+)
 AWS_S3_PREFIX = os.environ.get("AWS_S3_PREFIX", "").strip("/")
-S3_BUCKET = AWS_RECORDINGS_BUCKET or os.environ.get("S3_BUCKET")
+S3_BUCKET = AWS_RECORDINGS_BUCKET
 S3_REGION = AWS_REGION
 S3_KMS_KEY_ID = os.environ.get("S3_KMS_KEY_ID") or None
 # Leave encryption to the bucket's default policy unless an explicit mode or

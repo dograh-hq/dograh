@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 from typing import ClassVar
+from unittest.mock import AsyncMock
 
 import pytest
 from botocore.exceptions import ClientError
@@ -53,6 +54,7 @@ class _Secondary:
 @pytest.mark.asyncio
 async def test_disabled_secondary_does_not_enqueue_or_initialize_s3(monkeypatch):
     monkeypatch.setattr(replication, "ENABLE_AWS_S3_SECONDARY", False)
+    monkeypatch.setattr(replication, "AWS_RECORDINGS_BUCKET", None)
     monkeypatch.setattr(
         replication,
         "S3FileSystem",
@@ -64,6 +66,41 @@ async def test_disabled_secondary_does_not_enqueue_or_initialize_s3(monkeypatch)
     )
 
     assert result["status"] == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_configured_bucket_enables_secondary_without_flag(monkeypatch):
+    monkeypatch.setattr(replication, "ENABLE_AWS_S3_SECONDARY", False)
+    monkeypatch.setattr(replication, "AWS_RECORDINGS_BUCKET", "private-test-bucket")
+    monkeypatch.setattr(
+        replication,
+        "get_current_storage_backend",
+        lambda: replication.StorageBackend.MINIO,
+    )
+
+    result = replication.secondary_status(_refs())
+
+    assert result["status"] == "pending"
+    assert result["bucket"] == "private-test-bucket"
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_uses_configured_bucket_without_flag(monkeypatch):
+    monkeypatch.setattr(replication, "ENABLE_AWS_S3_SECONDARY", False)
+    monkeypatch.setattr(replication, "AWS_RECORDINGS_BUCKET", "private-test-bucket")
+    monkeypatch.setattr(
+        "api.db.db_client.get_pending_artifact_replications",
+        AsyncMock(return_value=[]),
+    )
+
+    result = await replication.reconcile_pending_s3_replications(None)
+
+    assert result == {
+        "status": "success",
+        "runs": 0,
+        "artifacts": 0,
+        "results": [],
+    }
 
 
 @pytest.mark.asyncio

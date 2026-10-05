@@ -1,6 +1,6 @@
 {
   "name": "ui",
-  "version": "1.47.0.24",
+  "version": "1.47.0.25",
   "private": true,
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--enable-source-maps node scripts/dev-server.mjs",

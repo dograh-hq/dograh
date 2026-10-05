@@ -39,7 +39,7 @@ AZURE_REASONING_RULE = {
 # https://platform.claude.com/docs/en/api/typescript/messages/create
 CLAUDE_RULES = [
     {
-        "pattern": r"claude-(?:(?:opus|sonnet|haiku)-(?:4[.-](?:[7-9]|[1-9][0-9])|[5-9](?:[.-]|$))|mythos)",
+        "pattern": r"claude-(?:(?:opus|sonnet|haiku)-(?:4[.-](?:[7-9]|[1-9][0-9])(?:[.:-]|$)|[5-9](?:[.-]|$))|mythos)",
         "supported": False,
     },
     {

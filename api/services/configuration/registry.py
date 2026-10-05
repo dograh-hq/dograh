@@ -9,6 +9,7 @@ from pydantic import (
     Field,
     computed_field,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -197,6 +198,21 @@ class BaseLLMConfiguration(BaseServiceConfiguration):
 class BaseChatLLMConfiguration(BaseLLMConfiguration):
     # Realtime services intentionally do not inherit chat sampling settings.
     temperature: float | None
+
+    @model_serializer(mode="wrap")
+    def serialize_temperature(self, handler, info):
+        data = handler(self)
+        # Configuration persistence and secret merging exclude None values.
+        # Temperature's explicit None must survive: omission restores the
+        # application default (often 0.1) rather than the provider default.
+        if (
+            info.exclude_none
+            and self.temperature is None
+            and (info.include is None or "temperature" in info.include)
+            and (info.exclude is None or "temperature" not in info.exclude)
+        ):
+            data["temperature"] = None
+        return data
 
     @model_validator(mode="after")
     def validate_model_temperature(self):

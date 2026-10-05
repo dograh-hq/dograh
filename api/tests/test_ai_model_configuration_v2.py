@@ -304,6 +304,37 @@ def test_masked_v2_configuration_masks_nested_service_keys():
     assert masked["byok"]["pipeline"]["stt"]["api_key"] == mask_key("dg-real-secret")
 
 
+@pytest.mark.asyncio
+async def test_cleared_temperature_survives_secret_merge_and_persistence(monkeypatch):
+    from api.services.configuration import ai_model_configuration
+
+    existing = OrganizationAIModelConfigurationV2(
+        mode="byok",
+        byok={
+            "mode": "pipeline",
+            "pipeline": {
+                "llm": OpenAILLMService(api_key="sk-real-secret", temperature=0.6),
+                "tts": ElevenlabsTTSConfiguration(api_key="tts-key"),
+                "stt": DeepgramSTTConfiguration(api_key="stt-key"),
+            },
+        },
+    )
+    incoming = existing.model_copy(deep=True)
+    incoming.byok.pipeline.llm.api_key = mask_key("sk-real-secret")
+    incoming.byok.pipeline.llm.temperature = None
+    merged = merge_ai_model_configuration_v2_secrets(incoming, existing)
+    upsert = AsyncMock()
+    monkeypatch.setattr(
+        ai_model_configuration.db_client, "upsert_configuration", upsert
+    )
+    await upsert_organization_ai_model_configuration_v2(42, merged)
+    stored = upsert.await_args.args[2]
+    assert stored["byok"]["pipeline"]["llm"]["temperature"] is None
+    reloaded = OrganizationAIModelConfigurationV2.model_validate(stored)
+    assert compile_ai_model_configuration_v2(reloaded).llm.temperature is None
+    assert reloaded.byok.pipeline.llm.api_key == "sk-real-secret"
+
+
 def test_legacy_all_dograh_pipeline_converts_to_dograh_v2():
     legacy = EffectiveAIModelConfiguration(
         llm=DograhLLMService(

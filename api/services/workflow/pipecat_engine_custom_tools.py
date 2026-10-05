@@ -258,7 +258,9 @@ class CustomToolManager:
                         self._agent.llm.register_function(
                             fs.name,
                             self._agent.bind_tool(
-                                self._engine, self._create_mcp_handler(session, fs.name)
+                                self._engine,
+                                self._create_mcp_handler(session, fs.name),
+                                timeout_secs=session.call_timeout_secs,
                             ),
                             timeout_secs=session.call_timeout_secs,
                         )
@@ -284,7 +286,12 @@ class CustomToolManager:
                 }
                 self._agent.llm.register_function(
                     function_name,
-                    self._agent.bind_tool(self._engine, handler),
+                    self._agent.bind_tool(
+                        self._engine,
+                        handler,
+                        is_node_transition=is_node_transition,
+                        timeout_secs=timeout_secs,
+                    ),
                     timeout_secs=timeout_secs,
                     is_node_transition=is_node_transition,
                 )

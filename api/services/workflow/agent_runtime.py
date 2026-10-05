@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import wraps
 from typing import TYPE_CHECKING, Any
@@ -34,14 +35,24 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 from pipecat.frames.frames import (
     Frame,
+    FunctionCallResultProperties,
     LLMContextFrame,
     TTSSpeakFrame,
 )
 from pipecat.pipeline.worker import PipelineWorker
+from pipecat.services.llm_service import (
+    FunctionCallHandler,
+    FunctionCallParams,
+    FunctionCallRunnerItem,
+    LLMService,
+)
+
+from api.services.workflow.tool_execution import ToolExecutionOwner
 
 if TYPE_CHECKING:
     from pipecat.processors.aggregators.llm_context import LLMContext
 
+    from api.services.workflow.pipecat_engine import PipecatEngine
     from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
 
@@ -99,13 +110,66 @@ class AgentRuntime:
     system_prompt: str = ""
     mcp_sessions: dict[str, Any] = field(default_factory=dict)
     tool_tasks: set[asyncio.Task] = field(default_factory=set, repr=False)
+    _tool_execution_owner: ToolExecutionOwner | None = field(
+        default=None, init=False, repr=False
+    )
+    _tool_handlers: dict[
+        FunctionCallHandler,
+        tuple[FunctionCallHandler, float | None, Callable[[], bool]],
+    ] = field(default_factory=dict, init=False, repr=False)
 
-    def bind_tool(self, engine, handler):
-        """Bind a tool's lifetime to this visit, including work across awaits."""
+    def bind_tool(
+        self,
+        engine: PipecatEngine,
+        handler: FunctionCallHandler,
+        *,
+        is_node_transition: bool = False,
+        timeout_secs: float | None = None,
+    ) -> FunctionCallHandler:
+        """Keep accepted ordinary tools alive when this visit is cancelled."""
+        if self._tool_execution_owner is None:
+            self._tool_execution_owner = ToolExecutionOwner(engine, self)
+            if isinstance(self.llm, LLMService):
+                self.llm.add_event_handler(
+                    "on_function_calls_prepared", self._prepare_tool_calls
+                )
+
+        def can_accept() -> bool:
+            return engine.agent_can_act(self)
 
         @wraps(handler)
-        async def bound(params):
+        async def bound(params: FunctionCallParams) -> None:
+            if not is_node_transition:
+                execution = self._tool_execution_owner.get(
+                    getattr(params, "tool_call_id", "")
+                )
+                if execution is None and can_accept():
+                    execution = self._tool_execution_owner.start(
+                        handler, params, timeout_secs
+                    )
+                if execution is not None:
+                    await asyncio.shield(execution.task)
+                    if not execution.delivered and engine.agent_can_act(self):
+                        execution.delivered = True
+                        if execution.properties is None:
+                            await params.result_callback(execution.result)
+                        else:
+                            await params.result_callback(
+                                execution.result, properties=execution.properties
+                            )
+                    return
             if not engine.agent_can_act(self):
+                logger.info(
+                    "Skipping inactive tool {} [{}] (visit={})",
+                    getattr(params, "function_name", "unknown"),
+                    getattr(params, "tool_call_id", "unknown"),
+                    self.visit_id,
+                )
+                if hasattr(params, "result_callback"):
+                    await params.result_callback(
+                        {"status": "skipped", "reason": "agent_inactive"},
+                        properties=FunctionCallResultProperties(run_llm=False),
+                    )
                 return
             task = asyncio.current_task()
             self.tool_tasks.add(task)
@@ -114,9 +178,47 @@ class AgentRuntime:
             finally:
                 self.tool_tasks.discard(task)
 
+        if not is_node_transition:
+            self._tool_handlers[bound] = (handler, timeout_secs, can_accept)
         return bound
 
+    async def _prepare_tool_calls(
+        self, llm: LLMService, runner_items: Sequence[FunctionCallRunnerItem]
+    ) -> None:
+        """Accept the whole batch before a transition can tear down its worker."""
+        for item in runner_items:
+            binding = self._tool_handlers.get(item.registry_item.handler)
+            if binding is None:
+                continue
+            handler, timeout_secs, can_accept = binding
+            if not can_accept():
+                continue
+            params = FunctionCallParams(
+                function_name=item.function_name,
+                tool_call_id=item.tool_call_id,
+                arguments=item.arguments,
+                context=item.context,
+                llm=llm,
+                pipeline_worker=llm.pipeline_worker,
+                # The owner installs its result capture before invoking the handler.
+                result_callback=None,  # type: ignore[arg-type]
+                app_resources=llm.pipeline_worker.app_resources,
+                worker_runner=llm.pipeline_worker.worker_runner,
+            )
+            self._tool_execution_owner.start(
+                handler,
+                params,
+                item.registry_item.timeout_secs
+                or timeout_secs
+                or llm._function_call_timeout_secs,
+            )
+
+    async def finish_tool_calls(self) -> None:
+        if self._tool_execution_owner is not None:
+            await self._tool_execution_owner.finish()
+
     async def cancel_tools(self):
+        """Cancel workflow control; independently owned ordinary tools keep running."""
         tasks = [t for t in self.tool_tasks if t is not asyncio.current_task()]
         for task in tasks:
             task.cancel()
@@ -124,6 +226,7 @@ class AgentRuntime:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def close_mcp_sessions(self):
+        await self.finish_tool_calls()
         for session in reversed(list(self.mcp_sessions.values())):
             await session.close_managed()
         self.mcp_sessions.clear()

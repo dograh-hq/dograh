@@ -1,4 +1,5 @@
 export type ConversationStatus = "ready" | "live" | "ended";
+export type ToolCallStatus = "running" | "completed" | "timeout" | "failed" | "cancelled";
 
 export type RealtimeFeedbackMessageType =
     | "user-transcription"
@@ -85,7 +86,7 @@ export interface ConversationToolCallItem extends ConversationItemBase {
     kind: "tool-call";
     functionName: string;
     toolCallId?: string;
-    status: "running" | "completed";
+    status: ToolCallStatus;
     arguments?: unknown;
     result?: unknown;
 }

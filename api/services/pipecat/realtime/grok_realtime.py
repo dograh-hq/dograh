@@ -26,8 +26,6 @@ from loguru import logger
 from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
-    BotStartedSpeakingFrame,
-    BotStoppedSpeakingFrame,
     Frame,
     FunctionCallFromLLM,
     LLMFullResponseStartFrame,
@@ -44,10 +42,10 @@ from pipecat.utils.time import time_now_iso8601
 class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMService):
     """Grok Realtime with Dograh engine integration quirks."""
 
+    _workflow_tools_follow_voice_response = False
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._bot_is_speaking: bool = False
-        self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
         # A recorded greeting can open the conversation before the API session
         # is ready; its seed then waits for session.updated. Kept separate from
@@ -59,11 +57,6 @@ class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMSer
         if isinstance(frame, LLMMessagesAppendFrame):
             await self._handle_messages_append(frame)
             return
-        if isinstance(frame, BotStartedSpeakingFrame):
-            self._bot_is_speaking = True
-        elif isinstance(frame, BotStoppedSpeakingFrame):
-            self._bot_is_speaking = False
-            await self._run_pending_node_transition_function_calls()
         await super().process_frame(frame, direction)
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
@@ -268,19 +261,20 @@ class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMSer
             )
         )
 
-    async def _run_pending_node_transition_function_calls(self):
-        if not self._deferred_node_transition_function_calls:
-            return
-        function_calls = self._deferred_node_transition_function_calls
-        self._deferred_node_transition_function_calls = []
-        logger.debug(
-            f"{self}: executing {len(function_calls)} deferred workflow-control "
-            "call(s) after bot turn ended"
+    async def _handle_evt_response_created(self, evt):
+        self._workflow_tool_deferral.begin_response(collecting=True)
+        await super()._handle_evt_response_created(evt)
+
+    async def _handle_evt_response_done(self, evt):
+        await super()._handle_evt_response_done(evt)
+        await self._workflow_tool_deferral.complete_response(
+            evt.response.id,
+            speaking=self._workflow_bot_is_speaking,
+            succeeded=evt.response.status == "completed",
         )
-        await self.run_function_calls(function_calls)
 
     async def _handle_evt_function_call_arguments_done(self, evt):
-        """Run ordinary tools immediately and defer workflow-control calls."""
+        """Only a response's sole workflow-control call may wait for playback."""
         try:
             args = json.loads(evt.arguments)
 
@@ -298,16 +292,14 @@ class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMSer
                     )
                 ]
 
-                is_node_transition = self._function_is_node_transition(function_name)
-                if self._bot_is_speaking and is_node_transition:
-                    self._deferred_node_transition_function_calls.extend(function_calls)
-                    logger.debug(
-                        f"{self}: deferring workflow-control call {function_name} "
-                        "until bot stops speaking"
-                    )
-                else:
-                    await self.run_function_calls(function_calls)
-                    logger.debug(f"Processed function call: {function_name}")
+                self._workflow_tool_deferral.select_response(
+                    self._current_response_id, collecting=True
+                )
+                await self._workflow_tool_deferral.submit(
+                    function_calls,
+                    speaking=self._workflow_bot_is_speaking,
+                    dispatch=self.run_function_calls,
+                )
             else:
                 logger.warning(
                     f"No tracked function call found for call_id: {evt.call_id}"

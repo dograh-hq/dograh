@@ -8,6 +8,7 @@ drift.
 from fastapi.openapi.utils import get_openapi
 
 from api.app import app
+from api.routes.campaign import CreateCampaignRequest
 
 # Stable, org-scoped methods an agent needs beyond the original surface
 # (create/list/get workflow, tools, credentials, recordings, node types,
@@ -48,3 +49,32 @@ def test_sdk_openapi_includes_agent_workflow_methods():
     }
     missing = EXPECTED_SDK_METHODS - methods
     assert not missing, f"sdk_expose methods missing from OpenAPI: {sorted(missing)}"
+
+
+def test_create_campaign_rate_limit_is_optional_in_sdk_schema():
+    """Typed SDK clients must be able to omit the rate and use the server default.
+
+    A JSON Schema ``default`` makes openapi-typescript mark the property
+    required on root types, so the published schema leaves the default off.
+    The request model still applies 1 when the field is missing.
+    """
+    sdk_routes = [
+        r
+        for r in app.routes
+        if getattr(r, "openapi_extra", None)
+        and "x-sdk-method" in (r.openapi_extra or {})
+    ]
+    spec = get_openapi(title=app.title, version=app.version, routes=sdk_routes)
+    schema = spec["components"]["schemas"]["CreateCampaignRequest"]
+    assert "rate_limit_per_second" not in schema.get("required", [])
+    prop = schema["properties"]["rate_limit_per_second"]
+    assert prop["type"] == "integer"
+    assert "default" not in prop
+    assert "1" in prop["description"]
+    omitted = CreateCampaignRequest(
+        name="SDK campaign",
+        workflow_id=1,
+        source_type="csv",
+        source_id="contacts.csv",
+    )
+    assert omitted.rate_limit_per_second == 1

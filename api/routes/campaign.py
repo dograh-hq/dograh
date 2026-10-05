@@ -210,6 +210,15 @@ class CircuitBreakerConfigResponse(BaseModel):
     min_calls_in_window: int = 5
 
 
+def _omit_json_schema_default(schema: dict) -> None:
+    """Hide a model default from JSON Schema.
+
+    openapi-typescript treats a component property that declares ``default``
+    as required. Callers can omit this field; the model still fills it in.
+    """
+    schema.pop("default", None)
+
+
 class CreateCampaignRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     workflow_id: int | None = Field(default=None, gt=0)
@@ -221,7 +230,13 @@ class CreateCampaignRequest(BaseModel):
     telephony_configuration_id: Optional[int] = None
     retry_config: Optional[RetryConfigRequest] = None
     max_concurrency: Optional[int] = Field(default=None, ge=1)
-    rate_limit_per_second: int = Field(default=1, ge=1, strict=True)
+    rate_limit_per_second: int = Field(
+        default=1,
+        ge=1,
+        strict=True,
+        description="Calls started per second. Defaults to 1 when omitted.",
+        json_schema_extra=_omit_json_schema_default,
+    )
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
 

@@ -149,6 +149,7 @@ def main() -> int:
                 workflow_id=created.id,
                 source_type="csv",
                 source_id=CAMPAIGN_SOURCE_ID,
+                # rate_limit_per_second defaults to 1 when omitted.
             )
         )
         print(f"Created campaign {campaign.id}: state={campaign.state}")

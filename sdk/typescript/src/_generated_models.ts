@@ -874,9 +874,9 @@ export interface components {
             max_concurrency?: number | null;
             /**
              * Rate Limit Per Second
-             * @default 1
+             * @description Calls started per second. Defaults to 1 when omitted.
              */
-            rate_limit_per_second: number;
+            rate_limit_per_second?: number;
             schedule_config?: components["schemas"]["ScheduleConfigRequest"] | null;
             circuit_breaker?: components["schemas"]["CircuitBreakerConfigRequest"] | null;
         };

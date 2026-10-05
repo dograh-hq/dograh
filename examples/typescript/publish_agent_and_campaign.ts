@@ -126,6 +126,7 @@ async function main(): Promise<void> {
             workflow_id: created.id,
             source_type: "csv",
             source_id: CAMPAIGN_SOURCE_ID,
+            // rate_limit_per_second is optional and defaults to 1.
         },
     });
     console.log(`Created campaign ${campaign.id}: state=${campaign.state}`);

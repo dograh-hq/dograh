@@ -21,8 +21,11 @@ from api.services.configuration.options import (
 from api.services.configuration.registry import (
     ATLASCLOUD_API_BASE_URL,
     HOPPER_API_BASE_URL,
+    REGISTRY,
     ServiceProviders,
+    ServiceType,
 )
+from api.services.configuration.temperature import resolve_temperature
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
@@ -110,6 +113,7 @@ from pipecat.services.speechmatics.stt import (
 from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
+from pipecat.utils.types import NOT_GIVEN, NotGiven
 
 if TYPE_CHECKING:
     from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
@@ -1128,7 +1132,7 @@ def create_llm_service_from_provider(
     project_id: str | None = None,
     location: str | None = None,
     credentials: str | None = None,
-    temperature: float | None = None,
+    temperature: float | None | NotGiven = NOT_GIVEN,
     bill_to: str | None = None,
     provider_order: list[str] | None = None,
     usage_context: str | None = None,
@@ -1155,6 +1159,21 @@ def create_llm_service_from_provider(
         + (f", location={vertex_location}" if vertex_location else "")
     )
 
+    config_cls = REGISTRY[ServiceType.LLM].get(provider)
+    if config_cls is None:
+        raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
+    if isinstance(temperature, NotGiven):
+        temperature = config_cls.model_fields["temperature"].default
+    try:
+        temperature = resolve_temperature(
+            provider, model, temperature, base_url=base_url
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # None means omit the parameter, not send JSON null. This matters for
+    # reasoning models and for providers with their own sampling defaults.
+    sampling_settings = {} if temperature is None else {"temperature": temperature}
+
     if provider in (
         ServiceProviders.OPENAI.value,
         ServiceProviders.ATLASCLOUD.value,
@@ -1178,19 +1197,19 @@ def create_llm_service_from_provider(
             )
         return OpenAILLMService(
             api_key=api_key,
-            settings=OpenAILLMSettings(model=model, temperature=0.1),
+            settings=OpenAILLMSettings(model=model, **sampling_settings),
             **kwargs,
         )
     elif provider == ServiceProviders.GROQ.value:
         return GroqLLMService(
             api_key=api_key,
-            settings=GroqLLMSettings(model=model, temperature=0.1),
+            settings=GroqLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.HOPPER.value:
         return OpenAILLMService(
             api_key=api_key,
             base_url=HOPPER_API_BASE_URL,
-            settings=OpenAILLMSettings(model=model, temperature=0.1),
+            settings=OpenAILLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.OPENROUTER.value:
         kwargs = {}
@@ -1204,7 +1223,9 @@ def create_llm_service_from_provider(
             extra["extra_body"] = {"provider": {"order": provider_order}}
         return OpenRouterLLMService(
             api_key=api_key,
-            settings=OpenRouterLLMSettings(model=model, temperature=0.1, extra=extra),
+            settings=OpenRouterLLMSettings(
+                model=model, extra=extra, **sampling_settings
+            ),
             **kwargs,
         )
     elif provider == ServiceProviders.GOOGLE.value:
@@ -1213,7 +1234,7 @@ def create_llm_service_from_provider(
             api_key=api_key,
             settings=GoogleLLMSettings(
                 model=model,
-                temperature=0.1,
+                **sampling_settings,
                 # Pipecat executes tools; the SDK should return their calls.
                 extra={"automatic_function_calling": {"disable": True}},
             ),
@@ -1225,7 +1246,7 @@ def create_llm_service_from_provider(
             location=vertex_location,
             settings=GoogleVertexLLMSettings(
                 model=model,
-                temperature=0.1,
+                **sampling_settings,
                 extra={"automatic_function_calling": {"disable": True}},
             ),
         )
@@ -1235,7 +1256,7 @@ def create_llm_service_from_provider(
         return AzureLLMService(
             api_key=api_key,
             endpoint=endpoint,
-            settings=AzureLLMSettings(model=model, temperature=0.1),
+            settings=AzureLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.DOGRAH.value:
         return DograhLLMService(
@@ -1243,14 +1264,14 @@ def create_llm_service_from_provider(
             api_key=api_key,
             correlation_id=correlation_id,
             usage_context=usage_context,
-            settings=OpenAILLMSettings(model=model),
+            settings=OpenAILLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.AWS_BEDROCK.value:
         return AWSBedrockLLMService(
             aws_access_key=aws_access_key,
             aws_secret_key=aws_secret_key,
             aws_region=aws_region,
-            settings=AWSBedrockLLMSettings(model=model),
+            settings=AWSBedrockLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.SPEACHES.value:
         base_url = base_url or "http://localhost:11434/v1"
@@ -1258,7 +1279,7 @@ def create_llm_service_from_provider(
         return SpeachesLLMService(
             base_url=base_url,
             api_key=api_key or "none",
-            settings=SpeachesLLMSettings(model=model),
+            settings=SpeachesLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.HUGGINGFACE.value:
         base_url = base_url or "https://router.huggingface.co/v1"
@@ -1267,7 +1288,7 @@ def create_llm_service_from_provider(
             api_key=api_key,
             base_url=base_url,
             bill_to=bill_to,
-            settings=HuggingFaceLLMSettings(model=model, temperature=0.1),
+            settings=HuggingFaceLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.MINIMAX.value:
         base_url = base_url or "https://api.minimax.io/v1"
@@ -1277,7 +1298,7 @@ def create_llm_service_from_provider(
             base_url=base_url,
             settings=MiniMaxLLMService.Settings(
                 model=model,
-                temperature=temperature if temperature is not None else 1.0,
+                **sampling_settings,
             ),
         )
     elif provider == ServiceProviders.SARVAM.value:
@@ -1288,7 +1309,7 @@ def create_llm_service_from_provider(
             base_url=base_url,
             settings=SarvamLLMSettings(
                 model=model,
-                temperature=temperature if temperature is not None else 0.5,
+                **sampling_settings,
             ),
         )
     else:
@@ -1410,6 +1431,7 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 model=model,
                 voice=voice,
                 output_medium="voice",
+                temperature=realtime_config.temperature,
             ),
             settings=DograhUltravoxRealtimeLLMService.Settings(
                 model=model,
@@ -1577,10 +1599,8 @@ def create_llm_service(
         kwargs["credentials"] = user_config.llm.credentials
     elif provider == ServiceProviders.MINIMAX.value:
         kwargs["base_url"] = user_config.llm.base_url
-        kwargs["temperature"] = user_config.llm.temperature
     elif provider == ServiceProviders.SARVAM.value:
         kwargs["base_url"] = getattr(user_config.llm, "base_url", None)
-        kwargs["temperature"] = user_config.llm.temperature
 
     return create_llm_service_from_provider(
         provider,
@@ -1588,6 +1608,7 @@ def create_llm_service(
         api_key,
         correlation_id=correlation_id,
         usage_context=usage_context,
+        temperature=getattr(user_config.llm, "temperature", NOT_GIVEN),
         **kwargs,
     )
 

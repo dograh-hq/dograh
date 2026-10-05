@@ -9,6 +9,7 @@ from pydantic import (
     Field,
     computed_field,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -68,6 +69,10 @@ from api.services.configuration.options.google import (
     GOOGLE_VERTEX_DEFAULT_LOCATION,
     GOOGLE_VERTEX_LOCATIONS,
     GOOGLE_VERTEX_MODELS,
+)
+from api.services.configuration.temperature import (
+    resolve_temperature,
+    temperature_field,
 )
 
 
@@ -188,6 +193,42 @@ class BaseServiceConfiguration(BaseModel):
 
 class BaseLLMConfiguration(BaseServiceConfiguration):
     model: str
+
+
+class BaseChatLLMConfiguration(BaseLLMConfiguration):
+    # Realtime services intentionally do not inherit chat sampling settings.
+    temperature: float | None
+
+    @model_serializer(mode="wrap")
+    def serialize_temperature(self, handler, info):
+        data = handler(self)
+        # Configuration persistence and secret merging exclude None values.
+        # Temperature's explicit None must survive: omission restores the
+        # application default (often 0.1) rather than the provider default.
+        if (
+            info.exclude_none
+            and self.temperature is None
+            and (not info.exclude_unset or "temperature" in self.model_fields_set)
+            and (info.include is None or "temperature" in info.include)
+            and (info.exclude is None or "temperature" not in info.exclude)
+        ):
+            data["temperature"] = None
+        return data
+
+    @model_validator(mode="after")
+    def validate_model_temperature(self):
+        # Normalization must not mark an omitted field as explicitly supplied.
+        object.__setattr__(
+            self,
+            "temperature",
+            resolve_temperature(
+                self.provider,
+                self.model,
+                self.temperature,
+                base_url=getattr(self, "base_url", None),
+            ),
+        )
+        return self
 
 
 class BaseTTSConfiguration(BaseServiceConfiguration):
@@ -442,7 +483,8 @@ AWS_BEDROCK_MODELS = [
 
 
 @register_llm
-class OpenAILLMService(BaseLLMConfiguration):
+class OpenAILLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("openai", 0.1)
     model_config = OPENAI_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: str = Field(
@@ -457,7 +499,8 @@ class OpenAILLMService(BaseLLMConfiguration):
 
 
 @register_llm
-class AtlasCloudLLMService(BaseLLMConfiguration):
+class AtlasCloudLLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("atlascloud", 0.1)
     model_config = ATLASCLOUD_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.ATLASCLOUD] = ServiceProviders.ATLASCLOUD
     model: str = Field(
@@ -472,7 +515,8 @@ class AtlasCloudLLMService(BaseLLMConfiguration):
 
 
 @register_llm
-class HopperLLMConfiguration(BaseLLMConfiguration):
+class HopperLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("hopper", 0.1)
     model_config = HOPPER_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.HOPPER] = ServiceProviders.HOPPER
     api_key: str | list[str] = Field(
@@ -490,7 +534,8 @@ class HopperLLMConfiguration(BaseLLMConfiguration):
 
 
 @register_llm
-class GoogleLLMService(BaseLLMConfiguration):
+class GoogleLLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("google", 0.1)
     model_config = GOOGLE_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
     model: str = Field(
@@ -501,7 +546,8 @@ class GoogleLLMService(BaseLLMConfiguration):
 
 
 @register_llm
-class GoogleVertexLLMConfiguration(BaseLLMConfiguration):
+class GoogleVertexLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("google_vertex", 0.1)
     model_config = GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE_VERTEX] = ServiceProviders.GOOGLE_VERTEX
     model: str = Field(
@@ -545,7 +591,8 @@ class GoogleVertexLLMConfiguration(BaseLLMConfiguration):
 
 
 @register_llm
-class GroqLLMService(BaseLLMConfiguration):
+class GroqLLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("groq", 0.1)
     model_config = GROQ_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GROQ] = ServiceProviders.GROQ
     model: str = Field(
@@ -556,7 +603,8 @@ class GroqLLMService(BaseLLMConfiguration):
 
 
 @register_llm
-class OpenRouterLLMConfiguration(BaseLLMConfiguration):
+class OpenRouterLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("openrouter", 0.1)
     model_config = OPENROUTER_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
     model: str = Field(
@@ -581,7 +629,8 @@ class OpenRouterLLMConfiguration(BaseLLMConfiguration):
 
 
 @register_llm
-class AzureLLMService(BaseLLMConfiguration):
+class AzureLLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("azure", 0.1)
     model_config = AZURE_OPENAI_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AZURE] = ServiceProviders.AZURE
     model: str = Field(
@@ -596,7 +645,8 @@ class AzureLLMService(BaseLLMConfiguration):
 
 
 @register_llm
-class DograhLLMService(BaseLLMConfiguration):
+class DograhLLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("dograh", None)
     model_config = DOGRAH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
@@ -607,7 +657,8 @@ class DograhLLMService(BaseLLMConfiguration):
 
 
 @register_llm
-class AWSBedrockLLMConfiguration(BaseLLMConfiguration):
+class AWSBedrockLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("aws_bedrock", None)
     model_config = AWS_BEDROCK_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AWS_BEDROCK] = ServiceProviders.AWS_BEDROCK
     model: str = Field(
@@ -637,7 +688,8 @@ SPEACHES_LLM_MODELS = ["llama3", "mistral", "phi3", "qwen2", "gemma2", "deepseek
 
 
 @register_llm
-class SpeachesLLMConfiguration(BaseLLMConfiguration):
+class SpeachesLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("speaches", None)
     model_config = SPEACHES_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SPEACHES] = ServiceProviders.SPEACHES
     model: str = Field(
@@ -666,7 +718,8 @@ HUGGINGFACE_LLM_MODELS = [
 
 
 @register_llm
-class HuggingFaceLLMConfiguration(BaseLLMConfiguration):
+class HuggingFaceLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("huggingface", 0.1)
     model_config = HUGGINGFACE_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.HUGGINGFACE] = ServiceProviders.HUGGINGFACE
     model: str = Field(
@@ -695,7 +748,8 @@ MINIMAX_MODELS = [
 
 
 @register_llm
-class MiniMaxLLMConfiguration(BaseLLMConfiguration):
+class MiniMaxLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("minimax", 1.0)
     provider: Literal[ServiceProviders.MINIMAX] = ServiceProviders.MINIMAX
     model: str = Field(
         default="MiniMax-M2.7",
@@ -706,16 +760,11 @@ class MiniMaxLLMConfiguration(BaseLLMConfiguration):
         default="https://api.minimax.io/v1",
         description="MiniMax OpenAI-compatible API endpoint.",
     )
-    temperature: float = Field(
-        default=1.0,
-        gt=0.0,
-        le=2.0,
-        description="Sampling temperature. MiniMax requires > 0.",
-    )
 
 
 @register_llm
-class SarvamLLMConfiguration(BaseLLMConfiguration):
+class SarvamLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("sarvam", 0.5)
     model_config = SARVAM_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
@@ -726,15 +775,6 @@ class SarvamLLMConfiguration(BaseLLMConfiguration):
     base_url: str = Field(
         default="https://api.sarvam.ai/v1",
         description="Sarvam API base URL.",
-    )
-    temperature: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=2.0,
-        description=(
-            "Sampling temperature. Sarvam recommends 0.5 for balanced "
-            "conversational responses."
-        ),
     )
 
 
@@ -920,9 +960,13 @@ class AWSNovaSonicRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     temperature: float = Field(
         default=0.7,
-        gt=0.0,
+        ge=0.0,
         le=1.0,
-        description="Sampling temperature for Nova 2 Sonic (greater than 0, up to 1).",
+        description="Sampling temperature for Nova 2 Sonic (0 to 1).",
+        json_schema_extra={
+            "docs_url": "https://docs.aws.amazon.com/nova/latest/nova2-userguide/sonic-input-events.html",
+            "docs_label": "Temperature documentation",
+        },
     )
     max_tokens: int = Field(
         default=1024,
@@ -989,6 +1033,17 @@ class UltravoxRealtimeLLMConfiguration(BaseLLMConfiguration):
     voice: str = Field(
         default="Mark",
         description="Ultravox voice name or voice ID.",
+    )
+    temperature: float = Field(
+        # Preserve OneShotInputParams' pre-existing on-wire default.
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Sampling temperature. Lower values give more predictable responses.",
+        json_schema_extra={
+            "docs_url": "https://docs.ultravox.ai/api-reference/calls/calls-post",
+            "docs_label": "Temperature documentation",
+        },
     )
 
 

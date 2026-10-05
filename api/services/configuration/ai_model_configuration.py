@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
+from fastapi import HTTPException
 from loguru import logger
 from pydantic import ValidationError
 
@@ -91,18 +92,29 @@ async def get_effective_ai_model_configuration_for_workflow(
     v2_override = workflow_configurations.get(
         WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
     )
-    if v2_override:
-        return compile_ai_model_configuration_v2(
-            OrganizationAIModelConfigurationV2.model_validate(v2_override)
-        )
+    try:
+        if v2_override:
+            return compile_ai_model_configuration_v2(
+                OrganizationAIModelConfigurationV2.model_validate(v2_override)
+            )
 
-    resolved_config = await get_resolved_ai_model_configuration(
-        organization_id=organization_id,
-    )
-    return resolve_effective_config(
-        resolved_config.effective,
-        workflow_configurations.get("model_overrides"),
-    )
+        resolved_config = await get_resolved_ai_model_configuration(
+            organization_id=organization_id,
+        )
+        return resolve_effective_config(
+            resolved_config.effective,
+            workflow_configurations.get("model_overrides"),
+        )
+    except ValidationError as exc:
+        # Stored overrides may become incompatible with updated global settings
+        # or schemas. Do not include Pydantic's input data, which contains secrets.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid workflow model configuration. "
+                "Review the workflow's model settings and save them again."
+            ),
+        ) from exc
 
 
 async def get_organization_ai_model_configuration_v2(
@@ -431,6 +443,7 @@ def _convert_any_dograh_legacy_configuration(
         mode="dograh",
         dograh=DograhManagedAIModelConfiguration(
             api_key=dograh_key,
+            temperature=getattr(configuration.llm, "temperature", None),
             voice=getattr(configuration.tts, "voice", DOGRAH_DEFAULT_VOICE)
             or DOGRAH_DEFAULT_VOICE,
             speed=speed,

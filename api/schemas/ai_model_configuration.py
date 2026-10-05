@@ -17,6 +17,7 @@ from api.services.configuration.registry import (
     STTConfig,
     TTSConfig,
 )
+from api.services.configuration.temperature import temperature_field
 
 DOGRAH_SPEED_MIN = 0.5
 DOGRAH_SPEED_MAX = 2.0
@@ -51,6 +52,7 @@ class EffectiveAIModelConfiguration(BaseModel):
 
 class DograhManagedAIModelConfiguration(BaseModel):
     api_key: str
+    temperature: float | None = temperature_field("dograh", None)
     voice: str = DOGRAH_DEFAULT_VOICE
     speed: float = Field(default=1.0, ge=DOGRAH_SPEED_MIN, le=DOGRAH_SPEED_MAX)
     language: str = DOGRAH_DEFAULT_LANGUAGE
@@ -159,6 +161,7 @@ def _compile_dograh_configuration(
             provider=ServiceProviders.DOGRAH,
             api_key=configuration.api_key,
             model="default",
+            temperature=configuration.temperature,
         ),
         tts=DograhTTSService(
             provider=ServiceProviders.DOGRAH,

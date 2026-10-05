@@ -22,6 +22,7 @@ from api.services.configuration.registry import (
     ServiceProviders,
     ServiceType,
 )
+from api.services.pipecat.service_factory import create_tts_service
 
 # ---------------------------------------------------------------------------
 # 1. CambTTSConfiguration model tests
@@ -68,55 +69,32 @@ class TestCambTTSConfiguration:
 
 class TestServiceFactoryCamb:
     def test_create_tts_service_camb(self):
-        import sys
-
-        # Mock missing modules (custom pipecat fork, not in public pipecat-ai)
-        dograh_modules = [
-            "pipecat.services.dograh",
-            "pipecat.services.dograh.llm",
-            "pipecat.services.dograh.stt",
-            "pipecat.services.dograh.tts",
-            "pipecat.utils.text.xml_function_tag_filter",
-        ]
-        mocks = {}
-        for mod in dograh_modules:
-            if mod not in sys.modules:
-                mocks[mod] = MagicMock()
-
-        with patch.dict(sys.modules, mocks):
-            # Force re-import with mocked modules
-            import importlib
-
-            if "api.services.pipecat.service_factory" in sys.modules:
-                importlib.reload(sys.modules["api.services.pipecat.service_factory"])
-            from api.services.pipecat.service_factory import create_tts_service
-
-            user_config = SimpleNamespace(
-                tts=SimpleNamespace(
-                    provider=ServiceProviders.CAMB.value,
-                    api_key="test-api-key",
-                    model="mars-flash",
-                    voice="147320",
-                    language="en-us",
-                )
+        user_config = SimpleNamespace(
+            tts=SimpleNamespace(
+                provider=ServiceProviders.CAMB.value,
+                api_key="test-api-key",
+                model="mars-flash",
+                voice="147320",
+                language="en-us",
             )
-            audio_config = SimpleNamespace(
-                transport_out_sample_rate=22050,
-                transport_in_sample_rate=16000,
-            )
+        )
+        audio_config = SimpleNamespace(
+            transport_out_sample_rate=22050,
+            transport_in_sample_rate=16000,
+        )
 
-            with patch("pipecat.services.camb.tts.CambTTSService") as MockCambTTS:
-                mock_instance = MagicMock()
-                mock_instance._settings = MagicMock()
-                MockCambTTS.return_value = mock_instance
+        with patch("pipecat.services.camb.tts.CambTTSService") as MockCambTTS:
+            mock_instance = MagicMock()
+            mock_instance._settings = MagicMock()
+            MockCambTTS.return_value = mock_instance
 
-                tts = create_tts_service(user_config, audio_config)
+            tts = create_tts_service(user_config, audio_config)
 
-                MockCambTTS.assert_called_once()
-                call_kwargs = MockCambTTS.call_args[1]
-                assert call_kwargs["api_key"] == "test-api-key"
-                assert call_kwargs["voice_id"] == 147320
-                assert call_kwargs["model"] == "mars-flash"
+            MockCambTTS.assert_called_once()
+            call_kwargs = MockCambTTS.call_args[1]
+            assert call_kwargs["api_key"] == "test-api-key"
+            assert call_kwargs["voice_id"] == 147320
+            assert call_kwargs["model"] == "mars-flash"
 
     def test_camb_voice_id_parsing(self):
         """Voice ID string is correctly converted to int."""

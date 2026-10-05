@@ -73,6 +73,12 @@ def build_agent(client: DograhClient, *, greeting_prompt: str) -> Workflow:
         condition="Caller wants to continue the conversation.",
     )
     wf.edge(
+        greeting,
+        done,
+        label="declined",
+        condition="Caller does not want to continue.",
+    )
+    wf.edge(
         qualify,
         done,
         label="done",

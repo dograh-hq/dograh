@@ -189,7 +189,7 @@ export abstract class _GeneratedClient {
         return this.request("POST", "/telephony/initiate-call", { json: opts.body });
     }
 
-    /** Update a tool's name, description, definition, or status. */
+    /** Update a tool's name, description, icon, icon color, definition, or status. */
     async updateTool(toolUuid: string, opts: { body: UpdateToolRequest }): Promise<ToolResponse> {
         return this.request<ToolResponse>("PUT", `/tools/${toolUuid}`, { json: opts.body });
     }

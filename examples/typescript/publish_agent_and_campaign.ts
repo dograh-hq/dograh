@@ -57,6 +57,10 @@ async function buildAgent(client: DograhClient, greetingPrompt: string): Promise
         label: "interested",
         condition: "Caller wants to continue the conversation.",
     });
+    wf.edge(greeting, done, {
+        label: "declined",
+        condition: "Caller does not want to continue.",
+    });
     wf.edge(qualify, done, {
         label: "done",
         condition: "The caller's request has been confirmed.",

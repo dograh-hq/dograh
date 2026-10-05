@@ -1508,7 +1508,7 @@ async def get_workflow_run(
     run = await db_client.get_workflow_run(
         run_id, organization_id=user.selected_organization_id
     )
-    if not run:
+    if not run or run.workflow_id != workflow_id:
         raise HTTPException(status_code=404, detail="Workflow run not found")
 
     public_access_token = run.public_access_token

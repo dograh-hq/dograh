@@ -36,7 +36,7 @@ python python/build_workflow_with_sdk.py
 python python/load_and_edit_workflow.py
 
 # Create an agent with the Workflow SDK, validate, publish, then
-# optionally create and start a campaign (set CAMPAIGN_SOURCE_ID first).
+# optionally create and start a campaign (edit CAMPAIGN_SOURCE_ID in the script first).
 python python/publish_agent_and_campaign.py
 ```
 

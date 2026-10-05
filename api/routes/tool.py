@@ -361,7 +361,7 @@ def _hint_for_status_code(
     "/{tool_uuid}",
     **sdk_expose(
         method="update_tool",
-        description="Update a tool's name, description, definition, or status.",
+        description="Update a tool's name, description, icon, icon color, definition, or status.",
     ),
 )
 async def update_tool(

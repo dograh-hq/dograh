@@ -200,7 +200,7 @@ class _GeneratedClient:
         return self._request("POST", "/telephony/initiate-call", json=body.model_dump(mode="json", exclude_none=True))
 
     def update_tool(self, tool_uuid: str, *, body: UpdateToolRequest) -> ToolResponse:
-        """Update a tool's name, description, definition, or status."""
+        """Update a tool's name, description, icon, icon color, definition, or status."""
         data = self._request("PUT", f"/tools/{tool_uuid}", json=body.model_dump(mode="json", exclude_none=True))
         return ToolResponse.model_validate(data)
 

@@ -24,15 +24,12 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.enums import TelephonyCallStatus, WorkflowRunMode
-from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
-    ProviderPhoneNumberLookupError,
     ProviderSyncResult,
     TelephonyProvider,
 )
-from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
@@ -42,10 +39,10 @@ if TYPE_CHECKING:
 class WhatsAppProvider(TelephonyProvider):
     """
     WhatsApp implementation of TelephonyProvider.
-    
+
     Supports both User-Initiated Calls (UIC) and Business-Initiated Calls (BIC)
     through the WhatsApp Business Calling API with WebRTC media transport.
-    
+
     Attributes:
         PROVIDER_NAME: Provider identifier for registry
         WEBHOOK_ENDPOINT: Webhook endpoint path
@@ -178,7 +175,7 @@ class WhatsAppProvider(TelephonyProvider):
         endpoint = f"{self.GRAPH_API_BASE_URL}/{self.phone_number_id}/calls/{call_id}"
         headers = {
             "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         async with aiohttp.ClientSession() as session:
@@ -188,7 +185,7 @@ class WhatsAppProvider(TelephonyProvider):
                     logger.error(f"Graph API error: {error_text}")
                     raise HTTPException(
                         status_code=response.status,
-                        detail=f"Failed to get call status: {error_text}"
+                        detail=f"Failed to get call status: {error_text}",
                     )
 
                 data = await response.json()
@@ -283,7 +280,9 @@ class WhatsAppProvider(TelephonyProvider):
             )
         return is_valid
 
-    def normalize_inbound_data(self, raw_webhook_data: Dict[str, Any]) -> NormalizedInboundData:
+    def normalize_inbound_data(
+        self, raw_webhook_data: Dict[str, Any]
+    ) -> NormalizedInboundData:
         """
         Normalize WhatsApp webhook payload to standard format.
 
@@ -422,9 +421,7 @@ class WhatsAppProvider(TelephonyProvider):
                 else ""
             ),
             to_number=(
-                normalize_telephony_address(to_number).canonical
-                if to_number
-                else ""
+                normalize_telephony_address(to_number).canonical if to_number else ""
             ),
             direction=direction,
             call_status=status,
@@ -574,7 +571,14 @@ class WhatsAppProvider(TelephonyProvider):
             error_type, TELEPHONY_ERROR_MESSAGES[TelephonyError.GENERAL_AUTH_FAILED]
         )
         return Response(
-            content=json.dumps({"error": error_type.value if hasattr(error_type, "value") else str(error_type), "message": message}),
+            content=json.dumps(
+                {
+                    "error": error_type.value
+                    if hasattr(error_type, "value")
+                    else str(error_type),
+                    "message": message,
+                }
+            ),
             media_type="application/json",
         )
 
@@ -654,13 +658,15 @@ class WhatsAppProvider(TelephonyProvider):
                                 ).canonical
                                 if canonical not in seen_addresses:
                                     seen_addresses.add(canonical)
-                                    records.append({
-                                        "address": canonical,
-                                        "extra_metadata": {
-                                            "meta_phone_number_id": str(direct_id),
-                                            "phone_number_id": str(direct_id),
-                                        },
-                                    })
+                                    records.append(
+                                        {
+                                            "address": canonical,
+                                            "extra_metadata": {
+                                                "meta_phone_number_id": str(direct_id),
+                                                "phone_number_id": str(direct_id),
+                                            },
+                                        }
+                                    )
                             except ValueError:
                                 logger.warning(
                                     "Skipping unparseable direct WhatsApp phone number "
@@ -682,7 +688,9 @@ class WhatsAppProvider(TelephonyProvider):
             #   itself a WABA ID), query {self.phone_number_id}/phone_numbers.
             target_waba = waba_id or (self.phone_number_id if not records else None)
             if target_waba:
-                next_url: Optional[str] = f"{self.GRAPH_API_BASE_URL}/{target_waba}/phone_numbers"
+                next_url: Optional[str] = (
+                    f"{self.GRAPH_API_BASE_URL}/{target_waba}/phone_numbers"
+                )
                 all_pages_succeeded = True
                 had_successful_page = False
                 while next_url:
@@ -692,7 +700,9 @@ class WhatsAppProvider(TelephonyProvider):
                                 had_successful_page = True
                                 payload = await response.json()
                                 for record in payload.get("data") or []:
-                                    display_phone_number = record.get("display_phone_number")
+                                    display_phone_number = record.get(
+                                        "display_phone_number"
+                                    )
                                     phone_id = record.get("id")
                                     if not display_phone_number:
                                         continue
@@ -702,13 +712,19 @@ class WhatsAppProvider(TelephonyProvider):
                                         ).canonical
                                         if canonical not in seen_addresses:
                                             seen_addresses.add(canonical)
-                                            records.append({
-                                                "address": canonical,
-                                                "extra_metadata": {
-                                                    "meta_phone_number_id": str(phone_id or target_waba),
-                                                    "phone_number_id": str(phone_id or target_waba),
-                                                },
-                                            })
+                                            records.append(
+                                                {
+                                                    "address": canonical,
+                                                    "extra_metadata": {
+                                                        "meta_phone_number_id": str(
+                                                            phone_id or target_waba
+                                                        ),
+                                                        "phone_number_id": str(
+                                                            phone_id or target_waba
+                                                        ),
+                                                    },
+                                                }
+                                            )
                                     except ValueError:
                                         logger.warning(
                                             "Skipping unparseable WhatsApp phone number "
@@ -739,13 +755,15 @@ class WhatsAppProvider(TelephonyProvider):
                     canonical = normalize_telephony_address(num).canonical
                     if canonical not in seen_addresses:
                         seen_addresses.add(canonical)
-                        records.append({
-                            "address": canonical,
-                            "extra_metadata": {
-                                "meta_phone_number_id": str(self.phone_number_id),
-                                "phone_number_id": str(self.phone_number_id),
-                            },
-                        })
+                        records.append(
+                            {
+                                "address": canonical,
+                                "extra_metadata": {
+                                    "meta_phone_number_id": str(self.phone_number_id),
+                                    "phone_number_id": str(self.phone_number_id),
+                                },
+                            }
+                        )
                 except ValueError:
                     pass
 
@@ -765,12 +783,14 @@ class WhatsAppProvider(TelephonyProvider):
         records = await self.get_available_phone_number_records()
         return [r["address"] for r in records]
 
-    def _map_whatsapp_status_to_dograh(self, whatsapp_status: str) -> TelephonyCallStatus:
+    def _map_whatsapp_status_to_dograh(
+        self, whatsapp_status: str
+    ) -> TelephonyCallStatus:
         """Map WhatsApp call status to Dograh TelephonyCallStatus enum.
-        
+
         Args:
             whatsapp_status: Status string from WhatsApp Graph API
-            
+
         Returns:
             Corresponding TelephonyCallStatus enum value
         """
@@ -791,23 +811,21 @@ class WhatsAppProvider(TelephonyProvider):
         return status_mapping.get(whatsapp_status.lower(), TelephonyCallStatus.ERROR)
 
     async def _request_call_permission(
-        self,
-        to_number: str,
-        workflow_run_id: Optional[int] = None
+        self, to_number: str, workflow_run_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """Request call permission from WhatsApp user for business-initiated call.
-        
+
         Args:
             to_number: Destination phone number
             workflow_run_id: Optional workflow run ID for tracking
-            
+
         Returns:
             Dict with permission request result from Graph API
         """
         endpoint = f"{self.GRAPH_API_BASE_URL}/{self.phone_number_id}/calls"
         headers = {
             "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         clean_to = to_number.lstrip("+")
@@ -819,13 +837,15 @@ class WhatsAppProvider(TelephonyProvider):
             payload["biz_opaque_callback_data"] = str(workflow_run_id)
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, headers=headers, json=payload) as response:
+            async with session.post(
+                endpoint, headers=headers, json=payload
+            ) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error(f"Permission request failed: {error_text}")
                     raise HTTPException(
                         status_code=response.status,
-                        detail=f"Permission request failed: {error_text}"
+                        detail=f"Permission request failed: {error_text}",
                     )
 
                 return await response.json()

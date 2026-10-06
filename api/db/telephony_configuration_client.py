@@ -6,16 +6,19 @@ Each row represents one provider account that an organization has connected
 """
 
 from datetime import UTC, datetime
-
-from loguru import logger
 from typing import Any, Dict, List, Optional
 
+from loguru import logger
 from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
-from api.db.models import CampaignModel, TelephonyConfigurationModel, TelephonyPhoneNumberModel
+from api.db.models import (
+    CampaignModel,
+    TelephonyConfigurationModel,
+    TelephonyPhoneNumberModel,
+)
 
 
 class TelephonyConfigurationInUseError(Exception):
@@ -195,9 +198,7 @@ class TelephonyConfigurationClient(BaseDBClient):
             # 1. Direct match on configuration credentials
             stmt = select(TelephonyConfigurationModel).where(
                 TelephonyConfigurationModel.provider == "whatsapp",
-                TelephonyConfigurationModel.credentials.op("->>")(
-                    "phone_number_id"
-                )
+                TelephonyConfigurationModel.credentials.op("->>")("phone_number_id")
                 == phone_number_id,
                 TelephonyConfigurationModel.inactive.is_(False),
             )

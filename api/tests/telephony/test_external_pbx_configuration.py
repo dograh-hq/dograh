@@ -61,10 +61,15 @@ def test_nested_masked_external_pbx_secrets_are_restored_on_update():
     existing = _credentials()
     request = organization._credentials_for_display("ari", existing)
     fields_set = {
-        "ari_endpoint", "app_name", "app_password",
-        "external_pbx", "external_pbx.type",
-        "external_pbx.agent_api", "external_pbx.agent_api.url",
-        "external_pbx.agent_api.username", "external_pbx.agent_api.password",
+        "ari_endpoint",
+        "app_name",
+        "app_password",
+        "external_pbx",
+        "external_pbx.type",
+        "external_pbx.agent_api",
+        "external_pbx.agent_api.url",
+        "external_pbx.agent_api.username",
+        "external_pbx.agent_api.password",
     }
 
     organization.preserve_masked_fields("ari", request, existing, fields_set=fields_set)
@@ -106,10 +111,16 @@ def test_nested_secrets_preserved_when_external_pbx_omitted():
 
     # external_pbx should be preserved since it was omitted (original behavior)
     assert request["external_pbx"]["type"] == "vicidial"
-    assert request["external_pbx"]["agent_api"]["url"] == "https://vici.example.com/agc/api.php"
+    assert (
+        request["external_pbx"]["agent_api"]["url"]
+        == "https://vici.example.com/agc/api.php"
+    )
     assert request["external_pbx"]["agent_api"]["username"] == "agent-user"
     assert request["external_pbx"]["agent_api"]["password"] == "agent-secret"
-    assert request["external_pbx"]["non_agent_api"]["url"] == "https://vici.example.com/vicidial/non_agent_api.php"
+    assert (
+        request["external_pbx"]["non_agent_api"]["url"]
+        == "https://vici.example.com/vicidial/non_agent_api.php"
+    )
     assert request["external_pbx"]["non_agent_api"]["username"] == "lead-api-user"
     assert request["external_pbx"]["non_agent_api"]["password"] == "non-agent-secret"
 
@@ -133,7 +144,15 @@ def test_nested_secrets_not_restored_when_non_agent_api_explicitly_none():
     }
 
     # non_agent_api is in fields_set AND its dict value is None → explicit clear
-    fields_set = {"external_pbx", "external_pbx.type", "external_pbx.agent_api", "external_pbx.agent_api.url", "external_pbx.agent_api.username", "external_pbx.agent_api.password", "external_pbx.non_agent_api"}
+    fields_set = {
+        "external_pbx",
+        "external_pbx.type",
+        "external_pbx.agent_api",
+        "external_pbx.agent_api.url",
+        "external_pbx.agent_api.username",
+        "external_pbx.agent_api.password",
+        "external_pbx.non_agent_api",
+    }
     organization.preserve_masked_fields("ari", request, existing, fields_set=fields_set)
 
     # non_agent_api should remain None
@@ -169,14 +188,20 @@ def test_non_agent_api_secrets_preserved_when_sibling_section_omitted_with_field
 
     # non_agent_api is NOT in fields_set — it was omitted by the client
     fields_set = {
-        "external_pbx", "external_pbx.type",
-        "external_pbx.agent_api", "external_pbx.agent_api.url",
-        "external_pbx.agent_api.username", "external_pbx.agent_api.password",
+        "external_pbx",
+        "external_pbx.type",
+        "external_pbx.agent_api",
+        "external_pbx.agent_api.url",
+        "external_pbx.agent_api.username",
+        "external_pbx.agent_api.password",
     }
     organization.preserve_masked_fields("ari", request, existing, fields_set=fields_set)
 
     # non_agent_api secrets and non-sensitive siblings must be restored (omitted ≠ cleared)
-    assert request["external_pbx"]["non_agent_api"]["url"] == "https://vici.example.com/vicidial/non_agent_api.php"
+    assert (
+        request["external_pbx"]["non_agent_api"]["url"]
+        == "https://vici.example.com/vicidial/non_agent_api.php"
+    )
     assert request["external_pbx"]["non_agent_api"]["username"] == "lead-api-user"
     assert request["external_pbx"]["non_agent_api"]["password"] == "non-agent-secret"
     # agent_api secrets should still be restored from mask
@@ -202,15 +227,23 @@ def test_nested_secrets_preserved_when_non_agent_api_omitted():
     }
 
     fields_set = {
-        "ari_endpoint", "app_name", "app_password",
-        "external_pbx", "external_pbx.type",
-        "external_pbx.agent_api", "external_pbx.agent_api.url",
-        "external_pbx.agent_api.username", "external_pbx.agent_api.password",
+        "ari_endpoint",
+        "app_name",
+        "app_password",
+        "external_pbx",
+        "external_pbx.type",
+        "external_pbx.agent_api",
+        "external_pbx.agent_api.url",
+        "external_pbx.agent_api.username",
+        "external_pbx.agent_api.password",
     }
     organization.preserve_masked_fields("ari", request, existing, fields_set=fields_set)
 
     # non_agent_api secrets and non-sensitive siblings should be preserved since parent is present and not None
-    assert request["external_pbx"]["non_agent_api"]["url"] == "https://vici.example.com/vicidial/non_agent_api.php"
+    assert (
+        request["external_pbx"]["non_agent_api"]["url"]
+        == "https://vici.example.com/vicidial/non_agent_api.php"
+    )
     assert request["external_pbx"]["non_agent_api"]["username"] == "lead-api-user"
     assert request["external_pbx"]["non_agent_api"]["password"] == "non-agent-secret"
     # agent_api secrets should still be preserved since that section is present
@@ -222,12 +255,19 @@ def test_nested_secrets_preserved_when_parent_present_and_not_none():
     existing = _credentials_with_non_agent_api()
     request = organization._credentials_for_display("ari", existing)
     fields_set = {
-        "ari_endpoint", "app_name", "app_password",
-        "external_pbx", "external_pbx.type",
-        "external_pbx.agent_api", "external_pbx.agent_api.url",
-        "external_pbx.agent_api.username", "external_pbx.agent_api.password",
-        "external_pbx.non_agent_api", "external_pbx.non_agent_api.url",
-        "external_pbx.non_agent_api.username", "external_pbx.non_agent_api.password",
+        "ari_endpoint",
+        "app_name",
+        "app_password",
+        "external_pbx",
+        "external_pbx.type",
+        "external_pbx.agent_api",
+        "external_pbx.agent_api.url",
+        "external_pbx.agent_api.username",
+        "external_pbx.agent_api.password",
+        "external_pbx.non_agent_api",
+        "external_pbx.non_agent_api.url",
+        "external_pbx.non_agent_api.username",
+        "external_pbx.non_agent_api.password",
     }
 
     organization.preserve_masked_fields("ari", request, existing, fields_set=fields_set)
@@ -261,12 +301,19 @@ def test_non_agent_api_secrets_preserved_when_parent_present():
     }
 
     fields_set = {
-        "ari_endpoint", "app_name", "app_password",
-        "external_pbx", "external_pbx.type",
-        "external_pbx.agent_api", "external_pbx.agent_api.url",
-        "external_pbx.agent_api.username", "external_pbx.agent_api.password",
-        "external_pbx.non_agent_api", "external_pbx.non_agent_api.url",
-        "external_pbx.non_agent_api.username", "external_pbx.non_agent_api.password",
+        "ari_endpoint",
+        "app_name",
+        "app_password",
+        "external_pbx",
+        "external_pbx.type",
+        "external_pbx.agent_api",
+        "external_pbx.agent_api.url",
+        "external_pbx.agent_api.username",
+        "external_pbx.agent_api.password",
+        "external_pbx.non_agent_api",
+        "external_pbx.non_agent_api.url",
+        "external_pbx.non_agent_api.username",
+        "external_pbx.non_agent_api.password",
     }
     organization.preserve_masked_fields("ari", request, existing, fields_set=fields_set)
 

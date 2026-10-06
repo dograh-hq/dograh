@@ -4,7 +4,7 @@ This module implements frame serialization for WhatsApp WebRTC connections,
 following the pattern from other telephony providers.
 """
 
-from pipecat.frames.frames import AudioRawFrame, EndFrame, InputAudioRawFrame
+from pipecat.frames.frames import AudioRawFrame, InputAudioRawFrame
 from pipecat.serializers.base_serializer import FrameSerializer
 
 
@@ -49,4 +49,6 @@ class WhatsAppFrameSerializer(FrameSerializer):
 
     async def deserialize(self, data: bytes) -> InputAudioRawFrame:
         """Deserialize bytes to an input audio frame."""
-        return InputAudioRawFrame(audio=data, sample_rate=self.sample_rate, num_channels=1)
+        return InputAudioRawFrame(
+            audio=data, sample_rate=self.sample_rate, num_channels=1
+        )

@@ -16,6 +16,12 @@ import aiohttp
 import redis.asyncio as aioredis
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
+from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
+from pipecat.transports.whatsapp.api import (
+    WhatsAppConnectCall,
+    WhatsAppWebhookRequest,
+)
+from pipecat.transports.whatsapp.client import WhatsAppClient
 from starlette.responses import PlainTextResponse
 
 from api.constants import (
@@ -28,9 +34,8 @@ from api.db import db_client
 from api.db.models import (
     TelephonyConfigurationModel,
     TelephonyPhoneNumberModel,
-    WorkflowRunModel,
 )
-from api.enums import CallType, TelephonyCallStatus, WorkflowRunState
+from api.enums import CallType, WorkflowRunState
 from api.routes.turn_credentials import (
     TURN_HOST,
     TURN_PORT,
@@ -46,12 +51,6 @@ from api.services.quota_service import authorize_workflow_run_start
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.telephony_address import normalize_telephony_address
-from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
-from pipecat.transports.whatsapp.api import (
-    WhatsAppConnectCall,
-    WhatsAppWebhookRequest,
-)
-from pipecat.transports.whatsapp.client import WhatsAppClient
 
 router = APIRouter(prefix="/whatsapp")
 
@@ -117,7 +116,9 @@ async def _listen_for_remote_terminates() -> None:
                                     f"[WhatsApp] Error during cross-worker peer disconnect: {e}"
                                 )
                 except Exception as e:
-                    logger.warning(f"[WhatsApp] Error handling cross-worker terminate message: {e}")
+                    logger.warning(
+                        f"[WhatsApp] Error handling cross-worker terminate message: {e}"
+                    )
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -258,8 +259,13 @@ async def handle_webhook_verification(
         raise HTTPException(status_code=400, detail="Invalid hub.mode")
 
     # 1. Match against the global environment variable
-    if WHATSAPP_WEBHOOK_VERIFY_TOKEN and hub_verify_token == WHATSAPP_WEBHOOK_VERIFY_TOKEN:
-        logger.info("[WhatsApp] Webhook verification succeeded via environment verify token")
+    if (
+        WHATSAPP_WEBHOOK_VERIFY_TOKEN
+        and hub_verify_token == WHATSAPP_WEBHOOK_VERIFY_TOKEN
+    ):
+        logger.info(
+            "[WhatsApp] Webhook verification succeeded via environment verify token"
+        )
         return PlainTextResponse(hub_challenge, status_code=200)
 
     # 2. Fallback: Match against active WhatsApp telephony configurations in the DB
@@ -346,7 +352,9 @@ async def handle_whatsapp_webhook(request: Request):
             for change in changes:
                 field = change.get("field")
                 if field != "calls":
-                    logger.debug(f"[WhatsApp] Skipping non-calling webhook field: {field}")
+                    logger.debug(
+                        f"[WhatsApp] Skipping non-calling webhook field: {field}"
+                    )
                     continue
 
                 value = change.get("value") or {}
@@ -369,7 +377,9 @@ async def handle_whatsapp_webhook(request: Request):
                             break
 
                 if not phone_number_id:
-                    logger.error("[WhatsApp] Webhook calling change missing phone_number_id")
+                    logger.error(
+                        "[WhatsApp] Webhook calling change missing phone_number_id"
+                    )
                     raise HTTPException(
                         status_code=400,
                         detail="Missing phone_number_id in webhook metadata",
@@ -522,7 +532,11 @@ async def _handle_inbound_call_connect(
                 if not getattr(p, "is_active", True):
                     continue
                 meta = getattr(p, "extra_metadata", {}) or {}
-                if str(meta.get("phone_number_id") or meta.get("meta_phone_number_id") or "") == str(phone_number_id):
+                if str(
+                    meta.get("phone_number_id")
+                    or meta.get("meta_phone_number_id")
+                    or ""
+                ) == str(phone_number_id):
                     phone_row = p
                     break
 
@@ -670,11 +684,13 @@ async def _handle_inbound_call_connect(
                 await redis.setex(
                     f"{WHATSAPP_CALL_KEY_PREFIX}{call.id}",
                     3600,
-                    json.dumps({
-                        "workflow_run_id": workflow_run.id,
-                        "organization_id": config.organization_id,
-                        "phone_number_id": phone_number_id,
-                    }),
+                    json.dumps(
+                        {
+                            "workflow_run_id": workflow_run.id,
+                            "organization_id": config.organization_id,
+                            "phone_number_id": phone_number_id,
+                        }
+                    ),
                 )
         except Exception as e:
             logger.warning(f"[WhatsApp] Failed to store call state in Redis: {e}")
@@ -708,7 +724,9 @@ async def _handle_inbound_call_connect(
             f"[WhatsApp] Successfully accepted call {call_id} and dispatched pipeline"
         )
     except Exception as e:
-        logger.error(f"[WhatsApp] Failed to establish WebRTC connection for call {call_id}: {e}")
+        logger.error(
+            f"[WhatsApp] Failed to establish WebRTC connection for call {call_id}: {e}"
+        )
         await mark_workflow_run_failed(
             workflow_run.id, f"WebRTC connection failed: {e}"
         )
@@ -806,7 +824,9 @@ async def _handle_call_terminate(
                 state=WorkflowRunState.COMPLETED.value,
             )
         except Exception as e:
-            logger.warning(f"[WhatsApp] Failed to update workflow run on termination: {e}")
+            logger.warning(
+                f"[WhatsApp] Failed to update workflow run on termination: {e}"
+            )
 
         try:
             await call_concurrency.release_workflow_run_slot(workflow_run_id)

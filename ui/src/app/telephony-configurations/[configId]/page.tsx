@@ -424,7 +424,7 @@ export default function TelephonyConfigurationDetailPage() {
                 type="button"
                 onClick={() => {
                   const token = String(
-                    (config?.credentials as Record<string, any>)?.webhook_verify_token || "",
+                    (config?.credentials as Record<string, unknown>)?.webhook_verify_token || "",
                   );
                   copyTextToClipboard(token)
                     .then(() => toast.success("Webhook verify token copied"))
@@ -436,7 +436,7 @@ export default function TelephonyConfigurationDetailPage() {
               >
                 <span className="truncate min-w-0">
                   {String(
-                    (config?.credentials as Record<string, any>)?.webhook_verify_token || "-",
+                    (config?.credentials as Record<string, unknown>)?.webhook_verify_token || "-",
                   )}
                 </span>
                 <Copy className="h-3.5 w-3.5 shrink-0" />
@@ -555,7 +555,7 @@ export default function TelephonyConfigurationDetailPage() {
                           ? String(
                               n.extra_metadata?.phone_number_id ||
                                 n.extra_metadata?.meta_phone_number_id ||
-                                (config?.credentials as Record<string, any>)?.phone_number_id ||
+                                (config?.credentials as Record<string, unknown>)?.phone_number_id ||
                                 n.id,
                             )
                           : String(n.id);

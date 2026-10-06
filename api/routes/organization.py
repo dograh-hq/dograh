@@ -111,13 +111,13 @@ from api.services.telephony.factory import (
     get_sip_connectivity_details,
     get_telephony_provider_by_id,
 )
-from api.services.telephony.phone_number_sync import (
-    sync_available_phone_numbers_for_config,
-)
 from api.services.telephony.inbound_routing import (
     InboundRoutingConflictError,
     assert_no_inbound_routing_conflict,
     canonical_address,
+)
+from api.services.telephony.phone_number_sync import (
+    sync_available_phone_numbers_for_config,
 )
 from api.services.telephony.registry import ProviderConnectivity, TrunkDesiredState
 from api.services.worker_sync.manager import get_worker_sync_manager

@@ -61,13 +61,13 @@ def _whatsapp_setup_checklist(
 
 def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize raw stored credentials into provider constructor format.
-    
+
     Args:
         value: Raw credentials dict from TelephonyConfigurationModel.credentials
-        
+
     Returns:
         Normalized dict matching WhatsAppProvider.__init__() signature
-        
+
     Note:
         This function must be pure (no I/O) as it runs on read paths.
     """
@@ -77,7 +77,9 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "phone_number_id": value.get("phone_number_id"),
         "webhook_verify_token": value.get("webhook_verify_token"),
         "app_secret": value.get("app_secret"),
-        "business_initiated_calls_enabled": value.get("business_initiated_calls_enabled", False),
+        "business_initiated_calls_enabled": value.get(
+            "business_initiated_calls_enabled", False
+        ),
         "call_icon_visibility": value.get("call_icon_visibility", "enabled"),
     }
 
@@ -92,7 +94,7 @@ _UI_METADATA = ProviderUIMetadata(
             type="text",
             sensitive=True,
             section="Webhook Configuration",
-            description="Paste this into Meta alongside Callback URL, click Verify and Save, and subscribe to the 'calls' field."
+            description="Paste this into Meta alongside Callback URL, click Verify and Save, and subscribe to the 'calls' field.",
         ),
         ProviderUIField(
             name="access_token",
@@ -100,14 +102,14 @@ _UI_METADATA = ProviderUIMetadata(
             type="password",
             sensitive=True,
             section="Meta API Credentials",
-            description="WhatsApp Business API access token from Meta Developer Console"
+            description="WhatsApp Business API access token from Meta Developer Console",
         ),
         ProviderUIField(
             name="phone_number_id",
             label="Phone Number ID",
             type="text",
             section="Meta API Credentials",
-            description="Your WhatsApp Business phone number ID (found under WhatsApp > API Setup)"
+            description="Your WhatsApp Business phone number ID (found under WhatsApp > API Setup)",
         ),
         ProviderUIField(
             name="app_secret",
@@ -115,14 +117,14 @@ _UI_METADATA = ProviderUIMetadata(
             type="password",
             sensitive=True,
             section="Meta API Credentials",
-            description="App secret for webhook signature validation"
+            description="App secret for webhook signature validation",
         ),
         ProviderUIField(
             name="business_initiated_calls_enabled",
             label="Enable Business-Initiated Calls",
             type="boolean",
             section="Call Settings",
-            description="Allow your business to initiate calls to WhatsApp users"
+            description="Allow your business to initiate calls to WhatsApp users",
         ),
         ProviderUIField(
             name="call_icon_visibility",
@@ -131,12 +133,12 @@ _UI_METADATA = ProviderUIMetadata(
             options=[
                 ProviderUIOption(value="enabled", label="Enabled"),
                 ProviderUIOption(value="disabled", label="Disabled"),
-                ProviderUIOption(value="business_hours", label="Business Hours Only")
+                ProviderUIOption(value="business_hours", label="Business Hours Only"),
             ],
             section="Call Settings",
-            description="Control when the call icon appears to users"
-        )
-    ]
+            description="Control when the call icon appears to users",
+        ),
+    ],
 )
 
 

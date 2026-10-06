@@ -149,7 +149,11 @@ async def sync_available_phone_numbers_for_config(
     is_full_inventory = getattr(provider, "is_full_inventory", True)
     if is_full_inventory:
         for row in existing_rows:
-            if getattr(row, "is_active", True) and getattr(row, "address_normalized", None) and row.address_normalized not in discovered:
+            if (
+                getattr(row, "is_active", True)
+                and getattr(row, "address_normalized", None)
+                and row.address_normalized not in discovered
+            ):
                 updates = {"is_active": False}
                 if getattr(row, "is_default_caller_id", False):
                     updates["is_default_caller_id"] = False

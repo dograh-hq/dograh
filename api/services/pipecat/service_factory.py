@@ -26,6 +26,10 @@ from api.services.configuration.registry import (
     ServiceType,
 )
 from api.services.configuration.temperature import resolve_temperature
+from api.services.pipecat.elevenlabs_tts import (
+    ElevenLabsOwnedSessionHttpTTSService,
+    requires_http_streaming,
+)
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
@@ -62,7 +66,11 @@ from pipecat.services.elevenlabs.stt import (
     ElevenLabsRealtimeSTTService,
     ElevenLabsRealtimeSTTSettings,
 )
-from pipecat.services.elevenlabs.tts import ElevenLabsTTSService, ElevenLabsTTSSettings
+from pipecat.services.elevenlabs.tts import (
+    ElevenLabsHttpTTSSettings,
+    ElevenLabsTTSService,
+    ElevenLabsTTSSettings,
+)
 from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
 from pipecat.services.google.stt import GoogleSTTService, GoogleSTTSettings
@@ -768,10 +776,30 @@ def create_tts_service(
             voice_id = user_config.tts.voice.split(" - ")[1]
         except IndexError:
             voice_id = user_config.tts.voice
+        _validate_runtime_service_url(user_config.tts.base_url, "base_url")
+        if requires_http_streaming(user_config.tts.model):
+            # Eleven v3 and v4 are not served on ElevenLabs' TTS WebSockets, so
+            # stream them over the HTTP API. v4 takes only stability and
+            # similarity (no style, speed or speaker boost), so only those two
+            # are sent.
+            session = aiohttp.ClientSession()
+            return ElevenLabsOwnedSessionHttpTTSService(
+                api_key=user_config.tts.api_key,
+                base_url=user_config.tts.base_url.strip().rstrip("/"),
+                aiohttp_session=session,
+                settings=ElevenLabsHttpTTSSettings(
+                    voice=voice_id,
+                    model=user_config.tts.model,
+                    stability=0.8,
+                    similarity_boost=0.75,
+                ),
+                text_filters=[xml_function_tag_filter],
+                skip_aggregator_types=["recording_router", "recording"],
+                silence_time_s=1.0,
+            )
         # ElevenLabs TTS consumes the full normalized WebSocket URL. Realtime
         # STT uses the same normalization before adapting it to Pipecat's
         # scheme-less base_url contract.
-        _validate_runtime_service_url(user_config.tts.base_url, "base_url")
         elevenlabs_url = _elevenlabs_websocket_url(user_config.tts.base_url)
         return ElevenLabsTTSService(
             reconnect_on_error=False,

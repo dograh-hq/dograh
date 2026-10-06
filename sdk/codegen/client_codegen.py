@@ -53,27 +53,57 @@ def _ref_name(schema: dict[str, Any]) -> str | None:
     return None
 
 
-def _nullable_model_ref(schema: dict[str, Any]) -> str | None:
-    """A body typed as ``Model | None`` is ``anyOf`` a schema ref and ``null``.
+def _is_null_schema(schema: dict[str, Any]) -> bool:
+    """True when this schema is only ``null``, not a nullable model."""
+    schema_type = schema.get("type")
+    return schema_type == "null" or schema_type == ["null"]
 
-    FastAPI emits that shape for an optional request model. Callers still need
-    to send the model when they have one.
+
+def _schema_allows_null(schema: dict[str, Any]) -> bool:
+    """Whether a JSON body of ``null`` validates against ``schema``.
+
+    OpenAPI encodes that as ``nullable: true`` (3.0), a type array that
+    includes ``null`` (3.1), or an ``anyOf`` / ``oneOf`` branch of type null.
     """
-    branches = schema.get("anyOf") or schema.get("oneOf") or []
-    if not branches:
-        return None
-    names: list[str] = []
-    saw_null = False
-    for branch in branches:
-        if branch.get("type") == "null":
-            saw_null = True
+    if schema.get("nullable") is True:
+        return True
+    schema_type = schema.get("type")
+    if schema_type == "null":
+        return True
+    if isinstance(schema_type, list) and "null" in schema_type:
+        return True
+    for key in ("anyOf", "oneOf"):
+        for branch in schema.get(key) or []:
+            if isinstance(branch, dict) and _schema_allows_null(branch):
+                return True
+    return False
+
+
+def _model_ref(schema: dict[str, Any]) -> str | None:
+    """Schema name for a body that is one model, possibly unioned with null."""
+    name = _ref_name(schema)
+    if name:
+        return name
+    all_of = schema.get("allOf") or []
+    if len(all_of) == 1 and isinstance(all_of[0], dict):
+        name = _ref_name(all_of[0])
+        if name:
+            return name
+    for key in ("anyOf", "oneOf"):
+        branches = schema.get(key) or []
+        if not branches:
             continue
-        name = _ref_name(branch)
-        if name is None:
-            return None
-        names.append(name)
-    if saw_null and len(names) == 1:
-        return names[0]
+        names: list[str] = []
+        for branch in branches:
+            if not isinstance(branch, dict) or _is_null_schema(branch):
+                continue
+            name = _ref_name(branch)
+            if name is None:
+                return None
+            names.append(name)
+        if len(names) == 1:
+            return names[0]
+        return None
     return None
 
 
@@ -114,7 +144,10 @@ class Operation:
     path_params: list[Param] = field(default_factory=list)
     query_params: list[Param] = field(default_factory=list)
     request_class: str | None = None        # None → no body
+    # requestBody.required is false or absent: the caller may omit the body.
     body_optional: bool = False
+    # The schema accepts JSON null (distinct from omitting the body).
+    body_nullable: bool = False
     response: ResponseType = field(default_factory=ResponseType)
 
 
@@ -147,19 +180,18 @@ def _collect(spec: dict[str, Any]) -> list[Operation]:
 
             request_class: str | None = None
             body_optional = False
+            body_nullable = False
             rb = op.get("requestBody") or {}
             rb_schema = (
                 (rb.get("content") or {}).get("application/json", {}).get("schema") or {}
             )
             if rb_schema:
-                request_class = _ref_name(rb_schema)
-                if request_class is None:
-                    request_class = _nullable_model_ref(rb_schema)
-                    # OpenAPI defaults requestBody.required to false. A nullable
-                    # schema stays required when the operation marks the body required.
-                    body_optional = request_class is not None and not rb.get(
-                        "required", False
-                    )
+                request_class = _model_ref(rb_schema)
+                if request_class is not None:
+                    # OpenAPI defaults requestBody.required to false. That is
+                    # whether the body may be omitted, not whether it may be null.
+                    body_optional = not bool(rb.get("required", False))
+                    body_nullable = _schema_allows_null(rb_schema)
 
             response = ResponseType()
             r200 = (
@@ -193,6 +225,7 @@ def _collect(spec: dict[str, Any]) -> list[Operation]:
                 query_params=query_params,
                 request_class=request_class,
                 body_optional=body_optional,
+                body_nullable=body_nullable,
                 response=response,
             ))
 
@@ -207,9 +240,15 @@ def _py_method(op: Operation) -> str:
     positional = [f"{p.name}: {p.py_type}" for p in op.path_params]
     kw_only: list[str] = []
     if op.request_class:
-        if op.body_optional:
+        if op.body_nullable and op.body_optional:
+            # None means "omit the body", not JSON null.
             kw_only.append(f"body: {op.request_class} | None = None")
+        elif op.body_nullable:
+            # Required, so there is no default. None is sent as JSON null.
+            kw_only.append(f"body: {op.request_class} | None")
         else:
+            # Non-nullable bodies stay required parameters, including when
+            # requestBody.required is false.
             kw_only.append(f"body: {op.request_class}")
     for p in op.query_params:
         kw_only.append(f"{p.name}: {p.py_type} | None = None")
@@ -228,24 +267,33 @@ def _py_method(op: Operation) -> str:
             lines.append(f"        if {p.name} is not None:")
             lines.append(f'            params["{p.name}"] = {p.name}')
 
-    if op.request_class and op.body_optional:
-        # Omit the body when the caller leaves it unset so the server applies
-        # its no-body default. httpx would send JSON null if json=None.
+    json_dump = 'body.model_dump(mode="json", exclude_none=True)'
+    omit_when_unset = bool(op.request_class) and op.body_optional and op.body_nullable
+    send_explicit_null = (
+        bool(op.request_class) and op.body_nullable and not op.body_optional
+    )
+    if omit_when_unset or send_explicit_null:
+        # An omitted body must not pass json=None. The HTTP client treats an
+        # explicit json=None as the JSON literal null.
         lines.append("        kwargs: dict[str, Any] = {}")
         if op.query_params:
             lines.append("        if params:")
             lines.append('            kwargs["params"] = params')
-        lines.append("        if body is not None:")
-        lines.append(
-            '            kwargs["json"] = body.model_dump(mode="json", exclude_none=True)'
-        )
+        if omit_when_unset:
+            lines.append("        if body is not None:")
+            lines.append(f'            kwargs["json"] = {json_dump}')
+        else:
+            lines.append("        if body is None:")
+            lines.append('            kwargs["json"] = None')
+            lines.append("        else:")
+            lines.append(f'            kwargs["json"] = {json_dump}')
         raw_call = f'self._request("{op.verb.upper()}", {path_expr}, **kwargs)'
     else:
         call_kwargs: list[str] = []
         if op.query_params:
             call_kwargs.append("params=params")
         if op.request_class:
-            call_kwargs.append('json=body.model_dump(mode="json", exclude_none=True)')
+            call_kwargs.append(f"json={json_dump}")
         extra = (", " + ", ".join(call_kwargs)) if call_kwargs else ""
         raw_call = f'self._request("{op.verb.upper()}", {path_expr}{extra})'
 
@@ -307,14 +355,22 @@ def _ts_method(op: Operation) -> str:
 
     opts_props: list[str] = []
     if op.request_class:
-        optional = "?" if op.body_optional else ""
-        opts_props.append(f"body{optional}: {op.request_class}")
+        if op.body_nullable and op.body_optional:
+            opts_props.append(f"body?: {op.request_class} | null")
+        elif op.body_nullable:
+            opts_props.append(f"body: {op.request_class} | null")
+        else:
+            opts_props.append(f"body: {op.request_class}")
     for p in op.query_params:
         opts_props.append(f"{_snake_to_camel(p.name)}?: {p.ts_type}")
 
     args = list(positional)
     if opts_props:
-        required_in_opts = op.request_class is not None and not op.body_optional
+        # Only a nullable optional body makes `opts` itself optional. A
+        # non-nullable body stays required even when the spec allows omission.
+        required_in_opts = op.request_class is not None and not (
+            op.body_optional and op.body_nullable
+        )
         opts_sig = "{ " + "; ".join(opts_props) + " }"
         # If body is required, opts is required too (no `= {}` default)
         args.append(f"opts: {opts_sig}" if required_in_opts else f"opts: {opts_sig} = {{}}")

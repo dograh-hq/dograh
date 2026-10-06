@@ -138,7 +138,7 @@ def test_generated_publish_methods_send_optional_release_notes():
     )
     assert (
         "async publishWorkflow(workflowId: number, "
-        "opts: { body?: PublishWorkflowRequest } = {}): Promise<PublishWorkflowResponse>"
+        "opts: { body?: PublishWorkflowRequest | null } = {}): Promise<PublishWorkflowResponse>"
         in typescript_client
     )
     assert "json: opts.body" in typescript_client

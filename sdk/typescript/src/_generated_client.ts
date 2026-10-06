@@ -171,7 +171,7 @@ export abstract class _GeneratedClient {
     }
 
     /** Publish the current draft of a workflow after validation. An optional body may set version_name and change_description. */
-    async publishWorkflow(workflowId: number, opts: { body?: PublishWorkflowRequest } = {}): Promise<PublishWorkflowResponse> {
+    async publishWorkflow(workflowId: number, opts: { body?: PublishWorkflowRequest | null } = {}): Promise<PublishWorkflowResponse> {
         return this.request<PublishWorkflowResponse>("POST", `/workflow/${workflowId}/publish`, { json: opts.body });
     }
 

@@ -155,7 +155,11 @@ def _collect(spec: dict[str, Any]) -> list[Operation]:
                 request_class = _ref_name(rb_schema)
                 if request_class is None:
                     request_class = _nullable_model_ref(rb_schema)
-                    body_optional = request_class is not None
+                    # OpenAPI defaults requestBody.required to false. A nullable
+                    # schema stays required when the operation marks the body required.
+                    body_optional = request_class is not None and not rb.get(
+                        "required", False
+                    )
 
             response = ResponseType()
             r200 = (

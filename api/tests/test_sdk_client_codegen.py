@@ -63,6 +63,38 @@ def _spec() -> dict:
                     },
                 }
             },
+            "/api/v1/example/required-nullable": {
+                "post": {
+                    "x-sdk-method": "required_nullable",
+                    "x-sdk-description": "Nullable schema, but the body is required.",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/PublishWorkflowRequest"
+                                        },
+                                        {"type": "null"},
+                                    ]
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "$ref": "#/components/schemas/PublishWorkflowResponse"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                }
+            },
             "/api/v1/campaign/create": {
                 "post": {
                     "x-sdk-method": "create_campaign",
@@ -102,22 +134,31 @@ def test_nullable_body_is_optional_and_required_body_stays_required():
     assert by_name["publish_workflow"].response.class_name == "PublishWorkflowResponse"
     assert by_name["create_campaign"].request_class == "CreateCampaignRequest"
     assert by_name["create_campaign"].body_optional is False
+    assert by_name["required_nullable"].request_class == "PublishWorkflowRequest"
+    assert by_name["required_nullable"].body_optional is False
 
     python = emit_python(ops, [])
     typescript = emit_typescript(ops, [])
+    publish_method = python.split("def publish_workflow", 1)[1].split("\n    def ", 1)[
+        0
+    ]
     assert (
         "def publish_workflow(self, workflow_id: int, *, "
         "body: PublishWorkflowRequest | None = None) -> PublishWorkflowResponse:"
         in python
     )
-    assert 'kwargs["json"] = body.model_dump(mode="json", exclude_none=True)' in python
+    assert "if body is not None:" in publish_method
+    assert (
+        'kwargs["json"] = body.model_dump(mode="json", exclude_none=True)'
+        in publish_method
+    )
     assert (
         "def create_campaign(self, *, body: CreateCampaignRequest) -> CampaignResponse:"
         in python
     )
     assert (
-        "body: CreateCampaignRequest | None"
-        not in python.split("def publish_workflow")[0]
+        "def required_nullable(self, *, body: PublishWorkflowRequest) "
+        "-> PublishWorkflowResponse:" in python
     )
     assert (
         "async publishWorkflow(workflowId: number, "

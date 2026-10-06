@@ -13,13 +13,14 @@ from twilio.request_validator import RequestValidator
 from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony import ws_auth
 from api.services.telephony.base import (
-    AnsweringMachineDetectionResult,
     CallInitiationResult,
     NormalizedInboundData,
     ProviderPhoneNumberLookupError,
     ProviderSyncResult,
     TelephonyProvider,
 )
+from api.services.telephony.providers.twilio.introduction import introduction_urls
+from api.services.telephony.sip import first_sip_string, normalize_sip_headers
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
@@ -50,7 +51,6 @@ class TwilioProvider(TelephonyProvider):
         self.auth_token = config.get("auth_token")
         self.from_numbers = config.get("from_numbers", [])
         self.default_from_number = config.get("default_from_number")
-        self.amd_enabled: bool = bool(config.get("amd_enabled", False))
 
         # Handle both single number (string) and multiple numbers (list)
         if isinstance(self.from_numbers, str):
@@ -97,8 +97,6 @@ class TwilioProvider(TelephonyProvider):
                     "StatusCallbackMethod": "POST",
                 }
             )
-
-        data = self.apply_answering_machine_detection_call_params(data)
 
         data.update(kwargs)
 
@@ -250,31 +248,6 @@ class TwilioProvider(TelephonyProvider):
             "extra": data,  # Include all original data
         }
 
-    def supports_answering_machine_detection(self) -> bool:
-        """Twilio supports AMD through the Voice Calls API."""
-        return True
-
-    def apply_answering_machine_detection_call_params(
-        self,
-        data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        if self.amd_enabled:
-            data["MachineDetection"] = "Enable"
-        return data
-
-    def parse_answering_machine_detection_result(
-        self, data: Dict[str, Any]
-    ) -> Optional[AnsweringMachineDetectionResult]:
-        answered_by = data.get("AnsweredBy")
-        if not answered_by:
-            return None
-
-        return AnsweringMachineDetectionResult(
-            call_id=data.get("CallSid", ""),
-            answered_by=answered_by,
-            raw_data=data,
-        )
-
     async def handle_websocket(
         self,
         websocket: "WebSocket",
@@ -403,6 +376,12 @@ class TwilioProvider(TelephonyProvider):
             to_country=webhook_data.get("ToCountry")
             or webhook_data.get("CalledCountry"),
             raw_data=webhook_data,
+            sip_call_id=first_sip_string(webhook_data.get("SipCallId")),
+            sip_headers=normalize_sip_headers(
+                (key.removeprefix("SipHeader_"), value)
+                for key, value in webhook_data.items()
+                if isinstance(key, str) and key.startswith("SipHeader_")
+            ),
         )
 
     @staticmethod
@@ -636,6 +615,7 @@ class TwilioProvider(TelephonyProvider):
         transfer_id: str,
         conference_name: str,
         timeout: int = 30,
+        introduction_audio_url: str | None = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """
@@ -697,11 +677,20 @@ class TwilioProvider(TelephonyProvider):
             "StatusCallbackMethod": "POST",
         }
 
+        if introduction_audio_url:
+            # URL-based TwiML permits a fallback that skips a failed download.
+            data.pop("Twiml")
+            data.update(introduction_urls(backend_endpoint, transfer_id))
+            data["StatusCallback"] = (
+                f"{backend_endpoint}/api/v1/telephony/twilio/transfer-status/{transfer_id}"
+            )
+            data["StatusCallbackEvent"] = ["answered", "completed"]
+
         # Add any additional kwargs
         data.update(kwargs)
 
         try:
-            logger.debug(f"Transfer call data: {data}")
+            logger.debug("Dialing Twilio transfer {}", transfer_id)
 
             async with aiohttp.ClientSession() as session:
                 auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
@@ -743,6 +732,31 @@ class TwilioProvider(TelephonyProvider):
         except Exception as e:
             logger.error(f"Exception during Twilio transfer call: {e}")
             raise
+
+    async def end_transfer_leg(self, call_sid: str) -> None:
+        """Best-effort cleanup when the other party hangs up during introduction."""
+        try:
+            async with (
+                aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as session,
+                session.post(
+                    f"{self.base_url}/Calls/{call_sid}.json",
+                    data={"Status": "completed"},
+                    auth=aiohttp.BasicAuth(self.account_sid, self.auth_token),
+                ) as response,
+            ):
+                if response.status not in (200, 404):
+                    logger.warning(
+                        "Twilio transfer cleanup returned {}", response.status
+                    )
+        except (aiohttp.ClientError, TimeoutError) as error:
+            logger.warning(
+                "Twilio transfer cleanup failed error={}", type(error).__name__
+            )
+
+    def supports_transfer_introduction(self) -> bool:
+        return True
 
     def supports_transfers(self) -> bool:
         """

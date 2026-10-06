@@ -1,7 +1,7 @@
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Response, status
 from loguru import logger
 from pydantic import BaseModel
 
@@ -24,6 +24,7 @@ from api.routes.service_keys import router as service_keys_router
 from api.routes.superuser import router as superuser_router
 from api.routes.telephony import router as telephony_router
 from api.routes.tool import router as tool_router
+from api.routes.tts_cache import router as tts_cache_router
 from api.routes.turn_credentials import router as turn_credentials_router
 from api.routes.user import router as user_router
 from api.routes.webrtc_signaling import router as webrtc_signaling_router
@@ -60,6 +61,7 @@ router.include_router(public_download_router)
 router.include_router(workflow_embed_router)
 router.include_router(knowledge_base_router)
 router.include_router(workflow_recording_router)
+router.include_router(tts_cache_router)
 router.include_router(folder_router)
 router.include_router(auth_router)
 router.include_router(node_types_router)
@@ -104,7 +106,6 @@ async def health() -> HealthResponse:
     )
     from api.utils.common import get_backend_endpoints, is_local_or_private_url
 
-    logger.debug("Health endpoint called")
     backend_endpoint, _ = await get_backend_endpoints()
     # tunnel_url is set only when a Cloudflare tunnel was actually resolved: the
     # configured address isn't publicly reachable, but get_backend_endpoints found
@@ -233,3 +234,28 @@ async def autoscale_metric(
             detail="Fleet call count unavailable",
         )
     return AutoscaleMetricResponse(value=calls + max(0, buffer))
+
+
+@router.get("/metrics", include_in_schema=False)
+def prometheus_metrics(
+    x_dograh_devops_secret: Annotated[
+        str | None,
+        Header(alias=DOGRAH_DEVOPS_SECRET_HEADER),
+    ] = None,
+) -> Response:
+    """Prometheus exposition for this worker; scrape each worker directly."""
+    from api.constants import DOGRAH_DEVOPS_SECRET
+    from api.services.observability.metrics import get_runtime
+
+    runtime = get_runtime()
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="Metrics are disabled")
+    _verify_devops_secret(DOGRAH_DEVOPS_SECRET, x_dograh_devops_secret)
+    from prometheus_client import CONTENT_TYPE_LATEST
+
+    # A synchronous handler runs collection/serialization in FastAPI's thread
+    # pool, away from the audio event loop. No database or Redis calls occur.
+    return Response(
+        content=runtime.render(),
+        headers={"Content-Type": CONTENT_TYPE_LATEST, "Cache-Control": "no-store"},
+    )

@@ -2,6 +2,7 @@
 
 import { ExternalLink } from "lucide-react";
 
+import { CallEventsSection } from "@/components/CallEventsSection";
 import { MCPSection } from "@/components/MCPSection";
 import { OrganizationPreferencesSection } from "@/components/OrganizationPreferencesSection";
 import { TelemetrySection } from "@/components/TelemetrySection";
@@ -75,6 +76,15 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <TelemetrySection />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Call events</CardTitle>
+            <CardDescription>Configure where your organization sends call diagnostics.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CallEventsSection />
           </CardContent>
         </Card>
       </div>

@@ -120,3 +120,38 @@ def _normalize_sip_uri(raw: str) -> NormalizedAddress:
         canonical += rest.lower()
 
     return NormalizedAddress(canonical=canonical, address_type="sip_uri")
+
+
+# Characters that change the meaning of a dial string rather than address a
+# destination: whitespace and control characters break the string in two, and
+# "&" and "," separate destinations in the dial syntaxes that carry these
+# addresses. A destination containing one is a malformed row, not an exotic
+# endpoint, whichever provider ends up dialling it.
+_UNSAFE_DESTINATION_RE = re.compile(r"[\s&,\x00-\x1f\x7f]")
+
+
+def validate_destination_address(raw: str, *, require_e164: bool) -> str | None:
+    """Check an address that will be dialled.
+
+    Returns ``None`` when the address is dialable, otherwise the requirement it
+    breaks, phrased to follow a subject ("must ..."), so a caller can name the
+    rows and state the rule once rather than repeating it per row.
+
+    ``require_e164`` is the provider's answer to what it can reach. A carrier
+    hands the call to the PSTN and rejects anything that is not a routable
+    number, so checking E.164 at upload turns a whole failed campaign into one
+    corrected file. A PBX reaches extensions, SIP URIs and its own dial
+    strings, none of which are E.164, so there only the characters above make
+    an address undialable.
+    """
+    address = raw.strip()
+    if not address:
+        return "must not be empty"
+
+    if _UNSAFE_DESTINATION_RE.search(address):
+        return "must not contain spaces, commas or ampersands"
+
+    if require_e164 and not address.startswith("+"):
+        return "must include a country code (start with '+')"
+
+    return None

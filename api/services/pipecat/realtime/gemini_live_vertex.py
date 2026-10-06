@@ -9,6 +9,7 @@ MRO::
 
     DograhGeminiLiveVertexLLMService
       -> DograhGeminiLiveLLMService
+      -> RealtimeConversationMixin
       -> GeminiLiveVertexLLMService
       -> GeminiLiveLLMService
       -> LLMService
@@ -16,6 +17,7 @@ MRO::
 """
 
 from api.services.pipecat.realtime.gemini_live import DograhGeminiLiveLLMService
+from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.services.google.gemini_live.vertex.llm import (
     GeminiLiveVertexLLMService,
 )
@@ -36,7 +38,7 @@ _mro = DograhGeminiLiveVertexLLMService.__mro__
 assert _mro[1] is DograhGeminiLiveLLMService, (
     f"Expected DograhGeminiLiveLLMService at MRO[1], got {_mro[1]}"
 )
-assert _mro[2] is GeminiLiveVertexLLMService, (
-    f"Expected GeminiLiveVertexLLMService at MRO[2], got {_mro[2]}"
+assert _mro.index(GeminiLiveVertexLLMService) < _mro.index(GeminiLiveLLMService), (
+    "Vertex overrides must precede the base Gemini implementation"
 )
 del _mro

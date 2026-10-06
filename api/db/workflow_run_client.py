@@ -1,7 +1,7 @@
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import Float, cast, func
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -14,7 +14,7 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
-from api.enums import CallType, StorageBackend
+from api.enums import CallType, StorageBackend, WorkflowRunMode
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.workflow.run_usage_response import format_public_cost_info
 from api.utils.recording_artifacts import get_recording_storage_key
@@ -48,7 +48,10 @@ class WorkflowRunClient(BaseDBClient):
         queued_run_id: int = None,
         organization_id: int | None = None,
         definition_id: int | None = None,
+        use_draft: bool = False,
+        campaign_traffic_split: dict | None = None,
     ) -> WorkflowRunModel:
+        """Create a run."""
         async with self.async_session() as session:
             workflow_query = (
                 select(WorkflowModel)
@@ -95,6 +98,14 @@ class WorkflowRunClient(BaseDBClient):
                 queued_run_id=queued_run_id,
                 storage_backend=current_backend.value,
                 call_type=call_type.value,
+                extra={
+                    "use_draft": use_draft,
+                    **(
+                        {"campaign_traffic_split": campaign_traffic_split}
+                        if campaign_traffic_split
+                        else {}
+                    ),
+                },
             )
             session.add(new_run)
             try:
@@ -544,3 +555,86 @@ class WorkflowRunClient(BaseDBClient):
                 .limit(1)
             )
             return result.scalars().first()
+
+    async def list_voice_runs_for_workflow(
+        self,
+        workflow_id: int,
+        organization_id: int,
+        limit: int = 10,
+        min_duration_seconds: float = 30.0,
+        disposition_filter: Optional[str] = None,
+    ) -> List[dict]:
+        """Return completed voice runs for a workflow, scoped to an org.
+
+        Restricts to actual voice transports (excludes the text-chat modes)
+        and incomplete runs. Results are ordered newest-first.
+
+        When ``min_duration_seconds > 0``, runs whose ``usage_info`` has no
+        ``call_duration_seconds`` are also excluded (an unknown duration
+        cannot be confirmed to meet the threshold). Pass 0 to include every
+        completed voice run regardless of recorded duration.
+
+        Returns dicts with: id (the run PK, also the Axiom `extra.run_id`
+        correlator), call_type, duration_seconds, disposition, created_at,
+        transcript_url, storage_backend.
+        """
+        # Allowlist of real voice modes, derived from the enum so new
+        # transports are picked up automatically. A denylist misses the
+        # historical uppercase "CHAT" value (WorkflowRunMode.CHAT).
+        voice_modes = [
+            m.value
+            for m in WorkflowRunMode
+            if m not in (WorkflowRunMode.TEXTCHAT, WorkflowRunMode.CHAT)
+        ]
+        async with self.async_session() as session:
+            query = (
+                select(WorkflowRunModel)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.workflow_id == workflow_id,
+                    WorkflowModel.organization_id == organization_id,
+                    WorkflowRunModel.is_completed == True,
+                    WorkflowRunModel.mode.in_(voice_modes),
+                )
+            )
+
+            if min_duration_seconds > 0:
+                query = query.where(
+                    cast(
+                        WorkflowRunModel.usage_info.op("->>")("call_duration_seconds"),
+                        Float,
+                    )
+                    >= min_duration_seconds
+                )
+
+            if disposition_filter:
+                query = query.where(
+                    WorkflowRunModel.gathered_context.op("->>")(
+                        "mapped_call_disposition"
+                    )
+                    == disposition_filter
+                )
+
+            result = await session.execute(
+                query.order_by(WorkflowRunModel.created_at.desc()).limit(limit)
+            )
+            rows = result.scalars().all()
+
+            return [
+                {
+                    "id": run.id,
+                    "call_type": run.call_type,
+                    "duration_seconds": (run.usage_info or {}).get(
+                        "call_duration_seconds"
+                    ),
+                    "disposition": (run.gathered_context or {}).get(
+                        "mapped_call_disposition"
+                    ),
+                    "created_at": (
+                        run.created_at.isoformat() if run.created_at else None
+                    ),
+                    "transcript_url": run.transcript_url,
+                    "storage_backend": run.storage_backend,
+                }
+                for run in rows
+            ]

@@ -131,12 +131,15 @@ def mock_engine():
     from api.services.workflow.pipecat_engine import PipecatEngine
 
     engine = Mock()
+    from api.tests.pipecat_test_utils import stub_agent_runtime
+
+    engine.active_agent = stub_agent_runtime()
     engine._workflow_run_id = 1
     engine._call_context_vars = {"customer_name": "John Doe"}
     engine._organization_id = None
     engine._get_organization_id = PipecatEngine._get_organization_id.__get__(engine)
-    engine.llm = Mock()
-    engine.llm.register_function = Mock()
+    engine.active_agent.llm = Mock()
+    engine.active_agent.llm.register_function = Mock()
 
     with patch(
         "api.db:db_client.get_organization_id_by_workflow_run_id",

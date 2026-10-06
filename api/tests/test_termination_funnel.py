@@ -103,6 +103,36 @@ async def test_a_fatal_error_is_disposed_of_rather_than_cancelled():
 
 
 @pytest.mark.asyncio
+async def test_an_error_that_leaves_its_service_unusable_is_disposed_of():
+    # What a quota-exceeded STT, TTS or LLM reports. The service cannot work
+    # again, so the worker applies ProcessorUnusablePolicy.CANCEL -- the same
+    # race under another name.
+    processor, calls, handled = _recording_funnel()
+    error = ErrorFrame("TTS service quota exceeded")
+    error.processor = SimpleNamespace(is_usable=False)
+
+    up = await _send_upstream(processor, [error])
+
+    await asyncio.wait_for(handled.wait(), timeout=2)
+    assert calls == [(EndTaskReason.PIPELINE_ERROR.value, error)]
+    assert not [f for f in up if isinstance(f, ErrorFrame)]
+
+
+@pytest.mark.asyncio
+async def test_an_error_from_a_service_that_still_works_is_left_alone():
+    # The shape every recoverable error actually arrives in: the reporting
+    # processor is named on the frame, and it can still do its job.
+    processor, calls, _ = _recording_funnel()
+    error = ErrorFrame("provider reconnect")
+    error.processor = SimpleNamespace(is_usable=True)
+
+    up = await _send_upstream(processor, [error])
+
+    assert calls == []
+    assert [f for f in up if isinstance(f, ErrorFrame)]
+
+
+@pytest.mark.asyncio
 async def test_a_recoverable_error_is_left_alone():
     # Reconnect and retry paths emit these constantly; they are not the end of
     # the call and the worker's own handler still wants to see them.
@@ -246,8 +276,7 @@ class TestPipelinePosition:
             FrameProcessor(),
             FrameProcessor(),
             FrameProcessor(),
-            FrameProcessor(),
-            FrameProcessor(),
+            [FrameProcessor()],
             FrameProcessor(),
             funnel,
         )
@@ -261,6 +290,7 @@ class TestPipelinePosition:
 
         pipeline = build_realtime_pipeline(
             transport,
+            FrameProcessor(),
             FrameProcessor(),
             FrameProcessor(),
             FrameProcessor(),

@@ -2,8 +2,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { getServerBackendUrl } from '@/lib/apiClient';
-
-const OSS_TOKEN_COOKIE = 'dograh_auth_token';
+import { OSS_TOKEN_COOKIE } from '@/lib/auth/cookies';
 
 // Paths that don't require authentication in OSS mode.
 // `/embed` serves the public website widget (e.g. /embed/dograh-widget.js),

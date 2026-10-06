@@ -144,3 +144,26 @@ async def test_prepare_inputs_respects_empty_definition_template_context():
 
     assert run_inputs.definition_id == 77
     assert run_inputs.initial_context == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_draft", [True, False])
+async def test_prepare_inputs_reports_the_callers_draft_intent(use_draft):
+    """The caller's intent is carried, not the outcome of looking for a draft.
+
+    It is recorded on the run because only the entry point knows what kind of
+    call this is, while the agents a call transfers to are discovered mid-call
+    and have to follow the same rule. A test call against a workflow with no
+    draft of its own still transfers to drafts elsewhere, so this reports what
+    was asked for rather than what was found.
+    """
+    workflow_client = SimpleNamespace(get_draft_version=AsyncMock(return_value=None))
+
+    run_inputs = await prepare_workflow_run_inputs(
+        workflow_client,
+        _workflow(),
+        use_draft=use_draft,
+    )
+
+    assert run_inputs.use_draft is use_draft
+    assert run_inputs.definition_id == 77

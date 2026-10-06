@@ -8,14 +8,15 @@ reconnect.
 
 Adds:
 
-- **User-mute audio gating** via ``UserMuteStarted/StoppedFrame``.
+- **Silent audio while muted** via ``UserMuteStarted/StoppedFrame``.
 - **TTSSpeakFrame as initial-response trigger** so the engine's greeting
   flow kicks off the bot's first response.
+- **Silent session setup after a recorded greeting**, which the engine plays
+  straight to the transport instead of routing through the model.
 - **One-off LLMMessagesAppendFrame handling** for ephemeral realtime prompts
   like user-idle checks, without mutating Dograh's local ``LLMContext``.
-- **Workflow-control deferral** so node transitions, call termination, and
-  transfers wait for any current bot audio to finish while ordinary tools run
-  immediately.
+- **Workflow-control deferral** so a lone transition waits for playback while
+  ordinary tools and mixed batches run immediately.
 - **finalized=True on TranscriptionFrame** because every OpenAI
   transcription via the ``completed`` event is final by construction.
 """
@@ -25,85 +26,53 @@ from typing import Any
 
 from loguru import logger
 
+from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
-    BotStartedSpeakingFrame,
-    BotStoppedSpeakingFrame,
     Frame,
     LLMFullResponseStartFrame,
     LLMMessagesAppendFrame,
     TranscriptionFrame,
-    TTSSpeakFrame,
-    UserMuteStartedFrame,
-    UserMuteStoppedFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import FunctionCallFromLLM
 from pipecat.services.openai.realtime import events
-from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
+from pipecat.services.openai.realtime.llm import (
+    OPENAI_SAMPLE_RATE,
+    OpenAIRealtimeLLMService,
+)
 from pipecat.transcriptions.language import Language
 from pipecat.utils.time import time_now_iso8601
 
 
-class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
+class DograhOpenAIRealtimeLLMService(
+    RealtimeConversationMixin, OpenAIRealtimeLLMService
+):
     """OpenAI Realtime with Dograh engine integration quirks. See module docstring."""
+
+    # Tool responses can span several assistant items and playback gaps.
+    _workflow_tools_follow_voice_response = False
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._user_is_muted: bool = False
-        # Dograh pre-populates self._context via the engine before the first
-        # LLMContextFrame arrives, so upstream's "first arrival means
-        # self._context is None" check no longer works.
-        self._handled_initial_context: bool = False
         # Track bot speech locally so workflow-control calls can wait until the
         # bot has finished speaking without delaying ordinary tools.
-        self._bot_is_speaking: bool = False
-        self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
+        # A recorded greeting can open the conversation before the API session
+        # is ready; its seed then waits for session.updated. Kept separate from
+        # the text-greeting slot because the transcript may be None while the
+        # open itself is still pending.
+        self._pending_prerecorded_greeting: tuple[str | None] | None = None
 
     # ------------------------------------------------------------------
-    # Frame handling: mute, TTSSpeakFrame as greeting trigger
+    # Provider frames: ephemeral prompts and tool-call deferral
     # ------------------------------------------------------------------
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
-        if isinstance(frame, UserMuteStartedFrame):
-            self._user_is_muted = True
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, UserMuteStoppedFrame):
-            self._user_is_muted = False
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, TTSSpeakFrame):
-            # Greeting trigger: the engine queues a TTSSpeakFrame after node
-            # setup. OpenAI Realtime renders its own audio, so we don't pass
-            # the frame to TTS. For configured static text greetings, ask the
-            # model to say the exact greeting; otherwise route through
-            # _handle_context so the initial response and later tool-result
-            # turns share the same context lifecycle.
-            if not self._handled_initial_context:
-                greeting_text = frame.text.strip() if frame.text else ""
-                if greeting_text:
-                    await self._handle_initial_greeting(self._context, greeting_text)
-                else:
-                    await self._handle_context(self._context)
-            else:
-                logger.warning(
-                    f"{self}: TTSSpeakFrame after initial context already "
-                    "handled — OpenAI Realtime owns audio generation, ignoring"
-                )
-            # Don't forward the frame; the audio path is owned by the realtime
-            # service itself.
-            return
         if isinstance(frame, LLMMessagesAppendFrame):
             await self._handle_messages_append(frame)
             return
-        if isinstance(frame, BotStartedSpeakingFrame):
-            self._bot_is_speaking = True
-        elif isinstance(frame, BotStoppedSpeakingFrame):
-            self._bot_is_speaking = False
-            await self._run_pending_node_transition_function_calls()
         await super().process_frame(frame, direction)
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
@@ -174,6 +143,37 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             tool_choice="none",
         )
 
+    async def _open_after_prerecorded_greeting(self, transcript: str | None):
+        """Configure the session and seed the greeting, without a response.
+
+        The greeting is sent as its own assistant item rather than through the
+        context: the realtime adapter only passes a lone *user* message
+        through untouched, and packs anything else into a synthetic "this is a
+        previously saved conversation" user turn that ends by telling the model
+        to say it is ready to continue.
+        """
+        if self._disconnecting:
+            return
+
+        if not self._api_session_ready:
+            self._pending_prerecorded_greeting = (transcript,)
+            return
+
+        self._pending_prerecorded_greeting = None
+        await self._ensure_conversation_setup()
+        if not transcript:
+            return
+
+        evt = events.ConversationItemCreateEvent(
+            item=events.ConversationItem(
+                type="message",
+                role="assistant",
+                content=[events.ItemContent(type="output_text", text=transcript)],
+            )
+        )
+        self._messages_added_manually[evt.item.id] = True
+        await self.send_client_event(evt)
+
     async def _ensure_conversation_setup(self):
         if not self._llm_needs_conversation_setup:
             return
@@ -197,11 +197,24 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         elif self._run_llm_when_api_session_ready:
             self._run_llm_when_api_session_ready = False
             await self._create_response()
+        elif self._pending_prerecorded_greeting is not None:
+            await self._open_after_prerecorded_greeting(
+                *self._pending_prerecorded_greeting
+            )
 
-    async def _send_user_audio(self, frame):
-        if self._user_is_muted:
-            return
-        await super()._send_user_audio(frame)
+    async def _prepare_user_audio(self, frame):
+        properties = self._settings.session_properties
+        audio_input = properties.audio.input if properties.audio else None
+        audio_format = audio_input.format if audio_input else None
+        encoding = audio_format.type if audio_format else "audio/pcm"
+        # G.711 sessions carry encoded samples rather than signed PCM.
+        silence_byte = {"audio/pcmu": 0xFF, "audio/pcma": 0xD5}.get(encoding, 0)
+        return await self._prepare_audio_frame(
+            frame,
+            sample_rate=OPENAI_SAMPLE_RATE if encoding == "audio/pcm" else None,
+            resampler=self._input_resampler,
+            silence_byte=silence_byte,
+        )
 
     def _message_to_conversation_item(
         self, message: dict[str, Any]
@@ -271,19 +284,8 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             )
         )
 
-    async def _run_pending_node_transition_function_calls(self):
-        if not self._deferred_node_transition_function_calls:
-            return
-        function_calls = self._deferred_node_transition_function_calls
-        self._deferred_node_transition_function_calls = []
-        logger.debug(
-            f"{self}: executing {len(function_calls)} deferred workflow-control "
-            "call(s) after bot turn ended"
-        )
-        await self.run_function_calls(function_calls)
-
     async def _handle_evt_function_call_arguments_done(self, evt):
-        """Run ordinary tools immediately and defer workflow-control calls."""
+        """Only a response's sole workflow-control call may wait for playback."""
         try:
             args = json.loads(evt.arguments)
 
@@ -300,19 +302,14 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
                     )
                 ]
 
-                is_node_transition = self._function_is_node_transition(
-                    function_call_item.name
+                self._workflow_tool_deferral.select_response(
+                    getattr(evt, "response_id", None), collecting=True
                 )
-                if self._bot_is_speaking and is_node_transition:
-                    self._deferred_node_transition_function_calls.extend(function_calls)
-                    logger.debug(
-                        f"{self}: deferring workflow-control call "
-                        f"{function_call_item.name} "
-                        "until bot stops speaking"
-                    )
-                else:
-                    await self.run_function_calls(function_calls)
-                    logger.debug(f"Processed function call: {function_call_item.name}")
+                await self._workflow_tool_deferral.submit(
+                    function_calls,
+                    speaking=self._workflow_bot_is_speaking,
+                    dispatch=self.run_function_calls,
+                )
             else:
                 logger.warning(
                     f"No tracked function call found for call_id: {evt.call_id}"
@@ -323,6 +320,14 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
 
         except Exception as e:
             logger.error(f"Failed to process function call arguments: {e}")
+
+    async def _handle_evt_response_done(self, evt):
+        await super()._handle_evt_response_done(evt)
+        await self._workflow_tool_deferral.complete_response(
+            evt.response.id,
+            speaking=self._workflow_bot_is_speaking,
+            succeeded=evt.response.status == "completed",
+        )
 
     # ------------------------------------------------------------------
     # Transcription: broadcast with finalized=True for every

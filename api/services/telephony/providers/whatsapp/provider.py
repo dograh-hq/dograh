@@ -26,7 +26,6 @@ from loguru import logger
 from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony import ws_auth
 from api.services.telephony.base import (
-    AnsweringMachineDetectionResult,
     CallInitiationResult,
     NormalizedInboundData,
     ProviderPhoneNumberLookupError,

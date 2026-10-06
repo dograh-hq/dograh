@@ -191,9 +191,6 @@ async def get_backend_endpoints() -> tuple[str, str]:
                 http_url = "http://" + BACKEND_API_ENDPOINT.rstrip("/")
                 ws_url = "ws://" + BACKEND_API_ENDPOINT.rstrip("/")
 
-            logger.debug(
-                f"Returning backend URLs - HTTP: {http_url}, WebSocket: {ws_url}"
-            )
             return http_url, ws_url
 
         except Exception as e:

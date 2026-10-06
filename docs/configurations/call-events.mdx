@@ -1,0 +1,64 @@
+---
+title: "Call events"
+description: "Export per-call diagnostics to your organization's BigQuery table."
+---
+
+You need an existing BigQuery table with the schema below and a Google identity
+that can read its schema and insert rows. Call event export is disabled until
+you configure it in **Settings → Call events**.
+
+1. Select **BigQuery** as the destination.
+2. Enter the table as `project.dataset.table`.
+3. Choose a service account and enter its email and PEM private key. On a
+   self-hosted installation, you can instead select **Deployment identity** to
+   use the Google credentials configured on your Dograh server.
+4. Select **Test connection** to check authentication and table compatibility.
+   This reads table metadata without inserting events; successful exports also
+   require write permission.
+5. Enable **Export call events** and select **Save**.
+
+Each organization has its own destination and credentials. Saved private keys
+are masked in the UI. Keep the masked value to retain your existing key, or
+replace it to rotate the key.
+
+**BigQuery schema**
+
+Use these scalar columns with nullable fields; `ts` and `event` can also be
+required. The adapter does not create or migrate tables.
+
+| Column | Type |
+| --- | --- |
+| `ts` | TIMESTAMP |
+| `event` | STRING |
+| `run_id`, `org_id`, `workflow_id`, `turn` | INTEGER |
+| `severity` | STRING |
+| `value_ms` | FLOAT |
+| `node_id`, `node_name` | STRING |
+| `detail` | JSON (STRING also supported) |
+
+You receive one row per diagnostic event. `ts` is when the event happened, and
+`detail` contains JSON, stored as a native JSON value or serialized text according
+to the column type. Events cover speech, accepted user turns,
+mute state, tool execution, silence warnings, stage latencies, pipeline errors
+and the final call summary. The transcription event records character counts
+and empty/finalized flags; it does not contain transcript text or audio.
+
+**Delivery behavior**
+
+Events are sent after a call finishes, with their original timestamps.
+Capture and export are separate from the real-time feedback logs.
+Dograh stores the destination settings in its organization configuration;
+event payloads are not persisted in Postgres or Redis.
+
+Exports use bounded retries for retryable row and HTTP errors. BigQuery's
+insertion IDs provide best-effort deduplication; duplicates can still occur.
+Capture and pending export queues are bounded, and unsent events can be lost
+on a process crash, queue overflow or exhausted retries. There is no durable
+replay queue in this version. Export failures and dropped-event counts appear
+in the API worker logs.
+
+Table changes apply to new calls. An active call's batch is discarded if its
+destination is changed or disabled before export, so it cannot accidentally
+land in a different table. Credentials are read again before each delivery
+attempt to support rotation. Requests already sent to BigQuery cannot be
+recalled when you disable export.

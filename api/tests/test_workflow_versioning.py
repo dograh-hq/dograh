@@ -13,6 +13,11 @@ Modules under test:
 These are DB integration tests using the transactional test session.
 """
 
+import json
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 import pytest
 
 from api.db.models import (
@@ -107,6 +112,73 @@ async def workflow_with_v1(db_session, org_and_user):
 # ---------------------------------------------------------------------------
 # Workflow creation → V1 published
 # ---------------------------------------------------------------------------
+
+
+class TestVersionLinkQueries:
+    async def test_exact_and_latest_published_skip_newer_draft(
+        self, db_session, workflow_with_v1, test_client_factory
+    ):
+        workflow, user = workflow_with_v1
+        await db_session.save_workflow_draft(
+            workflow.id,
+            workflow_definition=GRAPH_V2,
+            workflow_configurations=CONFIG_V2,
+            template_context_variables=TEMPLATE_VARS_V2,
+        )
+        await db_session.publish_workflow_draft(workflow.id)
+        await db_session.save_workflow_draft(workflow.id, workflow_definition=GRAPH_V3)
+
+        async with test_client_factory(user) as client:
+            exact = await client.get(
+                f"/api/v1/workflow/{workflow.id}/versions",
+                params={"version_number": 1, "limit": 1},
+            )
+            latest = await client.get(
+                f"/api/v1/workflow/{workflow.id}/versions",
+                params={"status": "published", "limit": 1},
+            )
+            missing = await client.get(
+                f"/api/v1/workflow/{workflow.id}/versions",
+                params={"version_number": 999, "limit": 1},
+            )
+        assert exact.status_code == latest.status_code == missing.status_code == 200
+        assert len(exact.json()) == len(latest.json()) == 1
+        assert exact.json()[0]["version_number"] == 1
+        assert exact.json()[0]["workflow_json"] == GRAPH_V1
+        assert latest.json()[0]["version_number"] == 2
+        assert latest.json()[0]["workflow_json"] == GRAPH_V2
+        assert latest.json()[0]["workflow_configurations"] == CONFIG_V2
+        assert latest.json()[0]["template_context_variables"] == TEMPLATE_VARS_V2
+        assert missing.json() == []
+
+    async def test_filtered_versions_remain_organization_scoped(
+        self, workflow_with_v1, test_client_factory
+    ):
+        from types import SimpleNamespace
+
+        workflow, user = workflow_with_v1
+        other_user = SimpleNamespace(
+            selected_organization_id=user.selected_organization_id + 1
+        )
+        async with test_client_factory(other_user) as client:
+            response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/versions",
+                params={"version_number": 1, "limit": 1},
+            )
+        assert response.status_code == 404
+
+    @pytest.mark.parametrize(
+        "params", [{"version_number": 0}, {"version_number": -1}, {"status": "invalid"}]
+    )
+    async def test_invalid_version_filters_are_rejected(
+        self, workflow_with_v1, test_client_factory, params
+    ):
+        workflow, user = workflow_with_v1
+        async with test_client_factory(user) as client:
+            response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/versions", params=params
+            )
+        assert response.status_code == 422
 
 
 class TestWorkflowCreation:
@@ -230,7 +302,247 @@ class TestSaveDraft:
 # ---------------------------------------------------------------------------
 
 
+class TestUpdateVersionMetadata:
+    @pytest.mark.parametrize("status", ["published", "archived"])
+    async def test_updates_release_notes_without_changing_the_snapshot(
+        self, db_session, workflow_with_v1, test_client_factory, async_session, status
+    ):
+        workflow, user = workflow_with_v1
+        version = (await db_session.get_workflow_versions(workflow.id))[0]
+        if status == "archived":
+            await db_session.save_workflow_draft(
+                workflow.id, workflow_definition=GRAPH_V2
+            )
+            await db_session.publish_workflow_draft(workflow.id)
+            await async_session.refresh(version)
+        version.extra_metadata = {"source": "editor"}
+        await async_session.flush()
+        await async_session.refresh(workflow)
+        released_id = workflow.released_definition_id
+        published_at = version.published_at
+        created_at = version.created_at
+        configurations = version.workflow_configurations
+        template_variables = version.template_context_variables
+
+        async with test_client_factory(user) as client:
+            response = await client.patch(
+                f"/api/v1/workflow/{workflow.id}/versions/{version.id}/metadata",
+                json={
+                    "version_name": "  New name  ",
+                    "change_description": "  Corrected notes.\nSecond line.  ",
+                },
+            )
+            assert response.status_code == 200, response.text
+            assert response.json() == {
+                "id": version.id,
+                "version_name": "New name",
+                "change_description": "Corrected notes.\nSecond line.",
+            }
+            history = (
+                await client.get(f"/api/v1/workflow/{workflow.id}/versions")
+            ).json()
+        saved = next(item for item in history if item["id"] == version.id)
+        assert saved["version_name"] == "New name"
+        assert saved["change_description"] == "Corrected notes.\nSecond line."
+        await async_session.refresh(version)
+        await async_session.refresh(workflow)
+        assert version.extra_metadata["source"] == "editor"
+        assert version.status == status
+        assert version.version_number == 1
+        assert version.workflow_json == GRAPH_V1
+        assert version.workflow_configurations == configurations
+        assert version.template_context_variables == template_variables
+        assert version.created_at == created_at
+        assert version.published_at == published_at
+        assert workflow.released_definition_id == released_id
+        assert await db_session.get_draft_version(workflow.id) is None
+        assert len(history) == (2 if status == "archived" else 1)
+
+    async def test_partial_updates_preserve_omitted_fields_and_null_clears_notes(
+        self, db_session, workflow_with_v1, test_client_factory, async_session
+    ):
+        workflow, user = workflow_with_v1
+        version = (await db_session.get_workflow_versions(workflow.id))[0]
+        version.extra_metadata = {
+            "source": "editor",
+            "version_name": "Original",
+            "change_description": "Keep this description",
+        }
+        await async_session.flush()
+        url = f"/api/v1/workflow/{workflow.id}/versions/{version.id}/metadata"
+        async with test_client_factory(user) as client:
+            response = await client.patch(url, json={"version_name": "Renamed"})
+            assert response.status_code == 200
+            assert response.json()["change_description"] == "Keep this description"
+            cleared = await client.patch(
+                url, json={"version_name": None, "change_description": None}
+            )
+        assert cleared.status_code == 200
+        assert cleared.json() == {
+            "id": version.id,
+            "version_name": None,
+            "change_description": None,
+        }
+        await async_session.refresh(version)
+        assert version.extra_metadata == {"source": "editor"}
+
+    @pytest.mark.parametrize(
+        "target", ["other_org", "other_workflow", "missing", "draft"]
+    )
+    async def test_rejects_versions_outside_the_editable_scope(
+        self, db_session, workflow_with_v1, test_client_factory, async_session, target
+    ):
+        workflow, user = workflow_with_v1
+        original = (await db_session.get_workflow_versions(workflow.id))[0]
+        definition_id = original.id
+        if target == "other_org":
+            user = SimpleNamespace(
+                selected_organization_id=user.selected_organization_id + 1
+            )
+        elif target == "other_workflow":
+            other_workflow = await db_session.create_workflow(
+                name="Other workflow",
+                workflow_definition=GRAPH_V2,
+                user_id=user.id,
+                organization_id=user.selected_organization_id,
+            )
+            definition_id = other_workflow.released_definition_id
+        elif target == "missing":
+            definition_id = 2147483647
+        else:
+            definition_id = (await db_session.save_workflow_draft(workflow.id)).id
+        async with test_client_factory(user) as client:
+            response = await client.patch(
+                f"/api/v1/workflow/{workflow.id}/versions/{definition_id}/metadata",
+                json={"version_name": "Forbidden change"},
+            )
+        assert response.status_code == 404
+        await async_session.refresh(original)
+        assert original.extra_metadata == {}
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"version_name": "   "},
+            {"version_name": "x" * 101},
+            {"change_description": "\n "},
+            {"change_description": "x" * 501},
+            {"version_name": "New name", "workflow_json": GRAPH_V2},
+        ],
+    )
+    async def test_rejects_invalid_metadata_and_behavioral_changes(
+        self, db_session, workflow_with_v1, test_client_factory, async_session, body
+    ):
+        workflow, user = workflow_with_v1
+        version = (await db_session.get_workflow_versions(workflow.id))[0]
+        async with test_client_factory(user) as client:
+            response = await client.patch(
+                f"/api/v1/workflow/{workflow.id}/versions/{version.id}/metadata",
+                json=body,
+            )
+        assert response.status_code == 422
+        await async_session.refresh(version)
+        assert version.extra_metadata == {}
+        assert version.workflow_json == GRAPH_V1
+
+
 class TestPublishDraft:
+    async def test_release_notes_persist_in_history_and_do_not_copy_to_next_draft(
+        self,
+        db_session,
+        workflow_with_v1,
+        test_client_factory,
+        monkeypatch,
+        async_session,
+    ):
+        workflow, user = workflow_with_v1
+        clean_graph = json.loads(
+            (Path(__file__).parent / "dto_fixtures/clean.json").read_text()
+        )
+        draft = await db_session.save_workflow_draft(
+            workflow.id, workflow_definition=clean_graph
+        )
+        draft.extra_metadata = {"source": "editor"}
+        await async_session.flush()
+        monkeypatch.setattr("api.routes.workflow.capture_event", Mock())
+        async with test_client_factory(user) as client:
+            published = await client.post(
+                f"/api/v1/workflow/{workflow.id}/publish",
+                json={
+                    "version_name": "  Better appointments  ",
+                    "change_description": "  Added appointment confirmation.\nUpdated the greeting.  ",
+                },
+            )
+            assert published.status_code == 200, published.text
+            assert published.json()["version_name"] == "Better appointments"
+            published_definition = await db_session.get_workflow_definition(
+                workflow.id, published.json()["id"], user.selected_organization_id
+            )
+            await async_session.refresh(published_definition)
+            assert published_definition.extra_metadata == {
+                "source": "editor",
+                "version_name": "Better appointments",
+                "change_description": "Added appointment confirmation.\nUpdated the greeting.",
+            }
+            next_draft = await db_session.save_workflow_draft(workflow.id)
+            assert next_draft.extra_metadata == {}
+            # Existing API clients can still publish without release notes.
+            legacy = await client.post(f"/api/v1/workflow/{workflow.id}/publish")
+            assert legacy.status_code == 200, legacy.text
+            history = (
+                await client.get(f"/api/v1/workflow/{workflow.id}/versions")
+            ).json()
+        assert history[0]["version_name"] is None
+        assert history[0]["change_description"] is None
+        assert history[1]["status"] == "archived"
+        assert history[1]["version_name"] == "Better appointments"
+        assert (
+            history[1]["change_description"]
+            == "Added appointment confirmation.\nUpdated the greeting."
+        )
+        assert history[2]["version_name"] is None  # An older version without notes.
+
+    @pytest.mark.parametrize(
+        "notes",
+        [
+            {"version_name": "   "},
+            {"version_name": "x" * 101},
+            {"change_description": "\n "},
+            {"change_description": "x" * 501},
+            {"versionName": "New name"},
+        ],
+    )
+    async def test_invalid_release_notes_do_not_publish(
+        self, db_session, workflow_with_v1, test_client_factory, notes
+    ):
+        workflow, user = workflow_with_v1
+        draft = await db_session.save_workflow_draft(workflow.id)
+        async with test_client_factory(user) as client:
+            response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/publish", json=notes
+            )
+        assert response.status_code == 422
+        assert (await db_session.get_draft_version(workflow.id)).id == draft.id
+
+    async def test_release_notes_cannot_publish_another_organizations_workflow(
+        self, db_session, workflow_with_v1, test_client_factory
+    ):
+        workflow, user = workflow_with_v1
+        await db_session.save_workflow_draft(workflow.id)
+        other_user = SimpleNamespace(
+            selected_organization_id=user.selected_organization_id + 1
+        )
+        async with test_client_factory(other_user) as client:
+            response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/publish",
+                json={
+                    "version_name": "Foreign update",
+                    "change_description": "Changed greeting",
+                },
+            )
+        assert response.status_code == 404
+        assert (await db_session.get_draft_version(workflow.id)).extra_metadata == {}
+
     async def test_publish_promotes_draft_to_published(
         self, db_session, workflow_with_v1
     ):

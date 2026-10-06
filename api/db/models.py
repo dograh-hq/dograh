@@ -459,6 +459,14 @@ class WorkflowDefinitionModel(Base):
     )  # Sequential per workflow, display only
     published_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Extensible metadata, including release notes.
+    extra_metadata = Column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::json"),
+    )
+
     # Full behavioral snapshot (moved from WorkflowModel to enable versioning)
     workflow_configurations = Column(
         JSON, nullable=False, default=dict, server_default=text("'{}'::json")
@@ -884,6 +892,7 @@ class QueuedRunModel(Base):
         default="queued",
     )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
     processed_at = Column(DateTime(timezone=True), nullable=True)
 
     # New retry-related fields

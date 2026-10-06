@@ -31,7 +31,13 @@ def _build_section_from_override(service_type: ServiceType, override: dict):
     return config_cls(**override)
 
 
-_SECRET_FIELDS = ("api_key", "credentials", "aws_access_key", "aws_secret_key")
+_SECRET_FIELDS = (
+    "api_key",
+    "credentials",
+    "aws_access_key",
+    "aws_secret_key",
+    "aws_session_token",
+)
 
 
 def enrich_overrides_with_api_keys(
@@ -83,7 +89,7 @@ def resolve_effective_config(
     - For each section (llm, tts, stt, realtime), if the override contains that key:
       - If the global section is None, construct a new config from the override.
       - If the provider changes, construct a new config from the override.
-      - Otherwise, merge override fields onto the existing config (model_copy).
+      - Otherwise, merge and validate override fields with the existing config.
     - is_realtime is a simple boolean override.
     - Sections not in the override are inherited from global unchanged.
     - The original user_config is never mutated.
@@ -120,8 +126,9 @@ def resolve_effective_config(
                 _build_section_from_override(service_type, override),
             )
         else:
-            # Same provider — merge fields onto existing config
-            merged = base.model_copy(update=override)
+            # Validate the combined model/settings before a workflow can save
+            # them. model_copy(update=...) bypasses Pydantic validators.
+            merged = type(base).model_validate({**base.model_dump(), **override})
             setattr(effective, section_key, merged)
 
     return effective

@@ -537,6 +537,7 @@ def test_to_mcp_dict_retains_authoring_signal_startcall():
     ]
 
     # Validation bounds survive (they constrain valid authored values).
+    assert props["delayed_start_duration"]["default"] == 1.2
     assert props["delayed_start_duration"]["min_value"] == 0.1
     assert props["delayed_start_duration"]["max_value"] == 10.0
 

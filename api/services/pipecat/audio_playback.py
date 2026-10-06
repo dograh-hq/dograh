@@ -15,6 +15,7 @@ from loguru import logger
 
 from pipecat.frames.frames import (
     Frame,
+    LLMAssistantPushAggregationFrame,
     OutputAudioRawFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
@@ -137,6 +138,12 @@ async def play_audio(
         )
     )
     await queue_frame(TTSStoppedFrame(context_id=context_id))
+    if transcript and append_to_context:
+        # Nothing else closes an assistant turn opened by recorded audio: only
+        # a TTS service emits this frame, and the recording bypasses TTS.
+        # Without it the transcript sits in the aggregator until the next LLM
+        # response ends, and is committed as part of *that* message.
+        await queue_frame(LLMAssistantPushAggregationFrame())
 
 
 async def play_audio_loop(
@@ -145,6 +152,7 @@ async def play_audio_loop(
     sample_rate: int,
     queue_frame: Callable[[Frame], Awaitable[None]],
     audio_file: Optional[str] = None,
+    chunk_ms: Optional[int] = None,
 ) -> None:
     """Play audio in a loop until *stop_event* is set.
 
@@ -157,6 +165,12 @@ async def play_audio_loop(
         queue_frame: Frame sink -- typically ``transport.output().queue_frame``.
         audio_file: Path to a WAV file.  When *None* the default
             ``transfer_hold_ring_{sample_rate}.wav`` asset is used.
+        chunk_ms: Queue the clip in chunks of this many milliseconds, pacing
+            the producer so that setting *stop_event* leaves at most one chunk
+            of audio already handed to the transport. Without it the whole clip
+            is queued at once and stopping still plays it out in full, which is
+            audible as a burst of ring after the destination agent has already
+            started speaking. See :func:`play_hold_audio_loop`.
     """
     if audio_file is None:
         from api.constants import APP_ROOT_DIR
@@ -175,18 +189,79 @@ async def play_audio_loop(
 
     logger.debug(f"Audio loop: playing at {sample_rate}Hz")
     try:
-        while not stop_event.is_set():
-            frame = OutputAudioRawFrame(
-                audio=audio_data,
+        if chunk_ms:
+            await _play_audio_loop_chunked(
+                audio_data,
+                stop_event=stop_event,
                 sample_rate=sample_rate,
-                num_channels=1,
+                queue_frame=queue_frame,
+                chunk_ms=chunk_ms,
             )
-            await queue_frame(frame)
-            try:
-                await asyncio.wait_for(stop_event.wait(), timeout=duration + 1.5)
-                break
-            except asyncio.TimeoutError:
-                pass
+        else:
+            while not stop_event.is_set():
+                frame = OutputAudioRawFrame(
+                    audio=audio_data,
+                    sample_rate=sample_rate,
+                    num_channels=1,
+                )
+                await queue_frame(frame)
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=duration + 1.5)
+                    break
+                except asyncio.TimeoutError:
+                    pass
     except Exception as e:
         logger.error(f"Audio loop error: {e}")
     logger.debug("Audio loop: stopped")
+
+
+async def _play_audio_loop_chunked(
+    audio_data: bytes,
+    *,
+    stop_event: asyncio.Event,
+    sample_rate: int,
+    queue_frame: Callable[[Frame], Awaitable[None]],
+    chunk_ms: int,
+) -> None:
+    """Loop *audio_data* one chunk at a time, pacing to real time."""
+    chunk_bytes = max(2, int(sample_rate * chunk_ms / 1000) * 2)
+    chunk_seconds = (chunk_bytes // 2) / sample_rate
+
+    while not stop_event.is_set():
+        for offset in range(0, len(audio_data), chunk_bytes):
+            if stop_event.is_set():
+                return
+            await queue_frame(
+                OutputAudioRawFrame(
+                    audio=audio_data[offset : offset + chunk_bytes],
+                    sample_rate=sample_rate,
+                    num_channels=1,
+                )
+            )
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=chunk_seconds)
+                return
+            except asyncio.TimeoutError:
+                continue
+
+
+async def play_hold_audio_loop(
+    *,
+    stop_event: asyncio.Event,
+    sample_rate: int,
+    queue_frame: Callable[[Frame], Awaitable[None]],
+    audio_file: Optional[str] = None,
+    chunk_ms: int = 20,
+) -> None:
+    """Play hold audio that stops within roughly one chunk of being asked to.
+
+    An agent handoff releases the destination agent's opening the moment the
+    ringer stops, so an unbounded stop overlaps ring with speech.
+    """
+    await play_audio_loop(
+        stop_event=stop_event,
+        sample_rate=sample_rate,
+        queue_frame=queue_frame,
+        audio_file=audio_file,
+        chunk_ms=chunk_ms,
+    )

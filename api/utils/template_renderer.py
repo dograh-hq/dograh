@@ -9,7 +9,9 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
-from api.services.workflow.workflow_graph import TEMPLATE_VAR_PATTERN
+# Regex for matching {{ variable }} template placeholders.
+# Captures: group(1) = variable path, group(2) = filter name, group(3) = filter value.
+TEMPLATE_VAR_PATTERN = r"\{\{\s*([^|\s}]+)(?:\s*\|\s*([^:}]+)(?::([^}]+))?)?\s*\}\}"
 
 _CURRENT_TIME_PREFIX = "current_time"
 _CURRENT_WEEKDAY_PREFIX = "current_weekday"
@@ -108,6 +110,22 @@ def _extract_timezone_from_template(template_str: str) -> Optional[str]:
     )
     match = re.search(pattern, template_str)
     return match.group(1).strip() if match else None
+
+
+def is_builtin_variable(variable_path: str) -> bool:
+    """Whether the renderer supplies this variable itself.
+
+    Callers that ask a caller for values -- a campaign validating that its
+    contact file carries every variable a workflow uses, say -- must not
+    demand these, because nothing outside could provide them: they are
+    computed from the clock at render time.
+    """
+    return variable_path in (
+        _CURRENT_TIME_PREFIX,
+        _CURRENT_WEEKDAY_PREFIX,
+    ) or variable_path.startswith(
+        (f"{_CURRENT_TIME_PREFIX}_", f"{_CURRENT_WEEKDAY_PREFIX}_")
+    )
 
 
 def _resolve_builtin_variable(

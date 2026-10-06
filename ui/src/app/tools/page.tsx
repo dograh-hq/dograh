@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
     createToolApiV1ToolsPost,
     deleteToolApiV1ToolsToolUuidDelete,
+    getWorkflowsSummaryApiV1WorkflowSummaryGet,
     listToolsApiV1ToolsGet,
     unarchiveToolApiV1ToolsToolUuidUnarchivePost,
 } from "@/client/sdk.gen";
@@ -45,11 +46,14 @@ import { useAuth } from "@/lib/auth";
 import {
     createMcpDefinition,
     createToolDefinition,
+    createTransferAgentDefinition,
+    DEFAULT_TRANSFER_AGENT_MESSAGE,
     getCategoryConfig,
     MCP_URL_PATTERN,
     renderToolIcon,
     TOOL_CATEGORIES,
     type ToolCategory,
+    type ToolDefinition,
 } from "./config";
 
 export default function ToolsPage() {
@@ -68,6 +72,11 @@ export default function ToolsPage() {
     const [createError, setCreateError] = useState<string | null>(null);
 
     // MCP-specific create dialog state
+    // A transfer tool is defined by where it sends the caller, so the
+    // destination is collected up front rather than defaulted to nothing.
+    const [newTransferAgentWorkflowId, setNewTransferAgentWorkflowId] = useState("");
+    const [agentOptions, setAgentOptions] = useState<{ id: number; name: string }[]>([]);
+
     const [mcpUrl, setMcpUrl] = useState("");
     const [mcpCredentialUuid, setMcpCredentialUuid] = useState("");
     const [mcpToolsFilter, setMcpToolsFilter] = useState("");
@@ -107,13 +116,46 @@ export default function ToolsPage() {
         }
     }, [loading, user, getAccessToken]);
 
+    const fetchAgentOptions = useCallback(async () => {
+        if (loading || !user) return;
+        try {
+            const response = await getWorkflowsSummaryApiV1WorkflowSummaryGet({});
+            // The generated client resolves rather than throws on a 4xx/5xx.
+            if (response.error || !response.data) {
+                setAgentOptions([]);
+                return;
+            }
+            setAgentOptions(
+                response.data.map((workflow) => ({
+                    id: workflow.id,
+                    name: workflow.name,
+                })),
+            );
+        } catch {
+            setAgentOptions([]);
+        }
+    }, [loading, user]);
+
     useEffect(() => {
         fetchTools();
     }, [fetchTools]);
 
+    useEffect(() => {
+        // Only the agent-transfer dialog needs the agent list; fetch it when
+        // that category is actually picked.
+        if (isCreateDialogOpen && newToolCategory === "transfer_agent") {
+            fetchAgentOptions();
+        }
+    }, [isCreateDialogOpen, newToolCategory, fetchAgentOptions]);
+
     const handleCreateTool = async () => {
         if (!newToolName.trim()) {
             setCreateError("Please enter a name for the tool");
+            return;
+        }
+
+        if (newToolCategory === "transfer_agent" && !newTransferAgentWorkflowId) {
+            setCreateError("Choose the agent to transfer to");
             return;
         }
 
@@ -134,9 +176,17 @@ export default function ToolsPage() {
 
             const categoryConfig = getCategoryConfig(newToolCategory);
 
-            const definition = newToolCategory === "mcp"
-                ? createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter)
-                : createToolDefinition(newToolCategory);
+            let definition: ToolDefinition;
+            if (newToolCategory === "mcp") {
+                definition = createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter);
+            } else if (newToolCategory === "transfer_agent") {
+                definition = createTransferAgentDefinition({
+                    workflow_id: Number(newTransferAgentWorkflowId),
+                    message: DEFAULT_TRANSFER_AGENT_MESSAGE,
+                });
+            } else {
+                definition = createToolDefinition(newToolCategory);
+            }
 
             const requestBody: CreateToolRequest = {
                 name: newToolName,
@@ -164,6 +214,7 @@ export default function ToolsPage() {
                 setNewToolName("");
                 setNewToolDescription("");
                 setNewToolCategory("http_api");
+                setNewTransferAgentWorkflowId("");
                 setMcpUrl("");
                 setMcpCredentialUuid("");
                 setMcpToolsFilter("");
@@ -570,6 +621,36 @@ export default function ToolsPage() {
                                 placeholder="What does this tool do?"
                             />
                         </div>
+
+                        {newToolCategory === "transfer_agent" && (
+                            <div className="grid gap-2">
+                                <Label htmlFor="transfer-agent-workflow">
+                                    Transfer to agent
+                                </Label>
+                                <Label className="text-xs text-muted-foreground">
+                                    The agent this tool hands the caller to. For more
+                                    than one destination, create a tool per agent.
+                                </Label>
+                                <Select
+                                    value={newTransferAgentWorkflowId}
+                                    onValueChange={setNewTransferAgentWorkflowId}
+                                >
+                                    <SelectTrigger id="transfer-agent-workflow">
+                                        <SelectValue placeholder="Select an agent" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {agentOptions.map((agent) => (
+                                            <SelectItem
+                                                key={agent.id}
+                                                value={String(agent.id)}
+                                            >
+                                                {agent.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
 
                         {newToolCategory === "mcp" && (
                             <>

@@ -134,10 +134,36 @@ async def resolve_outbound_configuration_id(
     raise first_blocked
 
 
+async def requires_e164_destinations(
+    telephony_configuration_id: int,
+    organization_id: int,
+    *,
+    db: Any = default_db_client,
+) -> bool:
+    """Whether this configuration can only dial E.164 numbers.
+
+    Carriers can; a PBX also reaches extensions, SIP URIs and dial strings
+    naming a trunk. Callers use it to check destinations against the
+    configuration that will actually dial them, rather than against the
+    strictest provider. An unknown or missing configuration keeps the strict
+    answer, so a destination is never accepted on the strength of a provider
+    nothing here recognises.
+    """
+    row = await db.get_telephony_configuration_for_org(
+        telephony_configuration_id,
+        organization_id,
+    )
+    if row is None:
+        return True
+    spec = registry.get_optional(row.provider)
+    return spec.requires_e164_destinations if spec else True
+
+
 __all__ = [
     "OutboundConfigurationNotFoundError",
     "OutboundReadinessError",
     "OutboundSetupIncompleteError",
     "ensure_outbound_setup_ready",
+    "requires_e164_destinations",
     "resolve_outbound_configuration_id",
 ]

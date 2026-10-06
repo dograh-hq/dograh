@@ -57,7 +57,9 @@ services:
       - app-network
 
   minio:
-    image: minio/minio
+    # Built from the community MinIO fork by github.com/dograh-hq/minio; upstream
+    # MinIO no longer publishes images.
+    image: ${REGISTRY:-dograhai}/minio:2026.09.22
     container_name: minio
     command: server /data --console-address ":9001"
     environment:
@@ -215,6 +217,10 @@ services:
       # (ari_manager) or the outbound campaign loop (campaign_orchestrator).
       ENABLE_ARI_MANAGER: "${ENABLE_ARI_MANAGER:-true}"
       ENABLE_CAMPAIGN_ORCHESTRATOR: "${ENABLE_CAMPAIGN_ORCHESTRATOR:-true}"
+
+      # Scrape /api/v1/metrics on each worker's own port. See deploy/observability.
+      ENABLE_PROMETHEUS_METRICS: "${ENABLE_PROMETHEUS_METRICS:-false}"
+      DOGRAH_DEVOPS_SECRET: "${DOGRAH_DEVOPS_SECRET:-}"
 
       # Trust X-Forwarded-* headers from any peer so uvicorn honors nginx's
       # `X-Forwarded-Proto: https`. nginx runs as its own container and reaches

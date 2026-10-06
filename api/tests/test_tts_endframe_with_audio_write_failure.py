@@ -155,7 +155,7 @@ async def create_test_pipeline_with_failing_transport(
     # Create pipeline task
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
 
-    engine.set_task(task)
+    engine.call_worker = task
 
     return engine, tts, transport, task
 
@@ -217,10 +217,12 @@ class TestTTSPauseWithAudioWriteFailure:
             ):
 
                 async def end_call_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
 
                     # Start LLM generation - this will trigger TTS
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Sleep so that processing is paused in TTS Service
                     await asyncio.sleep(0.1)
@@ -333,9 +335,11 @@ class TestTTSPauseWithAudioWriteFailure:
             ):
 
                 async def end_call_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
 
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Sleep so that processing is paused in TTS Service
                     await asyncio.sleep(0.1)

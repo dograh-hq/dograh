@@ -57,7 +57,8 @@
               "configurations/api-keys",
               "configurations/agent-uuid",
               "configurations/interruption",
-              "configurations/tracing"
+              "configurations/tracing",
+              "configurations/call-events"
             ]
           },
           {
@@ -76,6 +77,7 @@
                     "group": "Built-in Tools",
                     "pages": [
                       "voice-agent/tools/call-transfer",
+                      "voice-agent/tools/transfer-agent",
                       "voice-agent/tools/end-call"
                     ]
                   },
@@ -115,6 +117,7 @@
               "integrations/telephony/plivo",
               "integrations/telephony/telnyx",
               "integrations/telephony/cloudonix",
+              "integrations/telephony/exotel",
               "integrations/telephony/vobiz",
               "integrations/telephony/asterisk-ari",
               "integrations/telephony/vicidial",

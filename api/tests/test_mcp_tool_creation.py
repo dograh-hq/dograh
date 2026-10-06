@@ -147,6 +147,7 @@ async def test_mcp_create_tool_schema_includes_validation_and_llm_hints():
         "http_api",
         "end_call",
         "transfer_call",
+        "transfer_agent",
         "calculator",
         "native",
         "integration",

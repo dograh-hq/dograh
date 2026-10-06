@@ -10,10 +10,9 @@ import { toast } from 'sonner';
 import {
     createCampaignApiV1CampaignCreatePost,
     getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet,
-    getWorkflowsSummaryApiV1WorkflowSummaryGet,
     listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet
 } from '@/client/sdk.gen';
-import type { TelephonyConfigurationListItem, WorkflowSummaryResponse } from '@/client/types.gen';
+import type { TelephonyConfigurationListItem, TrafficVariantRequest } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -26,10 +25,12 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 
 import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../CampaignAdvancedSettings';
 import CsvUploadSelector from '../CsvUploadSelector';
+import TrafficSplitEditor, { trafficSplitError } from '../TrafficSplitEditor';
 
 export default function NewCampaignPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
@@ -37,16 +38,12 @@ export default function NewCampaignPage() {
 
     // Form state
     const [campaignName, setCampaignName] = useState('');
-    const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
+    const [variants, setVariants] = useState<TrafficVariantRequest[]>([{ workflow_id: 0, workflow_definition_id: null, weight: 100 }]);
     const [sourceType, setSourceType] = useState<'csv'>('csv');
     const [sourceId, setSourceId] = useState('');
     const [selectedFileName, setSelectedFileName] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [createError, setCreateError] = useState<string | null>(null);
-
-    // Workflows state
-    const [workflows, setWorkflows] = useState<WorkflowSummaryResponse[]>([]);
-    const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(true);
 
     // Telephony configurations state
     const [telephonyConfigs, setTelephonyConfigs] = useState<TelephonyConfigurationListItem[]>([]);
@@ -58,6 +55,7 @@ export default function NewCampaignPage() {
     const [orgConcurrentLimit, setOrgConcurrentLimit] = useState<number>(2);
     const [fromNumbersCount, setFromNumbersCount] = useState<number>(0);
     const [maxConcurrency, setMaxConcurrency] = useState<string>('');
+    const [rateLimitPerSecond, setRateLimitPerSecond] = useState('1');
     // Retry config state
     const [retryEnabled, setRetryEnabled] = useState(true);
     const [maxRetries, setMaxRetries] = useState<string>('2');
@@ -89,31 +87,6 @@ export default function NewCampaignPage() {
             redirectToLogin();
         }
     }, [loading, user, redirectToLogin]);
-
-    // Fetch workflows
-    const fetchWorkflows = useCallback(async () => {
-        if (!user) return;
-        try {
-            const accessToken = await getAccessToken();
-            const response = await getWorkflowsSummaryApiV1WorkflowSummaryGet({
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                },
-                query: {
-                    status: 'active',
-                },
-            });
-
-            if (response.data) {
-                setWorkflows(response.data);
-            }
-        } catch (error) {
-            console.error('Failed to fetch workflows:', error);
-            toast.error('Failed to load workflows');
-        } finally {
-            setIsLoadingWorkflows(false);
-        }
-    }, [user, getAccessToken]);
 
     // Fetch telephony configurations
     const fetchTelephonyConfigs = useCallback(async () => {
@@ -160,11 +133,13 @@ export default function NewCampaignPage() {
                 const last = (response.data as { last_campaign_settings?: {
                     retry_config?: { enabled: boolean; max_retries: number; retry_delay_seconds: number; retry_on_busy: boolean; retry_on_no_answer: boolean; retry_on_voicemail: boolean };
                     max_concurrency?: number | null;
+                    rate_limit_per_second?: number;
                     schedule_config?: { enabled: boolean; timezone: string; slots: TimeSlot[] } | null;
                     circuit_breaker?: { enabled: boolean; failure_threshold: number; window_seconds: number; min_calls_in_window: number } | null;
                 } | null }).last_campaign_settings;
 
                 if (last) {
+                    setRateLimitPerSecond(String(last.rate_limit_per_second ?? 1));
                     // Pre-populate from last campaign
                     if (last.retry_config) {
                         setRetryEnabled(last.retry_config.enabled);
@@ -214,12 +189,11 @@ export default function NewCampaignPage() {
 
     // Initial load
     useEffect(() => {
-        if (user) {
-            fetchWorkflows();
+        if (!loading && user) {
             fetchCampaignDefaults();
             fetchTelephonyConfigs();
         }
-    }, [fetchWorkflows, fetchCampaignDefaults, fetchTelephonyConfigs, user]);
+    }, [fetchCampaignDefaults, fetchTelephonyConfigs, user, loading]);
 
     // Phone-number count for the selected telephony config drives concurrency
     // bounds. Falls back to the campaign-defaults endpoint's count (org default
@@ -229,36 +203,29 @@ export default function NewCampaignPage() {
     );
     const availableFromNumbersCount = selectedTelephonyConfig?.phone_number_count ?? fromNumbersCount;
 
-    // Effective concurrency limit considering both org limit and available CLIs
-    const effectiveLimit = availableFromNumbersCount > 0
-        ? Math.min(orgConcurrentLimit, availableFromNumbersCount)
-        : orgConcurrentLimit;
+    const effectiveLimit = orgConcurrentLimit;
 
     // Handle form submission
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setCreateError(null);
 
-        if (!campaignName || !selectedWorkflowId || !sourceId || !selectedTelephonyConfigId) {
+        if (!campaignName || !!trafficSplitError(variants) || !sourceId || !selectedTelephonyConfigId) {
             toast.error('Please fill in all fields');
             return;
         }
 
-        // Validate max_concurrency if provided
-        const maxConcurrencyValue = maxConcurrency ? parseInt(maxConcurrency) : null;
-        if (maxConcurrencyValue !== null) {
-            if (isNaN(maxConcurrencyValue) || maxConcurrencyValue < 1 || maxConcurrencyValue > 100) {
-                toast.error('Max concurrent calls must be between 1 and 100');
-                return;
-            }
-            if (maxConcurrencyValue > effectiveLimit) {
-                if (availableFromNumbersCount > 0 && availableFromNumbersCount < orgConcurrentLimit) {
-                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. The selected configuration has ${availableFromNumbersCount} phone number(s) - add more CLIs to increase concurrency.`);
-                } else {
-                    toast.error(`Max concurrent calls cannot exceed organization limit (${effectiveLimit})`);
-                }
-                return;
-            }
+        const maxConcurrencyValue = maxConcurrency ? Number(maxConcurrency) : null;
+        if (maxConcurrencyValue !== null && (
+            !Number.isInteger(maxConcurrencyValue) || maxConcurrencyValue < 1 || maxConcurrencyValue > effectiveLimit
+        )) {
+            toast.error(`Max concurrent calls must be between 1 and your organization limit (${effectiveLimit})`);
+            return;
+        }
+        const dialRate = Number(rateLimitPerSecond);
+        if (!Number.isInteger(dialRate) || dialRate < 1 || dialRate > orgConcurrentLimit) {
+            toast.error(`Calls started per second must be between 1 and ${orgConcurrentLimit}`);
+            return;
         }
 
         setIsSubmitting(true);
@@ -297,12 +264,13 @@ export default function NewCampaignPage() {
             const response = await createCampaignApiV1CampaignCreatePost({
                 body: {
                     name: campaignName,
-                    workflow_id: parseInt(selectedWorkflowId),
+                    traffic_split: { variants },
                     source_type: sourceType,
                     source_id: sourceId,
                     telephony_configuration_id: parseInt(selectedTelephonyConfigId),
                     retry_config: retryConfig,
                     max_concurrency: maxConcurrencyValue,
+                    rate_limit_per_second: dialRate,
                     schedule_config: scheduleConfig,
                     circuit_breaker: circuitBreakerConfig,
                 },
@@ -313,8 +281,7 @@ export default function NewCampaignPage() {
 
             if (response.error) {
                 // Extract error message from API response
-                const errorDetail = (response.error as { detail?: string })?.detail;
-                const errorMessage = errorDetail || 'Failed to create campaign';
+                const errorMessage = detailFromError(response.error, 'Failed to create campaign');
                 setCreateError(errorMessage);
                 toast.error(errorMessage);
                 return;
@@ -385,41 +352,7 @@ export default function NewCampaignPage() {
                                 </p>
                             </div>
 
-                            <div className="space-y-2">
-                                <Label htmlFor="workflow">Workflow</Label>
-                                <Select
-                                    value={selectedWorkflowId}
-                                    onValueChange={setSelectedWorkflowId}
-                                    required
-                                >
-                                    <SelectTrigger id="workflow">
-                                        <SelectValue placeholder="Select a workflow" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {isLoadingWorkflows ? (
-                                            <SelectItem value="loading" disabled>
-                                                Loading workflows...
-                                            </SelectItem>
-                                        ) : workflows.length === 0 ? (
-                                            <SelectItem value="none" disabled>
-                                                No workflows found
-                                            </SelectItem>
-                                        ) : (
-                                            workflows.map((workflow) => (
-                                                <SelectItem
-                                                    key={workflow.id}
-                                                    value={workflow.id.toString()}
-                                                >
-                                                    {workflow.name} (#{workflow.id})
-                                                </SelectItem>
-                                            ))
-                                        )}
-                                    </SelectContent>
-                                </Select>
-                                <p className="text-sm text-muted-foreground">
-                                    Select the workflow to execute for each row in the data source
-                                </p>
-                            </div>
+                            <TrafficSplitEditor value={variants} onChange={setVariants} disabled={isSubmitting} />
 
                             <div className="space-y-2">
                                 <Label htmlFor="telephony-config">Telephony Configuration</Label>
@@ -515,7 +448,10 @@ export default function NewCampaignPage() {
                                         onMaxConcurrencyChange={setMaxConcurrency}
                                         effectiveLimit={effectiveLimit}
                                         orgConcurrentLimit={orgConcurrentLimit}
-                                        fromNumbersCount={fromNumbersCount}
+                                        fromNumbersCount={availableFromNumbersCount}
+                                        rateLimitPerSecond={rateLimitPerSecond}
+                                        onRateLimitPerSecondChange={setRateLimitPerSecond}
+                                        outboundBlockedReason={selectedTelephonyConfig?.outbound_blocked_reason}
                                         retryEnabled={retryEnabled}
                                         onRetryEnabledChange={setRetryEnabled}
                                         maxRetries={maxRetries}
@@ -555,7 +491,7 @@ export default function NewCampaignPage() {
                             <div className="flex gap-4 pt-4">
                                 <Button
                                     type="submit"
-                                    disabled={isSubmitting || !campaignName || !selectedWorkflowId || !sourceId || !selectedTelephonyConfigId}
+                                    disabled={isSubmitting || !campaignName || !!trafficSplitError(variants) || !sourceId || !selectedTelephonyConfigId}
                                 >
                                     {isSubmitting ? 'Creating...' : 'Create Campaign'}
                                 </Button>

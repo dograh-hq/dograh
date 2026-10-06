@@ -6,7 +6,7 @@ so this wrapper stays close to the OpenAI realtime shim.
 
 Adds:
 
-- **User-mute audio gating** via ``UserMuteStarted/StoppedFrame``.
+- **Silent audio while muted** via ``UserMuteStarted/StoppedFrame``.
 - **TTSSpeakFrame as initial-response trigger** so the engine's greeting
   flow kicks off the bot's first response.
 - **One-off LLMMessagesAppendFrame handling** for ephemeral realtime prompts
@@ -23,67 +23,40 @@ from typing import Any
 
 from loguru import logger
 
+from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
-    BotStartedSpeakingFrame,
-    BotStoppedSpeakingFrame,
     Frame,
+    FunctionCallFromLLM,
     LLMFullResponseStartFrame,
     LLMMessagesAppendFrame,
     TranscriptionFrame,
-    TTSSpeakFrame,
-    UserMuteStartedFrame,
-    UserMuteStoppedFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
-from pipecat.services.llm_service import FunctionCallFromLLM
 from pipecat.services.xai.realtime import events
 from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
 from pipecat.utils.time import time_now_iso8601
 
 
-class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
+class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMService):
     """Grok Realtime with Dograh engine integration quirks."""
+
+    _workflow_tools_follow_voice_response = False
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._user_is_muted: bool = False
-        self._handled_initial_context: bool = False
-        self._bot_is_speaking: bool = False
-        self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
+        # A recorded greeting can open the conversation before the API session
+        # is ready; its seed then waits for session.updated. Kept separate from
+        # the text-greeting slot because the transcript may be None while the
+        # open itself is still pending.
+        self._pending_prerecorded_greeting: tuple[str | None] | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
-        if isinstance(frame, UserMuteStartedFrame):
-            self._user_is_muted = True
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, UserMuteStoppedFrame):
-            self._user_is_muted = False
-            await self.push_frame(frame, direction)
-            return
-        if isinstance(frame, TTSSpeakFrame):
-            if not self._handled_initial_context:
-                greeting_text = frame.text.strip() if frame.text else ""
-                if greeting_text:
-                    await self._handle_initial_greeting(self._context, greeting_text)
-                else:
-                    await self._handle_context(self._context)
-            else:
-                logger.warning(
-                    f"{self}: TTSSpeakFrame after initial context already "
-                    "handled — Grok Realtime owns audio generation, ignoring"
-                )
-            return
         if isinstance(frame, LLMMessagesAppendFrame):
             await self._handle_messages_append(frame)
             return
-        if isinstance(frame, BotStartedSpeakingFrame):
-            self._bot_is_speaking = True
-        elif isinstance(frame, BotStoppedSpeakingFrame):
-            self._bot_is_speaking = False
-            await self._run_pending_node_transition_function_calls()
         await super().process_frame(frame, direction)
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
@@ -113,13 +86,11 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         if frame.run_llm and appended_any:
             await self._send_manual_response_create()
 
-    async def _handle_context(self, context: LLMContext):
+    async def _handle_context(self, context: LLMContext | None):
+        if context is None:
+            logger.warning(f"{self}: received context trigger before context was set")
+            return
         if not self._handled_initial_context:
-            if context is None:
-                logger.warning(
-                    f"{self}: received initial context trigger before context was set"
-                )
-                return
             self._handled_initial_context = True
             self._context = context
             await self._create_response()
@@ -127,7 +98,9 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
 
-    async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
+    async def _handle_initial_greeting(
+        self, context: LLMContext | None, greeting_text: str
+    ):
         if context is None:
             logger.warning(
                 f"{self}: received initial greeting trigger before context was set"
@@ -164,8 +137,42 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         await self.send_client_event(evt)
         await self._send_manual_response_create()
 
+    async def _open_after_prerecorded_greeting(self, transcript: str | None):
+        """Configure the session and seed the greeting, without a response.
+
+        The greeting is sent as its own assistant item rather than through the
+        context: the realtime adapter only passes a lone *user* message
+        through untouched, and packs anything else into a synthetic "this is a
+        previously saved conversation" user turn that ends by telling the model
+        to say it is ready to continue.
+        """
+        if self._disconnecting:
+            return
+
+        if not self._api_session_ready:
+            self._pending_prerecorded_greeting = (transcript,)
+            return
+
+        self._pending_prerecorded_greeting = None
+        await self._ensure_conversation_setup()
+        if not transcript:
+            return
+
+        evt = events.ConversationItemCreateEvent(
+            item=events.ConversationItem(
+                type="message",
+                role="assistant",
+                content=[events.ItemContent(type="output_text", text=transcript)],
+            )
+        )
+        self._messages_added_manually[evt.item.id] = True
+        await self.send_client_event(evt)
+
     async def _ensure_conversation_setup(self):
         if not self._llm_needs_conversation_setup:
+            return
+        if self._context is None:
+            logger.warning(f"{self}: cannot set up conversation without context")
             return
 
         adapter = self.get_llm_adapter()
@@ -179,6 +186,9 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         self._llm_needs_conversation_setup = False
 
     async def _handle_evt_session_updated(self, evt):
+        session_id = getattr(getattr(evt, "session", None), "id", None)
+        if session_id:
+            self._session_id = session_id
         self._api_session_ready = True
         if self._pending_initial_greeting_text is not None:
             greeting_text = self._pending_initial_greeting_text
@@ -187,14 +197,13 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
         elif self._run_llm_when_api_session_ready:
             self._run_llm_when_api_session_ready = False
             await self._create_response()
-
-    async def _send_user_audio(self, frame):
-        if self._user_is_muted:
-            return
-        await super()._send_user_audio(frame)
+        elif self._pending_prerecorded_greeting is not None:
+            await self._open_after_prerecorded_greeting(
+                *self._pending_prerecorded_greeting
+            )
 
     def _message_to_conversation_item(
-        self, message: dict[str, Any]
+        self, message: Any
     ) -> events.ConversationItem | None:
         if not isinstance(message, dict):
             logger.warning(
@@ -252,19 +261,20 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
             )
         )
 
-    async def _run_pending_node_transition_function_calls(self):
-        if not self._deferred_node_transition_function_calls:
-            return
-        function_calls = self._deferred_node_transition_function_calls
-        self._deferred_node_transition_function_calls = []
-        logger.debug(
-            f"{self}: executing {len(function_calls)} deferred workflow-control "
-            "call(s) after bot turn ended"
+    async def _handle_evt_response_created(self, evt):
+        self._workflow_tool_deferral.begin_response(collecting=True)
+        await super()._handle_evt_response_created(evt)
+
+    async def _handle_evt_response_done(self, evt):
+        await super()._handle_evt_response_done(evt)
+        await self._workflow_tool_deferral.complete_response(
+            evt.response.id,
+            speaking=self._workflow_bot_is_speaking,
+            succeeded=evt.response.status == "completed",
         )
-        await self.run_function_calls(function_calls)
 
     async def _handle_evt_function_call_arguments_done(self, evt):
-        """Run ordinary tools immediately and defer workflow-control calls."""
+        """Only a response's sole workflow-control call may wait for playback."""
         try:
             args = json.loads(evt.arguments)
 
@@ -282,16 +292,14 @@ class DograhGrokRealtimeLLMService(GrokRealtimeLLMService):
                     )
                 ]
 
-                is_node_transition = self._function_is_node_transition(function_name)
-                if self._bot_is_speaking and is_node_transition:
-                    self._deferred_node_transition_function_calls.extend(function_calls)
-                    logger.debug(
-                        f"{self}: deferring workflow-control call {function_name} "
-                        "until bot stops speaking"
-                    )
-                else:
-                    await self.run_function_calls(function_calls)
-                    logger.debug(f"Processed function call: {function_name}")
+                self._workflow_tool_deferral.select_response(
+                    self._current_response_id, collecting=True
+                )
+                await self._workflow_tool_deferral.submit(
+                    function_calls,
+                    speaking=self._workflow_bot_is_speaking,
+                    dispatch=self.run_function_calls,
+                )
             else:
                 logger.warning(
                     f"No tracked function call found for call_id: {evt.call_id}"

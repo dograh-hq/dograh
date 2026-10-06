@@ -23,6 +23,7 @@ interface LiveModeProps {
 interface HistoricalModeProps {
     mode: "historical";
     logs: WorkflowRunLogs | null;
+    toolResults?: unknown;
 }
 
 type RealtimeFeedbackProps = LiveModeProps | HistoricalModeProps;
@@ -35,9 +36,9 @@ export function RealtimeFeedback(props: RealtimeFeedbackProps) {
     let autoScroll = false;
 
     if (props.mode === "historical") {
-        items = props.logs?.realtime_feedback_events
-            ? conversationItemsFromRealtimeFeedbackEvents(props.logs.realtime_feedback_events)
-            : [];
+        items = conversationItemsFromRealtimeFeedbackEvents(
+            props.logs?.realtime_feedback_events ?? [], props.toolResults,
+        );
         status = "ended";
         title = "Call Transcript";
         emptyState = {

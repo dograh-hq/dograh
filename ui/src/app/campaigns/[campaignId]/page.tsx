@@ -31,6 +31,8 @@ import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
 import { useAuth } from '@/lib/auth';
 import { formatDate, formatDateTime } from '@/lib/dateTime';
 
+import CampaignTrafficStats from '../CampaignTrafficStats';
+
 export default function CampaignDetailPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
     const organizationTimezone = useOrganizationTimezone();
@@ -71,7 +73,7 @@ export default function CampaignDetailPage() {
 
     // Fetch campaign details
     const fetchCampaign = useCallback(async () => {
-        if (!user) return;
+        if (loading || !user) return;
         setIsLoadingCampaign(true);
         try {
             const accessToken = await getAccessToken();
@@ -93,7 +95,7 @@ export default function CampaignDetailPage() {
         } finally {
             setIsLoadingCampaign(false);
         }
-    }, [user, getAccessToken, campaignId]);
+    }, [user, loading, getAccessToken, campaignId]);
 
     // Initial load
     useEffect(() => {
@@ -103,13 +105,6 @@ export default function CampaignDetailPage() {
     // Handle back navigation
     const handleBack = () => {
         router.push('/campaigns');
-    };
-
-    // Handle workflow link click
-    const handleWorkflowClick = () => {
-        if (campaign) {
-            router.push(`/workflow/${campaign.workflow_id}`);
-        }
     };
 
     // Handle CSV download
@@ -591,6 +586,8 @@ export default function CampaignDetailPage() {
                     </div>
                 </div>
 
+                <CampaignTrafficStats campaign={campaign} />
+
                 {/* Campaign Details */}
                 <Card className="mb-6">
                     <CardHeader>
@@ -601,17 +598,6 @@ export default function CampaignDetailPage() {
                     </CardHeader>
                     <CardContent>
                         <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <dt className="text-sm font-medium">Workflow</dt>
-                                <dd className="mt-1">
-                                    <button
-                                        onClick={handleWorkflowClick}
-                                        className="text-blue-600 hover:text-blue-800 hover:underline"
-                                    >
-                                        {campaign.workflow_name}
-                                    </button>
-                                </dd>
-                            </div>
                             <div>
                                 <dt className="text-sm font-medium">Source Type</dt>
                                 <dd className="mt-1 capitalize">{campaign.source_type.replace('-', ' ')}</dd>

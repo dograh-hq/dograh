@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, call
 import pytest
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
-from pipecat.frames.frames import LLMMessagesAppendFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    BotStoppedSpeakingFrame,
+    LLMMessagesAppendFrame,
+    TTSSpeakFrame,
+)
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from websockets.exceptions import ConnectionClosedError
@@ -222,22 +226,20 @@ async def test_node_transition_invocation_waits_for_response_end():
     )
 
     service.run_function_calls.assert_not_awaited()
-    assert service._deferred_node_transition_tool_invocations == [
-        (
-            "transition_to_next_node",
-            "call-transition",
-            {"reason": "pricing"},
-        )
+    assert [call.function_name for call in service._workflow_tool_deferral.pending] == [
+        "transition_to_next_node"
     ]
 
     await service._handle_response_end()
+    service.run_function_calls.assert_not_awaited()
+    await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
 
     service.run_function_calls.assert_awaited_once()
     function_call = service.run_function_calls.await_args.args[0][0]
     assert function_call.function_name == "transition_to_next_node"
     assert function_call.tool_call_id == "call-transition"
     assert function_call.arguments == {"reason": "pricing"}
-    assert service._deferred_node_transition_tool_invocations == []
+    assert service._workflow_tool_deferral.pending == []
     assert service._bot_responding is None
 
 
@@ -250,7 +252,7 @@ async def test_ordinary_tool_invocation_runs_while_response_is_active():
     await service._handle_tool_invocation("lookup_price", "call-lookup", {})
 
     service.run_function_calls.assert_awaited_once()
-    assert service._deferred_node_transition_tool_invocations == []
+    assert service._workflow_tool_deferral.pending == []
 
 
 def test_ultravox_requires_transition_context_aggregation():

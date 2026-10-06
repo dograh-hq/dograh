@@ -109,7 +109,7 @@ async def run_pipeline_with_tool_calls(
     # Create a real pipeline task
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
 
-    engine.set_task(task)
+    engine.call_worker = task
 
     # Patch DB calls to avoid actual database access
     with patch(

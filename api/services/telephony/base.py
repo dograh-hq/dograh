@@ -104,15 +104,11 @@ class NormalizedInboundData:
     from_country: Optional[str] = None  # Country code of caller
     to_country: Optional[str] = None  # Country code of called number
     raw_data: Dict[str, Any] = field(default_factory=dict)  # Original webhook data
-
-
-@dataclass
-class AnsweringMachineDetectionResult:
-    """Standardized answering-machine detection result across providers."""
-
-    call_id: str
-    answered_by: str
-    raw_data: Dict[str, Any] = field(default_factory=dict)
+    # Caller-side SIP identifier, distinct from the provider's call_id.
+    sip_call_id: Optional[str] = None
+    # Normalized forwarded headers for diagnostics. Keep these in inbound logs;
+    # consumers must select which headers may be exported to third parties.
+    sip_headers: Dict[str, str] = field(default_factory=dict)
 
 
 class TelephonyProvider(ABC):
@@ -303,23 +299,6 @@ class TelephonyProvider(ABC):
                 - extra: Provider-specific additional data
         """
         pass
-
-    def supports_answering_machine_detection(self) -> bool:
-        """Return whether this provider can request answering-machine detection."""
-        return False
-
-    def apply_answering_machine_detection_call_params(
-        self,
-        data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Add provider-specific AMD parameters to an outbound call request."""
-        return data
-
-    def parse_answering_machine_detection_result(
-        self, data: Dict[str, Any]
-    ) -> Optional[AnsweringMachineDetectionResult]:
-        """Parse provider-specific callback data into a normalized AMD result."""
-        return None
 
     def get_sip_connectivity_details(self) -> SIPConnectivityDetails | None:
         """Return inbound SIP trunk details when this provider supports them.
@@ -567,6 +546,10 @@ class TelephonyProvider(ABC):
             ValueError: If provider configuration is invalid
         """
         pass
+
+    def supports_transfer_introduction(self) -> bool:
+        """Whether both legs can play introduction audio before being bridged."""
+        return False
 
     @abstractmethod
     def supports_transfers(self) -> bool:

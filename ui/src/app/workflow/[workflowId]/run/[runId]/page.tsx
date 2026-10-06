@@ -11,6 +11,8 @@ import {
     Loader2,
     Pause,
     Play,
+    RotateCcw,
+    RotateCw,
     UserRound,
     Video,
 } from 'lucide-react';
@@ -31,6 +33,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConversationRailFrame, RealtimeFeedback, WorkflowRunLogs } from '@/components/workflow/conversation';
+import { conversationItemsFromRealtimeFeedbackEvents } from '@/components/workflow/conversation/adapters/fromRealtimeFeedback';
 import { PostHogEvent } from '@/constants/posthog-events';
 import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
 import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
@@ -60,7 +63,18 @@ interface WorkflowRunResponse {
 
 const RUN_SHELL_HEIGHT_CLASS = "h-[calc(100svh-49px)] min-h-[calc(100svh-49px)] max-h-[calc(100svh-49px)]";
 const WAVEFORM_BAR_COUNT = 96;
+const PLAYBACK_SKIP_SECONDS = 10;
 type SplitTrackPlaybackMode = 'both' | 'user' | 'bot';
+
+// play() rejects with AbortError when a later pause() interrupts it; whatever paused it owns playback now.
+function isPlaybackInterrupted(error: unknown) {
+    return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function formatPlaybackTime(seconds: number) {
+    const wholeSeconds = Math.floor(seconds);
+    return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`;
+}
 
 function formatDuration(seconds?: number | null) {
     if (seconds == null || Number.isNaN(seconds)) return 'N/A';
@@ -74,7 +88,8 @@ function getTranscriptMetrics(logs: WorkflowRunLogs | null, gatheredContext: Rec
     const events = logs?.realtime_feedback_events ?? [];
     const userTurns = events.filter((event) => event.type === 'rtf-user-transcription' && event.payload.final).length;
     const botTurns = events.filter((event) => event.type === 'rtf-bot-text').length;
-    const toolCalls = events.filter((event) => event.type === 'rtf-function-call-end').length;
+    const toolCalls = conversationItemsFromRealtimeFeedbackEvents(events, gatheredContext?.tool_results)
+        .filter((item) => item.kind === 'tool-call' && item.status !== 'running').length;
     const nodeNames = new Set(
         events
             .map((event) => event.payload.node_name)
@@ -238,7 +253,7 @@ function SplitTracksSection({
     });
     const [isLoading, setIsLoading] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
-    const [progress, setProgress] = useState(0);
+    const [timeline, setTimeline] = useState({ duration: 0, currentTime: 0 });
     const [playbackMode, setPlaybackMode] = useState<SplitTrackPlaybackMode>('both');
 
     const getPlaybackAudios = (mode: SplitTrackPlaybackMode) => {
@@ -265,7 +280,7 @@ function SplitTracksSection({
         setSignedUrls({ user: null, bot: null });
         setPeaks({ user: null, bot: null });
         setIsPlaying(false);
-        setProgress(0);
+        setTimeline({ duration: 0, currentTime: 0 });
         setPlaybackMode('both');
         setIsLoading(true);
 
@@ -321,9 +336,7 @@ function SplitTracksSection({
                 activeAudios.push(botAudioRef.current);
             }
 
-            const { duration, currentTime } = getAudioTimelineState(activeAudios);
-
-            setProgress(duration > 0 ? Math.min(1, currentTime / duration) : 0);
+            setTimeline(getAudioTimelineState(activeAudios));
             frameId = window.requestAnimationFrame(updateProgress);
         };
 
@@ -337,13 +350,57 @@ function SplitTracksSection({
         setIsPlaying(false);
     };
 
+    const updateTimeline = () => {
+        setTimeline(getAudioTimelineState(getPlaybackAudios(playbackMode)));
+    };
+
+    const seekTo = async (time: number) => {
+        const activeAudios = getPlaybackAudios(playbackMode);
+        const { duration } = getAudioTimelineState(activeAudios);
+        if (!canSeek || duration <= 0) return;
+
+        const nextTime = Math.max(0, Math.min(time, duration));
+        // Keep the inactive track aligned too, so switching tracks preserves the seek.
+        getPlaybackAudios('both').forEach((audio) => syncAudioCurrentTime(audio, nextTime));
+        setTimeline({ duration, currentTime: nextTime });
+
+        if (nextTime >= duration) {
+            pauseTracks();
+            return;
+        }
+
+        if (!isPlaying) return;
+
+        try {
+            await Promise.all(activeAudios.map((audio) => {
+                if (nextTime >= getAudioDuration(audio)) {
+                    audio.pause();
+                    return;
+                }
+                // Seeking backward may bring a shorter, already-ended track back into range.
+                if (audio.paused) return audio.play();
+            }));
+        } catch (error) {
+            if (isPlaybackInterrupted(error)) return;
+            pauseTracks();
+            console.error('Error seeking split tracks:', error);
+        }
+    };
+
+    const skipPlayback = (offset: number) => {
+        const { currentTime } = getAudioTimelineState(getPlaybackAudios(playbackMode));
+        void seekTo(currentTime + offset);
+    };
+
     const handleTrackEnded = () => {
         const activeAudios = getPlaybackAudios(playbackMode);
-        const activeTracksDone = activeAudios.length > 0 && activeAudios.every((audio) => audio.ended);
+        const activeTracksDone = activeAudios.length > 0 && activeAudios.every(
+            (audio) => audio.ended || (getAudioDuration(audio) > 0 && audio.currentTime >= audio.duration)
+        );
 
         if (activeTracksDone) {
             setIsPlaying(false);
-            setProgress(1);
+            updateTimeline();
         }
     };
 
@@ -359,7 +416,7 @@ function SplitTracksSection({
         botAudioRef.current?.pause();
         nextAudios.forEach((audio) => syncAudioCurrentTime(audio, startTime));
         setPlaybackMode(nextMode);
-        setProgress(duration > 0 ? Math.min(1, startTime / duration) : 0);
+        setTimeline({ duration, currentTime: startTime });
 
         if (!isPlaying) return;
 
@@ -369,9 +426,12 @@ function SplitTracksSection({
         }
 
         try {
-            await Promise.all(nextAudios.map((audio) => audio.play()));
+            await Promise.all(nextAudios
+                .filter((audio) => !getAudioDuration(audio) || startTime < audio.duration)
+                .map((audio) => audio.play()));
             setIsPlaying(true);
         } catch (error) {
+            if (isPlaybackInterrupted(error)) return;
             pauseTracks();
             console.error('Error switching split track playback:', error);
         }
@@ -397,11 +457,15 @@ function SplitTracksSection({
         userAudioRef.current?.pause();
         botAudioRef.current?.pause();
         playbackAudios.forEach((audio) => syncAudioCurrentTime(audio, startTime));
+        setTimeline({ duration, currentTime: startTime });
 
         try {
-            await Promise.all(playbackAudios.map((audio) => audio.play()));
+            await Promise.all(playbackAudios
+                .filter((audio) => !getAudioDuration(audio) || startTime < audio.duration)
+                .map((audio) => audio.play()));
             setIsPlaying(true);
         } catch (error) {
+            if (isPlaybackInterrupted(error)) return;
             pauseTracks();
             console.error('Error playing split tracks:', error);
         }
@@ -413,7 +477,10 @@ function SplitTracksSection({
             : playbackMode === 'user'
                 ? Boolean(signedUrls.user)
                 : Boolean(signedUrls.bot);
-    const progressPercent = Math.round(progress * 1000) / 10;
+    const canSeek = canPlay && timeline.duration > 0 && getPlaybackAudios(playbackMode)
+        .every((audio) => getAudioDuration(audio) > 0);
+    const currentTime = Math.min(timeline.currentTime, timeline.duration);
+    const progressPercent = timeline.duration > 0 ? (currentTime / timeline.duration) * 100 : 0;
     const userTrackActive = playbackMode !== 'bot';
     const botTrackActive = playbackMode !== 'user';
     const playbackTargetLabel = playbackMode === 'both' ? 'split tracks' : `${playbackMode} track`;
@@ -426,6 +493,8 @@ function SplitTracksSection({
                 preload="metadata"
                 className="hidden"
                 onEnded={handleTrackEnded}
+                onLoadedMetadata={updateTimeline}
+                onDurationChange={updateTimeline}
             />
             <audio
                 ref={botAudioRef}
@@ -433,6 +502,8 @@ function SplitTracksSection({
                 preload="metadata"
                 className="hidden"
                 onEnded={handleTrackEnded}
+                onLoadedMetadata={updateTimeline}
+                onDurationChange={updateTimeline}
             />
             <CardHeader className="pb-3">
                 <CardTitle className="text-lg">Split Tracks</CardTitle>
@@ -499,18 +570,7 @@ function SplitTracksSection({
                         </Button>
                     </div>
                 </div>
-                <div className="flex items-center gap-4">
-                    <Button
-                        type="button"
-                        size="icon"
-                        variant={isPlaying ? 'default' : 'outline'}
-                        onClick={togglePlayback}
-                        disabled={!canPlay}
-                        aria-label={isPlaying ? `Pause ${playbackTargetLabel}` : `Play ${playbackTargetLabel}`}
-                        className="h-10 w-10 shrink-0"
-                    >
-                        {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                    </Button>
+                <div className="space-y-3">
                     <div className="relative h-36 min-w-0 flex-1 overflow-hidden rounded-lg border border-border/70 bg-background">
                         <div className="absolute left-3 right-3 top-1/2 h-px bg-border/80" />
                         <WaveformLane peaks={peaks.user} track="user" position="top" isActive={userTrackActive} />
@@ -529,6 +589,65 @@ function SplitTracksSection({
                                 Loading
                             </div>
                         )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <span className="min-w-10 text-xs tabular-nums text-muted-foreground">
+                            {formatPlaybackTime(currentTime)}
+                        </span>
+                        <input
+                            type="range"
+                            min={0}
+                            max={timeline.duration || 1}
+                            step={0.1}
+                            value={currentTime}
+                            onChange={(event) => void seekTo(Number(event.target.value))}
+                            disabled={!canSeek}
+                            aria-label="Playback position"
+                            aria-valuetext={`${formatPlaybackTime(currentTime)} of ${formatPlaybackTime(timeline.duration)}`}
+                            className="h-5 min-w-0 flex-1 cursor-pointer accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        />
+                        <span className="min-w-10 text-right text-xs tabular-nums text-muted-foreground">
+                            {formatPlaybackTime(timeline.duration)}
+                        </span>
+                    </div>
+                    <div className="flex items-center justify-center gap-3" role="group" aria-label="Playback controls">
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => skipPlayback(-PLAYBACK_SKIP_SECONDS)}
+                            disabled={!canSeek || currentTime <= 0}
+                            aria-label={`Skip backward ${PLAYBACK_SKIP_SECONDS} seconds`}
+                            title={`Skip backward ${PLAYBACK_SKIP_SECONDS} seconds`}
+                            className="gap-1.5"
+                        >
+                            <RotateCcw className="h-4 w-4" />
+                            {PLAYBACK_SKIP_SECONDS}s
+                        </Button>
+                        <Button
+                            type="button"
+                            size="icon"
+                            variant={isPlaying ? 'default' : 'outline'}
+                            onClick={togglePlayback}
+                            disabled={!canPlay}
+                            aria-label={isPlaying ? `Pause ${playbackTargetLabel}` : `Play ${playbackTargetLabel}`}
+                            className="h-10 w-10 shrink-0"
+                        >
+                            {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => skipPlayback(PLAYBACK_SKIP_SECONDS)}
+                            disabled={!canSeek || currentTime >= timeline.duration}
+                            aria-label={`Skip forward ${PLAYBACK_SKIP_SECONDS} seconds`}
+                            title={`Skip forward ${PLAYBACK_SKIP_SECONDS} seconds`}
+                            className="gap-1.5"
+                        >
+                            <RotateCw className="h-4 w-4" />
+                            {PLAYBACK_SKIP_SECONDS}s
+                        </Button>
                     </div>
                 </div>
             </CardContent>
@@ -877,7 +996,11 @@ export default function WorkflowRunPage() {
 
                 <div className="h-full min-h-0 w-[420px] shrink-0 border-l border-border bg-background p-5">
                     <ConversationRailFrame className="h-full">
-                        <RealtimeFeedback mode="historical" logs={workflowRun?.logs ?? null} />
+                        <RealtimeFeedback
+                            mode="historical"
+                            logs={workflowRun?.logs ?? null}
+                            toolResults={workflowRun?.gathered_context?.tool_results}
+                        />
                     </ConversationRailFrame>
                 </div>
             </div>

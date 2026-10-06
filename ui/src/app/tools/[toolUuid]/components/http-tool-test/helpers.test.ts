@@ -89,6 +89,7 @@ describe("buildHttpToolTestSnapshot", () => {
         presetParameters: [],
         bodyTemplateEnabled: false,
         bodyTemplate: null,
+        bodyFormat: "json",
         timeoutMs: 5000,
         customMessage: "",
         customMessageType: "text",
@@ -123,6 +124,9 @@ describe("buildHttpToolTestSnapshot", () => {
         );
         expect(buildHttpToolTestSnapshot(base)).not.toBe(
             buildHttpToolTestSnapshot({ ...base, bodyTemplateEnabled: true })
+        );
+        expect(buildHttpToolTestSnapshot(base)).not.toBe(
+            buildHttpToolTestSnapshot({ ...base, bodyFormat: "form" })
         );
     });
 });

@@ -25,6 +25,7 @@ produce values outside this catalog. Those are learned per workflow by
 from pipecat.utils.enums import EndTaskReason
 
 from api.enums import TelephonyCallStatus
+from api.services.workflow.answer_handling import ANSWER_TERMINAL_REASONS
 from api.services.workflow.disposition_extraction import DEFAULT_DISPOSITION_CODES
 
 # Keep this derived directly from the enum so every pipeline disposition is
@@ -47,6 +48,7 @@ SYSTEM_DISPOSITION_CODES: tuple[str, ...] = tuple(
     # future Pipecat reason or telephony status adopts a business-outcome name.
     dict.fromkeys(
         END_TASK_REASON_DISPOSITION_CODES
+        + ANSWER_TERMINAL_REASONS
         + _TELEPHONY_DISPOSITIONS
         + DEFAULT_DISPOSITION_CODES
     )

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import httpx
 import pytest
 
@@ -16,6 +18,51 @@ class _Response:
 
     def json(self):
         return self._payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry_type", [None, "purchase", "credit"])
+async def test_credit_ledger_forwards_filters_with_organization_auth(
+    monkeypatch, entry_type
+):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(200, json={"ledger_entries": []})
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        mps_client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: async_client(
+            transport=httpx.MockTransport(handle),
+            **kwargs,
+        ),
+    )
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(mps_client_module, "DOGRAH_MPS_SECRET_KEY", "mps-secret")
+    filters = (
+        dict(
+            entry_type=entry_type,
+            start_date=datetime(2026, 6, 1, tzinfo=UTC),
+            end_date=datetime(2026, 7, 1, tzinfo=UTC),
+        )
+        if entry_type
+        else {}
+    )
+    client = MPSServiceKeyClient()
+    await client.get_credit_ledger(organization_id=42, page=2, limit=25, **filters)
+    assert requests[0].headers["X-Organization-Id"] == "42"
+    assert requests[0].headers["X-Secret-Key"] == "mps-secret"
+    expected = {"page": "2", "limit": "25"}
+    if entry_type:
+        expected.update(
+            entry_type=entry_type,
+            start_date="2026-06-01T00:00:00+00:00",
+            end_date="2026-07-01T00:00:00+00:00",
+        )
+    assert dict(requests[0].url.params) == expected
 
 
 @pytest.mark.asyncio

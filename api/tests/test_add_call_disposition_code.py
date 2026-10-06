@@ -6,7 +6,6 @@ When SQLAlchemy compares old vs new on commit, it sees them as equal
 because the old value was already mutated — so the change is silently dropped.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -44,7 +43,7 @@ def client():
         return c
 
 
-def test_disposition_code_new_value_is_not_same_reference(client):
+async def test_disposition_code_new_value_is_not_same_reference(client):
     """The assigned list must NOT be the same object as the original.
 
     If it is, SQLAlchemy won't detect the change because old == new
@@ -67,9 +66,7 @@ def test_disposition_code_new_value_is_not_same_reference(client):
 
     client.async_session = MagicMock(return_value=mock_session)
 
-    asyncio.get_event_loop().run_until_complete(
-        client.add_call_disposition_code(workflow_id=1, disposition_code="new_code")
-    )
+    await client.add_call_disposition_code(workflow_id=1, disposition_code="new_code")
 
     # Verify the disposition code was added
     assigned = workflow.call_disposition_codes

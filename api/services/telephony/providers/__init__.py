@@ -15,4 +15,5 @@ from api.services.telephony.providers import (  # noqa: F401  -- import for side
     twilio,
     vobiz,
     vonage,
+    whatsapp,
 )

@@ -69,6 +69,7 @@ class WorkflowRunMode(Enum):
     CLOUDONIX = "cloudonix"
     EXOTEL = "exotel"
     TELNYX = "telnyx"
+    WHATSAPP = "whatsapp"
     WEBRTC = "webrtc"
     SMALLWEBRTC = "smallwebrtc"
     TEXTCHAT = "textchat"
@@ -105,6 +106,7 @@ WORKFLOW_RUN_MODES_BY_CHANNEL: dict[str, tuple[str, ...]] = {
         WorkflowRunMode.CLOUDONIX.value,
         WorkflowRunMode.EXOTEL.value,
         WorkflowRunMode.TELNYX.value,
+        WorkflowRunMode.WHATSAPP.value,
         WorkflowRunMode.STASIS.value,
         WorkflowRunMode.VOICE.value,
     ),

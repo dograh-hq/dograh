@@ -4,6 +4,14 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
   output: 'standalone',
+  // Skip type-checking and linting during Docker builds to prevent OOM kills.
+  // Type checking is handled separately in CI (tsc --noEmit) and local development.
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   experimental: {
     serverSourceMaps: true,
   },

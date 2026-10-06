@@ -79,6 +79,7 @@ DOGRAH_DEVOPS_SECRET = os.getenv("DOGRAH_DEVOPS_SECRET") or None
 ENABLE_PROMETHEUS_METRICS = (
     os.getenv("ENABLE_PROMETHEUS_METRICS", "false").lower() == "true"
 )
+WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN") or None
 
 # Storage Configuration
 ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"

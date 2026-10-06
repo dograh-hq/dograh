@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 from google.auth.credentials import AnonymousCredentials
 from openai import NotGiven as OpenAINotGiven
+from pipecat.services.google.vertex.llm import GoogleVertexLLMService
 from pydantic import ValidationError
 
 from api.schemas.ai_model_configuration import (
@@ -48,6 +49,11 @@ def _config(provider, **overrides):
 
 @pytest.fixture(autouse=True)
 def anonymous_vertex_credentials(monkeypatch):
+    monkeypatch.setattr(
+        GoogleVertexLLMService,
+        "_get_credentials",
+        staticmethod(lambda *_: AnonymousCredentials()),
+    )
     monkeypatch.setattr(
         DograhGoogleVertexLLMService,
         "_get_credentials",

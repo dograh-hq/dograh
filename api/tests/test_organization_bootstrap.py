@@ -30,6 +30,18 @@ def _byok_config() -> OrganizationAIModelConfigurationV2:
 
 
 @pytest.fixture(autouse=True)
+def catalog(monkeypatch):
+    """Catalog provisioning is independent; prevent tests from touching a DB."""
+    from api.services.configuration import model_configuration_migration
+
+    mock = AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        model_configuration_migration, "ensure_organization_model_catalog", mock
+    )
+    return mock
+
+
+@pytest.fixture(autouse=True)
 def sentinel(monkeypatch):
     """Bootstrap sentinel row; absent by default. Autouse so no test hits the DB."""
     state = SimpleNamespace(row=None)
@@ -105,7 +117,7 @@ def upsert(monkeypatch):
 async def test_completed_sentinel_short_circuits(
     sentinel, config, lease, mps, upsert, sip
 ):
-    """The settled case must cost one read and touch nothing else."""
+    """The old sentinel skips service provisioning, independently of the catalog."""
     sentinel.row = SimpleNamespace(value={"status": LEASE_COMPLETED})
 
     assert await bootstrap.ensure_organization_bootstrapped(
@@ -305,3 +317,54 @@ async def test_billing_failure_does_not_discard_the_model_configuration(
     lease.complete.assert_awaited_once_with(
         ORG_ID, bootstrap._BOOTSTRAP_KEY, LEASE_OWNER_TOKEN
     )
+
+
+@pytest.mark.asyncio
+async def test_old_completed_sentinel_still_initializes_catalog(
+    sentinel, config, lease, mps, catalog
+):
+    sentinel.row = SimpleNamespace(value={"status": LEASE_COMPLETED})
+    assert await bootstrap.ensure_organization_bootstrapped(
+        ORG_ID, created_by=CREATED_BY
+    )
+    catalog.assert_awaited_once_with(ORG_ID)
+    mps.assert_not_awaited()
+    lease.claim.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_catalog_failure_retries_despite_old_completed_sentinel(
+    sentinel, config, lease, mps, catalog
+):
+    sentinel.row = SimpleNamespace(value={"status": LEASE_COMPLETED})
+    catalog.side_effect = [RuntimeError("private-db-error"), True]
+    assert not await bootstrap.ensure_organization_bootstrapped(
+        ORG_ID, created_by=CREATED_BY
+    )
+    assert await bootstrap.ensure_organization_bootstrapped(
+        ORG_ID, created_by=CREATED_BY
+    )
+    assert catalog.await_count == 2
+    mps.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_existing_catalog_default_is_not_reimported(
+    monkeypatch, sentinel, config, lease, mps, catalog
+):
+    monkeypatch.setattr(
+        bootstrap.db_client,
+        "get_configuration",
+        AsyncMock(
+            side_effect=lambda org_id, key: SimpleNamespace(
+                value={"status": LEASE_COMPLETED}
+                if key == bootstrap._BOOTSTRAP_KEY
+                else "existing-config-uuid"
+            )
+        ),
+    )
+    assert await bootstrap.ensure_organization_bootstrapped(
+        ORG_ID, created_by=CREATED_BY
+    )
+    catalog.assert_not_awaited()
+    mps.assert_not_awaited()

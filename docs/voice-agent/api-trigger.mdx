@@ -21,7 +21,7 @@ When you add an API Trigger node to your workflow, Dograh assigns it a unique UU
 
 You can copy either URL from the trigger node's settings dialog.
 
-```
+```text
 POST https://your-dograh-instance/api/v1/public/agent/{uuid}        # Production
 POST https://your-dograh-instance/api/v1/public/agent/test/{uuid}   # Test
 ```
@@ -49,7 +49,7 @@ The request body, headers, and response shape are identical for both URLs.
 
 ## Making a request
 
-Authenticate by passing your API key in the `X-API-Key` header. The request body requires a `phone_number` and accepts optional `initial_context`, `telephony_configuration_id`, and `from_phone_number_id` fields.
+Authenticate by passing your API key in the `X-API-Key` header. The request body requires a `phone_number` and accepts optional `initial_context`, `telephony_configuration_id`, `from_phone_number_id`, and `model_overrides` fields.
 
 <CodeGroup>
 ```bash Production URL
@@ -100,7 +100,8 @@ A successful request returns a `workflow_run_id` that you can use to [retrieve r
 | `400` | Telephony provider not configured, or call failed to initiate |
 | `401` | Missing or invalid API key |
 | `403` | API key does not have access to this agent |
-| `404` | Trigger not found or not active |
+| `404` | Trigger not found, inactive, or a referenced model configuration or provider connection is unavailable in your organization |
+| `422` | Invalid or incompatible model overrides |
 
 ## Initial context
 
@@ -157,6 +158,65 @@ For a pre-recorded greeting, pass the recording's string ID from the Recordings 
 Dograh renders a text override after Pre-Call Data Fetch completes, so the override can reference variables returned by the fetch. The override follows the same playback restrictions as a saved greeting. In particular, static text greetings are not spoken by realtime speech-to-speech models; use an audio override for those configurations.
 
 Pre-Call Data Fetch can also return `greeting_override`. Because fetched context is applied after trigger context, a valid fetched override replaces one supplied by the trigger.
+
+## Choosing models for one call
+
+Create provider connections and named model configurations on the **Model Configurations** page. Copy their UUIDs to select them in `model_overrides`. Referenced configurations and connections must be active and belong to the trigger's organization.
+
+This request selects a saved setup and customizes its LLM temperature and TTS voice:
+
+```json
+{
+  "phone_number": "+14155550100",
+  "model_overrides": {
+    "model_configuration_uuid": "11111111-1111-4111-8111-111111111111",
+    "llm": {
+      "settings": {
+        "temperature": 0.2
+      }
+    },
+    "tts": {
+      "settings": {
+        "voice": "default"
+      }
+    }
+  }
+}
+```
+
+Replace the example UUID with your configuration UUID and choose a voice supported by its TTS provider. Omit `model_configuration_uuid` to customize the setup already selected by the workflow.
+
+To select another connection for one service, provide that service's `provider_connection_uuid`:
+
+```json
+{
+  "phone_number": "+14155550100",
+  "model_overrides": {
+    "llm": {
+      "provider_connection_uuid": "22222222-2222-4222-8222-222222222222",
+      "settings": {
+        "model": "gpt-4.1-mini",
+        "temperature": 0.2
+      }
+    }
+  }
+}
+```
+
+This example assumes the selected LLM connection uses OpenAI. Keep credentials, endpoints, cloud project IDs, and regions in the provider connection; they cannot be supplied through `settings`.
+
+The order of precedence is **organization default → workflow override → API override → pre-call data fetch override**:
+
+- Selecting a named configuration starts from that entire saved setup, replacing earlier model choices and parameter changes. Explicit settings in the same override apply afterward.
+- Selecting another connection for the same provider preserves that service's parameters. Selecting a different provider starts that service from the new provider's defaults and your explicit settings.
+- Settings-only overrides change individual fields. Omitted fields inherit; `temperature: null` requests the provider default. `embeddings: null` disables embeddings only when the workflow does not require indexed-document retrieval.
+- Overrides affect this run. They do not edit saved configurations or workflows.
+
+For realtime mode, the setup must include a realtime connection and a separate text LLM. Pipeline mode requires LLM, STT, and TTS. Multiple Dograh connections may be saved, but the active Dograh services within one run must share a service key.
+
+Dograh completes pre-call fetch, resolves all overrides, validates the final setup locally, and checks billing and quota **before dialing**. Invalid settings or references stop the call; validation does not contact model providers to test credentials. Prepared calls retain their selected settings and credentials even if you later edit a saved configuration.
+
+Keep `model_overrides` outside `initial_context`. See [Pre-Call Data Fetch](/voice-agent/pre-call-data-fetch) for selecting models from your own endpoint.
 
 ## Choosing a telephony configuration and caller ID
 

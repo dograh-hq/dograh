@@ -26,6 +26,7 @@ from api.services.configuration.registry import (
     ServiceType,
 )
 from api.services.configuration.temperature import resolve_temperature
+from api.services.pipecat.fallback_llm import FallbackLLMProcessor
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
@@ -1132,6 +1133,9 @@ def create_llm_service_from_provider(
     project_id: str | None = None,
     location: str | None = None,
     credentials: str | None = None,
+    fallback_model: str | None = None,
+    fallback_location: str | None = None,
+    fallback_after_ms: int = 1500,
     temperature: float | None | NotGiven = NOT_GIVEN,
     bill_to: str | None = None,
     provider_order: list[str] | None = None,
@@ -1228,27 +1232,53 @@ def create_llm_service_from_provider(
             ),
             **kwargs,
         )
-    elif provider == ServiceProviders.GOOGLE.value:
-        model = _migrate_deprecated_google_model(model)
-        return DograhGoogleLLMService(
-            api_key=api_key,
-            settings=GoogleLLMSettings(
-                model=model,
-                **sampling_settings,
-                # Pipecat executes tools; the SDK should return their calls.
-                extra={"automatic_function_calling": {"disable": True}},
-            ),
+    elif provider in (
+        ServiceProviders.GOOGLE.value,
+        ServiceProviders.GOOGLE_VERTEX.value,
+    ):
+        is_vertex = provider == ServiceProviders.GOOGLE_VERTEX.value
+        fallback_model = (fallback_model or "").strip() or model
+        if not is_vertex:
+            model = _migrate_deprecated_google_model(model)
+            fallback_model = _migrate_deprecated_google_model(fallback_model)
+        backup_location = (fallback_location or "").strip() or vertex_location
+        enabled = fallback_model != model or (
+            is_vertex and backup_location != vertex_location
         )
-    elif provider == ServiceProviders.GOOGLE_VERTEX.value:
-        return DograhGoogleVertexLLMService(
-            credentials=credentials,
-            project_id=project_id,
-            location=vertex_location,
-            settings=GoogleVertexLLMSettings(
-                model=model,
-                **sampling_settings,
-                extra={"automatic_function_calling": {"disable": True}},
-            ),
+        service_class = (
+            DograhGoogleVertexLLMService if is_vertex else DograhGoogleLLMService
+        )
+        settings_class = GoogleVertexLLMSettings if is_vertex else GoogleLLMSettings
+
+        def build_service(request_model: str, request_location: str | None):
+            connection = (
+                {
+                    "credentials": credentials,
+                    "project_id": project_id,
+                    "location": request_location,
+                }
+                if is_vertex
+                else {"api_key": api_key}
+            )
+            return service_class(
+                **connection,
+                # The composite owns the request tasks and the ordered queue.
+                **({"enable_direct_mode": True} if enabled else {}),
+                settings=settings_class(
+                    model=request_model,
+                    **sampling_settings,
+                    # Pipecat executes tools; the SDK should return their calls.
+                    extra={"automatic_function_calling": {"disable": True}},
+                ),
+            )
+
+        primary = build_service(model, vertex_location)
+        if not enabled:
+            return primary
+        return FallbackLLMProcessor(
+            primary,
+            build_service(fallback_model, backup_location),
+            fallback_after_secs=fallback_after_ms / 1000,
         )
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:
@@ -1563,6 +1593,28 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         )
 
 
+def get_llm_runtime_configuration(llm_config) -> dict:
+    """Describe the resolved LLM and its fallback without credentials."""
+    configuration = {
+        "llm_provider": llm_config.provider,
+        "llm_model": llm_config.model,
+    }
+    if llm_config.provider in (
+        ServiceProviders.GOOGLE.value,
+        ServiceProviders.GOOGLE_VERTEX.value,
+    ):
+        configuration.update(
+            llm_fallback_model=getattr(llm_config, "fallback_model", None),
+            llm_fallback_after_ms=getattr(llm_config, "fallback_after_ms", 1500),
+        )
+        if llm_config.provider == ServiceProviders.GOOGLE_VERTEX.value:
+            configuration.update(
+                llm_location=llm_config.location,
+                llm_fallback_location=getattr(llm_config, "fallback_location", None),
+            )
+    return configuration
+
+
 def create_llm_service(
     user_config,
     correlation_id: str | None = None,
@@ -1601,6 +1653,19 @@ def create_llm_service(
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.SARVAM.value:
         kwargs["base_url"] = getattr(user_config.llm, "base_url", None)
+
+    if provider in (
+        ServiceProviders.GOOGLE.value,
+        ServiceProviders.GOOGLE_VERTEX.value,
+    ):
+        kwargs["fallback_model"] = getattr(user_config.llm, "fallback_model", None)
+        kwargs["fallback_after_ms"] = getattr(
+            user_config.llm, "fallback_after_ms", 1500
+        )
+        if provider == ServiceProviders.GOOGLE_VERTEX.value:
+            kwargs["fallback_location"] = getattr(
+                user_config.llm, "fallback_location", None
+            )
 
     return create_llm_service_from_provider(
         provider,

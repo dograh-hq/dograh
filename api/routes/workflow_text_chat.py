@@ -115,7 +115,10 @@ async def _ensure_text_chat_quota(
         actor_user=user,
     )
     if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
+        raise HTTPException(
+            status_code=getattr(quota_result, "status_code", 402),
+            detail=quota_result.error_message,
+        )
 
 
 async def _load_text_session_or_404(

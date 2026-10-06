@@ -117,7 +117,7 @@ class OrganizationAIModelConfigurationV2(BaseModel):
 class OrganizationAIModelConfigurationResponse(BaseModel):
     configuration: dict | None
     effective_configuration: dict
-    source: Literal["organization_v2", "legacy_user_v1", "empty"]
+    source: Literal["organization_v3", "organization_v2", "legacy_user_v1", "empty"]
 
 
 def compile_ai_model_configuration_v2(

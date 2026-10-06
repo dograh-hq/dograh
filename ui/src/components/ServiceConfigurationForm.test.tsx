@@ -76,6 +76,45 @@ const temperatureDefaults: ServiceConfigurationDefaults = {
     tts: {}, stt: {}, embeddings: {}, default_providers: { llm: "openrouter" },
 };
 
+describe("Gemini fallback", () => {
+    const fallbackDefaults: ServiceConfigurationDefaults = {
+        llm: { google_vertex: { properties: {
+            provider: { default: "google_vertex" },
+            model: { type: "string", default: "gemini-3.5-flash" },
+            location: { type: "string", default: "eu" },
+            fallback_model: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
+            fallback_location: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
+            fallback_after_ms: { type: "integer", default: 1500, minimum: 300, maximum: 10000 },
+        } } },
+        tts: {}, stt: {}, embeddings: {}, default_providers: { llm: "google_vertex" },
+    };
+
+    it.each(["global", "override"] as const)("saves fallback fields in %s configuration", async mode => {
+        const onSave = vi.fn();
+        render(<ServiceConfigurationForm mode={mode} configurationDefaults={fallbackDefaults}
+            currentOverrides={{ llm: { provider: "google_vertex", model: "gemini-3.5-flash" } }} onSave={onSave} />);
+        const delay = await screen.findByPlaceholderText("Enter fallback_after_ms") as HTMLInputElement;
+        expect(delay.type).toBe("number");
+        expect(delay.min).toBe("300");
+        expect(delay.max).toBe("10000");
+        expect(delay.step).toBe("1");
+        fireEvent.change(delay, { target: { value: "900" } });
+        fireEvent.change(screen.getByPlaceholderText("Enter fallback_location"), { target: { value: "global" } });
+        fireEvent.change(screen.getByPlaceholderText("Enter fallback_model"), { target: { value: "gemini-3.1-flash-lite" } });
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+        const saved = mode === "global" ? onSave.mock.calls[0][0] : onSave.mock.calls[0][0].model_overrides;
+        expect(saved.llm).toMatchObject({ fallback_after_ms: 900, fallback_location: "global", fallback_model: "gemini-3.1-flash-lite" });
+    });
+
+    it.each([299, 10001, 1500.5])("rejects an invalid delay of %s in the browser", async value => {
+        render(<ServiceConfigurationForm mode="global" configurationDefaults={fallbackDefaults} onSave={vi.fn()} />);
+        const delay = await screen.findByPlaceholderText("Enter fallback_after_ms") as HTMLInputElement;
+        fireEvent.change(delay, { target: { value: String(value) } });
+        expect(delay.checkValidity()).toBe(false);
+    });
+});
+
 describe("LLM temperature", () => {
     it.each([0, 0.73, null])("saves %s without replacing zero or a cleared value", async temperature => {
         const onSave = vi.fn();

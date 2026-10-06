@@ -125,6 +125,33 @@ class UserConfigurationValidator:
 
         return {"status": [{"model": "all", "message": "ok"}]}
 
+    def validate_connection(
+        self,
+        service_config: ServiceConfig,
+        organization_id: int | None = None,
+        created_by: str | None = None,
+    ) -> None:
+        """Validate a saved connection, checking every key in its pool.
+
+        The existing provider checks are synchronous; callers must run this
+        method in a worker thread rather than block an async request handler.
+        """
+        self._dograh_service_key_validation_cache.clear()
+        self._auth_context = {
+            "organization_id": organization_id,
+            "created_by": created_by,
+        }
+        keys = service_config.get_all_api_keys()
+        selections = (
+            [service_config.model_copy(update={"api_key": key}) for key in keys]
+            if keys
+            else [service_config]
+        )
+        for selection in selections:
+            errors = self._validate_service(selection, "connection")
+            if errors:
+                raise ValueError("; ".join(error["message"] for error in errors))
+
     def _validate_service(
         self,
         service_config: Optional[ServiceConfig],

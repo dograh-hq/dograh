@@ -966,6 +966,18 @@ async def publish_workflow(
     if draft is None:
         raise HTTPException(status_code=400, detail="No draft to publish")
 
+    model_override = (draft.workflow_configurations or {}).get(
+        "model_configuration_override"
+    )
+    if model_override is not None:
+        from api.services.configuration.model_connections import (
+            resolve_model_configuration,
+        )
+
+        await resolve_model_configuration(
+            user.selected_organization_id, workflow_override=model_override
+        )
+
     errors = await _validate_workflow_definition(
         draft.workflow_json,
         organization_id=user.selected_organization_id,
@@ -1229,7 +1241,7 @@ async def update_workflow(
         # exclude_unset keeps stored configs sparse: keys the request didn't
         # send stay absent so runtime defaults keep applying to them.
         workflow_configurations = (
-            request.workflow_configurations.model_dump(exclude_unset=True)
+            request.workflow_configurations.model_dump(mode="json", exclude_unset=True)
             if request.workflow_configurations is not None
             else None
         )
@@ -1243,7 +1255,35 @@ async def update_workflow(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ExternalPBXConfigurationDisabledError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
-        if workflow_configurations and workflow_configurations.get(
+        from api.services.configuration.workflow_model_configuration import (
+            adapt_legacy_workflow_model_configuration,
+        )
+
+        workflow_configurations = await adapt_legacy_workflow_model_configuration(
+            organization_id=user.selected_organization_id,
+            workflow_id=workflow_id,
+            workflow_configurations=workflow_configurations,
+            database=db_client,
+        )
+        if (
+            workflow_configurations
+            and workflow_configurations.get("model_configuration_override") is not None
+        ):
+            from api.services.configuration.model_connections import (
+                resolve_model_configuration,
+            )
+
+            await resolve_model_configuration(
+                user.selected_organization_id,
+                workflow_override=workflow_configurations[
+                    "model_configuration_override"
+                ],
+            )
+            workflow_configurations.pop(
+                WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY, None
+            )
+            workflow_configurations.pop("model_overrides", None)
+        elif workflow_configurations and workflow_configurations.get(
             WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
         ):
             existing_workflow = await db_client.get_workflow(

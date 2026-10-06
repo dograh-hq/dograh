@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Utilities for masking API keys before they are sent to the client.
 
 The rules are simple:
@@ -8,6 +6,8 @@ The rules are simple:
    the already-stored key, we treat them as *unchanged* and keep the real value
    in storage.
 """
+
+from __future__ import annotations
 
 import copy
 from typing import Any, Dict, Optional
@@ -151,11 +151,17 @@ def mask_user_config(config: EffectiveAIModelConfiguration) -> Dict[str, Any]:
 
 
 def mask_workflow_configurations(config: Optional[Dict]) -> Optional[Dict]:
-    """Mask secret fields inside workflow-level model overrides for API responses."""
+    """Expose active settings, masking secrets on unmigrated model overrides."""
     if not config:
         return config
 
     masked = copy.deepcopy(config)
+    if masked.get("model_configuration_override") is not None:
+        # Retired values remain in storage for audit. Do not make clients edit,
+        # validate, or round-trip them after the catalog binding is authoritative.
+        masked.pop("model_overrides", None)
+        masked.pop("model_configuration_v2_override", None)
+        return masked
     model_overrides = masked.get("model_overrides")
     if isinstance(model_overrides, dict):
         for section in MODEL_OVERRIDE_FIELDS:

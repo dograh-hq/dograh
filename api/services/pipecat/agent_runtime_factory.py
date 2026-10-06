@@ -18,6 +18,7 @@ from typing import Any, Callable
 from loguru import logger
 
 from api.db import db_client
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.agent_generation_processor import (
     AgentGenerationProcessor,
@@ -31,6 +32,7 @@ from api.services.pipecat.recording_router_processor import RecordingRouterProce
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_tts_service,
+    get_llm_runtime_configuration,
 )
 from api.services.workflow.agent_runtime import AgentRuntime, new_visit_id
 from api.services.workflow.dto import ReactFlowDTO
@@ -78,6 +80,7 @@ class AgentRuntimeFactory:
         on_agent_error: Callable[[AgentRuntime, Any], Any] | None = None,
         use_draft: bool = False,
         observers: list[BaseObserver] | None = None,
+        prepared_model_configuration: EffectiveAIModelConfiguration | None = None,
     ):
         self._on_agent_error = on_agent_error
         self._use_draft = use_draft
@@ -90,6 +93,7 @@ class AgentRuntimeFactory:
         self._has_recordings = has_recordings
         self._mps_correlation_id = mps_correlation_id
         self._observers = observers
+        self._prepared_model_configuration = prepared_model_configuration
 
     @property
     def organization_id(self) -> int:
@@ -148,10 +152,46 @@ class AgentRuntimeFactory:
             get_effective_ai_model_configuration_for_workflow,
         )
 
-        user_config = await get_effective_ai_model_configuration_for_workflow(
-            organization_id=self._organization_id,
-            workflow_configurations=run_configs,
-        )
+        if self._prepared_model_configuration is None:
+            user_config = await get_effective_ai_model_configuration_for_workflow(
+                organization_id=self._organization_id,
+                workflow_configurations=run_configs,
+            )
+        else:
+            from fastapi import HTTPException
+
+            from api.services.configuration.model_connections import (
+                resolve_model_configuration,
+            )
+            from api.services.configuration.run_model_configuration import (
+                get_workflow_model_override,
+                validate_workflow_model_compatibility,
+            )
+            from api.services.managed_model_services import get_dograh_service_api_key
+
+            run_key = get_dograh_service_api_key(self._prepared_model_configuration)
+            try:
+                resolved = await resolve_model_configuration(
+                    self._organization_id,
+                    workflow_override=await get_workflow_model_override(
+                        self._organization_id, run_configs
+                    ),
+                    preferred_dograh_key=run_key,
+                )
+                user_config = resolved.effective
+                if get_dograh_service_api_key(user_config) and not run_key:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Transfer cannot introduce an unauthorized Dograh service key.",
+                    )
+                await validate_workflow_model_compatibility(
+                    self._organization_id, user_config, definition
+                )
+            except (HTTPException, ValueError) as exc:
+                raise AgentBuildError(
+                    "destination_model_configuration_invalid",
+                    "The destination model configuration is incompatible with this call's authorization.",
+                ) from exc
 
         if user_config.is_realtime and user_config.realtime is not None:
             # A realtime destination is a different pipeline shape, not a
@@ -221,12 +261,16 @@ class AgentRuntimeFactory:
             recording_router=recording_router,
             user_config=user_config,
             runtime_configuration={
-                "stt_provider": user_config.stt.provider,
-                "stt_model": user_config.stt.model,
+                # Recognition remains on the shared call pipeline on transfer.
+                "stt_provider": (
+                    self._prepared_model_configuration or user_config
+                ).stt.provider,
+                "stt_model": (
+                    self._prepared_model_configuration or user_config
+                ).stt.model,
                 "tts_provider": user_config.tts.provider,
                 "tts_model": user_config.tts.model,
-                "llm_provider": user_config.llm.provider,
-                "llm_model": user_config.llm.model,
+                **get_llm_runtime_configuration(user_config.llm),
             },
             is_child=True,
             entered_at=None,

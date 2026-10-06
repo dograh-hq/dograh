@@ -533,8 +533,36 @@ class HopperLLMConfiguration(BaseChatLLMConfiguration):
     )
 
 
+class GeminiFallbackConfiguration(BaseChatLLMConfiguration):
+    fallback_model: str | None = Field(
+        default=None,
+        description=(
+            "Optional backup Gemini model on the same platform and credentials. "
+            "Starts if the primary is slow or fails before output. "
+            "Leave blank to keep the primary model. Evaluate your workflow on a "
+            "different model before enabling it."
+        ),
+    )
+    fallback_after_ms: int = Field(
+        default=1500,
+        ge=300,
+        le=10000,
+        description=(
+            "Milliseconds without model output before starting the backup. "
+            "The first request to produce output serves the turn. Only active "
+            "when a different fallback model or Vertex location is configured. "
+            "Each backup request can incur additional usage charges."
+        ),
+    )
+
+    @field_validator("fallback_model", mode="before")
+    @classmethod
+    def normalize_fallback_model(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+
 @register_llm
-class GoogleLLMService(BaseChatLLMConfiguration):
+class GoogleLLMService(GeminiFallbackConfiguration):
     temperature: float | None = temperature_field("google", 0.1)
     model_config = GOOGLE_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
@@ -546,7 +574,7 @@ class GoogleLLMService(BaseChatLLMConfiguration):
 
 
 @register_llm
-class GoogleVertexLLMConfiguration(BaseChatLLMConfiguration):
+class GoogleVertexLLMConfiguration(GeminiFallbackConfiguration):
     temperature: float | None = temperature_field("google_vertex", 0.1)
     model_config = GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE_VERTEX] = ServiceProviders.GOOGLE_VERTEX
@@ -581,6 +609,16 @@ class GoogleVertexLLMConfiguration(BaseChatLLMConfiguration):
         ),
         json_schema_extra={"multiline": True},
     )
+    fallback_location: str | None = Field(
+        default=None,
+        description=(
+            "Optional backup Vertex location using the same project and credentials. "
+            "Leave blank to keep the primary location. A backup in 'global' can "
+            "process requests outside the EU or US even when the primary stays "
+            "there. Model availability varies by location."
+        ),
+    )
+
     api_key: str | list[str] | None = Field(
         default=None,
         description=(
@@ -588,6 +626,11 @@ class GoogleVertexLLMConfiguration(BaseChatLLMConfiguration):
             "in `credentials` (or ADC). Leave blank."
         ),
     )
+
+    @field_validator("fallback_location", mode="before")
+    @classmethod
+    def normalize_fallback_location(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
 
 
 @register_llm

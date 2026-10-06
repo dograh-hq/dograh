@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Optional
 
@@ -7,10 +8,89 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import load_only, selectinload
 
 from api.db.base_client import BaseDBClient
-from api.db.models import WorkflowDefinitionModel, WorkflowModel, WorkflowRunModel
+from api.db.model_connection_client import ModelCatalogNotFound, ModelConnectionClient
+from api.db.models import (
+    NamedModelConfigurationModel,
+    ProviderConnectionModel,
+    WorkflowDefinitionModel,
+    WorkflowModel,
+    WorkflowRunModel,
+)
+
+
+def _retain_legacy_model_audit(incoming: dict, existing: dict | None) -> dict:
+    """Retain retired model payloads when saving an already migrated row.
+
+    The UI sends only active V3 settings. Never replace the original audit
+    values with submitted masks, or reactivate them when inheritance is chosen.
+    """
+    existing = existing or {}
+    if existing.get("model_configuration_override") is None:
+        return incoming
+    result = deepcopy(incoming)
+    for key in ("model_overrides", "model_configuration_v2_override"):
+        if key in existing:
+            result[key] = deepcopy(existing[key])
+        else:
+            result.pop(key, None)
+    if result.get("model_configuration_override") is None:
+        result["model_configuration_override"] = {}
+    return result
 
 
 class WorkflowClient(BaseDBClient):
+    async def _lock_workflow_model_catalog(self, session, workflow_id):
+        """Serialize catalog references with archive and normalization writes."""
+        row = (
+            await session.execute(
+                select(WorkflowModel.id, WorkflowModel.organization_id).where(
+                    WorkflowModel.id == workflow_id
+                )
+            )
+        ).first()
+        if row is None:
+            raise ValueError(f"Workflow with ID {workflow_id} not found")
+        if row.organization_id is not None:
+            await ModelConnectionClient._lock_catalog(
+                self, session, row.organization_id
+            )
+        return row.organization_id
+
+    async def _check_workflow_model_references(
+        self, session, organization_id, configurations
+    ):
+        override = (configurations or {}).get("model_configuration_override")
+        if not override:
+            return
+        if organization_id is None:
+            raise ModelCatalogNotFound("Organization not found")
+        selected = [override]
+        if override.get("model_configuration_uuid"):
+            configuration = await ModelConnectionClient._catalog_row(
+                self,
+                session,
+                NamedModelConfigurationModel,
+                organization_id,
+                override["model_configuration_uuid"],
+            )
+            if configuration is None:
+                raise ModelCatalogNotFound("Model configuration not found")
+            selected.append(configuration.configuration)
+        for configuration in selected:
+            for role in ("llm", "stt", "tts", "realtime", "embeddings"):
+                selection = configuration.get(role)
+                if not selection or "provider_connection_uuid" not in selection:
+                    continue
+                connection = await ModelConnectionClient._catalog_row(
+                    self,
+                    session,
+                    ProviderConnectionModel,
+                    organization_id,
+                    selection["provider_connection_uuid"],
+                )
+                if connection is None:
+                    raise ModelCatalogNotFound("Provider connection not found")
+
     async def get_workflow_definition(
         self, workflow_id: int, definition_id: int, organization_id: int
     ) -> WorkflowDefinitionModel | None:
@@ -161,6 +241,9 @@ class WorkflowClient(BaseDBClient):
         If no draft exists, a new one is created with the next version number.
         """
         async with self.async_session() as session:
+            organization_id = await self._lock_workflow_model_catalog(
+                session, workflow_id
+            )
             # Check for existing draft
             result = await session.execute(
                 select(WorkflowDefinitionModel).where(
@@ -175,7 +258,9 @@ class WorkflowClient(BaseDBClient):
                 if workflow_definition is not None:
                     draft.workflow_json = workflow_definition
                 if workflow_configurations is not None:
-                    draft.workflow_configurations = workflow_configurations
+                    draft.workflow_configurations = _retain_legacy_model_audit(
+                        workflow_configurations, draft.workflow_configurations
+                    )
                 if template_context_variables is not None:
                     draft.template_context_variables = template_context_variables
             else:
@@ -195,7 +280,10 @@ class WorkflowClient(BaseDBClient):
                     workflow_json=workflow_definition
                     if workflow_definition is not None
                     else (published.workflow_json if published else {}),
-                    workflow_configurations=workflow_configurations
+                    workflow_configurations=_retain_legacy_model_audit(
+                        workflow_configurations,
+                        published.workflow_configurations if published else None,
+                    )
                     if workflow_configurations is not None
                     else (published.workflow_configurations if published else {}),
                     template_context_variables=template_context_variables
@@ -207,6 +295,10 @@ class WorkflowClient(BaseDBClient):
                 )
                 session.add(draft)
 
+            await self._check_workflow_model_references(
+                session, organization_id, draft.workflow_configurations
+            )
+
             # Keep legacy columns on workflows table in sync with draft
             wf_result = await session.execute(
                 select(WorkflowModel).where(WorkflowModel.id == workflow_id)
@@ -214,7 +306,9 @@ class WorkflowClient(BaseDBClient):
             workflow = wf_result.scalars().first()
             if workflow:
                 workflow.workflow_definition = draft.workflow_json
-                workflow.workflow_configurations = draft.workflow_configurations
+                workflow.workflow_configurations = _retain_legacy_model_audit(
+                    draft.workflow_configurations, workflow.workflow_configurations
+                )
                 workflow.template_context_variables = draft.template_context_variables
 
             try:
@@ -240,6 +334,9 @@ class WorkflowClient(BaseDBClient):
         - Sets is_current for backward compatibility
         """
         async with self.async_session() as session:
+            organization_id = await self._lock_workflow_model_catalog(
+                session, workflow_id
+            )
             # Find the draft
             result = await session.execute(
                 select(WorkflowDefinitionModel).where(
@@ -250,6 +347,10 @@ class WorkflowClient(BaseDBClient):
             draft = result.scalars().first()
             if not draft:
                 raise ValueError(f"No draft exists for workflow {workflow_id}")
+
+            await self._check_workflow_model_references(
+                session, organization_id, draft.workflow_configurations
+            )
 
             # Archive the current published version
             await session.execute(
@@ -284,7 +385,9 @@ class WorkflowClient(BaseDBClient):
             workflow = wf_result.scalars().first()
             workflow.released_definition_id = draft.id
             workflow.workflow_definition = draft.workflow_json
-            workflow.workflow_configurations = draft.workflow_configurations
+            workflow.workflow_configurations = _retain_legacy_model_audit(
+                draft.workflow_configurations, workflow.workflow_configurations
+            )
             workflow.template_context_variables = draft.template_context_variables
 
             try:
@@ -329,6 +432,9 @@ class WorkflowClient(BaseDBClient):
         Raises ValueError if a draft already exists (must discard first).
         """
         async with self.async_session() as session:
+            organization_id = await self._lock_workflow_model_catalog(
+                session, workflow_id
+            )
             # Ensure no existing draft
             draft_result = await session.execute(
                 select(WorkflowDefinitionModel).where(
@@ -355,6 +461,9 @@ class WorkflowClient(BaseDBClient):
                     f"Version {definition_id} not found for workflow {workflow_id}"
                 )
 
+            await self._check_workflow_model_references(
+                session, organization_id, source.workflow_configurations
+            )
             next_version = await self._next_version_number(session, workflow_id)
 
             # Create new draft from the source snapshot
@@ -843,6 +952,7 @@ class WorkflowClient(BaseDBClient):
             ValueError: If the workflow is not found
         """
         async with self.async_session() as session:
+            await ModelConnectionClient._lock_catalog(self, session, organization_id)
             query = (
                 select(WorkflowModel)
                 .options(
@@ -861,6 +971,20 @@ class WorkflowClient(BaseDBClient):
             if not workflow:
                 raise ValueError(f"Workflow with ID {workflow_id} not found")
 
+            if status == "active":
+                await self._check_workflow_model_references(
+                    session, organization_id, workflow.workflow_configurations
+                )
+                definitions = await session.scalars(
+                    select(WorkflowDefinitionModel.workflow_configurations).where(
+                        WorkflowDefinitionModel.workflow_id == workflow_id,
+                        WorkflowDefinitionModel.status.in_(("draft", "published")),
+                    )
+                )
+                for configuration in definitions:
+                    await self._check_workflow_model_references(
+                        session, organization_id, configuration
+                    )
             workflow.status = status
 
             try:

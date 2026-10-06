@@ -1,6 +1,7 @@
 import type {
     AmbientNoiseConfigurationDefaults,
     CallDispositionOption as GeneratedCallDispositionOption,
+    ModelConfigurationOverride,
     OrganizationAiModelConfigurationV2,
     WorkflowConfigurationDefaults as GeneratedWorkflowConfigurationDefaults,
 } from "@/client/types.gen";
@@ -164,6 +165,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     external_pbx_lead_headers: string[];  // Extra lead fields to capture from the inbound INVITE
     model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
     model_configuration_v2_override?: OrganizationAiModelConfigurationV2;  // Full v2 model configuration override
+    model_configuration_override?: ModelConfigurationOverride | null;  // Named V3 selection; also reads existing per-service overrides
     [key: string]: unknown;  // Allow additional properties for future configurations
 };
 

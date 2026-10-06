@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import Float, cast, func
@@ -50,6 +51,7 @@ class WorkflowRunClient(BaseDBClient):
         definition_id: int | None = None,
         use_draft: bool = False,
         campaign_traffic_split: dict | None = None,
+        model_configuration_overrides: dict | None = None,
     ) -> WorkflowRunModel:
         """Create a run."""
         async with self.async_session() as session:
@@ -92,6 +94,7 @@ class WorkflowRunClient(BaseDBClient):
                 mode=mode,
                 definition_id=definition_id,
                 initial_context=initial_context or {},
+                model_configuration_overrides=model_configuration_overrides,
                 gathered_context=gathered_context or {},
                 logs=logs or {},
                 campaign_id=campaign_id,
@@ -115,6 +118,80 @@ class WorkflowRunClient(BaseDBClient):
                 raise e
             await session.refresh(new_run)
         return new_run
+
+    async def claim_run_model_preparation(
+        self, run_id: int, organization_id: int, *, stale_after_seconds: int = 60
+    ) -> str | None:
+        """Claim one run's setup without holding a DB transaction during HTTP fetch.
+
+        A completed or failed result is terminal. A process that dies while
+        preparing can be retried after its lease expires.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.id == run_id,
+                    WorkflowModel.organization_id == organization_id,
+                )
+                .with_for_update(of=WorkflowRunModel)
+            )
+            run = result.scalar_one_or_none()
+            if run is None:
+                raise ValueError("Workflow run not found")
+            snapshot = run.model_configuration_snapshot or {}
+            if snapshot.get("preparation_state") in {"ready", "failed"}:
+                return None
+            if snapshot.get("preparation_state") == "preparing":
+                started_at = datetime.fromisoformat(snapshot["preparation_started_at"])
+                if started_at > datetime.now(UTC) - timedelta(
+                    seconds=stale_after_seconds
+                ):
+                    return None
+            owner = uuid.uuid4().hex
+            run.model_configuration_snapshot = {
+                "preparation_state": "preparing",
+                "preparation_owner": owner,
+                "preparation_started_at": datetime.now(UTC).isoformat(),
+            }
+            await session.commit()
+            return owner
+
+    async def finish_run_model_preparation(
+        self,
+        run_id: int,
+        organization_id: int,
+        owner: str,
+        *,
+        snapshot: dict,
+        initial_context_patch: dict | None = None,
+    ) -> bool:
+        """Persist a terminal result only if this caller still owns preparation."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.id == run_id,
+                    WorkflowModel.organization_id == organization_id,
+                )
+                .with_for_update(of=WorkflowRunModel)
+            )
+            run = result.scalar_one_or_none()
+            if run is None:
+                raise ValueError("Workflow run not found")
+            current = run.model_configuration_snapshot or {}
+            if current.get("preparation_owner") != owner:
+                return False
+            run.model_configuration_snapshot = snapshot
+            if initial_context_patch:
+                run.initial_context = {
+                    **(run.initial_context or {}),
+                    **initial_context_patch,
+                }
+            await session.commit()
+            return True
 
     async def get_all_workflow_runs(self) -> list[WorkflowRunModel]:
         async with self.async_session() as session:

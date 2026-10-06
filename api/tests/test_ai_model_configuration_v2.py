@@ -216,7 +216,11 @@ async def test_resolved_org_v2_uses_last_validated_at_as_validation_cache(
     monkeypatch.setattr(
         ai_model_configuration.db_client,
         "get_configuration",
-        AsyncMock(return_value=row),
+        AsyncMock(
+            side_effect=lambda org, key: (
+                row if key == "MODEL_CONFIGURATION_V2" else None
+            )
+        ),
     )
 
     resolved = await get_resolved_ai_model_configuration(organization_id=42)
@@ -647,6 +651,9 @@ async def test_migrate_model_configuration_v2_initializes_hosted_mps_billing(
         async def validate(self, *args, **kwargs):
             return {"status": [{"model": "all", "message": "ok"}]}
 
+    monkeypatch.setattr(
+        organization_routes.db_client, "get_configuration", AsyncMock(return_value=None)
+    )
     ensure_billing = AsyncMock(return_value={"billing_mode": "v2"})
     upsert = AsyncMock()
     migrate_workflows = AsyncMock()

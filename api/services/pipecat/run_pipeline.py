@@ -18,6 +18,10 @@ from api.schemas.workflow_configurations import (
 )
 from api.services.call_concurrency import call_concurrency
 from api.services.configuration.registry import ServiceProviders
+from api.services.configuration.run_model_configuration import (
+    has_prepared_model_configuration,
+    merge_run_start_context,
+)
 from api.services.integrations import (
     IntegrationRuntimeContext,
     create_runtime_sessions,
@@ -67,6 +71,7 @@ from api.services.pipecat.service_factory import (
     create_realtime_llm_service,
     create_stt_service,
     create_tts_service,
+    get_llm_runtime_configuration,
     stt_uses_external_turns,
 )
 from api.services.pipecat.termination_funnel_processor import (
@@ -87,7 +92,6 @@ from api.services.workflow.answer_classification_service import (
     AnswerClassificationService,
 )
 from api.services.workflow.dto import ReactFlowDTO
-from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
@@ -410,14 +414,15 @@ async def _run_pipeline_telephony_impl(
     # Resolve effective org config here so the transport can tune its
     # bot-stopped-speaking fallback based on is_realtime; pass the resolved
     # values into _run_pipeline so it doesn't fetch them again.
-    from api.services.configuration.ai_model_configuration import (
-        get_effective_ai_model_configuration_for_workflow,
+    from api.services.configuration.run_model_configuration import (
+        get_effective_ai_model_configuration_for_run,
     )
 
     run_configs = workflow_run.definition.workflow_configurations or {}
-    user_config = await get_effective_ai_model_configuration_for_workflow(
+    user_config = await get_effective_ai_model_configuration_for_run(
         organization_id=workflow.organization_id,
         workflow_configurations=run_configs,
+        workflow_run=workflow_run,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -530,8 +535,8 @@ async def _run_pipeline_smallwebrtc_impl(
     # Resolve workflow_run + effective org config here so the transport can
     # tune its bot-stopped-speaking fallback based on is_realtime. _run_pipeline
     # reuses these via kwargs so we don't fetch twice.
-    from api.services.configuration.ai_model_configuration import (
-        get_effective_ai_model_configuration_for_workflow,
+    from api.services.configuration.run_model_configuration import (
+        get_effective_ai_model_configuration_for_run,
     )
 
     workflow_run = await db_client.get_workflow_run(workflow_run_id, **workflow_scope)
@@ -546,9 +551,10 @@ async def _run_pipeline_smallwebrtc_impl(
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
-    user_config = await get_effective_ai_model_configuration_for_workflow(
+    user_config = await get_effective_ai_model_configuration_for_run(
         organization_id=workflow.organization_id if workflow else None,
         workflow_configurations=run_configs,
+        workflow_run=workflow_run,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -654,13 +660,7 @@ async def _run_pipeline_impl(
     if workflow_run.is_completed:
         raise HTTPException(status_code=400, detail="Workflow run already completed")
 
-    merged_call_context_vars = dict(workflow_run.initial_context or {})
-    # If there is some extra call_context_vars, fold them in. Persistence
-    # happens once below, after runtime_configuration is also resolved.
-    if call_context_vars:
-        merged_call_context_vars = merge_external_initial_context(
-            merged_call_context_vars, call_context_vars
-        )
+    merged_call_context_vars = merge_run_start_context(workflow_run, call_context_vars)
 
     # Use the actual run ID even if persisted context contains a stale value.
     merged_call_context_vars["workflow_run_id"] = workflow_run_id
@@ -707,13 +707,14 @@ async def _run_pipeline_impl(
     # Resolve model overrides from the version onto global org config (skip
     # when the caller already resolved it).
     if resolved_user_config is None:
-        from api.services.configuration.ai_model_configuration import (
-            get_effective_ai_model_configuration_for_workflow,
+        from api.services.configuration.run_model_configuration import (
+            get_effective_ai_model_configuration_for_run,
         )
 
-        user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_config = await get_effective_ai_model_configuration_for_run(
             organization_id=workflow.organization_id,
             workflow_configurations=run_configs,
+            workflow_run=workflow_run,
         )
     else:
         user_config = resolved_user_config
@@ -807,8 +808,7 @@ async def _run_pipeline_impl(
             "stt_model": user_config.stt.model,
             "tts_provider": user_config.tts.provider,
             "tts_model": user_config.tts.model,
-            "llm_provider": user_config.llm.provider,
-            "llm_model": user_config.llm.model,
+            **get_llm_runtime_configuration(user_config.llm),
         }
     merged_call_context_vars = {
         **merged_call_context_vars,
@@ -826,7 +826,8 @@ async def _run_pipeline_impl(
         call_direction = call_direction.value
     call_direction = call_direction or merged_call_context_vars.get("direction")
     if (
-        start_node
+        not has_prepared_model_configuration(workflow_run)
+        and start_node
         and start_node.should_run_pre_call_fetch(call_direction)
         and start_node.pre_call_fetch_url
     ):
@@ -962,9 +963,7 @@ async def _run_pipeline_impl(
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
 
-    voicemail_config = (workflow.workflow_configurations or {}).get(
-        "voicemail_detection", {}
-    )
+    voicemail_config = run_configs.get("voicemail_detection", {})
     answer_supervisor = _create_answer_supervisor(
         voicemail_config,
         is_realtime=is_realtime,
@@ -1197,9 +1196,9 @@ async def _run_pipeline_impl(
         ws_sender=ws_sender,
         logs_buffer=in_memory_logs_buffer,
         selected_visit=lambda: engine.selected_visit_id,
-        call_event_recorder=call_events_session.recorder
-        if call_events_session
-        else None,
+        call_event_recorder=(
+            call_events_session.recorder if call_events_session else None
+        ),
     )
     task.add_observer(feedback_observer)
     engine.greeting.log_generated_speech = feedback_observer.log_speech
@@ -1227,6 +1226,9 @@ async def _run_pipeline_impl(
             on_agent_error=engine.handle_agent_error,
             use_draft=bool(workflow_run.extra.get("use_draft")),
             observers=[feedback_observer],
+            prepared_model_configuration=(
+                user_config if has_prepared_model_configuration(workflow_run) else None
+            ),
         )
         engine.set_agent_factory(agent_factory)
         # The agent this call starts on. Its services were resolved above from

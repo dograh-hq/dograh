@@ -39,6 +39,9 @@ from api.db import db_client
 from api.enums import WorkflowRunMode, WorkflowRunState
 from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
 from api.services.configuration.registry import ServiceProviders
+from api.services.configuration.run_model_configuration import (
+    has_prepared_model_configuration,
+)
 from api.services.pipecat.audio_config import create_audio_config
 from api.services.pipecat.pipeline_builder import create_pipeline_task
 from api.services.pipecat.pipeline_metrics_aggregator import (
@@ -46,7 +49,10 @@ from api.services.pipecat.pipeline_metrics_aggregator import (
 )
 from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
 from api.services.pipecat.recording_audio_cache import create_recording_audio_fetcher
-from api.services.pipecat.service_factory import create_llm_service
+from api.services.pipecat.service_factory import (
+    create_llm_service,
+    get_llm_runtime_configuration,
+)
 from api.services.pipecat.tracing_config import (
     build_remote_parent_context,
     get_trace_url,
@@ -510,13 +516,14 @@ async def execute_text_chat_pending_turn(
     run_definition = workflow_run.definition
     run_configs = run_definition.workflow_configurations or {}
 
-    from api.services.configuration.ai_model_configuration import (
-        get_effective_ai_model_configuration_for_workflow,
+    from api.services.configuration.run_model_configuration import (
+        get_effective_ai_model_configuration_for_run,
     )
 
-    user_config = await get_effective_ai_model_configuration_for_workflow(
+    user_config = await get_effective_ai_model_configuration_for_run(
         organization_id=workflow.organization_id,
         workflow_configurations=run_configs,
+        workflow_run=workflow_run,
     )
     if user_config.llm is None:
         raise ValueError("Text chat requires an LLM configuration")
@@ -557,10 +564,7 @@ async def execute_text_chat_pending_turn(
         else llm
     )
 
-    runtime_configuration = {
-        "llm_provider": user_config.llm.provider,
-        "llm_model": user_config.llm.model,
-    }
+    runtime_configuration = get_llm_runtime_configuration(user_config.llm)
     initial_context = {
         **base_initial_context,
         "workflow_run_id": workflow_run_id,
@@ -582,6 +586,7 @@ async def execute_text_chat_pending_turn(
     start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
     if (
         is_initial_node_opening
+        and not has_prepared_model_configuration(workflow_run)
         and start_node
         and start_node.should_run_pre_call_fetch(None)
         and start_node.pre_call_fetch_url
@@ -929,8 +934,8 @@ async def extract_text_chat_final_variables(
         if not (node and node.extraction_enabled and node.extraction_variables):
             return {}
 
-        from api.services.configuration.ai_model_configuration import (
-            get_effective_ai_model_configuration_for_workflow,
+        from api.services.configuration.run_model_configuration import (
+            get_effective_ai_model_configuration_for_run,
         )
 
         # Route this extraction's spans to the org's Langfuse project, the way
@@ -938,9 +943,10 @@ async def extract_text_chat_final_variables(
         set_current_org_id(organization_id)
 
         run_configs = workflow_run.definition.workflow_configurations or {}
-        user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_config = await get_effective_ai_model_configuration_for_run(
             organization_id=organization_id,
             workflow_configurations=run_configs,
+            workflow_run=workflow_run,
         )
         if user_config.llm is None:
             return {}

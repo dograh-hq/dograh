@@ -48,6 +48,7 @@ def test_update_workflow_rejects_inherited_temperature_before_db_write():
             )
         )
         mock_db.get_draft_version = AsyncMock(return_value=None)
+        mock_db.get_configuration = AsyncMock(return_value=None)
         mock_db.update_workflow = AsyncMock()
         response = client.put(
             "/workflow/33",

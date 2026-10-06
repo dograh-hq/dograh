@@ -46,6 +46,42 @@ async def ensure_organization_bootstrapped(
     *,
     created_by: str,
 ) -> bool:
+    """Provision services and independently import their reusable model catalog.
+
+    A completed old bootstrap sentinel does not suppress catalog provisioning.
+    Catalog import uses the persisted V2 configuration and an organization DB
+    lock; it never issues another service key or changes an existing V3 default.
+    """
+    services_ready = await _ensure_organization_services_bootstrapped(
+        organization_id, created_by=created_by
+    )
+    try:
+        default = await db_client.get_configuration(
+            organization_id, "MODEL_CONFIGURATION_DEFAULT_UUID"
+        )
+        if default is not None and isinstance(default.value, str) and default.value:
+            catalog_ready = True
+        else:
+            from api.services.configuration.model_configuration_migration import (
+                ensure_organization_model_catalog,
+            )
+
+            catalog_ready = await ensure_organization_model_catalog(organization_id)
+    except Exception:  # noqa: BLE001 - authentication must survive provisioning errors
+        # Never log the underlying DB/Pydantic exception: it may include keys.
+        logger.warning(
+            "Failed to initialize model catalog for organization {}; will retry",
+            organization_id,
+        )
+        catalog_ready = False
+    return services_ready and catalog_ready
+
+
+async def _ensure_organization_services_bootstrapped(
+    organization_id: int,
+    *,
+    created_by: str,
+) -> bool:
     """Ensure an organization has its Dograh-managed model services and SIP.
 
     Cheap enough to call on every authenticated request: an organization that

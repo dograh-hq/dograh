@@ -105,6 +105,7 @@ ENGINE_OWNED_CONTEXT_KEYS = frozenset(
         "call_tags",
         "answer_supervisor",
         "tool_results",
+        "llm_fallback_metrics",
         # Telephony persists this before the call; extraction must not replace it.
         "sip_call_id",
     }
@@ -552,6 +553,36 @@ class PipecatEngine:
         )
 
         agent = agent or self.active_agent
+        # Bind retrieval to this visit's resolved setup. A transfer can use a
+        # different embedding connection, and active_agent may change before a
+        # previously registered callback completes.
+        if agent.user_config is not None:
+            from api.services.configuration.ai_model_configuration import (
+                apply_managed_embeddings_base_url,
+            )
+
+            embeddings = agent.user_config.embeddings
+            provider = getattr(embeddings, "provider", None)
+            embedding_settings = {
+                "embeddings_api_key": getattr(embeddings, "api_key", None),
+                "embeddings_model": getattr(embeddings, "model", None),
+                "embeddings_provider": provider,
+                "embeddings_base_url": apply_managed_embeddings_base_url(
+                    provider=provider,
+                    base_url=getattr(embeddings, "base_url", None),
+                ),
+                "embeddings_endpoint": getattr(embeddings, "endpoint", None),
+                "embeddings_api_version": getattr(embeddings, "api_version", None),
+            }
+        else:
+            embedding_settings = {
+                "embeddings_api_key": self._embeddings_api_key,
+                "embeddings_model": self._embeddings_model,
+                "embeddings_base_url": self._embeddings_base_url,
+                "embeddings_provider": self._embeddings_provider,
+                "embeddings_endpoint": self._embeddings_endpoint,
+                "embeddings_api_version": self._embeddings_api_version,
+            }
 
         async def retrieve_kb_func(function_call_params: FunctionCallParams) -> None:
             logger.info("LLM Function Call EXECUTED: retrieve_from_knowledge_base")
@@ -571,12 +602,7 @@ class PipecatEngine:
                     organization_id=organization_id,
                     document_uuids=document_uuids,
                     limit=3,  # Return top 3 most relevant chunks
-                    embeddings_api_key=self._embeddings_api_key,
-                    embeddings_model=self._embeddings_model,
-                    embeddings_base_url=self._embeddings_base_url,
-                    embeddings_provider=self._embeddings_provider,
-                    embeddings_endpoint=self._embeddings_endpoint,
-                    embeddings_api_version=self._embeddings_api_version,
+                    **embedding_settings,
                     correlation_id=self._call_context_vars.get(
                         MPS_CORRELATION_ID_CONTEXT_KEY
                     ),
@@ -2033,7 +2059,22 @@ class PipecatEngine:
         recorders. Still shallow -- nested values are shared -- so treat the
         result as read-only rather than as an isolated snapshot.
         """
-        return self._gathered_context.copy()
+        context = self._gathered_context.copy()
+        fallback_metrics = [
+            visit["llm_fallback_metrics"]
+            for visit in self.agent_visits
+            if "llm_fallback_metrics" in visit
+        ]
+        previous_metrics = context.get("llm_fallback_metrics")
+        if isinstance(previous_metrics, dict):
+            # Text chat restores completed turns into a fresh engine.
+            fallback_metrics.append(previous_metrics)
+        if fallback_metrics:
+            context["llm_fallback_metrics"] = {
+                key: sum(metrics[key] for metrics in fallback_metrics)
+                for key in ("started", "won")
+            }
+        return context
 
     async def _open_mcp_sessions(self, agent: AgentRuntime | None = None) -> None:
         """Connect every MCP-category tool referenced by any workflow node.

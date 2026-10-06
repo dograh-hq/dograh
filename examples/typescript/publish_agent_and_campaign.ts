@@ -103,9 +103,14 @@ async function main(): Promise<void> {
         throw err;
     }
 
-    const published = await client.publishWorkflow(created.id);
+    const published = await client.publishWorkflow(created.id, {
+        body: {
+            version_name: "Greeting update",
+            change_description: "Shortened the greeting to one or two sentences.",
+        },
+    });
     console.log(
-        `Published workflow ${created.id}: version=${published.version_number} status=${published.status}`,
+        `Published workflow ${created.id}: version=${published.version_number} status=${published.status} name=${published.version_name}`,
     );
 
     const runs = await client.listWorkflowRuns(created.id, { limit: 5 });

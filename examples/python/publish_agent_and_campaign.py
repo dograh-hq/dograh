@@ -28,7 +28,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from dograh_sdk import DograhClient, Workflow
-from dograh_sdk._generated_models import CreateCampaignRequest, CreateWorkflowRequest
+from dograh_sdk._generated_models import (
+    CreateCampaignRequest,
+    CreateWorkflowRequest,
+    PublishWorkflowRequest,
+)
 from dograh_sdk.errors import ApiError
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -121,10 +125,16 @@ def main() -> int:
             return 1
         print(f"Validated workflow {created.id}: is_valid={validated.is_valid}")
 
-        published = client.publish_workflow(created.id)
+        published = client.publish_workflow(
+            created.id,
+            body=PublishWorkflowRequest(
+                version_name="Greeting update",
+                change_description="Shortened the greeting to one or two sentences.",
+            ),
+        )
         print(
             f"Published workflow {created.id}: version={published.version_number} "
-            f"status={published.status}"
+            f"status={published.status} name={published.version_name!r}"
         )
 
         runs = client.list_workflow_runs(created.id, limit=5)

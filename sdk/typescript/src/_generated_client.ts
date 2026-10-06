@@ -20,6 +20,8 @@ import type {
     InitiateCallRequest,
     NodeSpec,
     NodeTypesResponse,
+    PublishWorkflowRequest,
+    PublishWorkflowResponse,
     RecordingListResponseSchema,
     ToolResponse,
     UpdateToolRequest,
@@ -29,7 +31,6 @@ import type {
     WorkflowResponse,
     WorkflowRunResponseSchema,
     WorkflowRunsResponse,
-    WorkflowVersionSummaryResponse,
 } from "./_generated_models.js";
 
 export abstract class _GeneratedClient {
@@ -169,9 +170,9 @@ export abstract class _GeneratedClient {
         return this.request<CampaignResponse>("POST", `/campaign/${campaignId}/pause`);
     }
 
-    /** Publish the current draft of a workflow after validation. */
-    async publishWorkflow(workflowId: number): Promise<WorkflowVersionSummaryResponse> {
-        return this.request<WorkflowVersionSummaryResponse>("POST", `/workflow/${workflowId}/publish`);
+    /** Publish the current draft of a workflow after validation. An optional body may set version_name and change_description. */
+    async publishWorkflow(workflowId: number, opts: { body?: PublishWorkflowRequest } = {}): Promise<PublishWorkflowResponse> {
+        return this.request<PublishWorkflowResponse>("POST", `/workflow/${workflowId}/publish`, { json: opts.body });
     }
 
     /** Resume a paused campaign. */

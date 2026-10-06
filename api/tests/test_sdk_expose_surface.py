@@ -5,6 +5,8 @@ intentional; dropping one should fail here before the generated clients
 drift.
 """
 
+from pathlib import Path
+
 from fastapi.openapi.utils import get_openapi
 
 from api.app import app
@@ -78,3 +80,65 @@ def test_create_campaign_rate_limit_is_optional_in_sdk_schema():
         source_id="contacts.csv",
     )
     assert omitted.rate_limit_per_second == 1
+
+
+def _sdk_spec():
+    sdk_routes = [
+        r
+        for r in app.routes
+        if getattr(r, "openapi_extra", None)
+        and "x-sdk-method" in (r.openapi_extra or {})
+    ]
+    return get_openapi(title=app.title, version=app.version, routes=sdk_routes)
+
+
+def test_publish_workflow_keeps_release_notes_on_the_response():
+    """The typed publish response must include the fields the route returns.
+
+    A narrower response model strips them, and clients reading version_name
+    then raise KeyError.
+    """
+    spec = _sdk_spec()
+    op = spec["paths"]["/api/v1/workflow/{workflow_id}/publish"]["post"]
+    response_ref = op["responses"]["200"]["content"]["application/json"]["schema"][
+        "$ref"
+    ]
+    schema = spec["components"]["schemas"][response_ref.rsplit("/", 1)[-1]]
+    assert set(schema["properties"]) >= {
+        "id",
+        "version_number",
+        "status",
+        "published_at",
+        "version_name",
+        "change_description",
+    }
+    body_schema = op["requestBody"]["content"]["application/json"]["schema"]
+    body_refs = [
+        branch["$ref"] for branch in body_schema.get("anyOf", []) if "$ref" in branch
+    ]
+    assert body_refs == ["#/components/schemas/PublishWorkflowRequest"]
+
+
+def test_generated_publish_methods_send_optional_release_notes():
+    repo_root = Path(__file__).resolve().parents[2]
+    python_client = (
+        repo_root / "sdk" / "python" / "src" / "dograh_sdk" / "_generated_client.py"
+    ).read_text()
+    typescript_client = (
+        repo_root / "sdk" / "typescript" / "src" / "_generated_client.ts"
+    ).read_text()
+    assert (
+        "def publish_workflow(self, workflow_id: int, *, "
+        "body: PublishWorkflowRequest | None = None) -> PublishWorkflowResponse:"
+        in python_client
+    )
+    assert (
+        'kwargs["json"] = body.model_dump(mode="json", exclude_none=True)'
+        in python_client
+    )
+    assert (
+        "async publishWorkflow(workflowId: number, "
+        "opts: { body?: PublishWorkflowRequest } = {}): Promise<PublishWorkflowResponse>"
+        in typescript_client
+    )
+    assert "json: opts.body" in typescript_client

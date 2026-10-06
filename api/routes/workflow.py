@@ -860,6 +860,13 @@ class WorkflowVersionSummaryResponse(BaseModel):
     published_at: datetime | None
 
 
+class PublishWorkflowResponse(WorkflowVersionSummaryResponse):
+    """Published version, including the release notes stored on publish."""
+
+    version_name: str | None = None
+    change_description: str | None = None
+
+
 @router.get("/{workflow_id}/version-summaries")
 async def get_workflow_version_summaries(
     workflow_id: int, user: UserModel = Depends(get_user)
@@ -952,14 +959,17 @@ async def update_workflow_version_metadata(
     "/{workflow_id}/publish",
     **sdk_expose(
         method="publish_workflow",
-        description="Publish the current draft of a workflow after validation.",
+        description=(
+            "Publish the current draft of a workflow after validation. "
+            "An optional body may set version_name and change_description."
+        ),
     ),
 )
 async def publish_workflow(
     workflow_id: int,
     request: PublishWorkflowRequest | None = None,
     user: UserModel = Depends(get_user),
-) -> WorkflowVersionSummaryResponse:
+) -> PublishWorkflowResponse:
     """Publish the current draft version of a workflow.
 
     Drafts are allowed to be incomplete (so the editor can save mid-edit),

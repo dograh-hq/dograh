@@ -79,7 +79,7 @@ Methods added for that flow, in addition to `create_workflow`, `update_workflow`
 - Campaigns: `list_campaigns`, `create_campaign`, `get_campaign`, `start_campaign`, `pause_campaign`, `resume_campaign`, `get_campaign_progress`
 - Folders: `list_folders`, `create_folder`
 
-`create_workflow` publishes version 1 immediately. Saving a workflow definition with `save_workflow` / `update_workflow` writes a draft (a name-only update does not). Call `publish_workflow` after `validate_workflow` before that draft serves calls. Creating a campaign still needs a CSV `source_id` from the Dograh uploader and a telephony configuration on the organization.
+`create_workflow` publishes version 1 immediately. Saving a workflow definition with `save_workflow` / `update_workflow` writes a draft (a name-only update does not). Call `publish_workflow` after `validate_workflow` before that draft serves calls. An optional body sets `version_name` and `change_description` as release notes (`publishWorkflow` on TypeScript). Creating a campaign still needs a CSV `source_id` from the Dograh uploader and a telephony configuration on the organization.
 
 ## Next steps
 

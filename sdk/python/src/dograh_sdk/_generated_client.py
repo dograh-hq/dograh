@@ -25,6 +25,8 @@ from dograh_sdk._generated_models import (
     InitiateCallRequest,
     NodeSpec,
     NodeTypesResponse,
+    PublishWorkflowRequest,
+    PublishWorkflowResponse,
     RecordingListResponseSchema,
     ToolResponse,
     UpdateToolRequest,
@@ -34,7 +36,6 @@ from dograh_sdk._generated_models import (
     WorkflowResponse,
     WorkflowRunResponseSchema,
     WorkflowRunsResponse,
-    WorkflowVersionSummaryResponse,
 )
 
 
@@ -180,10 +181,13 @@ class _GeneratedClient:
         data = self._request("POST", f"/campaign/{campaign_id}/pause")
         return CampaignResponse.model_validate(data)
 
-    def publish_workflow(self, workflow_id: int) -> WorkflowVersionSummaryResponse:
-        """Publish the current draft of a workflow after validation."""
-        data = self._request("POST", f"/workflow/{workflow_id}/publish")
-        return WorkflowVersionSummaryResponse.model_validate(data)
+    def publish_workflow(self, workflow_id: int, *, body: PublishWorkflowRequest | None = None) -> PublishWorkflowResponse:
+        """Publish the current draft of a workflow after validation. An optional body may set version_name and change_description."""
+        kwargs: dict[str, Any] = {}
+        if body is not None:
+            kwargs["json"] = body.model_dump(mode="json", exclude_none=True)
+        data = self._request("POST", f"/workflow/{workflow_id}/publish", **kwargs)
+        return PublishWorkflowResponse.model_validate(data)
 
     def resume_campaign(self, campaign_id: int) -> CampaignResponse:
         """Resume a paused campaign."""

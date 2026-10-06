@@ -1602,6 +1602,24 @@ export interface components {
             change_description?: string | null;
         };
         /**
+         * PublishWorkflowResponse
+         * @description Published version, including the release notes stored on publish.
+         */
+        PublishWorkflowResponse: {
+            /** Id */
+            id: number;
+            /** Version Number */
+            version_number: number | null;
+            /** Status */
+            status: string;
+            /** Published At */
+            published_at: string | null;
+            /** Version Name */
+            version_name?: string | null;
+            /** Change Description */
+            change_description?: string | null;
+        };
+        /**
          * RecordingListResponseSchema
          * @description Response schema for list of recordings.
          */
@@ -2253,17 +2271,6 @@ export interface components {
                 [key: string]: unknown;
             }[] | null;
         };
-        /** WorkflowVersionSummaryResponse */
-        WorkflowVersionSummaryResponse: {
-            /** Id */
-            id: number;
-            /** Version Number */
-            version_number: number | null;
-            /** Status */
-            status: string;
-            /** Published At */
-            published_at: string | null;
-        };
     };
     responses: never;
     parameters: never;
@@ -2319,6 +2326,7 @@ export type PropertyRendererOptions = components['schemas']['PropertyRendererOpt
 export type PropertySpec = components['schemas']['PropertySpec'];
 export type PropertyType = components['schemas']['PropertyType'];
 export type PublishWorkflowRequest = components['schemas']['PublishWorkflowRequest'];
+export type PublishWorkflowResponse = components['schemas']['PublishWorkflowResponse'];
 export type RecordingListResponseSchema = components['schemas']['RecordingListResponseSchema'];
 export type RecordingResponseSchema = components['schemas']['RecordingResponseSchema'];
 export type RetryConfigRequest = components['schemas']['RetryConfigRequest'];
@@ -2347,7 +2355,6 @@ export type WorkflowListResponse = components['schemas']['WorkflowListResponse']
 export type WorkflowResponse = components['schemas']['WorkflowResponse'];
 export type WorkflowRunResponseSchema = components['schemas']['WorkflowRunResponseSchema'];
 export type WorkflowRunsResponse = components['schemas']['WorkflowRunsResponse'];
-export type WorkflowVersionSummaryResponse = components['schemas']['WorkflowVersionSummaryResponse'];
 export type $defs = Record<string, never>;
 export interface operations {
     initiate_call_api_v1_telephony_initiate_call_post: {
@@ -2584,7 +2591,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorkflowVersionSummaryResponse"];
+                    "application/json": components["schemas"]["PublishWorkflowResponse"];
                 };
             };
             /** @description Not found */

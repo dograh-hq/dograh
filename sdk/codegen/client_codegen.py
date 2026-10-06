@@ -53,6 +53,30 @@ def _ref_name(schema: dict[str, Any]) -> str | None:
     return None
 
 
+def _nullable_model_ref(schema: dict[str, Any]) -> str | None:
+    """A body typed as ``Model | None`` is ``anyOf`` a schema ref and ``null``.
+
+    FastAPI emits that shape for an optional request model. Callers still need
+    to send the model when they have one.
+    """
+    branches = schema.get("anyOf") or schema.get("oneOf") or []
+    if not branches:
+        return None
+    names: list[str] = []
+    saw_null = False
+    for branch in branches:
+        if branch.get("type") == "null":
+            saw_null = True
+            continue
+        name = _ref_name(branch)
+        if name is None:
+            return None
+        names.append(name)
+    if saw_null and len(names) == 1:
+        return names[0]
+    return None
+
+
 @dataclass
 class ResponseType:
     """What comes back from an operation. `class_name` is a model class from
@@ -90,6 +114,7 @@ class Operation:
     path_params: list[Param] = field(default_factory=list)
     query_params: list[Param] = field(default_factory=list)
     request_class: str | None = None        # None → no body
+    body_optional: bool = False
     response: ResponseType = field(default_factory=ResponseType)
 
 
@@ -121,12 +146,16 @@ def _collect(spec: dict[str, Any]) -> list[Operation]:
                     query_params.append(param)
 
             request_class: str | None = None
+            body_optional = False
             rb = op.get("requestBody") or {}
             rb_schema = (
                 (rb.get("content") or {}).get("application/json", {}).get("schema") or {}
             )
             if rb_schema:
                 request_class = _ref_name(rb_schema)
+                if request_class is None:
+                    request_class = _nullable_model_ref(rb_schema)
+                    body_optional = request_class is not None
 
             response = ResponseType()
             r200 = (
@@ -159,6 +188,7 @@ def _collect(spec: dict[str, Any]) -> list[Operation]:
                 path_params=path_params,
                 query_params=query_params,
                 request_class=request_class,
+                body_optional=body_optional,
                 response=response,
             ))
 
@@ -173,7 +203,10 @@ def _py_method(op: Operation) -> str:
     positional = [f"{p.name}: {p.py_type}" for p in op.path_params]
     kw_only: list[str] = []
     if op.request_class:
-        kw_only.append(f"body: {op.request_class}")
+        if op.body_optional:
+            kw_only.append(f"body: {op.request_class} | None = None")
+        else:
+            kw_only.append(f"body: {op.request_class}")
     for p in op.query_params:
         kw_only.append(f"{p.name}: {p.py_type} | None = None")
 
@@ -185,18 +218,32 @@ def _py_method(op: Operation) -> str:
 
     path_expr = f'f"{op.path}"' if op.path_params else f'"{op.path}"'
 
-    call_kwargs: list[str] = []
     if op.query_params:
         lines.append("        params: dict[str, Any] = {}")
         for p in op.query_params:
             lines.append(f"        if {p.name} is not None:")
             lines.append(f'            params["{p.name}"] = {p.name}')
-        call_kwargs.append("params=params")
-    if op.request_class:
-        call_kwargs.append('json=body.model_dump(mode="json", exclude_none=True)')
 
-    extra = (", " + ", ".join(call_kwargs)) if call_kwargs else ""
-    raw_call = f'self._request("{op.verb.upper()}", {path_expr}{extra})'
+    if op.request_class and op.body_optional:
+        # Omit the body when the caller leaves it unset so the server applies
+        # its no-body default. httpx would send JSON null if json=None.
+        lines.append("        kwargs: dict[str, Any] = {}")
+        if op.query_params:
+            lines.append("        if params:")
+            lines.append('            kwargs["params"] = params')
+        lines.append("        if body is not None:")
+        lines.append(
+            '            kwargs["json"] = body.model_dump(mode="json", exclude_none=True)'
+        )
+        raw_call = f'self._request("{op.verb.upper()}", {path_expr}, **kwargs)'
+    else:
+        call_kwargs: list[str] = []
+        if op.query_params:
+            call_kwargs.append("params=params")
+        if op.request_class:
+            call_kwargs.append('json=body.model_dump(mode="json", exclude_none=True)')
+        extra = (", " + ", ".join(call_kwargs)) if call_kwargs else ""
+        raw_call = f'self._request("{op.verb.upper()}", {path_expr}{extra})'
 
     if op.response.class_name is None:
         lines.append(f"        return {raw_call}")
@@ -256,13 +303,14 @@ def _ts_method(op: Operation) -> str:
 
     opts_props: list[str] = []
     if op.request_class:
-        opts_props.append(f"body: {op.request_class}")
+        optional = "?" if op.body_optional else ""
+        opts_props.append(f"body{optional}: {op.request_class}")
     for p in op.query_params:
         opts_props.append(f"{_snake_to_camel(p.name)}?: {p.ts_type}")
 
     args = list(positional)
     if opts_props:
-        required_in_opts = op.request_class is not None
+        required_in_opts = op.request_class is not None and not op.body_optional
         opts_sig = "{ " + "; ".join(opts_props) + " }"
         # If body is required, opts is required too (no `= {}` default)
         args.append(f"opts: {opts_sig}" if required_in_opts else f"opts: {opts_sig} = {{}}")

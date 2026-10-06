@@ -27,6 +27,7 @@ import type {
   TelephonyConfigurationDetail,
   TelephonyConfigurationListItem,
 } from "@/client/types.gen";
+import { PageShell } from "@/components/layout/PageShell";
 import { ConfigFormDialog } from "@/components/telephony/ConfigFormDialog";
 import {
   AlertDialog,
@@ -179,8 +180,8 @@ export default function TelephonyConfigurationsPage() {
   };
 
   return (
-    <div className="min-h-screen">
-      <div className="container mx-auto px-4 py-8">
+    <>
+      <PageShell>
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold mb-2">Telephony configurations</h1>
@@ -381,7 +382,7 @@ export default function TelephonyConfigurationsPage() {
             ))}
           </div>
         )}
-      </div>
+      </PageShell>
 
       <ConfigFormDialog
         open={createOpen}
@@ -416,6 +417,6 @@ export default function TelephonyConfigurationsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 }

@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 import { createMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPost, getBillingCreditsApiV1OrganizationsBillingCreditsGet } from "@/client/sdk.gen";
 import type { MpsBillingCreditsResponse, MpsCreditLedgerEntryResponse } from "@/client/types.gen";
+import { PageShell } from "@/components/layout/PageShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -239,7 +240,7 @@ export default function BillingPage() {
 
     if ((loading && !credits && !fetchError) || configLoading || orgLoading) {
         return (
-            <div className="container mx-auto p-6 space-y-6">
+            <PageShell className="space-y-6">
                 <div className="space-y-2">
                     <Skeleton className="h-9 w-40" />
                     <Skeleton className="h-5 w-96 max-w-full" />
@@ -249,12 +250,12 @@ export default function BillingPage() {
                     <Skeleton className="h-36 rounded-lg" />
                 </div>
                 <Skeleton className="h-80 rounded-lg" />
-            </div>
+            </PageShell>
         );
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-6">
+        <PageShell className="space-y-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                     <h1 className="text-3xl font-bold mb-2">Billing</h1>
@@ -464,6 +465,6 @@ export default function BillingPage() {
                     </CardContent>
                 </Card>
             )}
-        </div>
+        </PageShell>
     );
 }

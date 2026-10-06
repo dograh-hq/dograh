@@ -3,6 +3,7 @@
 import { ExternalLink, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -37,17 +38,17 @@ export default function FilesPage() {
 
     if (loading || !user) {
         return (
-            <div className="container mx-auto px-4 py-8">
+            <PageShell>
                 <div className="space-y-4">
                     <Skeleton className="h-12 w-64" />
                     <Skeleton className="h-64 w-full" />
                 </div>
-            </div>
+            </PageShell>
         );
     }
 
     return (
-        <div className="container mx-auto px-4 py-8">
+        <PageShell>
             <div className="mb-8">
                 <h1 className="text-3xl font-bold mb-2">Knowledge Base Files</h1>
                 <p className="text-muted-foreground">
@@ -89,6 +90,6 @@ export default function FilesPage() {
                     <DocumentUpload onUploadSuccess={handleUploadSuccess} />
                 </DialogContent>
             </Dialog>
-        </div>
+        </PageShell>
     );
 }

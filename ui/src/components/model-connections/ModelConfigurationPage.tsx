@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useOrgConfig } from "@/context/OrgConfigContext";
@@ -19,7 +20,7 @@ export function ModelConfigurationPage({ configurationUuid, duplicateUuid }: { c
     const sourceUuid = configurationUuid || duplicateUuid;
     const saved = configurations.find(item => item.uuid === sourceUuid && item.is_active);
 
-    return <div className="container mx-auto max-w-4xl space-y-6 px-4 py-8">
+    return <PageShell className="space-y-6">
         <Button asChild variant="ghost" className="-ml-3"><Link href="/model-configurations"><ArrowLeft className="h-4 w-4" />All model configurations</Link></Button>
         {loading && !catalog ? <Skeleton className="h-80 w-full" /> : error ? <div role="alert" className="space-y-3 text-sm text-destructive">
             <p>{error}</p><Button variant="outline" onClick={() => void reload()}>Retry</Button>
@@ -33,5 +34,5 @@ export function ModelConfigurationPage({ configurationUuid, duplicateUuid }: { c
                         if (!configurationUuid) router.replace(`/model-configurations/${uuid}`);
                     }} />
             </div>}
-    </div>;
+    </PageShell>;
 }

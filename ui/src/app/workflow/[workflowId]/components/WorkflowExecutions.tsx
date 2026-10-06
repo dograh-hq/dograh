@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getWorkflowRunsApiV1WorkflowWorkflowIdRunsGet } from "@/client/sdk.gen";
 import { WorkflowRunResponseSchema } from "@/client/types.gen";
+import { PageShell } from "@/components/layout/PageShell";
 import { WorkflowRunsTable } from "@/components/workflow-runs";
 import { useDispositionCodes } from "@/hooks/useDispositionCodes";
 import { useAuth } from '@/lib/auth';
@@ -179,7 +180,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
     }, [fetchWorkflowRuns, currentPage, appliedFilters, sortBy, sortOrder]);
 
     return (
-        <div className="container mx-auto py-8">
+        <PageShell>
             <WorkflowRunsTable
                 runs={workflowRuns}
                 loading={loading}
@@ -201,6 +202,6 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
                 workflowId={workflowId}
                 onReload={handleReload}
             />
-        </div>
+        </PageShell>
     );
 }

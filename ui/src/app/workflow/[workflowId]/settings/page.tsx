@@ -14,6 +14,7 @@ import {
 } from "@/client/sdk.gen";
 import type { WorkflowResponse } from "@/client/types.gen";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
+import { PageShell } from "@/components/layout/PageShell";
 import { LLMConfigSelector } from "@/components/LLMConfigSelector";
 import { WorkflowModelConfiguration } from "@/components/model-connections/WorkflowModelConfiguration";
 import SpinLoader from "@/components/SpinLoader";
@@ -1558,7 +1559,7 @@ function WorkflowSettingsInner({
     }, []);
 
     return (
-        <div className="min-h-screen">
+        <>
             {/* Sticky header */}
             <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <Button
@@ -1575,7 +1576,7 @@ function WorkflowSettingsInner({
             </header>
 
             {/* Main + right nav */}
-            <div className="mx-auto flex max-w-5xl gap-8 px-6 py-8">
+            <PageShell className="flex gap-8">
                 {/* Sections */}
                 <div className="min-w-0 flex-1 space-y-8">
                     {resolvedWorkflowConfigurationsForRender && (
@@ -1689,7 +1690,7 @@ function WorkflowSettingsInner({
                         ))}
                     </div>
                 </nav>
-            </div>
+            </PageShell>
 
             {/* Dialogs for complex sections */}
             {resolvedWorkflowConfigurationsForRender && (
@@ -1704,6 +1705,6 @@ function WorkflowSettingsInner({
                     onSaveWorkflowConfigurations={saveWorkflowConfigurations}
                 />
             )}
-        </div>
+        </>
     );
 }

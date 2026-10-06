@@ -1,7 +1,7 @@
-"""Drift guards between the static MCP guide and the live tool surface.
+"""Drift guards between authoring bootstraps and the live tool surfaces.
 
-`api/mcp_server/instructions.py` is free text baked into the client
-system prompt. It is *not* the authoritative description of the tools —
+`api/mcp_server/instructions.py` supplies guidance for MCP hosts to consume.
+It is *not* the authoritative description of the tools —
 names, signatures, and per-tool error codes reach the model dynamically
 via `tools/list`, derived from each tool's own function signature and
 docstring. These tests fail on the two classic drift modes:
@@ -29,6 +29,15 @@ from api.mcp_server.tools import create_workflow as create_workflow_module
 from api.mcp_server.tools import save_workflow as save_workflow_module
 from api.mcp_server.tools import tool_creation as tool_creation_module
 from api.services import tool_management as tool_management_module
+from api.services.workflow.authoring import authoring_stage
+from api.services.workflow.authoring.contracts import AuthoringStage
+from api.services.workflow.builder import BUILDER_TOOLS
+from api.services.workflow.builder_runtime.agent import (
+    ALLOWED_TOOLS,
+    LOCAL_TOOLS,
+    STAGE_MCP_TOOLS,
+    builder_instructions,
+)
 
 # Every registered MCP tool name starts with one of these verbs. A
 # backticked snake_case token in the guide whose leading word is a verb is
@@ -49,6 +58,10 @@ _TOOL_VERB_PREFIXES = frozenset(
         "add",
         "remove",
         "set",
+        "ask",
+        "propose",
+        "submit",
+        "request",
     }
 )
 
@@ -133,6 +146,8 @@ def _service_error_codes(tool_name: str) -> set[str]:
 async def test_guide_only_references_registered_tools():
     registered = {tool.name for tool in await mcp.list_tools()}
     referenced = _referenced_tool_names(instructions_module.DOGRAH_MCP_INSTRUCTIONS)
+    for stage in AuthoringStage:
+        referenced |= _referenced_tool_names(authoring_stage(stage)["instructions"])
 
     assert referenced, "no tool references extracted — the regex likely broke"
     unknown = sorted(referenced - registered)
@@ -141,6 +156,18 @@ async def test_guide_only_references_registered_tools():
         f"Rename/remove the reference or register the tool. "
         f"Registered tools: {sorted(registered)}."
     )
+
+
+@pytest.mark.asyncio
+async def test_builder_guide_only_references_available_tools():
+    registered = {tool.name for tool in await mcp.list_tools()}
+    relayed = ALLOWED_TOOLS - {"preview_workflow"}
+    assert relayed <= registered & BUILDER_TOOLS
+    for stage, stage_tools in STAGE_MCP_TOOLS.items():
+        available = stage_tools | {tool.name for tool in LOCAL_TOOLS[stage]}
+        referenced = _referenced_tool_names(builder_instructions(stage))
+        assert referenced
+        assert not referenced - available, (stage, referenced - available)
 
 
 @pytest.mark.asyncio

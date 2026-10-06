@@ -18,9 +18,8 @@ TOPIC = VoicePromptingTopic(
         Stage.plan: StageLens(
             relevant=True,
             lens=(
-                "Define exit and branch conditions up front: which tool ends the "
-                "call, which fires on qualification, which reschedules. These become "
-                "each node's success criteria and the edge conditions between nodes."
+                "Define successful outcomes, business decisions that change the "
+                "conversation, and when to end, qualify, or reschedule the call."
             ),
         ),
         Stage.create: StageLens(

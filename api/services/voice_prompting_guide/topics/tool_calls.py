@@ -18,9 +18,9 @@ TOPIC = VoicePromptingTopic(
         Stage.plan: StageLens(
             relevant=True,
             lens=(
-                "Keep each tool scoped to one job — split a 'schedule + email + CRM' "
-                "tool into three. Note the precise condition under which each tool "
-                "should fire; that becomes the trigger wording in the prompt."
+                "Identify each external action separately: booking, sending an "
+                "email, or updating a CRM. Establish its trigger, inputs, expected "
+                "result, and failure behavior."
             ),
         ),
         Stage.create: StageLens(

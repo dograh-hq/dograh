@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 import httpx
@@ -18,6 +19,123 @@ class _Response:
 
     def json(self):
         return self._payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("deployment_mode", ["oss", "saas"])
+async def test_chat_completion_owns_transport_and_managed_protocol(
+    monkeypatch, deployment_mode
+):
+    requests = []
+    response_body = {
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "reasoning_content": "Provider reasoning",
+                    "tool_calls": [
+                        {
+                            "id": "call-1",
+                            "provider_specific_fields": {"signature": "signature"},
+                        }
+                    ],
+                }
+            }
+        ],
+        "usage": {"total_tokens": 42},
+    }
+
+    def handle(request):
+        requests.append(request)
+        assert request.url.host == "mps.example"
+        assert request.headers["Authorization"] == "Bearer org-service-key"
+        assert "X-Secret-Key" not in request.headers
+        assert "X-Organization-Id" not in request.headers
+        if request.url.path == "/api/v1/service-keys/correlation-id/self":
+            assert json.loads(request.content) == {}
+            return httpx.Response(200, json={"correlation_id": "minted-correlation"})
+        assert request.url.path == "/api/v1/llm/chat/completions"
+        assert request.extensions["timeout"] == {
+            "connect": 10,
+            "read": 110,
+            "write": 110,
+            "pool": 110,
+        }
+        return httpx.Response(200, json=response_body)
+
+    actual_client = httpx.AsyncClient
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", deployment_mode)
+    monkeypatch.setattr(
+        mps_client_module, "DOGRAH_MPS_SECRET_KEY", "control-plane-secret"
+    )
+    monkeypatch.setattr(
+        mps_client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: actual_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    client = MPSServiceKeyClient()
+    client.base_url = "https://mps.example"
+    messages = [{"role": "user", "content": "Hello"}]
+    tools = [{"type": "function", "function": {"name": "list_node_types"}}]
+    metadata = {
+        "usage_context": "workflow_builder",
+        "correlation_id": "untrusted",
+        "mps_billing_version": "1",
+    }
+
+    result = await client.create_chat_completion(
+        service_key="org-service-key",
+        model="workflow_builder",
+        messages=messages,
+        max_tokens=8000,
+        tools=tools,
+        tool_choice="auto",
+        metadata=metadata,
+    )
+    assert result == response_body
+    assert len(requests) == 2
+    assert json.loads(requests[-1].content) == {
+        "model": "workflow_builder",
+        "messages": messages,
+        "max_tokens": 8000,
+        "tools": tools,
+        "tool_choice": "auto",
+        "stream": False,
+        "metadata": {
+            "usage_context": "workflow_builder",
+            "correlation_id": "minted-correlation",
+            "mps_billing_version": "2",
+        },
+    }
+    assert metadata["correlation_id"] == "untrusted"  # Caller input is not mutated.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("correlation_response", [{}, {"correlation_id": " "}, None])
+async def test_chat_completion_stops_when_correlation_is_missing(
+    monkeypatch, correlation_response
+):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert request.url.path == "/api/v1/service-keys/correlation-id/self"
+        return httpx.Response(200, content=json.dumps(correlation_response))
+
+    actual_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        mps_client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: actual_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    with pytest.raises(MPSUnavailableError):
+        await MPSServiceKeyClient().create_chat_completion(
+            service_key="org-service-key",
+            model="workflow_builder",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=8000,
+        )
+    assert len(requests) == 1
 
 
 @pytest.mark.asyncio

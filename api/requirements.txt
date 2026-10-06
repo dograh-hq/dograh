@@ -1,5 +1,5 @@
 langfuse==4.14.3
-google-auth[requests]==2.53.0
+google-auth[requests]==2.56.0
 opentelemetry-exporter-prometheus==0.65b0
 prometheus-client==0.26.0
 fastapi==0.135.3
@@ -28,3 +28,8 @@ tuner-pipecat-sdk==0.2.4
 # Pin the reviewed wheel bytes, not only the package version.
 noveum-trace @ https://files.pythonhosted.org/packages/e7/53/177b987931f3fd4366082de43a482187f6983b6b5851a6bf1b65c833c731/noveum_trace-1.5.21-py3-none-any.whl#sha256=03e916d5f45633d0db65092a12e6665634004901dde3d05b6055a4190ac5a3a4
 PyNaCl==1.6.2
+
+# Conversational workflow builder (runtime and checkpoints live in Dograh)
+langchain-core==1.6.6
+langgraph==1.2.12
+langgraph-checkpoint==4.2.0

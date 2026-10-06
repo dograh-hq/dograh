@@ -873,6 +873,207 @@ export type BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost = {
 };
 
 /**
+ * BuilderInterrupt
+ */
+export type BuilderInterrupt = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Kind
+     */
+    kind: 'questions' | 'plan_approval' | 'mcp';
+    brief?: CallBrief | null;
+    /**
+     * Brief Revision
+     */
+    brief_revision?: number | null;
+    /**
+     * Questions
+     */
+    questions?: Array<BuilderQuestion>;
+    /**
+     * Tool Name
+     */
+    tool_name?: string | null;
+    /**
+     * Arguments
+     */
+    arguments?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * BuilderMessage
+ */
+export type BuilderMessage = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Role
+     */
+    role: 'user' | 'assistant';
+    /**
+     * Content
+     */
+    content: string;
+};
+
+/**
+ * BuilderPlanApproval
+ */
+export type BuilderPlanApproval = {
+    /**
+     * Brief Revision
+     */
+    brief_revision: number;
+    /**
+     * Decision
+     */
+    decision: 'approve' | 'revise';
+    /**
+     * Feedback
+     */
+    feedback?: string;
+    /**
+     * Interrupt Id
+     */
+    interrupt_id: string;
+};
+
+/**
+ * BuilderProposal
+ */
+export type BuilderProposal = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Workflow
+     */
+    workflow: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * BuilderQuestion
+ */
+export type BuilderQuestion = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Kind
+     */
+    kind: 'single' | 'multiple' | 'text';
+    /**
+     * Options
+     */
+    options?: Array<string>;
+    /**
+     * Allow Custom
+     */
+    allow_custom?: boolean;
+};
+
+/**
+ * BuilderSaveRequest
+ */
+export type BuilderSaveRequest = {
+    /**
+     * Checkpoint
+     */
+    checkpoint: string;
+};
+
+/**
+ * BuilderSaveResponse
+ */
+export type BuilderSaveResponse = {
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+};
+
+/**
+ * BuilderSession
+ */
+export type BuilderSession = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Checkpoint
+     */
+    checkpoint?: string | null;
+    /**
+     * Messages
+     */
+    messages?: Array<BuilderMessage>;
+    /**
+     * Pending
+     */
+    pending?: Array<BuilderInterrupt>;
+    proposal?: BuilderProposal | null;
+    /**
+     * Can Continue
+     */
+    can_continue?: boolean;
+    /**
+     * Model
+     */
+    model?: string | null;
+};
+
+/**
+ * BuilderTurnRequest
+ */
+export type BuilderTurnRequest = {
+    /**
+     * Request Id
+     */
+    request_id: string;
+    /**
+     * Checkpoint
+     */
+    checkpoint?: string | null;
+    /**
+     * Message
+     */
+    message?: string | null;
+    /**
+     * Answers
+     */
+    answers?: {
+        [key: string]: {
+            [key: string]: Array<string>;
+        };
+    } | null;
+    approval?: BuilderPlanApproval | null;
+};
+
+/**
  * CalculatorToolDefinition
  *
  * Tool definition for Calculator tools.
@@ -890,6 +1091,68 @@ export type CalculatorToolDefinition = {
      * Tool type.
      */
     type: 'calculator';
+};
+
+/**
+ * CallBrief
+ */
+export type CallBrief = {
+    /**
+     * Goal
+     */
+    goal: string;
+    /**
+     * Audience
+     */
+    audience: string;
+    /**
+     * Direction
+     */
+    direction: 'inbound' | 'outbound' | 'both';
+    /**
+     * Trigger
+     */
+    trigger: string;
+    /**
+     * Information Available At Start
+     */
+    information_available_at_start?: Array<string>;
+    /**
+     * Information To Collect
+     */
+    information_to_collect?: Array<string>;
+    /**
+     * Conversation Steps
+     */
+    conversation_steps: Array<string>;
+    /**
+     * Business Rules
+     */
+    business_rules?: Array<string>;
+    /**
+     * Data Operations
+     */
+    data_operations?: Array<DataOperation>;
+    /**
+     * Success Criteria
+     */
+    success_criteria: Array<string>;
+    /**
+     * Exit Conditions
+     */
+    exit_conditions: Array<string>;
+    /**
+     * Acceptance Scenarios
+     */
+    acceptance_scenarios: Array<string>;
+    /**
+     * Assumptions
+     */
+    assumptions?: Array<string>;
+    /**
+     * Open Questions
+     */
+    open_questions?: Array<string>;
 };
 
 /**
@@ -2049,6 +2312,36 @@ export type DailyUsageItem = {
      * Call Count
      */
     call_count: number;
+};
+
+/**
+ * DataOperation
+ */
+export type DataOperation = {
+    /**
+     * Purpose
+     */
+    purpose: string;
+    /**
+     * System
+     */
+    system: string;
+    /**
+     * Timing
+     */
+    timing: string;
+    /**
+     * Inputs
+     */
+    inputs: Array<string>;
+    /**
+     * Expected Result
+     */
+    expected_result: string;
+    /**
+     * Failure Behavior
+     */
+    failure_behavior: string;
 };
 
 /**
@@ -9693,6 +9986,138 @@ export type GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses = {
 };
 
 export type GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponse = GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses[keyof GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses];
+
+export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/{session_id}';
+};
+
+export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetError = GetBuilderSessionApiV1WorkflowBuilderSessionIdGetErrors[keyof GetBuilderSessionApiV1WorkflowBuilderSessionIdGetErrors];
+
+export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuilderSession;
+};
+
+export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponse = GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses[keyof GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses];
+
+export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostData = {
+    body: BuilderTurnRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/{session_id}/turn';
+};
+
+export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostError = SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostErrors[keyof SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostErrors];
+
+export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: string;
+};
+
+export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponse = SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponses[keyof SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponses];
+
+export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostData = {
+    body: BuilderSaveRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/{session_id}/save';
+};
+
+export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostError = SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostErrors[keyof SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostErrors];
+
+export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuilderSaveResponse;
+};
+
+export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponse = SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses[keyof SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses];
 
 export type ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostData = {
     body?: never;

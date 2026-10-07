@@ -114,7 +114,7 @@ The download URL is unauthenticated but unguessable: it carries the run's public
 
 ## Limits
 
-- **A call with no recording is not exported.** Roark ingests a call around its audio, so a run that produced none is skipped and recorded as `missing_recording`. A recording Roark could not reach is refused the same way, as `recording_url_not_public`.
+- **A call with no recording is not exported.** Roark ingests a call around its audio, so a run that produced none is skipped and recorded as `missing_recording`. A recording URL whose host is local or private is refused the same way, as `recording_url_not_public`; that is a reachability check on the address, not a fetch, so a public host that happens to be unroutable is not caught.
 - **Text chat runs are not exported.** They have no audio, and Roark models a chat as a separate resource.
 - **The export is not retried.** A refusal is recorded in the run's annotations with Roark's message; publish the fix and the next call exports normally.
 - **Mono only.** Dograh keeps separate agent and caller tracks, but sends the mixed recording, so Roark separates speakers itself rather than reading them off channels.

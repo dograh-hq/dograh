@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import field_validator, model_validator
+from pydantic import ValidationInfo, field_validator, model_validator
 
 from api.services.integrations.base import IntegrationNodeRegistration
 from api.services.workflow.node_data import BaseNodeData
@@ -125,7 +125,9 @@ class RoarkNodeData(BaseNodeData):
 
     @field_validator("roark_agent_id")
     @classmethod
-    def _agent_id_must_be_a_uuid(cls, value: str | None) -> str | None:
+    def _agent_id_must_be_a_uuid(
+        cls, value: str | None, info: ValidationInfo
+    ) -> str | None:
         """Reject a non-UUID agent id while the node is still being saved.
 
         Roark's `agent.roarkId` is a UUID, so a value of any other shape is
@@ -136,12 +138,20 @@ class RoarkNodeData(BaseNodeData):
         The value is also normalised to the canonical dashed form, because
         Roark matches on that spelling and a bare 32-character hex id is a
         valid UUID that it would still reject.
+
+        A disabled node is left alone, the same way `_validate_enabled_config`
+        tolerates one with no key at all: it exports nothing, so there is
+        nothing for a bad id to break, and refusing it would make a workflow
+        that already holds one unsavable, including the save that disables the
+        node.
         """
         if value is None:
             return value
         trimmed = value.strip()
         if not trimmed:
             return None
+        if not info.data.get("roark_enabled", True):
+            return trimmed
         try:
             return str(UUID(trimmed))
         except ValueError:

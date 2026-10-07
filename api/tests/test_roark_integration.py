@@ -281,6 +281,20 @@ def test_an_agent_id_is_normalised_to_the_form_roark_matches_on():
     assert node.roark_agent_id == "6d1e0d6e-0f7a-4f77-9b3f-3a1b2c3d4e5f"
 
 
+def test_a_disabled_node_keeps_an_agent_id_it_cannot_use():
+    """A disabled node exports nothing, so a stale ID breaks nothing, and
+    rejecting it would make a workflow that holds one unsavable, including the
+    save that disables the node."""
+    node = RoarkNodeData.model_validate(
+        {
+            "name": "Roark",
+            "roark_enabled": False,
+            "roark_agent_id": "Sales Bot",
+        }
+    )
+    assert node.roark_agent_id == "Sales Bot"
+
+
 def test_a_blank_agent_id_is_not_an_agent_id():
     """An emptied field must not satisfy "name or id", or the node saves and
     then fails at export time with no agent at all."""
@@ -1200,6 +1214,25 @@ async def test_a_json_error_body_without_a_code_is_not_echoed():
 
     assert "Ada" not in excinfo.value.detail
     assert "+14155550123" not in excinfo.value.detail
+
+
+async def test_the_whole_error_detail_is_bounded():
+    """Both halves come from the response body, so the cap is on the detail,
+    not on the message alone."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"code": "c" * 500, "message": "m" * 500})
+
+    with _roark_http(handler):
+        with pytest.raises(RoarkDeliveryError) as excinfo:
+            await create_call(
+                RoarkDeliveryConfig(
+                    base_url="https://api.roark.ai", api_key="rk_live_x"
+                ),
+                {"externalId": "dograh-run-1"},
+            )
+
+    assert len(excinfo.value.detail) == 300
 
 
 async def test_a_redirect_is_not_a_delivery():

@@ -120,6 +120,10 @@ def _error_detail(response: httpx.Response) -> str:
     reported by status alone rather than quoted: that is the shape a reflecting
     proxy produces, and the request it would be reflecting holds the transcript
     and the caller's number.
+
+    The whole detail is bounded, not just the message: both halves come from
+    the response body, so a long `code` would carry as much of one as a long
+    message.
     """
     body = _json_body(response)
     if isinstance(body, dict):
@@ -127,7 +131,7 @@ def _error_detail(response: httpx.Response) -> str:
         if isinstance(code, str) and code:
             message = body.get("message")
             if isinstance(message, str) and message:
-                return f"{code}: {message[:_MAX_DETAIL_CHARS]}"
-            return code
+                return f"{code}: {message}"[:_MAX_DETAIL_CHARS]
+            return code[:_MAX_DETAIL_CHARS]
     # Not something Roark produced: a proxy or gateway answered instead.
     return f"Roark returned an unreadable {response.status_code} response"

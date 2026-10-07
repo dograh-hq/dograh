@@ -119,7 +119,7 @@ describe("conversationItemsFromTextChatTurns", () => {
         });
     });
 
-    it("strips transition speech even when preceding assistant text exists", () => {
+    it("preserves chronological order and paragraph breaks when stripping transition speech", () => {
         const turns = [
             {
                 id: "turn-1",
@@ -138,7 +138,7 @@ describe("conversationItemsFromTextChatTurns", () => {
                     },
                 ],
                 assistant_message: {
-                    text: "Sure thing! Please give me a moment to review your attachments. Here are your details.",
+                    text: "Sure thing!\n\nPlease give me a moment to review your attachments.\n\nHere are your details.",
                     created_at: "2026-01-01T00:00:06.000Z",
                 },
             },
@@ -155,12 +155,17 @@ describe("conversationItemsFromTextChatTurns", () => {
             {
                 kind: "message",
                 role: "assistant",
+                text: "Sure thing!",
+            },
+            {
+                kind: "message",
+                role: "assistant",
                 text: "Please give me a moment to review your attachments.",
             },
             {
                 kind: "message",
                 role: "assistant",
-                text: "Sure thing! Here are your details.",
+                text: "Here are your details.",
             },
         ]);
     });

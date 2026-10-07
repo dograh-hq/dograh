@@ -163,20 +163,37 @@ export function conversationItemsFromTextChatTurns(turns: TextChatTurnLike[]) {
             turn.id,
             turn.created_at,
         );
-        items.push(...eventItems);
 
         if (turn.assistant_message?.text) {
             let remainingText = turn.assistant_message.text.trim();
+            let prefixText: string | undefined;
+
             for (const item of eventItems) {
                 if (item.kind === "message" && item.role === "assistant" && item.text) {
                     const idx = remainingText.indexOf(item.text);
                     if (idx !== -1) {
-                        const before = remainingText.slice(0, idx).trimEnd();
-                        const after = remainingText.slice(idx + item.text.length).trimStart();
-                        remainingText = [before, after].filter(Boolean).join(" ");
+                        const before = remainingText.slice(0, idx).trim();
+                        const after = remainingText.slice(idx + item.text.length).trim();
+                        if (before && !prefixText) {
+                            prefixText = before;
+                        }
+                        remainingText = [prefixText ? "" : before, after].filter(Boolean).join("\n\n");
                     }
                 }
             }
+
+            if (prefixText) {
+                items.push({
+                    kind: "message",
+                    id: `${turn.id}-assistant-prefix`,
+                    turnId: turn.id,
+                    timestamp: turn.assistant_message.created_at ?? turn.created_at,
+                    role: "assistant",
+                    text: prefixText,
+                });
+            }
+
+            items.push(...eventItems);
 
             if (remainingText) {
                 items.push({
@@ -190,6 +207,8 @@ export function conversationItemsFromTextChatTurns(turns: TextChatTurnLike[]) {
             }
             return;
         }
+
+        items.push(...eventItems);
 
         if (turn.status === "failed") {
             items.push({

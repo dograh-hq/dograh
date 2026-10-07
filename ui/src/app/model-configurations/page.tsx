@@ -1,11 +1,8 @@
-import { PageShell } from "@/components/layout/PageShell";
-import ModelConnectionsManager from "@/components/model-connections/ModelConnectionsManager";
+import ModelConfigurationsManager from "@/components/model-connections/ModelConfigurationsManager";
 import { SETTINGS_DOCUMENTATION_URLS } from "@/constants/documentation";
 
 export default function ServiceConfigurationPage() {
     return (
-        <PageShell>
-            <ModelConnectionsManager view="models" docsUrl={SETTINGS_DOCUMENTATION_URLS.modelOverrides} />
-        </PageShell>
+        <ModelConfigurationsManager docsUrl={SETTINGS_DOCUMENTATION_URLS.modelOverrides} />
     );
 }

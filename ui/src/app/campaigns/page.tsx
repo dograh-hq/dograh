@@ -6,10 +6,9 @@ import { useEffect, useRef, useState } from 'react';
 
 import { getCampaignsApiV1CampaignGet } from '@/client/sdk.gen';
 import type { CampaignsResponse } from '@/client/types.gen';
-import { PageShell } from '@/components/layout/PageShell';
+import { PageLayout, PageSection } from '@/components/layout/PageLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
     Table,
     TableBody,
@@ -94,95 +93,78 @@ export default function CampaignsPage() {
     };
 
     return (
-        <PageShell className="space-y-6">
-            <div className="flex justify-between items-center">
-                <div>
-                    <h1 className="text-3xl font-bold mb-2">Campaigns</h1>
-                    <p>Manage your bulk workflow execution campaigns</p>
-                </div>
-                    <Button onClick={handleCreateCampaign}>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Create Campaign
-                    </Button>
-                </div>
+        <PageLayout title="Campaigns" description="Manage your bulk workflow execution campaigns">
+            <PageSection title="All Campaigns" description="View and manage your campaigns"
+                actions={<Button onClick={handleCreateCampaign}><Plus className="h-4 w-4" />Create Campaign</Button>}>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle>All Campaigns</CardTitle>
-                        <CardDescription>
-                            View and manage your campaigns
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        {isLoading ? (
-                            <div className="animate-pulse space-y-3">
-                                {[...Array(5)].map((_, i) => (
-                                    <div key={i} className="h-12 bg-muted rounded"></div>
-                                ))}
-                            </div>
-                        ) : campaignsData && campaignsData.campaigns.length > 0 ? (
-                            <div className="overflow-x-auto">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>ID</TableHead>
-                                            <TableHead>Name</TableHead>
-                                            <TableHead>Workflow</TableHead>
-                                            <TableHead>State</TableHead>
-                                            <TableHead>Progress</TableHead>
-                                            <TableHead>Created</TableHead>
-                                            <TableHead className="text-right">Action</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {campaignsData.campaigns.map((campaign) => (
-                                            <TableRow
-                                                key={campaign.id}
-                                                className="cursor-pointer hover:bg-muted/50"
-                                                onClick={() => handleRowClick(campaign.id)}
+                {isLoading ? (
+                    <div className="animate-pulse space-y-3">
+                        {[...Array(5)].map((_, i) => (
+                            <div key={i} className="h-12 bg-muted rounded"></div>
+                        ))}
+                    </div>
+                ) : campaignsData && campaignsData.campaigns.length > 0 ? (
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>ID</TableHead>
+                                    <TableHead>Name</TableHead>
+                                    <TableHead>Workflow</TableHead>
+                                    <TableHead>State</TableHead>
+                                    <TableHead>Progress</TableHead>
+                                    <TableHead>Created</TableHead>
+                                    <TableHead className="text-right">Action</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {campaignsData.campaigns.map((campaign) => (
+                                    <TableRow
+                                        key={campaign.id}
+                                        className="cursor-pointer hover:bg-muted/50"
+                                        onClick={() => handleRowClick(campaign.id)}
+                                    >
+                                        <TableCell>{campaign.id}</TableCell>
+                                        <TableCell className="font-medium">{campaign.name}</TableCell>
+                                        <TableCell>{campaign.workflow_name}{(campaign.traffic_split?.variants.length ?? 1) > 1 && <span className="text-muted-foreground"> +{(campaign.traffic_split?.variants.length ?? 1) - 1}</span>}</TableCell>
+                                        <TableCell>
+                                            <Badge variant={getStateBadgeVariant(campaign.state)}>
+                                                {campaign.state}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                            {campaign.executed_count} / {campaign.total_queued_count}
+                                        </TableCell>
+                                        <TableCell>
+                                            {formatDate(campaign.created_at, organizationTimezone)}
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleRowClick(campaign.id);
+                                                }}
                                             >
-                                                <TableCell>{campaign.id}</TableCell>
-                                                <TableCell className="font-medium">{campaign.name}</TableCell>
-                                                <TableCell>{campaign.workflow_name}{(campaign.traffic_split?.variants.length ?? 1) > 1 && <span className="text-muted-foreground"> +{(campaign.traffic_split?.variants.length ?? 1) - 1}</span>}</TableCell>
-                                                <TableCell>
-                                                    <Badge variant={getStateBadgeVariant(campaign.state)}>
-                                                        {campaign.state}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell>
-                                                    {campaign.executed_count} / {campaign.total_queued_count}
-                                                </TableCell>
-                                                <TableCell>
-                                                    {formatDate(campaign.created_at, organizationTimezone)}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleRowClick(campaign.id);
-                                                        }}
-                                                    >
-                                                        View
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        ) : (
-                            <div className="text-center py-8">
-                                <p className="mb-4">No campaigns found</p>
-                                <Button onClick={handleCreateCampaign} variant="outline">
-                                    <Plus className="h-4 w-4 mr-2" />
-                                    Create your first campaign
-                                </Button>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-        </PageShell>
+                                                View
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                ) : (
+                    <div className="text-center py-8">
+                        <p className="mb-4">No campaigns found</p>
+                        <Button onClick={handleCreateCampaign} variant="outline">
+                            <Plus className="h-4 w-4 mr-2" />
+                            Create your first campaign
+                        </Button>
+                    </div>
+                )}
+            </PageSection>
+        </PageLayout>
     );
 }

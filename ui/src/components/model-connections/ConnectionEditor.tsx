@@ -57,13 +57,15 @@ export function ConnectionEditor({ catalog, connection, onSaved }: {
     }}>
         <div className="space-y-2">
             <h1 className="text-2xl font-bold">{connection ? "Edit Provider Connection" : "Add Provider"}</h1>
-            <p className="text-sm text-muted-foreground">Connect a provider account, then reuse it in your model configurations.</p>
+            <p className="text-sm text-muted-foreground">Connect provider accounts, like OpenAI, Google Gemini, Elevenlabs using API Keys, then reuse it in your model configurations.</p>
         </div>
         {error && <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{error}</p>}
         <div className="space-y-1.5">
             <Label htmlFor="connection-provider">Provider</Label>
             <ConfigurationSelect id="connection-provider" value={provider} required disabled={Boolean(connection)} onValueChange={changeProvider}
-                options={Object.entries(providers).map(([key, schema]) => ({ value: key, label: schema.title || key }))} />
+                options={Object.entries(providers)
+                    .map(([key, schema]) => ({ value: key, label: schema.title || key }))
+                    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }))} />
         </div>
         <div className="space-y-1.5"><Label htmlFor="connection-name">Connection name</Label>
             <Input id="connection-name" required maxLength={128} placeholder="Production account" value={name} onChange={event => setName(event.target.value)} /></div>

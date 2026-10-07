@@ -3,7 +3,7 @@
 import { ExternalLink } from "lucide-react";
 
 import { CallEventsSection } from "@/components/CallEventsSection";
-import { PageShell } from "@/components/layout/PageShell";
+import { PageLayout } from "@/components/layout/PageLayout";
 import { MCPSection } from "@/components/MCPSection";
 import { OrganizationPreferencesSection } from "@/components/OrganizationPreferencesSection";
 import { TelemetrySection } from "@/components/TelemetrySection";
@@ -17,13 +17,7 @@ import {
 
 export default function SettingsPage() {
   return (
-    <PageShell width="narrow" className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Platform Settings</h1>
-        <p className="text-muted-foreground">
-          Manage your platform configuration and integrations.
-        </p>
-      </div>
+    <PageLayout title="Platform Settings" description="Manage your platform configuration and integrations.">
 
       <Card>
         <CardHeader>
@@ -87,6 +81,6 @@ export default function SettingsPage() {
           <CallEventsSection />
         </CardContent>
       </Card>
-    </PageShell>
+    </PageLayout>
   );
 }

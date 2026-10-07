@@ -2,16 +2,12 @@
 
 import { Zap } from 'lucide-react';
 
-import { PageShell } from '@/components/layout/PageShell';
+import { PageLayout } from '@/components/layout/PageLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function AutomationPage() {
     return (
-        <PageShell className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold mb-2">Automation</h1>
-                <p>Automate your workflows and processes</p>
-            </div>
+        <PageLayout title="Automation" description="Automate your workflows and processes">
 
             <Card>
                 <CardHeader>
@@ -35,6 +31,6 @@ export default function AutomationPage() {
                     </div>
                 </CardContent>
             </Card>
-        </PageShell>
+        </PageLayout>
     );
 }

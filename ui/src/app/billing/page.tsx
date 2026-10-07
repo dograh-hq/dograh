@@ -16,7 +16,7 @@ import { toast } from "sonner";
 
 import { createMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPost, getBillingCreditsApiV1OrganizationsBillingCreditsGet } from "@/client/sdk.gen";
 import type { MpsBillingCreditsResponse, MpsCreditLedgerEntryResponse } from "@/client/types.gen";
-import { PageShell } from "@/components/layout/PageShell";
+import { PageLayout } from "@/components/layout/PageLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -240,43 +240,28 @@ export default function BillingPage() {
 
     if ((loading && !credits && !fetchError) || configLoading || orgLoading) {
         return (
-            <PageShell className="space-y-6">
-                <div className="space-y-2">
-                    <Skeleton className="h-9 w-40" />
-                    <Skeleton className="h-5 w-96 max-w-full" />
-                </div>
+            <PageLayout title="Billing" description="Credits, balance, and account usage for your organization.">
                 <div className="grid gap-4 md:grid-cols-2">
                     <Skeleton className="h-36 rounded-lg" />
                     <Skeleton className="h-36 rounded-lg" />
                 </div>
                 <Skeleton className="h-80 rounded-lg" />
-            </PageShell>
+            </PageLayout>
         );
     }
 
     return (
-        <PageShell className="space-y-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold mb-2">Billing</h1>
-                    <p className="text-muted-foreground">
-                        Credits, balance, and account usage for your organization.
-                    </p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={handleRefresh} disabled={loading}>
-                        <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-                        Refresh
+        <PageLayout title="Billing" description="Credits, balance, and account usage for your organization."
+            actions={<><Button variant="outline" onClick={handleRefresh} disabled={loading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+                Refresh
+            </Button>
+                {canPurchaseCredits && (
+                    <Button onClick={handlePurchaseCredits} disabled={purchasing}>
+                        <CreditCard className="h-4 w-4 mr-2" />
+                        {purchasing ? "Opening..." : "Add Credits"}
                     </Button>
-                    {canPurchaseCredits && (
-                        <Button onClick={handlePurchaseCredits} disabled={purchasing}>
-                            <CreditCard className="h-4 w-4 mr-2" />
-                            {purchasing ? "Opening..." : "Add Credits"}
-                        </Button>
-                    )}
-                </div>
-            </div>
-
+                )}</>}>
             {isOssMode && (
                 <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
                     <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
@@ -465,6 +450,6 @@ export default function BillingPage() {
                     </CardContent>
                 </Card>
             )}
-        </PageShell>
+        </PageLayout>
     );
 }

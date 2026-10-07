@@ -11,7 +11,7 @@ import {
   getWorkflowOptionsApiV1OrganizationsReportsWorkflowsGet
 } from '@/client/sdk.gen';
 import type { WorkflowRunDetail } from '@/client/types.gen';
-import { PageShell } from '@/components/layout/PageShell';
+import { PageLayout } from '@/components/layout/PageLayout';
 import { Button } from '@/components/ui/button';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { Card } from '@/components/ui/card';
@@ -199,69 +199,60 @@ export default function ReportsPage() {
   const isToday = format(selectedDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
 
   return (
-    <PageShell className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold">Daily Reports</h1>
+    <PageLayout title="Daily Reports" description="Review daily call outcomes and activity across your voice agents."
+      actions={<div className="flex flex-wrap items-center gap-4">
+        {/* Workflow Selector */}
+        <Select value={selectedWorkflow} onValueChange={setSelectedWorkflow}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Select workflow" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Workflows</SelectItem>
+            {workflows.map((workflow) => (
+              <SelectItem key={workflow.id} value={workflow.id.toString()}>
+                {workflow.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Date Navigation */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handlePreviousDay}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-[200px]">
+                <Calendar className="mr-2 h-4 w-4" />
+                {format(selectedDate, 'MMM dd, yyyy')}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
+              <CalendarPicker
+                mode="single"
+                selected={selectedDate}
+                onSelect={(date) => date && setSelectedDate(date)}
+                disabled={(date) => date > new Date()}
+              />
+            </PopoverContent>
+          </Popover>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handleNextDay}
+            disabled={isToday}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
         </div>
-
-        {/* Date Navigation & Workflow Selector */}
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-          {/* Workflow Selector */}
-          <Select value={selectedWorkflow} onValueChange={setSelectedWorkflow}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Select workflow" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Workflows</SelectItem>
-              {workflows.map((workflow) => (
-                <SelectItem key={workflow.id} value={workflow.id.toString()}>
-                  {workflow.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {/* Date Navigation */}
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handlePreviousDay}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="w-[200px]">
-                  <Calendar className="mr-2 h-4 w-4" />
-                  {format(selectedDate, 'MMM dd, yyyy')}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
-                <CalendarPicker
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={(date) => date && setSelectedDate(date)}
-                  disabled={(date) => date > new Date()}
-                />
-              </PopoverContent>
-            </Popover>
-
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleNextDay}
-              disabled={isToday}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
-
+      </div>}>
       {/* Timezone Display and Download Button */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <div className="text-sm text-muted-foreground">
@@ -329,6 +320,6 @@ export default function ReportsPage() {
           )}
         </>
       )}
-    </PageShell>
+    </PageLayout>
   );
 }

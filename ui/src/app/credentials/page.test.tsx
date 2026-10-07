@@ -80,10 +80,12 @@ describe("credentials page", () => {
         expect(screen.queryByText("secret-token")).toBeNull();
     });
 
-    it("edits metadata without replacing stored authentication", async () => {
+    it.each(["click", "Enter", " "])("opens a credential row with %j and edits metadata without replacing stored authentication", async activation => {
         vi.mocked(updateCredentialApiV1CredentialsCredentialUuidPut).mockResolvedValue({ data: { ...credential, name: "Sales CRM", description: "" } } as never);
         render(<CredentialsPage />);
-        fireEvent.click(await screen.findByRole("button", { name: "Edit CRM" }));
+        const row = await screen.findByRole("button", { name: "Edit credential CRM" });
+        if (activation === "click") fireEvent.click(screen.getByRole("heading", { name: "CRM" }));
+        else fireEvent.keyDown(row, { key: activation });
         expect(screen.queryByLabelText("API Key")).toBeNull();
         fireEvent.change(screen.getByLabelText("Name *"), { target: { value: "Sales CRM" } });
         fireEvent.change(screen.getByLabelText("Description"), { target: { value: "" } });
@@ -118,7 +120,11 @@ describe("credentials page", () => {
     it("requires delete confirmation and preserves the credential when deletion fails", async () => {
         vi.mocked(deleteCredentialApiV1CredentialsCredentialUuidDelete).mockResolvedValueOnce({ error: { detail: "Deletion failed" } } as never);
         render(<CredentialsPage />);
-        fireEvent.click(await screen.findByRole("button", { name: "Delete CRM" }));
+        const deleteButton = await screen.findByRole("button", { name: "Delete CRM" });
+        fireEvent.keyDown(deleteButton, { key: "Enter" });
+        expect(screen.queryByRole("dialog")).toBeNull();
+        fireEvent.click(deleteButton);
+        expect(screen.queryByRole("dialog", { hidden: true })).toBeNull();
         expect(deleteCredentialApiV1CredentialsCredentialUuidDelete).not.toHaveBeenCalled();
         fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }));
         expect((await screen.findByRole("alert")).textContent).toBe("Deletion failed");

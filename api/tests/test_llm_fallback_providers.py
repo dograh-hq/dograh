@@ -3,16 +3,18 @@
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from loguru import logger
 from openai import AuthenticationError, RateLimitError
 from openai.types.chat import ChatCompletionChunk
 from pipecat.clocks.system_clock import SystemClock
 from pipecat.frames.frames import ErrorFrame, StartFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_context import LLMContext, LLMSpecificMessage
+from pipecat.processors.aggregators.llm_response_universal import LLMAssistantAggregator
 from pipecat.processors.frame_processor import FrameProcessorSetup
 from pipecat.services.settings import LLMSettings
 from pipecat.utils.asyncio.task_manager import TaskManager
@@ -46,6 +48,7 @@ async def rig(
     monkeypatch,
     providers=("openai", "google"),
     triggers=(("no_output", 1), ("error", 1)),
+    context=None,
 ):
     models = {
         "openai": "gpt-4.1",
@@ -77,7 +80,10 @@ async def rig(
         services[0], routes=routes, first_output_timeout_secs=0.3
     )
     upstream, downstream = Capture(), Capture()
-    pipeline = Pipeline([upstream, llm, downstream])
+    processors = [upstream, llm, downstream]
+    if context is not None:
+        processors.append(LLMAssistantAggregator(context, enable_direct_mode=True))
+    pipeline = Pipeline(processors)
     manager = TaskManager()
     await pipeline.setup(
         FrameProcessorSetup(
@@ -138,6 +144,83 @@ async def test_openai_role_metadata_does_not_win_or_disable_slow_fallback(monkey
         assert await generate(h) == ["Gemini answer"]
         assert primary.closed.is_set() and backup.closed.is_set()
         assert h.llm.fallback_metrics == {"started": 1, "won": 1}
+
+
+@pytest.mark.asyncio
+async def test_provider_switches_preserve_history_and_gemini_signatures(monkeypatch):
+    from google.genai.types import Part
+
+    context = LLMContext([{"role": "user", "content": "My name is Ada."}])
+    errors = []
+    log_handler = logger.add(
+        lambda message: errors.append(message.record["message"]), level="ERROR"
+    )
+    try:
+        async with rig(monkeypatch, context=context) as h:
+            openai_streams = [
+                Stream(openai_chunk(role="assistant"), asyncio.Event()),
+                Stream(openai_chunk("Your name is Ada.")),
+                Stream(openai_chunk(role="assistant"), asyncio.Event()),
+            ]
+            openai_request = AsyncMock(
+                side_effect=[stream() for stream in openai_streams]
+            )
+            monkeypatch.setattr(
+                h.services[0]._client.chat.completions, "create", openai_request
+            )
+            google_request = AsyncMock(
+                side_effect=[
+                    Stream(
+                        chunk(
+                            parts=[
+                                Part(text="Hello Ada.", thought_signature=b"signature")
+                            ]
+                        )
+                    )(),
+                    Stream(chunk("Hello again, Ada."))(),
+                ]
+            )
+            monkeypatch.setattr(
+                h.services[1]._client.aio.models,
+                "generate_content_stream",
+                google_request,
+            )
+
+            assert await generate(h, context=context) == ["Hello Ada."]
+            metadata = [
+                m for m in context.messages if isinstance(m, LLMSpecificMessage)
+            ]
+            assert len(metadata) == 1
+            assert metadata[0].is_metadata
+            context.add_message({"role": "user", "content": "What is my name?"})
+            expected_history = [m for m in context.messages if isinstance(m, dict)]
+
+            h.downstream.frames.clear()
+            assert await generate(h, context=context) == ["Your name is Ada."]
+            assert (
+                openai_request.call_args_list[1].kwargs["messages"] == expected_history
+            )
+            assert google_request.await_count == 1
+            assert metadata[0] in context.messages
+
+            context.add_message({"role": "user", "content": "Say hello again."})
+            h.downstream.frames.clear()
+            assert await generate(h, context=context) == ["Hello again, Ada."]
+            google_history = google_request.call_args_list[1].kwargs["contents"]
+            assert [(m.role, m.parts[0].text) for m in google_history] == [
+                ("user", "My name is Ada."),
+                ("model", "Hello Ada."),
+                ("user", "What is my name?"),
+                ("model", "Your name is Ada."),
+                ("user", "Say hello again."),
+            ]
+            assert google_history[1].parts[0].thought_signature == b"signature"
+            assert metadata[0] in context.messages
+            assert h.llm.fallback_metrics == {"started": 2, "won": 2}
+            assert not any(isinstance(frame, ErrorFrame) for frame in h.upstream.frames)
+        assert errors == []
+    finally:
+        logger.remove(log_handler)
 
 
 @pytest.mark.asyncio
@@ -331,6 +414,38 @@ async def test_instructions_cross_providers_without_copying_sampling_or_model(
         assert h.services[1]._settings.system_instruction == "new prompt"
         assert h.services[1]._settings.temperature == old
         assert h.services[1]._settings.model == "gemini-3.5-flash"
+
+
+@pytest.mark.asyncio
+async def test_one_shot_inference_filters_metadata_before_pipeline_setup(monkeypatch):
+    primary = create_llm_service_from_provider(
+        "openai", "gpt-4.1", "test", enable_direct_mode=True
+    )
+    backup = create_llm_service_from_provider(
+        "google", "gemini-3.5-flash", "test", enable_direct_mode=True
+    )
+    metadata = backup.create_llm_specific_message(
+        {"type": "thought_signature", "signature": b"signature"}, is_metadata=True
+    )
+    messages = [{"role": "user", "content": "Hello"}]
+    context = LLMContext([*messages, metadata])
+    request = AsyncMock(
+        return_value=SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Hi"))]
+        )
+    )
+    monkeypatch.setattr(primary._client.chat.completions, "create", request)
+    llm = FallbackLLMProcessor(
+        primary, routes=[FallbackRoute(ErrorCondition(), backup)]
+    )
+    try:
+        with patch("pipecat.processors.aggregators.llm_context.logger.error") as error:
+            assert await llm.run_inference(context) == "Hi"
+            error.assert_not_called()
+        assert request.call_args.kwargs["messages"] == messages
+        assert context.messages == [*messages, metadata]
+    finally:
+        await llm.cleanup()
 
 
 @pytest.mark.asyncio

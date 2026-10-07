@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createNamedModelConfiguration, getVoicesApiV1UserConfigurationsVoicesProviderGet, updateNamedModelConfiguration } from "@/client/sdk.gen";
+import { createNamedModelConfiguration, getDefaultModelConfiguration, getModelConnectionCatalog, getVoicesApiV1UserConfigurationsVoicesProviderGet, listNamedModelConfigurations, listProviderConnections, updateNamedModelConfiguration } from "@/client/sdk.gen";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 
 import { LLMConfigurationPage } from "./LLMConfigurationPage";
@@ -12,7 +12,7 @@ import { useModelConnections } from "./useModelConnections";
 
 const { replace, push } = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, push }) }));
-vi.mock("@/client/sdk.gen", () => ({ createNamedModelConfiguration: vi.fn(), updateNamedModelConfiguration: vi.fn(), getVoicesApiV1UserConfigurationsVoicesProviderGet: vi.fn() }));
+vi.mock("@/client/sdk.gen", () => ({ createNamedModelConfiguration: vi.fn(), updateNamedModelConfiguration: vi.fn(), getVoicesApiV1UserConfigurationsVoicesProviderGet: vi.fn(), getDefaultModelConfiguration: vi.fn(), getModelConnectionCatalog: vi.fn(), listNamedModelConfigurations: vi.fn(), listProviderConnections: vi.fn() }));
 vi.mock("./useModelConnections", () => ({ useModelConnections: vi.fn() }));
 vi.mock("@/context/OrgConfigContext", () => ({ useOrgConfig: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { id: "user" }, loading: false }) }));
@@ -45,6 +45,41 @@ beforeEach(() => {
 });
 
 describe("model configuration pages", () => {
+    it("keeps the saved configuration editable throughout the organization refresh", async () => {
+        const actual = await vi.importActual<typeof import("./useModelConnections")>("./useModelConnections");
+        vi.mocked(useModelConnections).mockImplementation(actual.useModelConnections);
+        const orgConfig = { orgContext: { organization_id: 7 }, loading: false, refreshConfig } as unknown as ReturnType<typeof useOrgConfig>;
+        vi.mocked(useOrgConfig).mockReturnValue(orgConfig);
+        vi.mocked(getModelConnectionCatalog).mockResolvedValue({ data: catalog } as never);
+        vi.mocked(listProviderConnections).mockResolvedValue({ data: connections } as never);
+        vi.mocked(listNamedModelConfigurations).mockResolvedValue({ data: [configuration] } as never);
+        vi.mocked(getDefaultModelConfiguration).mockResolvedValue({ data: { model_configuration_uuid: "sales" } } as never);
+        const refresh = Promise.withResolvers<void>();
+        refreshConfig.mockReturnValueOnce(refresh.promise);
+        const page = render(<ModelConfigurationPage configurationUuid="sales" />);
+        await screen.findByRole("heading", { name: "Edit Model Configuration" });
+
+        const updated = { ...configuration, name: "Updated sales", revision: configuration.revision + 1 };
+        vi.mocked(updateNamedModelConfiguration).mockResolvedValue({ data: updated } as never);
+        vi.mocked(listNamedModelConfigurations).mockResolvedValue({ data: [updated] } as never);
+        fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: updated.name } });
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(refreshConfig).toHaveBeenCalledOnce());
+
+        vi.mocked(useOrgConfig).mockReturnValue({ ...orgConfig, loading: true });
+        page.rerender(<ModelConfigurationPage configurationUuid="sales" />);
+        expect(screen.queryByText("This model configuration is unavailable.")).toBeNull();
+        expect((screen.getByLabelText("Configuration name") as HTMLInputElement).value).toBe(updated.name);
+
+        vi.mocked(useOrgConfig).mockReturnValue(orgConfig);
+        page.rerender(<ModelConfigurationPage configurationUuid="sales" />);
+        await act(async () => refresh.resolve());
+        expect(screen.queryByRole("alert")).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
+        await waitFor(() => expect(updateNamedModelConfiguration).toHaveBeenCalledTimes(2));
+        expect(vi.mocked(updateNamedModelConfiguration).mock.calls[1][0]?.body?.revision).toBe(updated.revision);
+    });
+
     it("edits on a page and previews, cancels, and selects Dograh voices in a single dialog", async () => {
         render(<ModelConfigurationPage configurationUuid="sales" />);
         expect(screen.getByRole("heading", { name: "Edit Model Configuration" })).toBeDefined();

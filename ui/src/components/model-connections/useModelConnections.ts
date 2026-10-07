@@ -53,13 +53,20 @@ export function useModelConnections({ includeArchived = false }: { includeArchiv
     }, [authLoading, userId, organizationLoading, organizationId, includeArchived]);
 
     useEffect(() => {
+        // Keep the current catalog visible when refreshConfig toggles loading.
+        // Only discard it when the user, organization, or archive filter changes.
         setCatalog(null);
         setConnections([]);
         setConfigurations([]);
         setDefaultUuid(null);
+        setLoading(true);
+        setError(null);
+    }, [userId, organizationId, includeArchived]);
+
+    useEffect(() => {
         void reload();
         return () => { request.current += 1; };
-    }, [reload, organizationId]);
+    }, [reload]);
 
     return { catalog, connections, configurations, defaultUuid, loading, error, reload };
 }

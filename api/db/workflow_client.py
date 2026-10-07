@@ -1,4 +1,3 @@
-from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Optional
 
@@ -16,26 +15,6 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
-
-
-def _retain_legacy_model_audit(incoming: dict, existing: dict | None) -> dict:
-    """Retain retired model payloads when saving an already migrated row.
-
-    The UI sends only active V3 settings. Never replace the original audit
-    values with submitted masks, or reactivate them when inheritance is chosen.
-    """
-    existing = existing or {}
-    if existing.get("model_configuration_override") is None:
-        return incoming
-    result = deepcopy(incoming)
-    for key in ("model_overrides", "model_configuration_v2_override"):
-        if key in existing:
-            result[key] = deepcopy(existing[key])
-        else:
-            result.pop(key, None)
-    if result.get("model_configuration_override") is None:
-        result["model_configuration_override"] = {}
-    return result
 
 
 class WorkflowClient(BaseDBClient):
@@ -265,9 +244,7 @@ class WorkflowClient(BaseDBClient):
                 if workflow_definition is not None:
                     draft.workflow_json = workflow_definition
                 if workflow_configurations is not None:
-                    draft.workflow_configurations = _retain_legacy_model_audit(
-                        workflow_configurations, draft.workflow_configurations
-                    )
+                    draft.workflow_configurations = workflow_configurations
                 if template_context_variables is not None:
                     draft.template_context_variables = template_context_variables
             else:
@@ -287,10 +264,7 @@ class WorkflowClient(BaseDBClient):
                     workflow_json=workflow_definition
                     if workflow_definition is not None
                     else (published.workflow_json if published else {}),
-                    workflow_configurations=_retain_legacy_model_audit(
-                        workflow_configurations,
-                        published.workflow_configurations if published else None,
-                    )
+                    workflow_configurations=workflow_configurations
                     if workflow_configurations is not None
                     else (published.workflow_configurations if published else {}),
                     template_context_variables=template_context_variables
@@ -313,9 +287,7 @@ class WorkflowClient(BaseDBClient):
             workflow = wf_result.scalars().first()
             if workflow:
                 workflow.workflow_definition = draft.workflow_json
-                workflow.workflow_configurations = _retain_legacy_model_audit(
-                    draft.workflow_configurations, workflow.workflow_configurations
-                )
+                workflow.workflow_configurations = draft.workflow_configurations
                 workflow.template_context_variables = draft.template_context_variables
 
             try:
@@ -392,9 +364,7 @@ class WorkflowClient(BaseDBClient):
             workflow = wf_result.scalars().first()
             workflow.released_definition_id = draft.id
             workflow.workflow_definition = draft.workflow_json
-            workflow.workflow_configurations = _retain_legacy_model_audit(
-                draft.workflow_configurations, workflow.workflow_configurations
-            )
+            workflow.workflow_configurations = draft.workflow_configurations
             workflow.template_context_variables = draft.template_context_variables
 
             try:

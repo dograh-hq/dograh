@@ -54,34 +54,13 @@ async def get_effective_ai_model_configuration_for_run(
     )
 
 
-async def get_workflow_model_override(
-    organization_id: int, configurations: dict
-) -> dict | None:
-    override = configurations.get(WORKFLOW_MODEL_CONFIGURATION_OVERRIDE_KEY)
-    # {} explicitly inherits the catalog default. A migrated row may still
-    # contain its original legacy overrides as audit data; never revive them.
-    if override is not None:
-        return override
-    if configurations.get("model_configuration_v2_override") or configurations.get(
-        "model_overrides"
-    ):
-        # Catalog adoption and workflow normalization can be deployed separately.
-        # Keep an existing published inline setup authoritative until converted.
-        from api.services.configuration.model_configuration_migration import (
-            ensure_legacy_workflow_model_configuration,
-        )
+def get_workflow_model_override(configurations: dict) -> dict | None:
+    """The definition's catalog binding; absent or {} inherits the default.
 
-        spec = await ensure_legacy_workflow_model_configuration(
-            organization_id, configurations
-        )
-        data = (
-            spec.model_dump(mode="json", exclude_none=True)
-            if hasattr(spec, "model_dump")
-            else dict(spec)
-        )
-        data.pop("version", None)
-        return data
-    return None
+    Retired inline model keys that older rows still carry are audit data and
+    are never read.
+    """
+    return configurations.get(WORKFLOW_MODEL_CONFIGURATION_OVERRIDE_KEY)
 
 
 async def validate_workflow_model_compatibility(
@@ -165,7 +144,6 @@ async def resolve_run_model_configuration(
     pre-call fetch applied later can only patch within its Dograh key.
     """
     from api.services.configuration.model_connections import (
-        get_default_model_configuration,
         hydrate_model_configuration_snapshot,
         resolve_model_configuration,
     )
@@ -174,23 +152,11 @@ async def resolve_run_model_configuration(
     if isinstance(snapshot, dict) and snapshot:
         return await hydrate_model_configuration_snapshot(organization_id, snapshot)
 
-    if await get_default_model_configuration(organization_id) is None:
-        # API-key authentication does not necessarily run signup bootstrap.
-        # Import the existing organization setup; this helper does not mint
-        # or validate provider credentials.
-        from api.services.configuration.model_configuration_migration import (
-            ensure_organization_model_catalog,
-        )
-
-        await ensure_organization_model_catalog(organization_id)
-
     configurations, api_override = _run_inputs(workflow_run)
     try:
         resolved = await resolve_model_configuration(
             organization_id,
-            workflow_override=await get_workflow_model_override(
-                organization_id, configurations
-            ),
+            workflow_override=get_workflow_model_override(configurations),
             api_override=api_override,
         )
         await validate_workflow_model_compatibility(

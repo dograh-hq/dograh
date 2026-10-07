@@ -204,11 +204,8 @@ async def create_workflow_run_rows(
     Returns:
         Tuple of (workflow_run, user, workflow).
     """
-    from api.enums import OrganizationConfigurationKey
     from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
-    from api.services.configuration.ai_model_configuration import (
-        convert_legacy_ai_model_configuration_to_v2,
-    )
+    from api.tests.support.model_catalog import seed_default_model_configuration
 
     org = OrganizationModel(provider_id=f"test-org-{provider_id_suffix}")
     async_session.add(org)
@@ -224,14 +221,7 @@ async def create_workflow_run_rows(
     user_configuration = EffectiveAIModelConfiguration.model_validate(
         USER_CONFIGURATION
     )
-    await db_session.upsert_configuration(
-        org.id,
-        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
-        convert_legacy_ai_model_configuration_to_v2(user_configuration).model_dump(
-            mode="json",
-            exclude_none=True,
-        ),
-    )
+    await seed_default_model_configuration(db_session, org.id, user_configuration)
 
     workflow = await db_session.create_workflow(
         name=f"{name_prefix} Workflow",

@@ -120,32 +120,11 @@ async def get_effective_ai_model_configuration_for_workflow(
             workflow_override=workflow_configurations["model_configuration_override"],
         )
         return resolved.effective
-    v2_override = workflow_configurations.get(
-        WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
+    # Retired inline model keys on older rows are audit data, never read.
+    resolved_config = await get_resolved_ai_model_configuration(
+        organization_id=organization_id,
     )
-    try:
-        if v2_override:
-            return compile_ai_model_configuration_v2(
-                OrganizationAIModelConfigurationV2.model_validate(v2_override)
-            )
-
-        resolved_config = await get_resolved_ai_model_configuration(
-            organization_id=organization_id,
-        )
-        return resolve_effective_config(
-            resolved_config.effective,
-            workflow_configurations.get("model_overrides"),
-        )
-    except ValidationError as exc:
-        # Stored overrides may become incompatible with updated global settings
-        # or schemas. Do not include Pydantic's input data, which contains secrets.
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Invalid workflow model configuration. "
-                "Review the workflow's model settings and save them again."
-            ),
-        ) from exc
+    return resolved_config.effective
 
 
 async def get_organization_ai_model_configuration_v2(

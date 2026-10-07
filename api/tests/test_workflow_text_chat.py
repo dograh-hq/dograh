@@ -9,11 +9,7 @@ from pipecat.processors.aggregators.llm_context import LLMSpecificMessage
 from pipecat.utils.enums import EndTaskReason
 
 from api.db.models import OrganizationModel, UserModel, organization_users_association
-from api.enums import OrganizationConfigurationKey
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
-from api.services.configuration.ai_model_configuration import (
-    convert_legacy_ai_model_configuration_to_v2,
-)
 from api.services.pipecat.pre_call_fetch import PreCallFetchResult
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.text_chat_runner import (
@@ -28,6 +24,7 @@ from api.services.workflow.text_chat_session_service import (
 )
 from api.tasks.function_names import FunctionNames
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
+from api.tests.support.model_catalog import seed_default_model_configuration
 from pipecat.tests import MockLLMService
 
 
@@ -111,14 +108,7 @@ async def _create_user_and_workflow(
     user_configuration = EffectiveAIModelConfiguration.model_validate(
         USER_CONFIGURATION
     )
-    await db_session.upsert_configuration(
-        org.id,
-        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
-        convert_legacy_ai_model_configuration_to_v2(user_configuration).model_dump(
-            mode="json",
-            exclude_none=True,
-        ),
-    )
+    await seed_default_model_configuration(db_session, org.id, user_configuration)
 
     workflow = await db_session.create_workflow(
         name=f"Text Chat Workflow {suffix}",
@@ -2342,14 +2332,7 @@ async def test_text_chat_session_creation_requires_selected_org_scope(
     user_configuration = EffectiveAIModelConfiguration.model_validate(
         USER_CONFIGURATION
     )
-    await db_session.upsert_configuration(
-        org_a.id,
-        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
-        convert_legacy_ai_model_configuration_to_v2(user_configuration).model_dump(
-            mode="json",
-            exclude_none=True,
-        ),
-    )
+    await seed_default_model_configuration(db_session, org_a.id, user_configuration)
 
     workflow = await db_session.create_workflow(
         name="Cross-org workflow",

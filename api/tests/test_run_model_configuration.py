@@ -151,25 +151,6 @@ async def test_embedding_check_uses_documents_from_pinned_definition(
 
 
 @pytest.mark.asyncio
-async def test_unmigrated_org_is_bootstrapped_before_resolving(
-    catalog, run_state, monkeypatch
-):
-    bootstrap = AsyncMock(return_value=True)
-    monkeypatch.setattr(
-        "api.services.configuration.model_configuration_migration."
-        "ensure_organization_model_catalog",
-        bootstrap,
-    )
-    # Nothing to import either, so the run has no models at all.
-    with pytest.raises(HTTPException) as error:
-        await service.resolve_run_model_configuration(
-            organization_id=1, workflow_run=run_state
-        )
-    assert error.value.status_code == 422
-    bootstrap.assert_awaited_once_with(1)
-
-
-@pytest.mark.asyncio
 async def test_pre_call_overrides_patch_visit_services_within_the_run_key(
     catalog, run_state, failures
 ):

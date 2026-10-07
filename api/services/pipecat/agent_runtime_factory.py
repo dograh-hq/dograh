@@ -161,9 +161,7 @@ class AgentRuntimeFactory:
         try:
             resolved = await resolve_model_configuration(
                 self._organization_id,
-                workflow_override=await get_workflow_model_override(
-                    self._organization_id, run_configs
-                ),
+                workflow_override=get_workflow_model_override(run_configs),
                 preferred_dograh_key=run_key,
             )
             user_config = resolved.effective

@@ -249,6 +249,66 @@ class ModelConnectionClient(BaseDBClient):
             await session.refresh(row)
             return row
 
+    @staticmethod
+    async def _write_default_pointer(session, organization_id, configuration_uuid):
+        config = await session.scalar(
+            select(OrganizationConfigurationModel).where(
+                OrganizationConfigurationModel.organization_id == organization_id,
+                OrganizationConfigurationModel.key == DEFAULT_KEY,
+            )
+        )
+        if config is None:
+            session.add(
+                OrganizationConfigurationModel(
+                    organization_id=organization_id,
+                    key=DEFAULT_KEY,
+                    value=str(configuration_uuid),
+                )
+            )
+        else:
+            config.value = str(configuration_uuid)
+            config.updated_at = datetime.now(UTC)
+
+    async def bootstrap_default_model_configuration(
+        self,
+        organization_id,
+        *,
+        connection_name,
+        provider,
+        credentials,
+        configuration_name,
+        configuration_for,
+    ):
+        """Create one connection, one configuration on it, and make it the default.
+
+        All three land in one transaction so a crash cannot leave a connection
+        without the configuration that makes it usable. ``configuration_for``
+        receives the new connection's uuid and returns the specification.
+        """
+        async with self.async_session() as session:
+            await self._lock_catalog(session, organization_id)
+            connection = ProviderConnectionModel(
+                organization_id=organization_id,
+                name=connection_name,
+                provider=provider,
+                credentials=deepcopy(credentials),
+                connection_settings={},
+            )
+            session.add(connection)
+            await session.flush()
+            configuration = NamedModelConfigurationModel(
+                organization_id=organization_id,
+                name=configuration_name,
+                configuration=configuration_for(connection.uuid),
+            )
+            session.add(configuration)
+            await session.flush()
+            await self._write_default_pointer(
+                session, organization_id, configuration.uuid
+            )
+            await session.commit()
+            return configuration.uuid
+
     async def set_default_named_model_configuration(
         self, organization_id, configuration_uuid, *, expected_revision=None
     ):
@@ -266,22 +326,9 @@ class ModelConnectionClient(BaseDBClient):
                 raise ModelCatalogConflict(
                     "Model configuration changed; refresh and retry"
                 )
-            config = await session.scalar(
-                select(OrganizationConfigurationModel).where(
-                    OrganizationConfigurationModel.organization_id == organization_id,
-                    OrganizationConfigurationModel.key == DEFAULT_KEY,
-                )
+            await self._write_default_pointer(
+                session, organization_id, configuration_uuid
             )
-            if config is None:
-                config = OrganizationConfigurationModel(
-                    organization_id=organization_id,
-                    key=DEFAULT_KEY,
-                    value=str(configuration_uuid),
-                )
-                session.add(config)
-            else:
-                config.value = str(configuration_uuid)
-                config.updated_at = datetime.now(UTC)
             await session.commit()
 
     async def archive_provider_connection(self, organization_id, connection_uuid):

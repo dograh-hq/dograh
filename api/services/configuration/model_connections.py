@@ -231,6 +231,19 @@ async def _named(organization_id, uuid):
     return row
 
 
+def dograh_model_configuration_spec(connection_uuid) -> dict:
+    """A pipeline specification running every role on one Dograh connection.
+
+    Settings are left empty so each role takes the registry defaults.
+    """
+    selection = {"provider_connection_uuid": str(connection_uuid), "settings": {}}
+    return {
+        "version": 3,
+        "mode": "pipeline",
+        **{role: dict(selection) for role in ("llm", "stt", "tts", "embeddings")},
+    }
+
+
 async def get_default_model_configuration(organization_id):
     row = await db_client.get_configuration(organization_id, DEFAULT_KEY)
     if row is None or not row.value:

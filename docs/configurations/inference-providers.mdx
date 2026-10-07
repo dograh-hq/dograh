@@ -15,6 +15,8 @@ Use **Providers** in the sidebar to connect provider accounts, and **Models** to
 
 Connections and configurations belong to your organization. Dograh provisions an initial Dograh connection and default setup during signup. You can add more Dograh connections with different Service Keys, or connect external providers.
 
+When you upgrade an existing deployment, the database migration converts your organization's saved model settings into connections and an **Organization default** configuration, and gives each agent that had its own model settings a named configuration of its own. Agents without their own settings keep inheriting the default.
+
 ## Add a provider connection
 
 You need the credentials and any connection settings required by your provider. To create a Dograh Service Key, see [API Keys and Service Keys](api-keys#service-keys).

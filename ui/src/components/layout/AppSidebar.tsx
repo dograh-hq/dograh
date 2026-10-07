@@ -18,6 +18,7 @@ import {
   Phone,
   Plug,
   Settings,
+  ShieldCheck,
   TrendingUp,
   UserRound,
   Workflow,
@@ -114,6 +115,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Tools",
         url: "/tools",
         icon: Wrench,
+      },
+      {
+        title: "Credentials",
+        url: "/credentials",
+        icon: ShieldCheck,
       },
       {
         title: "Files",

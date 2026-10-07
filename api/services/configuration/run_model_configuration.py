@@ -1,44 +1,40 @@
-"""Prepare a run once, then authorize and execute exactly its saved model setup."""
+"""Resolve a run's model configuration in two steps around the call connecting.
+
+Before the caller is connected, authorization pins the call-scoped setup:
+organization default, then the workflow definition's override, then the API
+trigger's override. After the caller is connected the pre-call fetch may still
+patch the services an agent visit owns, and only those, so the call pipeline
+that is already running is never rebuilt.
+"""
 
 from __future__ import annotations
 
-import asyncio
-import time
-
 from fastapi import HTTPException
+from loguru import logger
 from pydantic import ValidationError
 
 from api.db import db_client
-from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
-from api.services.pipecat.pre_call_fetch import (
-    PreCallFetchConfigurationError,
-    PreCallFetchResult,
-    execute_pre_call_fetch_result,
+from api.errors.failure import (
+    DograhFailure,
+    ErrorSource,
+    ErrorType,
+    log_failure,
 )
-from api.services.workflow.initial_context import merge_external_initial_context
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.schemas.model_connections import PreCallModelOverride
+from api.services.pipecat.pre_call_fetch import PreCallFetchResult
 
 WORKFLOW_MODEL_CONFIGURATION_OVERRIDE_KEY = "model_configuration_override"
-PREPARATION_WAIT_SECONDS = 20
-
-
-def has_prepared_model_configuration(workflow_run) -> bool:
-    snapshot = getattr(workflow_run, "model_configuration_snapshot", None)
-    return isinstance(snapshot, dict) and snapshot.get("preparation_state") == "ready"
-
-
-def merge_run_start_context(workflow_run, supplied_context: dict | None) -> dict:
-    """Saved fetch results win over a stale WebRTC/start request's variables."""
-    saved = dict(workflow_run.initial_context or {})
-    supplied = merge_external_initial_context({}, supplied_context)
-    if has_prepared_model_configuration(workflow_run):
-        return {**supplied, **saved}
-    return {**saved, **supplied}
 
 
 async def get_effective_ai_model_configuration_for_run(
     *, organization_id: int, workflow_run, workflow_configurations: dict | None = None
 ) -> EffectiveAIModelConfiguration:
-    """Use saved model settings with current credentials; retain legacy readers."""
+    """Hydrate the run's pinned setup with current credentials.
+
+    A run that predates pinning (historical QA, old text-chat sessions) falls
+    back to resolving its definition's configuration.
+    """
     from api.services.configuration.ai_model_configuration import (
         get_effective_ai_model_configuration_for_workflow,
     )
@@ -48,10 +44,6 @@ async def get_effective_ai_model_configuration_for_run(
 
     snapshot = getattr(workflow_run, "model_configuration_snapshot", None)
     if isinstance(snapshot, dict) and snapshot:
-        if snapshot.get("preparation_state") != "ready":
-            raise HTTPException(
-                status_code=409, detail="Run model configuration is not ready."
-            )
         return await hydrate_model_configuration_snapshot(organization_id, snapshot)
     if workflow_configurations is None:
         definition = getattr(workflow_run, "definition", None)
@@ -92,41 +84,6 @@ async def get_workflow_model_override(
     return None
 
 
-async def _fetch_for_run(workflow_run, organization_id: int) -> PreCallFetchResult:
-    from api.services.workflow.dto import ReactFlowDTO
-    from api.services.workflow.workflow_graph import WorkflowGraph
-
-    definition = getattr(workflow_run, "definition", None)
-    if definition is None:
-        raise HTTPException(
-            status_code=409, detail="Run is missing its workflow definition."
-        )
-    graph = WorkflowGraph(
-        ReactFlowDTO.model_validate(definition.workflow_json),
-        skip_instance_constraints_for={"trigger"},
-    )
-    start = graph.nodes.get(graph.start_node_id)
-    context = dict(workflow_run.initial_context or {})
-    direction = getattr(workflow_run, "call_type", None)
-    direction = getattr(direction, "value", direction) or context.get("direction")
-    if getattr(workflow_run, "mode", None) == "textchat":
-        direction = None
-    if (
-        not start
-        or not start.pre_call_fetch_url
-        or not start.should_run_pre_call_fetch(direction)
-    ):
-        return PreCallFetchResult(outcome="skipped")
-    return await execute_pre_call_fetch_result(
-        url=start.pre_call_fetch_url,
-        credential_uuid=start.pre_call_fetch_credential_uuid,
-        call_context_vars=context,
-        workflow_id=workflow_run.workflow_id,
-        workflow_run_id=workflow_run.id,
-        organization_id=organization_id,
-    )
-
-
 async def validate_workflow_model_compatibility(
     organization_id: int, effective: EffectiveAIModelConfiguration, definition
 ) -> None:
@@ -136,6 +93,9 @@ async def validate_workflow_model_compatibility(
     )
     from api.services.managed_model_services import get_dograh_service_api_key
 
+    if definition is None:
+        # A run that predates pinned definitions has no consumers to check.
+        return
     nodes = (definition.workflow_json or {}).get("nodes", [])
     documents = sorted(
         {
@@ -174,14 +134,35 @@ async def validate_workflow_model_compatibility(
             )
 
 
-async def prepare_run_model_configuration(
-    *, organization_id: int, workflow_run
-) -> EffectiveAIModelConfiguration | None:
-    """Resolve/fetch once for V3 runs; None leaves legacy startup unchanged.
+def _configuration_failure(exc: Exception) -> HTTPException:
+    # ValidationError text contains raw model input. Never persist or log it.
+    status = exc.status_code if isinstance(exc, HTTPException) else 422
+    message = (
+        exc.detail
+        if isinstance(exc, HTTPException) and isinstance(exc.detail, str)
+        else "Invalid run model configuration. Review the selected connections and overrides."
+    )
+    return HTTPException(status_code=status, detail=message)
 
-    The database lease serializes concurrent preparations across workers. A
-    crashed owner's expired lease can be retried; the stable idempotency key
-    lets the hook deduplicate that unavoidable HTTP delivery ambiguity.
+
+def _run_inputs(workflow_run) -> tuple[dict, dict | None]:
+    configurations = (
+        getattr(
+            getattr(workflow_run, "definition", None), "workflow_configurations", None
+        )
+        or {}
+    )
+    return configurations, getattr(workflow_run, "model_configuration_overrides", None)
+
+
+async def resolve_run_model_configuration(
+    *, organization_id: int, workflow_run
+) -> EffectiveAIModelConfiguration:
+    """Pin the call-scoped model setup before the caller is connected.
+
+    Layers organization, workflow and API overrides, validates, and stores the
+    result on the run once. Authorization runs against this setup, so the
+    pre-call fetch applied later can only patch within its Dograh key.
     """
     from api.services.configuration.model_connections import (
         get_default_model_configuration,
@@ -189,112 +170,117 @@ async def prepare_run_model_configuration(
         resolve_model_configuration,
     )
 
-    configurations = (
-        getattr(
-            getattr(workflow_run, "definition", None), "workflow_configurations", None
-        )
-        or {}
-    )
-    api_override = getattr(workflow_run, "model_configuration_overrides", None)
     snapshot = getattr(workflow_run, "model_configuration_snapshot", None)
-    if not snapshot and await get_default_model_configuration(organization_id) is None:
-        if not api_override and not configurations.get(
-            WORKFLOW_MODEL_CONFIGURATION_OVERRIDE_KEY
-        ):
-            return None
+    if isinstance(snapshot, dict) and snapshot:
+        return await hydrate_model_configuration_snapshot(organization_id, snapshot)
+
+    if await get_default_model_configuration(organization_id) is None:
         # API-key authentication does not necessarily run signup bootstrap.
-        # Import the existing organization setup before applying sparse API
-        # patches; this helper does not mint or validate provider credentials.
+        # Import the existing organization setup; this helper does not mint
+        # or validate provider credentials.
         from api.services.configuration.model_configuration_migration import (
             ensure_organization_model_catalog,
         )
 
         await ensure_organization_model_catalog(organization_id)
 
-    deadline = time.monotonic() + PREPARATION_WAIT_SECONDS
-    while True:
-        if isinstance(snapshot, dict) and snapshot.get("preparation_state") == "ready":
-            return await hydrate_model_configuration_snapshot(organization_id, snapshot)
-        if isinstance(snapshot, dict) and snapshot.get("preparation_state") == "failed":
-            raise HTTPException(
-                status_code=snapshot.get("error_status", 422),
-                detail=snapshot.get(
-                    "error_message", "Invalid run model configuration."
-                ),
-            )
-        owner = await db_client.claim_run_model_preparation(
-            workflow_run.id, organization_id
-        )
-        if owner is not None:
-            break
-        if time.monotonic() >= deadline:
-            raise HTTPException(
-                status_code=409,
-                detail="Run configuration is being prepared. Retry shortly.",
-            )
-        await asyncio.sleep(0.1)
-        workflow_run = await db_client.get_workflow_run(
-            workflow_run.id, organization_id=organization_id
-        )
-        if workflow_run is None:
-            raise HTTPException(status_code=404, detail="Workflow run not found.")
-        snapshot = workflow_run.model_configuration_snapshot
-
+    configurations, api_override = _run_inputs(workflow_run)
     try:
-        fetched = await _fetch_for_run(workflow_run, organization_id)
-        workflow_override = await get_workflow_model_override(
-            organization_id, configurations
-        )
         resolved = await resolve_model_configuration(
             organization_id,
-            workflow_override=workflow_override,
+            workflow_override=await get_workflow_model_override(
+                organization_id, configurations
+            ),
             api_override=api_override,
-            pre_call_override=fetched.model_overrides,
         )
         await validate_workflow_model_compatibility(
             organization_id, resolved.effective, workflow_run.definition
         )
-        snapshot = {
-            **resolved.snapshot,
-            "preparation_state": "ready",
-            "pre_call_fetch_outcome": fetched.outcome,
-        }
-        saved = await db_client.finish_run_model_preparation(
-            workflow_run.id,
-            organization_id,
-            owner,
-            snapshot=snapshot,
-            initial_context_patch=merge_external_initial_context(
-                {}, fetched.initial_context
-            ),
-        )
-        if not saved:
-            raise HTTPException(
-                status_code=409, detail="Run preparation changed. Retry shortly."
-            )
-        workflow_run.model_configuration_snapshot = snapshot
-        workflow_run.initial_context = merge_external_initial_context(
-            workflow_run.initial_context, fetched.initial_context
-        )
-        return resolved.effective
     except (HTTPException, ValidationError, ValueError) as exc:
-        # ValidationError text contains raw model input. Never persist or log it.
-        status = exc.status_code if isinstance(exc, HTTPException) else 422
-        message = (
-            exc.detail
-            if isinstance(exc, HTTPException) and isinstance(exc.detail, str)
-            else "Invalid run model configuration. Review the selected connections and overrides."
-        )
-        if isinstance(exc, PreCallFetchConfigurationError):
-            message = "Pre-call model_overrides must be an object."
-        await db_client.finish_run_model_preparation(
-            workflow_run.id,
+        raise _configuration_failure(exc) from exc
+
+    stored = await db_client.store_model_configuration_snapshot_if_absent(
+        workflow_run.id, organization_id, resolved.snapshot
+    )
+    workflow_run.model_configuration_snapshot = stored
+    if stored is resolved.snapshot:
+        return resolved.effective
+    return await hydrate_model_configuration_snapshot(organization_id, stored)
+
+
+async def apply_pre_call_model_overrides(
+    *,
+    organization_id: int,
+    workflow_run,
+    run_model_configuration: EffectiveAIModelConfiguration,
+    fetched: PreCallFetchResult,
+) -> EffectiveAIModelConfiguration | None:
+    """Layer the hook's visit-scoped overrides onto the run's pinned setup.
+
+    Returns the final configuration, or None when the hook changed nothing or
+    its overrides were rejected. A rejection is logged, never raised: the
+    caller is already on the line, so the call proceeds on the setup that
+    was authorized.
+    """
+    from api.services.configuration.model_connections import (
+        resolve_model_configuration,
+    )
+    from api.services.managed_model_services import get_dograh_service_api_key
+
+    if fetched.model_overrides is None:
+        return None
+
+    configurations, api_override = _run_inputs(workflow_run)
+    try:
+        override = PreCallModelOverride.model_validate(fetched.model_overrides)
+        resolved = await resolve_model_configuration(
             organization_id,
-            owner,
-            snapshot={
-                "preparation_state": "failed",
-                "error_status": status,
-                "error_message": message,
-            },
+            workflow_override=await get_workflow_model_override(
+                organization_id, configurations
+            ),
+            api_override=api_override,
+            pre_call_override=override.model_dump(mode="json", exclude_unset=True),
+            preferred_dograh_key=get_dograh_service_api_key(run_model_configuration),
         )
-        raise HTTPException(status_code=status, detail=message) from exc
+        await validate_workflow_model_compatibility(
+            organization_id, resolved.effective, workflow_run.definition
+        )
+    except (HTTPException, ValidationError, ValueError) as exc:
+        failure = _configuration_failure(exc)
+        log_failure(
+            DograhFailure(
+                source=ErrorSource.INTEGRATION,
+                type=ErrorType.CONFIG_ERROR,
+                code="pre-call-model-overrides-rejected",
+                internal_message=f"Pre-call model overrides rejected: {failure.detail}",
+                external_message=(
+                    "The pre-call fetch returned model overrides that could not be "
+                    "applied. The call continued with its configured models."
+                ),
+                provider="pre-call-fetch",
+                error_owner="user",
+                retryable=False,
+            ),
+            organization_id=organization_id,
+            workflow_id=workflow_run.workflow_id,
+            workflow_run_id=workflow_run.id,
+        )
+        return None
+
+    await db_client.update_workflow_run(
+        workflow_run.id, model_configuration_snapshot=resolved.snapshot
+    )
+    workflow_run.model_configuration_snapshot = resolved.snapshot
+    effective = resolved.effective
+    tts = effective.tts
+    logger.info(
+        f"Pre-call model overrides applied for run {workflow_run.id}: "
+        f"patched={sorted(override.model_fields_set)} "
+        f"llm={effective.llm.provider}/{effective.llm.model} "
+        + (
+            f"tts={tts.provider}/{tts.model}/voice={getattr(tts, 'voice', None)}"
+            if tts is not None
+            else "tts=none"
+        )
+    )
+    return effective

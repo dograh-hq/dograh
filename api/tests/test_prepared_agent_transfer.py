@@ -66,7 +66,7 @@ async def test_transfer_uses_destination_settings_and_original_pooled_key(
         preferred_dograh_key="secret-b",
     )
     instance, definition = factory
-    instance._prepared_model_configuration = root.effective
+    instance._run_model_configuration = root.effective
     definition.workflow_configurations = {
         "model_configuration_override": {"llm": {"settings": {"temperature": 0.1}}}
     }
@@ -89,7 +89,7 @@ async def test_transfer_cannot_use_a_different_dograh_key(catalog, factory):
     destination = connection(keys="unrelated-key")
     named = catalog(destination, configuration=pipeline(destination))
     instance, definition = factory
-    instance._prepared_model_configuration = root.effective
+    instance._run_model_configuration = root.effective
     definition.workflow_configurations = {
         "model_configuration_override": {"model_configuration_uuid": named.uuid}
     }

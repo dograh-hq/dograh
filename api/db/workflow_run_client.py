@@ -1,5 +1,4 @@
 import uuid
-from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import Float, cast, func
@@ -119,13 +118,14 @@ class WorkflowRunClient(BaseDBClient):
             await session.refresh(new_run)
         return new_run
 
-    async def claim_run_model_preparation(
-        self, run_id: int, organization_id: int, *, stale_after_seconds: int = 60
-    ) -> str | None:
-        """Claim one run's setup without holding a DB transaction during HTTP fetch.
+    async def store_model_configuration_snapshot_if_absent(
+        self, run_id: int, organization_id: int, snapshot: dict
+    ) -> dict:
+        """Pin a run's resolved model configuration once; return what is pinned.
 
-        A completed or failed result is terminal. A process that dies while
-        preparing can be retried after its lease expires.
+        Two workers authorizing the same run resolve the same inputs, but the
+        resolve picks among pooled credentials, so the first write wins and the
+        other caller executes the stored choice rather than its own.
         """
         async with self.async_session() as session:
             result = await session.execute(
@@ -140,58 +140,11 @@ class WorkflowRunClient(BaseDBClient):
             run = result.scalar_one_or_none()
             if run is None:
                 raise ValueError("Workflow run not found")
-            snapshot = run.model_configuration_snapshot or {}
-            if snapshot.get("preparation_state") in {"ready", "failed"}:
-                return None
-            if snapshot.get("preparation_state") == "preparing":
-                started_at = datetime.fromisoformat(snapshot["preparation_started_at"])
-                if started_at > datetime.now(UTC) - timedelta(
-                    seconds=stale_after_seconds
-                ):
-                    return None
-            owner = uuid.uuid4().hex
-            run.model_configuration_snapshot = {
-                "preparation_state": "preparing",
-                "preparation_owner": owner,
-                "preparation_started_at": datetime.now(UTC).isoformat(),
-            }
-            await session.commit()
-            return owner
-
-    async def finish_run_model_preparation(
-        self,
-        run_id: int,
-        organization_id: int,
-        owner: str,
-        *,
-        snapshot: dict,
-        initial_context_patch: dict | None = None,
-    ) -> bool:
-        """Persist a terminal result only if this caller still owns preparation."""
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(WorkflowRunModel)
-                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
-                .where(
-                    WorkflowRunModel.id == run_id,
-                    WorkflowModel.organization_id == organization_id,
-                )
-                .with_for_update(of=WorkflowRunModel)
-            )
-            run = result.scalar_one_or_none()
-            if run is None:
-                raise ValueError("Workflow run not found")
-            current = run.model_configuration_snapshot or {}
-            if current.get("preparation_owner") != owner:
-                return False
+            if run.model_configuration_snapshot:
+                return run.model_configuration_snapshot
             run.model_configuration_snapshot = snapshot
-            if initial_context_patch:
-                run.initial_context = {
-                    **(run.initial_context or {}),
-                    **initial_context_patch,
-                }
             await session.commit()
-            return True
+            return snapshot
 
     async def get_all_workflow_runs(self) -> list[WorkflowRunModel]:
         async with self.async_session() as session:
@@ -452,6 +405,7 @@ class WorkflowRunClient(BaseDBClient):
         state: str | None = None,
         annotations: dict | None = None,
         extra: dict | None = None,
+        model_configuration_snapshot: dict | None = None,
     ) -> WorkflowRunModel:
         async with self.async_session() as session:
             # Use SELECT FOR UPDATE to lock the row during the update
@@ -463,6 +417,10 @@ class WorkflowRunClient(BaseDBClient):
             run = result.scalars().first()
             if not run:
                 raise ValueError(f"Workflow run with ID {run_id} not found")
+            if model_configuration_snapshot:
+                # Replaced wholesale: the pre-call fetch re-resolves the run's
+                # whole setup, so a merge would mix two credential selections.
+                run.model_configuration_snapshot = model_configuration_snapshot
             if recording_url:
                 run.recording_url = recording_url
             if transcript_url:

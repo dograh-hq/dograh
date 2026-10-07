@@ -235,9 +235,7 @@ async def test_common_dograh_key_is_reused_on_hydration(catalog):
     } == {"shared"}
     assert "shared" not in str(result.snapshot)
     one.is_active = False
-    hydrated = await service.hydrate_model_configuration_snapshot(
-        1, {**result.snapshot, "preparation_state": "ready"}
-    )
+    hydrated = await service.hydrate_model_configuration_snapshot(1, result.snapshot)
     assert hydrated.llm.api_key == "shared"
     assert hydrated.tts.api_key == "shared"
     preview = service.public_snapshot(result.snapshot)

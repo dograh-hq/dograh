@@ -29,26 +29,18 @@ PRE_CALL_FETCH_TIMEOUT_SECONDS = 10
 @dataclass(frozen=True)
 class PreCallFetchResult:
     initial_context: dict = field(default_factory=dict)
-    model_overrides: dict | None = None
+    # The hook's `model_overrides` exactly as returned, or None when absent.
+    # It is validated where it is applied, after the caller is connected, so
+    # a malformed value is rejected there rather than failing the fetch.
+    model_overrides: Any = None
     outcome: str = "unavailable"
 
 
-class PreCallFetchConfigurationError(ValueError):
-    """A hook explicitly returned an invalid model-override envelope."""
-
-
-def _extract_model_overrides(response_data: dict) -> dict | None:
+def _extract_model_overrides(response_data: dict) -> Any:
     container = response_data.get("call_inbound")
     if not isinstance(container, dict):
         container = response_data
-    if "model_overrides" not in container:
-        return None
-    value = container["model_overrides"]
-    if not isinstance(value, dict):
-        raise PreCallFetchConfigurationError(
-            "Pre-call model_overrides must be an object."
-        )
-    return value
+    return container.get("model_overrides")
 
 
 def _extract_initial_context(response_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -110,9 +102,8 @@ async def execute_pre_call_fetch_result(
     The response JSON is returned as a dict to be merged into initial_context.
 
     Returns:
-        Context and model settings on success, an unavailable outcome on network
-        failure. Invalid explicit model-override envelopes raise instead of
-        silently ignoring the requested routing decision.
+        Context and the raw model-override envelope on success, an unavailable
+        outcome on network failure.
     """
     # Build standardized payload
     payload = {
@@ -246,8 +237,6 @@ async def execute_pre_call_fetch_result(
             workflow_id=workflow_id,
         )
         return PreCallFetchResult()
-    except PreCallFetchConfigurationError:
-        raise
     except Exception as e:
         log_failure(
             classify_exception(

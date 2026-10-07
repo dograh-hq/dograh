@@ -77,8 +77,12 @@ class ModelConfigurationMigrationClient(BaseDBClient):
         """
         try:
             async with self.async_session() as session:
-                async with session.begin():
-                    if not apply:
+                # A fresh session owns its transaction. Under a caller-managed
+                # one (the test harness shares a single session) nest instead;
+                # the isolation level is then already fixed by the outer scope.
+                nested = session.in_transaction()
+                async with session.begin_nested() if nested else session.begin():
+                    if not apply and not nested:
                         await session.execute(
                             text(
                                 "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"

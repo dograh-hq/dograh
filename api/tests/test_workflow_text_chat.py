@@ -14,6 +14,7 @@ from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.ai_model_configuration import (
     convert_legacy_ai_model_configuration_to_v2,
 )
+from api.services.pipecat.pre_call_fetch import PreCallFetchResult
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.text_chat_runner import (
     _deserialize_text_chat_checkpoint_messages,
@@ -339,6 +340,7 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
         "runtime_configuration": {
             "llm_provider": "openai",
             "llm_model": "gpt-4.1",
+            "llm_fallback": {"version": 1, "rules": []},
         },
     }
     assert "call_duration_seconds" in workflow_run.usage_info
@@ -402,16 +404,19 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
         suffix="pre-call-fetch",
     )
     pre_call_fetch = AsyncMock(
-        return_value={
-            "workflow_run_id": "fetched-run-id",
-            "customer_name": "Fetched",
-            "account_tier": "gold",
-            "runtime_configuration": {
-                "llm_provider": "fetched-provider",
-                "llm_model": "fetched-model",
+        return_value=PreCallFetchResult(
+            initial_context={
+                "workflow_run_id": "fetched-run-id",
+                "customer_name": "Fetched",
+                "account_tier": "gold",
+                "runtime_configuration": {
+                    "llm_provider": "fetched-provider",
+                    "llm_model": "fetched-model",
+                },
+                "mps_correlation_id": "fetched-correlation-id",
             },
-            "mps_correlation_id": "fetched-correlation-id",
-        }
+            outcome="completed",
+        )
     )
     llm_responses = [
         MockLLMService(mock_steps=[], chunk_delay=0.001),
@@ -428,7 +433,7 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
                 side_effect=llm_responses,
             ),
             patch(
-                "api.services.workflow.text_chat_runner.execute_pre_call_fetch",
+                "api.services.workflow.text_chat_runner.execute_pre_call_fetch_result",
                 new=pre_call_fetch,
             ),
             patch(
@@ -483,10 +488,8 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
     )
     assert fetch_kwargs["call_context_vars"]["customer_name"] == "Explicit"
     assert fetch_kwargs["call_context_vars"]["page_url"] == "https://dograh.com/pricing"
-    assert fetch_kwargs["call_context_vars"]["runtime_configuration"] == {
-        "llm_provider": "openai",
-        "llm_model": "gpt-4.1",
-    }
+    # The models are only final after the fetch, so they are not in the request.
+    assert "runtime_configuration" not in fetch_kwargs["call_context_vars"]
     assert (
         fetch_kwargs["call_context_vars"]["mps_correlation_id"] == "run-correlation-id"
     )
@@ -501,6 +504,7 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
         "runtime_configuration": {
             "llm_provider": "openai",
             "llm_model": "gpt-4.1",
+            "llm_fallback": {"version": 1, "rules": []},
         },
         "mps_correlation_id": "run-correlation-id",
     }

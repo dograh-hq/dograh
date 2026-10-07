@@ -43,24 +43,26 @@ async def test_hook_keeps_model_overrides_separate_and_sends_stable_run_key(
 
 
 @pytest.mark.asyncio
-async def test_invalid_hook_model_envelope_does_not_become_best_effort_success(
+async def test_invalid_hook_model_envelope_is_carried_for_rejection_later(
     monkeypatch,
 ):
+    """The fetch does not judge overrides; they are validated where applied."""
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda request: httpx.Response(200, json={"model_overrides": "invalid"})
         )
     )
     monkeypatch.setattr(service.httpx, "AsyncClient", lambda **kwargs: client)
-    with pytest.raises(service.PreCallFetchConfigurationError):
-        await service.execute_pre_call_fetch_result(
-            url="https://hook.example/lookup",
-            credential_uuid=None,
-            call_context_vars={},
-            workflow_id=7,
-            workflow_run_id=51,
-            organization_id=1,
-        )
+    result = await service.execute_pre_call_fetch_result(
+        url="https://hook.example/lookup",
+        credential_uuid=None,
+        call_context_vars={},
+        workflow_id=7,
+        workflow_run_id=51,
+        organization_id=1,
+    )
+    assert result.outcome == "completed"
+    assert result.model_overrides == "invalid"
 
 
 @pytest.mark.asyncio

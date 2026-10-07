@@ -26,7 +26,7 @@ from api.services.configuration.ai_model_configuration import (
 )
 from api.services.configuration.registry import ServiceProviders
 from api.services.configuration.run_model_configuration import (
-    prepare_run_model_configuration,
+    resolve_run_model_configuration,
 )
 from api.services.managed_model_services import (
     MPS_CORRELATION_ID_CONTEXT_KEY,
@@ -778,14 +778,13 @@ async def authorize_workflow_run_start(
                 )
             workflow_configurations = definition.workflow_configurations
 
-        user_config = (
-            await prepare_run_model_configuration(
+        if workflow_run_id is not None:
+            # Pins the call-scoped setup the run will execute, so the key
+            # authorized here is the key the pipeline uses.
+            user_config = await resolve_run_model_configuration(
                 organization_id=organization_id, workflow_run=workflow_run
             )
-            if workflow_run_id is not None
-            else None
-        )
-        if user_config is None:
+        else:
             user_config = await get_effective_ai_model_configuration_for_workflow(
                 organization_id=organization_id,
                 workflow_configurations=workflow_configurations,

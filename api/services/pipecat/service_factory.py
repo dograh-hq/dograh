@@ -707,7 +707,8 @@ def create_tts_service(
 
     logger.info(
         f"Creating TTS service: provider={user_config.tts.provider}, "
-        f"model={user_config.tts.model}"
+        f"model={user_config.tts.model}, "
+        f"voice={getattr(user_config.tts, 'voice', None)}"
         + (f", endpoint={deepgram_base_url}" if deepgram_base_url else "")
     )
 

@@ -361,8 +361,10 @@ class PipecatEngine:
             self._variable_extraction_manager = VariableExtractionManager(self)
 
             if self._call_dispositions:
+                # A cascade agent's extraction client is bound after the
+                # pre-call fetch, so resolve it when a disposition is needed.
                 self._disposition_extraction_service = DispositionExtractionService(
-                    llm=self.active_agent.variable_extraction_llm,
+                    llm_getter=lambda: self.active_agent.variable_extraction_llm,
                     context=self.context,
                     options=self._call_dispositions,
                     template_context=self._call_context_vars,
@@ -1722,6 +1724,23 @@ class PipecatEngine:
     def transport_output_queue_frame(self):
         """Frame sink that reaches the caller without passing through STT."""
         return self._transport_output.queue_frame
+
+    def finalize_initial_agent(self, user_config) -> None:
+        """Bind the first visit's services once the pre-call fetch has settled.
+
+        A cascade agent's LLM and TTS are created here from the configuration
+        the fetch may have patched; a realtime agent's service is call-owned
+        and already in the pipeline. Both record what actually runs on the
+        call context for post-call analytics.
+        """
+        agent = self._active_agent
+        if agent.is_child:
+            if self._agent_factory is None:
+                raise RuntimeError("Cannot build the initial agent without a factory")
+            self._agent_factory.populate(agent, user_config=user_config)
+        self._call_context_vars["runtime_configuration"] = dict(
+            agent.runtime_configuration
+        )
 
     async def start_initial_agent(self, timeout: float = 10.0) -> bool:
         """Attach and activate the agent the call starts on.

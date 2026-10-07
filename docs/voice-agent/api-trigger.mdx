@@ -214,7 +214,7 @@ The order of precedence is **organization default → workflow override → API 
 
 For realtime mode, the setup must include a realtime connection and a separate text LLM. Pipeline mode requires LLM, STT, and TTS. Multiple Dograh connections may be saved, but the active Dograh services within one run must share a service key.
 
-Dograh completes pre-call fetch, resolves all overrides, validates the final setup locally, and checks billing and quota **before dialing**. Invalid settings or references stop the call; validation does not contact model providers to test credentials. Prepared calls retain their selected settings and credentials even if you later edit a saved configuration.
+Dograh resolves the organization, workflow, and API-trigger overrides, validates the setup locally, and checks billing and quota **before dialing**. Invalid settings or references stop the call; validation does not contact model providers to test credentials. The pre-call data fetch runs once the call connects and may still adjust the agent's LLM, LLM fallback, and TTS. Started calls retain their selected settings and credentials even if you later edit a saved configuration.
 
 Keep `model_overrides` outside `initial_context`. See [Pre-Call Data Fetch](/voice-agent/pre-call-data-fetch) for selecting models from your own endpoint.
 

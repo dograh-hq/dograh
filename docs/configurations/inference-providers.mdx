@@ -66,11 +66,11 @@ Create and edit configurations in **Models**. For a variation, duplicate a named
 
 If an existing workflow has custom model settings, they remain in use until you explicitly select and save a named configuration or the organization default. Workflow settings show that existing override without offering individual field editing.
 
-A named selection follows edits to that configuration for future runs. A run that has already prepared its configuration keeps its saved settings and credential selection.
+A named selection follows edits to that configuration for future runs. A run that has already started keeps its saved settings and credential selection.
 
 ## Override a single run
 
-The effective order is organization default, published workflow override (or draft for test calls), API trigger override, then pre-call data fetch override.
+The effective order is organization default, published workflow override (or draft for test calls), API trigger override, then pre-call data fetch override. The pre-call data fetch runs once the call is connected, so it can only change the services the agent owns: `llm`, `llm_fallback`, and `tts`. The mode, `stt`, `realtime`, and `embeddings` are fixed by the first three layers.
 
 An override can select a named configuration by UUID, select a provider connection for a service, or change a field such as temperature or voice. Selecting a different named configuration replaces earlier model-setting patches; that override's own explicit fields then apply. Changing to a connection for the same provider preserves model settings. Changing provider starts that service from the new provider's defaults plus your explicit settings.
 
@@ -78,7 +78,7 @@ See [API Trigger](/voice-agent/api-trigger) for request examples and [Pre-call D
 
 ## Archive unused setups
 
-Archive a named configuration or connection when you no longer need it. Dograh rejects archiving references still needed by a default, active configuration, workflow, or pending campaign. Change those references first. Prepared runs keep their resolved model settings and load the connection's current credentials. Credential updates replace the stored values; previous credentials are not retained.
+Archive a named configuration or connection when you no longer need it. Dograh rejects archiving references still needed by a default, active configuration, workflow, or pending campaign. Change those references first. Started runs keep their resolved model settings and load the connection's current credentials. Credential updates replace the stored values; previous credentials are not retained.
 
 Expand **Archived** at the bottom of Models or Providers to see archived items and select **Restore** to use them again. Restoring preserves the item's UUID and settings without changing your org default. If a model configuration uses archived provider connections, restore those providers first. Archived items do not appear in configuration selectors.
 

@@ -95,6 +95,26 @@ class ModelConfigurationOverride(CatalogSchema):
         return self
 
 
+class PreCallModelOverride(CatalogSchema):
+    """What a pre-call fetch hook may change once the caller is connected.
+
+    Only the services an agent visit owns. The call pipeline is already built
+    by the time the hook answers, so the mode, recognition, the realtime
+    service, embeddings and whole named configurations are not patchable here.
+    """
+
+    llm: ServiceOverride | None = None
+    llm_fallback: FallbackPolicy[ServiceSelection] | None = None
+    tts: ServiceOverride | None = None
+
+    @model_validator(mode="after")
+    def reject_nulls(self):
+        for field in self.model_fields_set:
+            if getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
+
+
 class ProviderConnectionCreate(CatalogSchema):
     name: str = Field(min_length=1, max_length=128)
     provider: str = Field(min_length=1, max_length=64)

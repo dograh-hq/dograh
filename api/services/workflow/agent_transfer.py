@@ -17,7 +17,7 @@ from pipecat.frames.frames import (
 )
 
 from api.services.pipecat.agent_runtime_factory import AgentBuildError
-from api.services.pipecat.audio_playback import play_hold_audio_loop
+from api.services.pipecat.audio_playback import HoldAudio
 from api.services.workflow.agent_handoff_context import build_handoff_snapshot
 from api.services.workflow.agent_runtime import new_visit_id
 
@@ -57,12 +57,15 @@ class AgentTransferCoordinator:
         self._phase = TransferPhase.IDLE
         self._request: TransferRequest | None = None
         self._task: asyncio.Task | None = None
-        self._hold_stop: asyncio.Event | None = None
-        self._hold_task: asyncio.Task | None = None
+        self._hold: HoldAudio | None = None
 
     @property
     def phase(self):
         return self._phase
+
+    @property
+    def hold_audio_active(self) -> bool:
+        return self._hold is not None and self._hold.active
 
     @property
     def in_progress(self):
@@ -277,27 +280,18 @@ class AgentTransferCoordinator:
 
     async def _begin_hold(self, request, source):
         await self._engine.deactivate_agent(source)
-        self._hold_stop = asyncio.Event()
-        self._hold_task = asyncio.create_task(
-            play_hold_audio_loop(
-                stop_event=self._hold_stop,
-                sample_rate=self._engine.hold_audio_sample_rate,
-                queue_frame=self._engine.transport_output_queue_frame,
-            ),
+        self._hold = HoldAudio(
+            sample_rate=self._engine.hold_audio_sample_rate,
+            queue_frame=self._engine.transport_output_queue_frame,
             name=f"hold:{request.request_id}",
         )
+        self._hold.start()
 
     async def _stop_hold_audio(self):
-        if self._hold_stop is not None:
-            self._hold_stop.set()
-        task = self._hold_task
-        self._hold_task = None
-        self._hold_stop = None
-        if task is not None:
-            try:
-                await asyncio.wait_for(task, timeout=2)
-            except TimeoutError:
-                logger.warning("Hold audio producer timed out while stopping")
+        hold = self._hold
+        self._hold = None
+        if hold is not None:
+            await hold.stop()
 
     def _finish(self, request, outcome, source, destination):
         self._phase = TransferPhase.IDLE

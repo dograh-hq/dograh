@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from loguru import logger
 
 from api.constants import BACKEND_API_ENDPOINT, ROARK_BASE_URL
 from api.services.integrations.base import IntegrationCompletionContext
-from api.utils.common import get_backend_endpoints
+from api.utils.common import get_backend_endpoints, is_local_or_private_url
 
 from .client import RoarkDeliveryConfig, RoarkDeliveryError, create_call
 from .node import RoarkNodeData
@@ -29,7 +30,12 @@ async def resolve_public_base_url() -> str:
     `BACKEND_API_ENDPOINT` and otherwise falls back to the running cloudflared
     tunnel, which is what makes a laptop or a private-network deployment work.
     Its own failure mode is to raise, so a deployment with neither still gets
-    the configured address and a clear refusal from Roark rather than a crash.
+    the configured address rather than a crash.
+
+    Neither path guarantees a public address: with no tunnel running, the
+    resolver returns the configured private one and so does this fallback.
+    `unreachable_recording_host` is what decides whether the result is
+    exportable.
     """
     try:
         backend_endpoint, _ws = await get_backend_endpoints()
@@ -60,6 +66,22 @@ async def build_recording_url(context: IntegrationCompletionContext) -> str | No
         f"{base_url}/api/v1/public/download/workflow/"
         f"{context.public_token}/recording?filename={_RECORDING_FILENAME}"
     )
+
+
+def unreachable_recording_host(recording_url: str) -> str | None:
+    """The host Roark would not be able to fetch the recording from.
+
+    None when the URL is publicly reachable. Roark downloads the audio itself,
+    asynchronously, so a private address does not fail the POST: Roark accepts
+    the call and the fetch fails later, out of reach of anything this
+    integration observes. That would leave a run recorded as `delivered` and a
+    call in Roark that can never be transcribed, which is the one outcome worth
+    refusing up front. A self-hosted deployment reaches this by running without
+    a public `BACKEND_API_ENDPOINT` and without a cloudflared tunnel.
+    """
+    if not is_local_or_private_url(recording_url):
+        return None
+    return urlsplit(recording_url).netloc or recording_url
 
 
 def describe_validation_failure(exc: Exception) -> str:
@@ -100,12 +122,19 @@ async def run_completion(
         try:
             roark_data = RoarkNodeData.model_validate(node.get("data", {}))
         except Exception as exc:
+            detail = describe_validation_failure(exc)
             logger.warning(
                 "Roark node #{} failed validation, skipping: {}",
                 node_id,
-                describe_validation_failure(exc),
+                detail,
             )
-            results[result_key] = {"error": "validation_failed"}
+            results[result_key] = {
+                "error": "validation_failed",
+                # The same safe description the log carries: field names and
+                # pydantic's own messages, never the value that failed. A node
+                # is otherwise only diagnosable by someone with log access.
+                "detail": detail,
+            }
             continue
 
         if not roark_data.roark_enabled:
@@ -126,6 +155,19 @@ async def run_completion(
                 f"Roark node '{roark_data.name}' (#{node_id}) has no recording to export"
             )
             results[result_key] = {"error": "missing_recording"}
+            continue
+
+        unreachable_host = unreachable_recording_host(recording_url)
+        if unreachable_host:
+            logger.warning(
+                f"Roark node '{roark_data.name}' (#{node_id}) skipped: the recording "
+                f"would be served from '{unreachable_host}', which Roark cannot reach. "
+                f"Set BACKEND_API_ENDPOINT to a public address or run a cloudflared tunnel."
+            )
+            results[result_key] = {
+                "error": "recording_url_not_public",
+                "recording_host": unreachable_host,
+            }
             continue
 
         payload = build_call_payload(

@@ -11,11 +11,13 @@ from pydantic import BaseModel, field_validator
 # post-call exports in this package.
 _REQUEST_TIMEOUT_SECONDS = 10
 
-# Roark reports a refusal as `{"code": ..., "message": ...}`, and that message is
-# the only part of a response body this integration repeats. An arbitrary body is
+# Roark reports a refusal as `{"code": ..., "message": ...}`, and that pair is the
+# only part of a response body this integration repeats. An arbitrary body is
 # never echoed: the request carries a transcript and a caller's number, so a
 # gateway that reflects it back would otherwise put both in the logs and in the
-# run's annotations.
+# run's annotations. `code` is what distinguishes Roark's own refusal from such a
+# reflection, since every error Roark returns carries one.
+_MAX_DETAIL_CHARS = 300
 
 
 class RoarkDeliveryError(Exception):
@@ -70,7 +72,10 @@ async def create_call(
         logger.info("[roark] call {} already exists in Roark", external_id)
         return {"status": "duplicate", "status_code": response.status_code}
 
-    if response.status_code >= 400:
+    # Only a 2xx is a delivery. A 3xx would otherwise fall through as one: this
+    # client does not follow redirects, so a gateway answering 307 means the
+    # call never reached Roark, and reporting `delivered` would hide that.
+    if not 200 <= response.status_code < 300:
         detail = _error_detail(response)
         logger.error(
             "[roark] POST failed for call {} with status {}: {}",
@@ -106,10 +111,23 @@ def _json_body(response: httpx.Response) -> Any:
 
 
 def _error_detail(response: httpx.Response) -> str:
+    """What to report about a refusal, with nothing reflected back into it.
+
+    Roark's refusals are hand-written or derived from its own request schema
+    (`transcript.0.content: Required`), never built from the value a caller
+    sent, so repeating `code` and `message` is what makes a misconfigured node
+    diagnosable. A body carrying no `code` did not come from Roark, and is
+    reported by status alone rather than quoted: that is the shape a reflecting
+    proxy produces, and the request it would be reflecting holds the transcript
+    and the caller's number.
+    """
     body = _json_body(response)
     if isinstance(body, dict):
-        message = body.get("message") or body.get("detail")
-        if isinstance(message, str) and message:
-            return message
+        code = body.get("code")
+        if isinstance(code, str) and code:
+            message = body.get("message")
+            if isinstance(message, str) and message:
+                return f"{code}: {message[:_MAX_DETAIL_CHARS]}"
+            return code
     # Not something Roark produced: a proxy or gateway answered instead.
     return f"Roark returned an unreadable {response.status_code} response"

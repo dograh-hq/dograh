@@ -45,6 +45,7 @@ class TestWhatsAppOutboundAnswerGating(IsolatedAsyncioTestCase):
         mock_engine.is_call_disposed.return_value = False
         mock_engine.set_node = AsyncMock()
         mock_engine.queue_node_opening = AsyncMock()
+        mock_engine.start_initial_agent = AsyncMock(return_value=True)
         mock_engine.workflow.start_node_id = "start_node"
 
         mock_audio_buffer = MagicMock()
@@ -116,6 +117,7 @@ class TestWhatsAppOutboundAnswerGating(IsolatedAsyncioTestCase):
         mock_engine.is_call_disposed.return_value = False
         mock_engine.set_node = AsyncMock()
         mock_engine.queue_node_opening = AsyncMock()
+        mock_engine.start_initial_agent = AsyncMock(return_value=True)
         mock_engine.workflow.start_node_id = "start_node"
 
         mock_audio_buffer = MagicMock()

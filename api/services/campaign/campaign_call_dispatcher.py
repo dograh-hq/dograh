@@ -307,6 +307,10 @@ class CampaignCallDispatcher:
             )
             # No long wait or DB operation between rate admission and dialing.
             attempted = True
+            await db_client.update_workflow_run(
+                run_id=workflow_run.id,
+                logs={"campaign_dispatch": {"outcome": "started"}},
+            )
             call_result = await provider.initiate_call(
                 to_number=phone_number,
                 webhook_url=webhook_url,
@@ -322,6 +326,7 @@ class CampaignCallDispatcher:
                     "provider": provider.PROVIDER_NAME,
                     **(call_result.provider_metadata or {}),
                 },
+                logs={"campaign_dispatch": {"outcome": "dispatched"}},
             )
             return workflow_run
         except Exception as perm_err:
@@ -405,11 +410,9 @@ class CampaignCallDispatcher:
                         else str(perm_err),
                         disposition=disposition,
                     )
-                    # Mark queued run as processed to prevent retrying
-                    await db_client.update_queued_run(
-                        queued_run_id=queued_run.id,
-                        state="processed",
-                        processed_at=datetime.now(UTC),
+                    await db_client.update_workflow_run(
+                        run_id=workflow_run.id,
+                        logs={"campaign_dispatch": {"outcome": "failed"}},
                     )
 
                 await circuit_breaker.record_and_evaluate(

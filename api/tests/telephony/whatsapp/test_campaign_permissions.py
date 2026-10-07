@@ -173,10 +173,13 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 kwargs.get("disposition"), TelephonyCallStatus.NO_PERMISSION.value
             )
 
-            # Queued run should be marked processed to prevent retrying
-            mock_db.update_queued_run.assert_called_once()
+            # Queued run is not prematurely marked processed; mark_campaign_run_dispatched
+            # will transition it from processing to processed and increment processed_rows.
+            mock_db.update_queued_run.assert_not_called()
+            mock_db.update_workflow_run.assert_called()
             self.assertEqual(
-                mock_db.update_queued_run.call_args[1].get("state"), "processed"
+                mock_db.update_workflow_run.call_args[1].get("logs"),
+                {"campaign_dispatch": {"outcome": "failed"}},
             )
 
             # Circuit breaker must record is_failure=False
@@ -368,11 +371,8 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 concurrency_slot=self.mock_slot,
             )
 
-            # Not parked: no 24h reschedule, no awaiting_* retry_reason
-            update_kwargs = mock_db.update_queued_run.call_args[1]
-            self.assertEqual(update_kwargs.get("state"), "processed")
-            self.assertIsNone(update_kwargs.get("scheduled_for"))
-            self.assertIsNone(update_kwargs.get("retry_reason"))
+            # Not parked: update_queued_run not called; handled by mark_campaign_run_dispatched
+            mock_db.update_queued_run.assert_not_called()
 
             # Run failed, and the send failure is visible in the error
             mock_mark_failed.assert_called_once()
@@ -458,9 +458,7 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 concurrency_slot=self.mock_slot,
             )
 
-            update_kwargs = mock_db.update_queued_run.call_args[1]
-            self.assertEqual(update_kwargs.get("state"), "processed")
-            self.assertIsNone(update_kwargs.get("scheduled_for"))
+            mock_db.update_queued_run.assert_not_called()
             mock_mark_failed.assert_called_once()
 
     @patch(
@@ -545,6 +543,17 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
             # Returned run is the same existing run
             self.assertEqual(result.id, 999)
 
+            # Assert outcome was advanced before dialing and marked dispatched on acceptance
+            update_run_calls = mock_db.update_workflow_run.call_args_list
+            outcome_updates = [
+                c[1].get("logs", {}).get("campaign_dispatch", {}).get("outcome")
+                for c in update_run_calls
+                if "logs" in c[1] and "campaign_dispatch" in c[1].get("logs", {})
+            ]
+            self.assertIn("not_started", outcome_updates)
+            self.assertIn("started", outcome_updates)
+            self.assertIn("dispatched", outcome_updates)
+
     @patch(
         "api.services.campaign.campaign_call_dispatcher.circuit_breaker.record_and_evaluate",
         new_callable=AsyncMock,
@@ -627,10 +636,8 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 TelephonyCallStatus.PERMISSION_TIMEOUT.value,
             )
 
-            # Marked processed to prevent infinite looping
-            self.assertEqual(
-                mock_db.update_queued_run.call_args[1].get("state"), "processed"
-            )
+            # Queued run is not prematurely updated; handled by mark_campaign_run_dispatched
+            mock_db.update_queued_run.assert_not_called()
             self.assertFalse(mock_record_cb.call_args[1].get("is_failure"))
             self.assertEqual(result.id, 999)
 

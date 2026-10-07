@@ -6,14 +6,13 @@ import { cookies } from 'next/headers';
 import logger from '@/lib/logger';
 
 import { getAuthProvider, getStackConfig } from './config';
+import { OSS_TOKEN_COOKIE, OSS_USER_COOKIE } from './cookies';
 import type { LocalUser } from './types';
 
 // Server-side auth utilities for SSR pages
 // This file should only be imported in server components
 
 let stackServerApp: StackServerApp<boolean, string> | null = null;
-const OSS_TOKEN_COOKIE = 'dograh_auth_token';
-const OSS_USER_COOKIE = 'dograh_auth_user';
 
 // Lazy load and cache the stack server app
 export async function getStackServerApp(): Promise<StackServerApp<boolean, string> | null> {

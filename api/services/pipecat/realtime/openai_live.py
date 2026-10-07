@@ -1,5 +1,6 @@
 """OpenAI Live with Dograh workflow tools and conversation controls."""
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import replace
 
@@ -53,6 +54,32 @@ Current workflow:
 class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService):
     """Keep workflow instructions on the Responses backend of a Live session."""
 
+    # Backend tool batches have their own boundaries; voice can start or stop
+    # independently while delegated work is pending.
+    _workflow_tools_follow_voice_response = False
+
+    async def _handle_evt_response(self, evt: events.ResponseEventEnvelope):
+        if evt.inner_type == "response.created":
+            self._workflow_tool_deferral.begin_response(collecting=True)
+            self._workflow_tool_deferral.select_response(
+                evt.delegation_id, collecting=True
+            )
+        elif evt.inner_type == "response.output_item.done":
+            self._workflow_tool_deferral.select_response(
+                evt.delegation_id, collecting=True
+            )
+        await super()._handle_evt_response(evt)
+        if evt.inner_type in (
+            "response.completed",
+            "response.incomplete",
+            "response.failed",
+        ):
+            await self._workflow_tool_deferral.complete_response(
+                evt.delegation_id,
+                speaking=self._workflow_bot_is_speaking,
+                succeeded=evt.inner_type == "response.completed",
+            )
+
     def __init__(self, *, backend_model: str, settings=None, **kwargs):
         settings = settings or self.Settings()
         super().__init__(
@@ -63,9 +90,14 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             **kwargs,
         )
         self._bot_is_speaking = False
-        self._deferred_transitions: list[FunctionCallFromLLM] = []
+        self._bot_playback_stopped = asyncio.Event()
+        self._bot_playback_stopped.set()
         self._pending_speech: list[str] = []
         self._initial_backend_request = False
+        # A recorded greeting opens the conversation without the backend, so
+        # the session must start without requesting an opening line.
+        self._prerecorded_greeting_played = False
+        self._pending_prerecorded_greeting: str | None = None
         self._sent_backend_snapshot: str | None = None
         self._live_audio_seconds = 0.0
 
@@ -137,13 +169,16 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             return
         self._handled_initial_context = True
         if self._needs_session_config:
-            self._initial_backend_request = not self._pending_speech
+            self._initial_backend_request = (
+                not self._pending_speech and not self._prerecorded_greeting_played
+            )
         await super()._handle_context(context)
         await self._maybe_send_tools_update()
 
     async def _handle_evt_session_started(self, evt):
         self._live_audio_seconds = 0.0
         await super()._handle_evt_session_started(evt)
+        await self._flush_prerecorded_greeting()
         pending, self._pending_speech = self._pending_speech, []
         for text in pending:
             await self._send_speech_instruction(text)
@@ -174,6 +209,19 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             if self._context is not None:
                 await self._handle_context(self._context)
 
+    async def _close_turn_after_gap(self, role, turn):
+        if role != "assistant":
+            return await super()._close_turn_after_gap(role, turn)
+
+        # Live transcript gaps do not imply that its continuous audio stream
+        # has finished. Keep the response boundary behind audible playback so
+        # an end-node response cannot close the session halfway through speech.
+        await asyncio.sleep(turn.gap_secs)
+        await self._bot_playback_stopped.wait()
+        async with turn.lock:
+            turn.timer = None
+            await self._end_turn(role)
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         if isinstance(frame, LLMMessagesAppendFrame):
             for message in frame.messages:
@@ -189,11 +237,10 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             return
         elif isinstance(frame, BotStartedSpeakingFrame):
             self._bot_is_speaking = True
+            self._bot_playback_stopped.clear()
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
-            calls, self._deferred_transitions = self._deferred_transitions, []
-            if calls:
-                await super().run_function_calls(calls)
+            self._bot_playback_stopped.set()
         await super().process_frame(frame, direction)
 
     async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
@@ -208,6 +255,38 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             f"for the caller. Do not add a preamble:\n{greeting_text}"
         )
 
+    async def _open_after_prerecorded_greeting(self, transcript: str | None):
+        """Start the session without asking the backend for an opening line.
+
+        The greeting reaches the model on the thinking channel rather than as
+        startup history: the session is configured from a context the
+        aggregator has not written the transcript to yet, and the commentary
+        channel would have it paraphrase the greeting aloud.
+
+        Guarded on teardown because ``_handle_context`` clears
+        ``_needs_session_config`` before the socket send, which is dropped
+        while disconnecting -- the flag would be spent with nothing sent, and
+        a later reconnect would never configure the session.
+        """
+        if self._disconnecting:
+            return
+        self._prerecorded_greeting_played = True
+        self._pending_prerecorded_greeting = transcript
+        await self._handle_context(self._context)
+        await self._flush_prerecorded_greeting()
+
+    async def _flush_prerecorded_greeting(self):
+        if not self._session_started or self._pending_prerecorded_greeting is None:
+            return
+        transcript = self._pending_prerecorded_greeting
+        self._pending_prerecorded_greeting = None
+        await self._send_context_append(
+            None,
+            "You have already greeted the caller, by playing a recording that "
+            f"said: {transcript}",
+            spoken=False,
+        )
+
     async def _prepare_user_audio(self, frame: InputAudioRawFrame):
         return await self._prepare_audio_frame(
             frame,
@@ -216,18 +295,15 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         )
 
     async def run_function_calls(self, function_calls: Sequence[FunctionCallFromLLM]):
-        # Keep a batch intact so a transition cannot outrun related tool calls.
-        if self._bot_is_speaking and any(
-            self._function_is_node_transition(call.function_name)
-            for call in function_calls
-        ):
-            self._deferred_transitions.extend(function_calls)
-            return
-        await super().run_function_calls(function_calls)
+        await self._workflow_tool_deferral.submit(
+            function_calls,
+            speaking=self._workflow_bot_is_speaking,
+            dispatch=super().run_function_calls,
+        )
 
     async def _disconnect(self):
         self._bot_is_speaking = False
-        self._deferred_transitions.clear()
+        self._bot_playback_stopped.set()
         self._pending_speech.clear()
         self._initial_backend_request = False
         self._sent_backend_snapshot = None

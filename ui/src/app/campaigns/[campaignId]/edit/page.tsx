@@ -12,7 +12,7 @@ import {
     listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
     updateCampaignApiV1CampaignCampaignIdPatch
 } from '@/client/sdk.gen';
-import type { CampaignResponse, TelephonyConfigurationListItem } from '@/client/types.gen';
+import type { CampaignResponse, TelephonyConfigurationListItem, TrafficVariantRequest } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,7 @@ import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 
 import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../../CampaignAdvancedSettings';
+import TrafficSplitEditor, { trafficSplitError } from '../../TrafficSplitEditor';
 import { WhatsAppPermissionCard } from '../../WhatsAppPermissionCard';
 
 export default function EditCampaignPage() {
@@ -36,9 +37,14 @@ export default function EditCampaignPage() {
 
     // Form state
     const [campaignName, setCampaignName] = useState('');
+    const [variants, setVariants] = useState<TrafficVariantRequest[]>([]);
+    const [splitChanged, setSplitChanged] = useState(false);
     const [maxConcurrency, setMaxConcurrency] = useState<string>('');
+    const [rateLimitPerSecond, setRateLimitPerSecond] = useState('1');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
+
+    const [outboundBlockedReason, setOutboundBlockedReason] = useState<string | null>(null);
 
     // Limits state
     const [orgConcurrentLimit, setOrgConcurrentLimit] = useState<number>(2);
@@ -83,12 +89,28 @@ export default function EditCampaignPage() {
     // Fetch campaign and populate form
     const fetchCampaign = useCallback(async () => {
         if (!user) return;
+        setIsLoading(true);
         try {
             const accessToken = await getAccessToken();
-            const response = await getCampaignApiV1CampaignCampaignIdGet({
-                path: { campaign_id: campaignId },
-                headers: { 'Authorization': `Bearer ${accessToken}` },
-            });
+            const headers = { 'Authorization': `Bearer ${accessToken}` };
+            const [response, defaultsResponse, configsResponse] = await Promise.all([
+                getCampaignApiV1CampaignCampaignIdGet({
+                    path: { campaign_id: campaignId },
+                    headers,
+                }),
+                getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet({ headers }),
+                listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet({ headers }),
+            ]);
+
+            if (response.error || !response.data) {
+                throw new Error(detailFromError(response.error, 'Failed to load campaign'));
+            }
+            if (defaultsResponse.error || !defaultsResponse.data) {
+                throw new Error(detailFromError(defaultsResponse.error, 'Failed to load campaign limits'));
+            }
+            if (configsResponse.error || !configsResponse.data) {
+                throw new Error(detailFromError(configsResponse.error, 'Failed to load telephony configurations'));
+            }
 
             if (response.data) {
                 const c = response.data;
@@ -99,10 +121,26 @@ export default function EditCampaignPage() {
                     return;
                 }
 
+                // Pinned campaigns use their own caller IDs. Only legacy campaigns
+                // without a selected configuration use the organization default.
+                const selectedConfig = configsResponse.data.configurations.find(
+                    (config) => config.id === c.telephony_configuration_id,
+                );
+                if (c.telephony_configuration_id != null && !selectedConfig) {
+                    throw new Error('The campaign\'s telephony configuration could not be found');
+                }
+                setOrgConcurrentLimit(defaultsResponse.data.concurrent_call_limit);
+                setOutboundBlockedReason(selectedConfig?.outbound_blocked_reason ?? null);
+                setFromNumbersCount(selectedConfig
+                    ? selectedConfig.phone_number_count ?? 0
+                    : defaultsResponse.data.from_numbers_count);
                 setCampaign(c);
 
                 // Populate form state
                 setCampaignName(c.name);
+                setVariants(c.traffic_split?.variants.map(v => ({ workflow_id: v.workflow_id, workflow_definition_id: v.workflow_definition_id, weight: v.weight })) ?? [{ workflow_id: c.workflow_id, workflow_definition_id: null, weight: 100 }]);
+                setSplitChanged(false);
+                setRateLimitPerSecond(String(c.rate_limit_per_second));
                 setMaxConcurrency(c.max_concurrency ? String(c.max_concurrency) : '');
 
                 // Retry config
@@ -136,87 +174,65 @@ export default function EditCampaignPage() {
                         c.whatsapp_permission_action as 'skip' | 'request_and_wait'
                     );
                 }
+                setTelephonyConfigs(configsResponse.data.configurations ?? []);
+                setTelephonyConfigsStatus('loaded');
             }
         } catch (error) {
             console.error('Failed to fetch campaign:', error);
-            toast.error('Failed to load campaign');
+            setTelephonyConfigsStatus('error');
+            toast.error(error instanceof Error ? error.message : 'Failed to load campaign');
             router.replace(`/campaigns/${campaignId}`);
         } finally {
             setIsLoading(false);
         }
     }, [user, getAccessToken, campaignId, router]);
 
-    // Fetch campaign limits & telephony configs
+    // Retry fetch campaign limits & telephony configs if lookup failed
     const fetchCampaignDefaults = useCallback(async () => {
         if (!user) return;
         setTelephonyConfigsStatus('loading');
         try {
             const accessToken = await getAccessToken();
+            const headers = { 'Authorization': `Bearer ${accessToken}` };
             const [defaultsRes, configsRes] = await Promise.all([
-                getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet({
-                    headers: { 'Authorization': `Bearer ${accessToken}` },
-                }),
-                listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet({
-                    headers: { 'Authorization': `Bearer ${accessToken}` },
-                }),
+                getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet({ headers }),
+                listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet({ headers }),
             ]);
 
-            if (defaultsRes.error) {
-                throw new Error(detailFromError(defaultsRes.error, 'Failed to load campaign defaults'));
+            if (defaultsRes.error || !defaultsRes.data) {
+                throw new Error(detailFromError(defaultsRes.error, 'Failed to load campaign limits'));
             }
-            if (defaultsRes.data) {
-                setOrgConcurrentLimit(defaultsRes.data.concurrent_call_limit);
-                setFromNumbersCount(defaultsRes.data.from_numbers_count);
-            }
-            if (configsRes.error) {
+            if (configsRes.error || !configsRes.data) {
                 throw new Error(detailFromError(configsRes.error, 'Failed to load telephony configurations'));
             }
-            // The endpoint returns { configurations: [...] }, not a bare
-            // array — assigning the envelope left `telephonyConfigs` as an
-            // object, so the `.find` below threw and no configuration was
-            // ever matched to the campaign.
-            setTelephonyConfigs(configsRes.data?.configurations ?? []);
+
+            setOrgConcurrentLimit(defaultsRes.data.concurrent_call_limit);
+            setFromNumbersCount(defaultsRes.data.from_numbers_count);
+            setTelephonyConfigs(configsRes.data.configurations ?? []);
             setTelephonyConfigsStatus('loaded');
         } catch (error) {
             console.error('Failed to fetch campaign limits:', error);
-            // Leave telephonyConfigs as-is and mark the lookup failed rather
-            // than resolved-empty — an empty list here reads as "no WhatsApp
-            // config" and would silently strip whatsapp_permission_action
-            // from a WhatsApp campaign's save.
             setTelephonyConfigsStatus('error');
         }
     }, [user, getAccessToken]);
 
     // Initial load
     useEffect(() => {
-        if (user) {
+        if (!loading && user) {
             fetchCampaign();
-            fetchCampaignDefaults();
         }
-    }, [fetchCampaign, fetchCampaignDefaults, user]);
+    }, [fetchCampaign, loading, user]);
 
     const matchingConfig = telephonyConfigs.find(
         (tc) => tc.id === campaign?.telephony_configuration_id
     );
-    // The telephony provider is the only thing that actually makes a campaign a
-    // WhatsApp campaign.
-    //
-    // The name heuristic matched any configuration a user happened to call
-    // "whatsapp", and `whatsapp_permission_action !== undefined` matched
-    // everything: CampaignResponse declares that field with a "skip" default
-    // and always populates it (api/routes/campaign.py), so it is present on
-    // every campaign. Between them, every campaign was treated as WhatsApp —
-    // showing the permission card, capping effective concurrency at 1 and
-    // submitting WhatsApp metadata on plain voice campaigns.
     // Provider capability, not provider name - see providers/AGENTS.md.
     const requiresCallPermission =
         telephonyConfigsStatus === 'loaded' && matchingConfig?.requires_call_permission === true;
     const effectiveFromNumbers = requiresCallPermission ? 1 : (matchingConfig?.phone_number_count ?? fromNumbersCount);
 
-    // Effective concurrency limit
-    const effectiveLimit = effectiveFromNumbers > 0
-        ? Math.min(orgConcurrentLimit, effectiveFromNumbers)
-        : orgConcurrentLimit;
+    const effectiveLimit = orgConcurrentLimit;
+
 
     // Handle form submission
     const handleSubmit = async (e: React.FormEvent) => {
@@ -241,22 +257,23 @@ export default function EditCampaignPage() {
             );
             return;
         }
+        const splitError = trafficSplitError(variants);
+        if (splitChanged && splitError) {
+            toast.error(splitError);
+            return;
+        }
 
-        // Validate max_concurrency if provided
-        const maxConcurrencyValue = maxConcurrency ? parseInt(maxConcurrency) : null;
-        if (maxConcurrencyValue !== null) {
-            if (isNaN(maxConcurrencyValue) || maxConcurrencyValue < 1 || maxConcurrencyValue > 100) {
-                toast.error('Max concurrent calls must be between 1 and 100');
-                return;
-            }
-            if (maxConcurrencyValue > effectiveLimit) {
-                if (fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit) {
-                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. You have ${fromNumbersCount} phone number(s) configured - add more CLIs to increase concurrency.`);
-                } else {
-                    toast.error(`Max concurrent calls cannot exceed organization limit (${effectiveLimit})`);
-                }
-                return;
-            }
+        const maxConcurrencyValue = maxConcurrency ? Number(maxConcurrency) : null;
+        if (maxConcurrencyValue !== null && (
+            !Number.isInteger(maxConcurrencyValue) || maxConcurrencyValue < 1 || maxConcurrencyValue > effectiveLimit
+        )) {
+            toast.error(`Max concurrent calls must be between 1 and your organization limit (${effectiveLimit})`);
+            return;
+        }
+        const dialRate = Number(rateLimitPerSecond);
+        if (!Number.isInteger(dialRate) || dialRate < 1 || dialRate > orgConcurrentLimit) {
+            toast.error(`Calls started per second must be between 1 and ${orgConcurrentLimit}`);
+            return;
         }
 
         // Validate schedule slots if enabled
@@ -312,8 +329,10 @@ export default function EditCampaignPage() {
                 path: { campaign_id: campaignId },
                 body: {
                     name: campaignName,
+                    ...(splitChanged ? { traffic_split: { variants } } : {}),
                     retry_config: retryConfig,
                     max_concurrency: maxConcurrencyValue,
+                    rate_limit_per_second: dialRate,
                     schedule_config: scheduleConfig,
                     circuit_breaker: circuitBreakerConfig,
                     whatsapp_permission_action: requiresCallPermission ? whatsappPermissionAction : undefined,
@@ -322,8 +341,7 @@ export default function EditCampaignPage() {
             });
 
             if (response.error) {
-                const errorDetail = (response.error as { detail?: string })?.detail;
-                const errorMessage = errorDetail || 'Failed to update campaign';
+                const errorMessage = detailFromError(response.error, 'Failed to update campaign');
                 setSubmitError(errorMessage);
                 toast.error(errorMessage);
                 return;
@@ -434,6 +452,8 @@ export default function EditCampaignPage() {
 
                         <Separator />
 
+                        <TrafficSplitEditor value={variants} onChange={value => { setVariants(value); setSplitChanged(true); }} disabled={isSubmitting} editing />
+
                         <CampaignAdvancedSettings
                             maxConcurrency={maxConcurrency}
                             onMaxConcurrencyChange={setMaxConcurrency}
@@ -441,6 +461,9 @@ export default function EditCampaignPage() {
                             orgConcurrentLimit={orgConcurrentLimit}
                             fromNumbersCount={effectiveFromNumbers}
                             configuredPhoneNumberCount={matchingConfig?.phone_number_count ?? fromNumbersCount}
+                            rateLimitPerSecond={rateLimitPerSecond}
+                            onRateLimitPerSecondChange={setRateLimitPerSecond}
+                            outboundBlockedReason={outboundBlockedReason}
                             retryEnabled={retryEnabled}
                             onRetryEnabledChange={setRetryEnabled}
                             maxRetries={maxRetries}

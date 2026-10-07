@@ -1,5 +1,87 @@
 # Changelog
 
+## 1.48.0 (2026-10-02)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: expose OTEL endpoint for telemetry by @a6kme in https://github.com/dograh-hq/dograh/pull/788
+* feat: enhance answer supervisor to listen even when playing initial greeting by @a6kme in https://github.com/dograh-hq/dograh/pull/790
+* feat: add tts caching for MiniMax TTS by @a6kme in https://github.com/dograh-hq/dograh/pull/796
+* feat(ui): config-driven event banner, SF Tech Week + Cloudonix by @sandeepvemu-dograh in https://github.com/dograh-hq/dograh/pull/801
+* feat: select median TTS cache audio from reserved candidates by @a6kme in https://github.com/dograh-hq/dograh/pull/803
+* feat: add canadacentral Azure Speech region by @paramedicspecialist in https://github.com/dograh-hq/dograh/pull/792
+* feat: allow editing markdown and text files in knowledge base by @a6kme in https://github.com/dograh-hq/dograh/pull/807
+* feat: form-encoded http tool bodies, transfer greeting toggle and transfer fixes by @a6kme in https://github.com/dograh-hq/dograh/pull/808
+* feat: add org-configured BigQuery call event exports by @a6kme in https://github.com/dograh-hq/dograh/pull/805
+* feat: add campaign traffic splits and workflow version links by @a6kme in https://github.com/dograh-hq/dograh/pull/810
+* feat: filter billing ledger by credit, usage, and date by @a6kme in https://github.com/dograh-hq/dograh/pull/824
+* feat: default Cartesia TTS to sonic-3.6 by @a6kme in https://github.com/dograh-hq/dograh/pull/826
+* feat(mcp): add list_calls and get_call_transcript tools by @chewwbaka in https://github.com/dograh-hq/dograh/pull/813
+* feat: add Hopper LLM provider (Gemma 4 31B) by @jashwanth-12 in https://github.com/dograh-hq/dograh/pull/831
+### Bug Fixes
+* fix: add multi locale in answer supervisor by @a6kme in https://github.com/dograh-hq/dograh/pull/782
+* fix: extract node variables when a text chat ends without a transition by @a6kme in https://github.com/dograh-hq/dograh/pull/783
+* fix: fix call response watchdog and user idle controller by @a6kme in https://github.com/dograh-hq/dograh/pull/802
+* fix: skip Telnyx recording lifecycle events instead of logging unexpected status updates by @a692570 in https://github.com/dograh-hq/dograh/pull/799
+* fix: set an Outbound Voice Profile on auto-created Telnyx Call Control Applications by @a692570 in https://github.com/dograh-hq/dograh/pull/797
+* fix: return a uniform 404 from the Telnyx events route so unsigned callers cannot enumerate run ids by @a692570 in https://github.com/dograh-hq/dograh/pull/798
+* fix: align Telnyx informational event skip list with the real event catalog by @a6kme in https://github.com/dograh-hq/dograh/pull/804
+* fix: adopt bounded MiniMax TTS retries by @a6kme in https://github.com/dograh-hq/dograh/pull/809
+* fix: seed Gemini Live node-transition context after reconnect settles by @chewwbaka in https://github.com/dograh-hq/dograh/pull/816
+* fix: resolve deprecated timezone aliases on billing credits endpoint by @chewwbaka in https://github.com/dograh-hq/dograh/pull/827
+* fix: prevent agent worker leaks after setup hangup by @a6kme in https://github.com/dograh-hq/dograh/pull/835
+* fix(docker): drop NLTK punkt_tab download removed by Pipecat 1.12 by @a6kme in https://github.com/dograh-hq/dograh/pull/836
+* fix(sarvam): route LLM to v1 endpoint and support configurable base_url by @amitbhakt in https://github.com/dograh-hq/dograh/pull/839
+* fix: preserve agent handoff history and opening responses by @a6kme in https://github.com/dograh-hq/dograh/pull/844
+* fix: forward Twilio SIP Call-ID to Tuner for simulation linking by @HamzaFouad in https://github.com/dograh-hq/dograh/pull/837
+* fix: pull MinIO from dograh's own image by @a6kme in https://github.com/dograh-hq/dograh/pull/847
+### Documentation
+* docs(api): customMessage plays before tool execution, not after by @AAlexxis222 in https://github.com/dograh-hq/dograh/pull/722
+### Other Changes
+* Eot model min word by @a6kme in https://github.com/dograh-hq/dograh/pull/832
+* Upgrade Pipecat to v1.12.0 and default Gemini Live to 3.8 by @a6kme in https://github.com/dograh-hq/dograh/pull/833
+* Add optional spoken introductions to Twilio call transfers by @a6kme in https://github.com/dograh-hq/dograh/pull/843
+
+## New Contributors
+* @paramedicspecialist made their first contribution in https://github.com/dograh-hq/dograh/pull/792
+* @AAlexxis222 made their first contribution in https://github.com/dograh-hq/dograh/pull/722
+* @jashwanth-12 made their first contribution in https://github.com/dograh-hq/dograh/pull/831
+* @amitbhakt made their first contribution in https://github.com/dograh-hq/dograh/pull/839
+* @HamzaFouad made their first contribution in https://github.com/dograh-hq/dograh/pull/837
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.47.0...dograh-v1.48.0
+
+## 1.47.0 (2026-09-15)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: optional Reo.dev integration by @chewwbaka in https://github.com/dograh-hq/dograh/pull/728
+* feat(ui): add Cartesia event announcement banner (cloud only) by @sandeepvemu-dograh in https://github.com/dograh-hq/dograh/pull/751
+* feat: add answer supervision before pipeline kicks off by @a6kme in https://github.com/dograh-hq/dograh/pull/759
+* feat(tts): add Speechify as a Voice (TTS) provider (Simba 3.2) by @shauntrennery in https://github.com/dograh-hq/dograh/pull/654
+* feat(turns): let external-turn STT decide the turn start, retire provisional_vad by @a6kme in https://github.com/dograh-hq/dograh/pull/767
+* feat(telephony): expose provider call ID in workflow initial context by @chewwbaka in https://github.com/dograh-hq/dograh/pull/692
+* feat: refactor campaign dispatcher to handle higher concurrency by @a6kme in https://github.com/dograh-hq/dograh/pull/769
+* feat(workflow): expose run ID in initial context by @a6kme in https://github.com/dograh-hq/dograh/pull/774
+* feat: transfer call to a different agent by @a6kme in https://github.com/dograh-hq/dograh/pull/776
+### Bug Fixes
+* fix: ARI destination dial string in campaigns by @a6kme in https://github.com/dograh-hq/dograh/pull/764
+* fix(ui): derive session cookie Secure flag from the request, not NODE_ENV by @a6kme in https://github.com/dograh-hq/dograh/pull/771
+* fix: update MinIO image registry to Quay by @palinko91 in https://github.com/dograh-hq/dograh/pull/772
+* fix(answer): run answer handling on inbound, and let patterns beat the clock by @a6kme in https://github.com/dograh-hq/dograh/pull/773
+### Other Changes
+* Add Exotel telephony provider for Connect Voice AI by @vinayexotel in https://github.com/dograh-hq/dograh/pull/639
+
+## New Contributors
+* @vinayexotel made their first contribution in https://github.com/dograh-hq/dograh/pull/639
+* @shauntrennery made their first contribution in https://github.com/dograh-hq/dograh/pull/654
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.46.0...dograh-v1.47.0
+
 ## 1.46.0 (2026-09-03)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

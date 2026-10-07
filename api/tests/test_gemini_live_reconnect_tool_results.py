@@ -4,7 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from google.genai.types import LiveServerContent, LiveServerMessage
 from pipecat.frames.frames import (
+    BotStoppedSpeakingFrame,
     EndFrame,
     NodeTransitionStartedFrame,
     TranscriptionFrame,
@@ -56,6 +58,73 @@ def _make_tool_result_context(tool_call_id: str) -> LLMContext:
             }
         ]
     )
+
+
+@pytest.mark.asyncio
+async def test_node_transition_flushes_at_playback_stop_before_gemini_turn_complete():
+    service = _make_service()
+    service._bot_is_responding = True
+    service.push_frame = AsyncMock()
+    service._schedule_node_transition_function_calls = MagicMock()
+    function_call = FunctionCallFromLLM(
+        context=LLMContext(),
+        tool_call_id="transition",
+        function_name="next_node",
+        arguments={},
+    )
+    service.register_function("next_node", AsyncMock(), is_node_transition=True)
+    await service._run_or_defer_function_calls([function_call])
+    assert service._turn_complete_pending_idle is None
+
+    # Playback ends before Gemini sends turn_complete, so flush the transition
+    # without waiting for the server to close the turn.
+    frame = BotStoppedSpeakingFrame()
+    await service.process_frame(frame, FrameDirection.UPSTREAM)
+
+    service._schedule_node_transition_function_calls.assert_called_once_with(
+        [function_call]
+    )
+    assert service._workflow_tool_deferral.pending == []
+    assert service._bot_is_responding is True
+    service.push_frame.assert_awaited_once_with(frame, FrameDirection.UPSTREAM)
+
+
+@pytest.mark.asyncio
+async def test_node_transition_waits_for_gemini_idle_across_an_audio_gap():
+    service = _make_service()
+    service._bot_is_responding = True
+    service.push_frame = AsyncMock()
+    service._start_deferred_turn_complete_timeout = MagicMock()
+    service._schedule_node_transition_function_calls = MagicMock()
+    function_call = FunctionCallFromLLM(
+        context=LLMContext(),
+        tool_call_id="transition",
+        function_name="next_node",
+        arguments={},
+    )
+    service.register_function("next_node", AsyncMock(), is_node_transition=True)
+    await service._run_or_defer_function_calls([function_call])
+
+    await service._handle_server_message(
+        LiveServerMessage(
+            server_content=LiveServerContent(
+                turn_complete=True, interaction_status="IN_PROGRESS"
+            )
+        )
+    )
+    await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
+
+    service._schedule_node_transition_function_calls.assert_not_called()
+    assert service._bot_is_responding is True
+
+    await service._handle_server_message(
+        LiveServerMessage(server_content=LiveServerContent(interaction_status="IDLE"))
+    )
+
+    service._schedule_node_transition_function_calls.assert_called_once_with(
+        [function_call]
+    )
+    assert service._bot_is_responding is False
 
 
 @pytest.mark.asyncio
@@ -271,7 +340,7 @@ async def test_non_transition_call_is_not_deferred_while_bot_is_responding():
     await service._run_or_defer_function_calls([function_call])
 
     service.run_function_calls.assert_awaited_once_with([function_call])
-    assert service._pending_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []
     assert service._transition_function_call_task is None
 
 
@@ -296,7 +365,7 @@ async def test_node_transition_call_is_deferred_while_bot_is_responding():
     await service._run_or_defer_function_calls([function_call])
 
     service.run_function_calls.assert_not_awaited()
-    assert service._pending_node_transition_function_calls == [function_call]
+    assert service._workflow_tool_deferral.pending == [function_call]
     assert service._transition_function_call_task is None
 
 
@@ -390,6 +459,49 @@ async def test_fresh_transition_session_waits_for_updated_context_before_ready()
     service._create_initial_response.assert_awaited_once()
     service._drain_pending_tool_results.assert_not_awaited()
     assert service._ready_for_realtime_input is True
+    assert service._awaiting_node_transition_context is False
+
+
+@pytest.mark.asyncio
+async def test_node_transition_context_frame_during_disconnect_defers_seed():
+    """A node-transition context frame that arrives while the reconnect's
+    disconnect is still in flight must not seed against the dying session.
+
+    Regression: `self._session` still points to the old session mid-disconnect,
+    so the `not self._session` guard did not protect the seed. Seeding there ran
+    against a session being torn down and cleared the node-transition flags, so
+    the fresh session was never seeded and the bot stayed silent after the
+    transition. The seed must instead defer until the disconnect settles and the
+    fresh session is ready.
+    """
+    service = _make_service()
+    service._handled_initial_context = True
+    service._awaiting_node_transition_context = True
+    service._node_transition_context_received = False
+    service._process_completed_function_calls = AsyncMock()
+    service._create_initial_response = AsyncMock()
+
+    # Mid-reconnect: the old session is still present and the disconnect is in
+    # progress. The transition's context frame lands in exactly this window.
+    service._session = _FakeSession()
+    service._disconnecting = True
+
+    context = _make_tool_result_context("call-transition")
+    await service._handle_context(context)
+
+    # It must record receipt but NOT seed, and must preserve the flags so the
+    # fresh session can seed later.
+    service._create_initial_response.assert_not_awaited()
+    assert service._awaiting_node_transition_context is True
+    assert service._node_transition_context_received is True
+
+    # Reconnect settles: disconnect finished, fresh session becomes ready.
+    service._disconnecting = False
+    fresh_session = _FakeSession()
+    await service._handle_session_ready(fresh_session)
+
+    # The deferred seed now runs exactly once, against the fresh session.
+    service._create_initial_response.assert_awaited_once()
     assert service._awaiting_node_transition_context is False
 
 

@@ -106,6 +106,32 @@ Example:
 
 ![Parameter Example](/images/tool%20params.png)
 
+### Send the workflow run ID
+
+Every call and text chat has a reserved `initial_context.workflow_run_id` that external context cannot override. To send it, add a **Preset Parameter**:
+
+| Field | Value |
+|---|---|
+| Name | `workflow_run_id` |
+| Type | `number` |
+| Value template | `{{initial_context.workflow_run_id}}` |
+| Required | Yes |
+
+The preset is sent in the request body for POST/PUT/PATCH or query parameters for GET/DELETE. With a custom body template, include `{{workflow_run_id}}` where needed. For UI tool tests, enter a sample numeric value.
+
+### Body format
+
+POST, PUT, and PATCH requests send a JSON body (`application/json`) by default. Some APIs only accept form-encoded bodies and reject JSON. For those, set **Body Format** on the Parameters tab to **Form-encoded** (`body_format: "form"` in the API). Parameters are then sent as `application/x-www-form-urlencoded` fields:
+
+- A list value repeats the field name once per item, e.g. `To=a&To=b`.
+- An object value is sent as a JSON string, because form fields cannot nest.
+
+A body template works the same way in either format. Its top-level keys become the form fields.
+
+### What the agent receives
+
+The agent gets the response's `status_code` and parsed body as `data`. `status` is `success` for responses below 400, and `error` for any 4xx or 5xx response, so a rejected request is never reported to the agent as a success. Timeouts and connection failures also come back with `status: "error"` and an `error` message.
+
 <br/>
 <div style={{ borderBottom: '2px solid #e5e5e5', margin: '20px 0' }}></div>
 

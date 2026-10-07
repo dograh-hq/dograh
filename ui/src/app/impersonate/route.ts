@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getStackConfig } from "@/lib/auth/config";
+import { isSecureRequest } from "@/lib/auth/cookies";
 
 /**
  * Helper route that receives a Stack refresh token via query parameters, wipes
@@ -118,13 +119,7 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.redirect(redirectUrl);
 
-    const forwardedProto = request.headers
-        .get("x-forwarded-proto")
-        ?.split(",")[0]
-        ?.trim()
-        .toLowerCase();
-    const isSecure =
-        request.nextUrl.protocol === "https:" || forwardedProto === "https";
+    const isSecure = isSecureRequest(request);
 
     // Every scope a stale SDK cookie may live in: host-only plus each parent
     // domain, each in the regular jar and (on https) its partitioned twin. The

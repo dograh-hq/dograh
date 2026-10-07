@@ -27,6 +27,9 @@ export interface CampaignAdvancedSettingsProps {
     effectiveLimit: number;
     orgConcurrentLimit: number;
     fromNumbersCount: number;
+    rateLimitPerSecond: string;
+    onRateLimitPerSecondChange: (value: string) => void;
+    outboundBlockedReason?: string | null;
     // Retry config
     retryEnabled: boolean;
     onRetryEnabledChange: (value: boolean) => void;
@@ -118,6 +121,7 @@ const timezoneSelectStyles = {
 
 export default function CampaignAdvancedSettings({
     maxConcurrency, onMaxConcurrencyChange, effectiveLimit, orgConcurrentLimit, fromNumbersCount,
+    rateLimitPerSecond, onRateLimitPerSecondChange, outboundBlockedReason,
     retryEnabled, onRetryEnabledChange, maxRetries, onMaxRetriesChange,
     retryDelaySeconds, onRetryDelaySecondsChange,
     retryOnBusy, onRetryOnBusyChange, retryOnNoAnswer, onRetryOnNoAnswerChange,
@@ -151,22 +155,39 @@ export default function CampaignAdvancedSettings({
                     Maximum number of simultaneous calls. Leave empty to use {effectiveLimit}.
                     {!requiresCallPermission && fromNumbersCount > 0 && ` You have ${fromNumbersCount} CLI${fromNumbersCount !== 1 ? 's' : ''} and an org limit of ${orgConcurrentLimit}.`}
                 </p>
-                {!requiresCallPermission && fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit && (
-                    <p className="text-sm text-amber-600 dark:text-amber-400">
-                        Concurrency is limited to {fromNumbersCount} by your configured phone numbers. To use the full org limit of {orgConcurrentLimit}, add more CLIs in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link>.
+                {fromNumbersCount > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                        Caller IDs rotate across calls and may be reused on simultaneous calls.
                     </p>
                 )}
-                {/* Reads the real count, not the concurrency sentinel, and is
-                    not gated on requiresCallPermission: the CLI-count hints
-                    above describe a cap a consent-based provider does not
-                    have, but every provider still needs an active number to
-                    dial from, so this is the one warning that says the
-                    campaign cannot run at all. */}
-                {configuredPhoneNumberCount === 0 && (
+                {outboundBlockedReason && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                        {outboundBlockedReason}{' '}
+                        <Link href="/telephony-configurations" className="underline font-medium">Open Telephony Configuration</Link>.
+                    </p>
+                )}
+                {configuredPhoneNumberCount === 0 && !outboundBlockedReason && (
                     <p className="text-sm text-amber-600 dark:text-amber-400">
                         No phone numbers configured. Add one in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link> before running the campaign.
                     </p>
                 )}
+            </div>
+
+            <div className="space-y-2">
+                <Label htmlFor="dial-rate">Calls Started per Second</Label>
+                <Input
+                    id="dial-rate"
+                    type="number"
+                    min={1}
+                    max={orgConcurrentLimit}
+                    step={1}
+                    required
+                    value={rateLimitPerSecond}
+                    onChange={(e) => onRateLimitPerSecondChange(e.target.value)}
+                />
+                <p className="text-sm text-muted-foreground">
+                    Maximum new calls this campaign can start each second. Default: 1. Your account allows up to {orgConcurrentLimit}.
+                </p>
             </div>
 
             {/* Retry Configuration */}

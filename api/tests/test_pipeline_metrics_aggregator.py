@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock
 import pytest
 from google.genai.types import LiveServerMessage, UsageMetadata
 from pipecat.frames.frames import MetricsFrame
-from pipecat.metrics.metrics import LLMTokenUsage, LLMUsageMetricsData
+from pipecat.metrics.metrics import (
+    LLMTokenUsage,
+    LLMUsageMetricsData,
+    STTUsage,
+    STTUsageMetricsData,
+)
 from pipecat.processors.frame_processor import FrameDirection
 
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
@@ -253,3 +258,33 @@ async def test_keeps_processor_and_model_totals_separate_and_resets(aggregator):
 
     aggregator.reset_metrics()
     assert aggregator.get_all_usage_metrics_serialized()["llm"] == {}
+
+
+@pytest.mark.asyncio
+async def test_sums_stt_audio_seconds_per_processor_and_model(aggregator):
+    stt_processor = "DeepgramSTTService#0"
+    for processor, model, seconds in (
+        (stt_processor, "nova-3", 1.5),
+        (stt_processor, "nova-3", 2.25),
+        (stt_processor, "another-model", 4.0),
+    ):
+        frame = MetricsFrame(
+            data=[
+                STTUsageMetricsData(
+                    processor=processor,
+                    model=model,
+                    value=STTUsage(audio_seconds=seconds),
+                )
+            ]
+        )
+        await aggregator.process_frame(frame, FrameDirection.DOWNSTREAM)
+        aggregator.push_frame.assert_awaited_with(frame, FrameDirection.DOWNSTREAM)
+
+    stored_usage = json.loads(json.dumps(aggregator.get_all_usage_metrics_serialized()))
+    assert format_public_usage_info(stored_usage)["stt"] == {
+        f"{stt_processor}|||nova-3": 3.75,
+        f"{stt_processor}|||another-model": 4.0,
+    }
+
+    aggregator.reset_metrics()
+    assert aggregator.get_all_usage_metrics_serialized()["stt"] == {}

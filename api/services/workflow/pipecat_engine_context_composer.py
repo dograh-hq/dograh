@@ -4,6 +4,7 @@ Extracts prompt and function composition logic from PipecatEngine into
 reusable functions. Defines recording response mode markers and instructions.
 """
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Optional
 
 if TYPE_CHECKING:
@@ -46,27 +47,32 @@ RULES:
 - *NEVER* mix modes in a single response, since we rely on the markers to decide whether to play using TTS or Pre-recorded audio."""
 
 
+@dataclass(frozen=True)
+class ComposedNodePrompt:
+    text: str
+    recording_enabled: bool
+
+
 def compose_system_prompt_for_node(
     *,
     node: "Node",
     workflow: "WorkflowGraph",
     format_prompt: Callable[[str], str],
     has_recordings: bool,
-) -> str:
+) -> ComposedNodePrompt:
     """Compose the full system prompt text for a workflow node.
 
-    Combines the global prompt, node-specific prompt, and (when recordings
-    are enabled anywhere in the workflow) the recording response mode
-    instructions into a single string.
+    Combines the global prompt, node-specific prompt, and recording response
+    mode instructions. Returns the same recording-mode decision for the router.
 
     Args:
         node: The workflow node to compose the prompt for.
         workflow: The full workflow graph (needed for global node prompt).
         format_prompt: Callable to render template variables in prompts.
-        has_recordings: Whether any node in the workflow uses recordings.
+        has_recordings: Whether the organization has active recordings.
 
     Returns:
-        The composed system prompt text.
+        The composed text and whether this node uses recording response mode.
     """
     global_prompt = ""
     if workflow.global_node_id and node.add_global_prompt:
@@ -77,10 +83,13 @@ def compose_system_prompt_for_node(
 
     parts = [p for p in (global_prompt, formatted_node_prompt) if p]
 
-    if has_recordings and "RECORDING_ID:" in formatted_node_prompt:
+    recording_enabled = has_recordings and "RECORDING_ID:" in formatted_node_prompt
+    if recording_enabled:
         parts.append(RECORDING_RESPONSE_MODE_INSTRUCTIONS)
 
-    return "\n\n".join(parts)
+    return ComposedNodePrompt(
+        text="\n\n".join(parts), recording_enabled=recording_enabled
+    )
 
 
 async def compose_functions_for_node(

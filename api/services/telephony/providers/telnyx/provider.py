@@ -107,10 +107,17 @@ class TelnyxProvider(TelephonyProvider):
             wss_backend_endpoint, workflow_id, organization_id, workflow_run_id
         )
 
-        # Build the webhook URL for status callbacks
+        # Build the webhook URL for status callbacks. When a capability-token
+        # secret is configured, append the HMAC token so the events route can
+        # authenticate the request before any database lookup. Telnyx
+        # preserves query strings on webhook POSTs (verified live), so the
+        # token survives the round trip.
         events_url = (
             f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
         )
+        events_token = ws_auth.mint_events_token(workflow_run_id)
+        if events_token:
+            events_url = f"{events_url}?token={events_token}"
 
         # stream_bidirectional_codec controls only the Dograh → Telnyx direction.
         # The Telnyx → Dograh direction follows the PSTN leg and is announced via
@@ -722,6 +729,9 @@ class TelnyxProvider(TelephonyProvider):
         events_url = (
             f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
         )
+        events_token = ws_auth.mint_events_token(workflow_run_id)
+        if events_token:
+            events_url = f"{events_url}?token={events_token}"
         try:
             await self.answer_and_stream(
                 call_control_id=normalized_data.call_id,

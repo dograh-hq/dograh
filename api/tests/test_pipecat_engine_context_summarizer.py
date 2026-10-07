@@ -11,7 +11,9 @@ from api.services.workflow.pipecat_engine_context_summarizer import (
 @pytest.mark.asyncio
 async def test_restarting_and_cleanup_await_cancelled_summarization_tasks():
     manager = ContextSummarizationManager(
-        SimpleNamespace(_current_node=SimpleNamespace(name="test-node"))
+        SimpleNamespace(
+            active_agent=SimpleNamespace(current_node=SimpleNamespace(name="test-node"))
+        )
     )
     stopped = []
 
@@ -45,7 +47,9 @@ async def test_restarting_and_cleanup_await_cancelled_summarization_tasks():
 
 @pytest.mark.asyncio
 async def test_start_without_current_node_does_not_create_task():
-    manager = ContextSummarizationManager(SimpleNamespace(_current_node=None))
+    manager = ContextSummarizationManager(
+        SimpleNamespace(active_agent=SimpleNamespace(current_node=None))
+    )
 
     await manager.start()
 

@@ -31,12 +31,13 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 function ContextState() {
-    const { error, loading } = useOrgConfig();
+    const { error, loading, organizationPreferences } = useOrgConfig();
 
     return (
         <div>
             <span data-testid="loading">{String(loading)}</span>
             <span data-testid="error">{error?.message ?? ''}</span>
+            <span data-testid="call-event-table">{String(organizationPreferences?.call_events.config?.table ?? '')}</span>
         </div>
     );
 }
@@ -70,6 +71,25 @@ describe('OrgConfigProvider', () => {
             data: {},
             error: undefined,
         });
+    });
+
+    it('loads call-event settings with the existing preferences request', async () => {
+        getPreferencesMock.mockResolvedValue({
+            data: {
+                timezone: 'Europe/Rome',
+                call_events: {
+                    enabled: true,
+                    sink_type: 'bigquery',
+                    config: { table: 'project.dataset.events', private_key: '********' },
+                },
+            },
+        });
+        render(<OrgConfigProvider><ContextState /></OrgConfigProvider>);
+        await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+        expect(screen.getByTestId('call-event-table').textContent).toBe('project.dataset.events');
+        expect(getPreferencesMock).toHaveBeenCalledOnce();
+        expect(getCurrentOrganizationContextMock).toHaveBeenCalledOnce();
+        expect(getUserConfigurationsMock).toHaveBeenCalledOnce();
     });
 
     it('surfaces an HTTP error returned while loading organization preferences', async () => {

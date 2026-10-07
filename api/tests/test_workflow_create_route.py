@@ -21,6 +21,47 @@ def _make_test_app() -> FastAPI:
     return app
 
 
+def test_update_workflow_rejects_inherited_temperature_before_db_write():
+    from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+    from api.services.configuration.registry import OpenRouterLLMConfiguration
+
+    effective = EffectiveAIModelConfiguration(
+        llm=OpenRouterLLMConfiguration(api_key="test-key", temperature=1.5)
+    )
+    client = TestClient(_make_test_app())
+    with (
+        patch("api.routes.workflow.db_client") as mock_db,
+        patch(
+            "api.routes.workflow.apply_external_pbx_mapping_policy",
+            AsyncMock(side_effect=lambda incoming, **kwargs: incoming),
+        ),
+        patch(
+            "api.routes.workflow.get_resolved_ai_model_configuration",
+            AsyncMock(
+                return_value=SimpleNamespace(effective=effective, source="legacy")
+            ),
+        ),
+    ):
+        mock_db.get_workflow = AsyncMock(
+            return_value=SimpleNamespace(
+                released_definition=SimpleNamespace(workflow_configurations={})
+            )
+        )
+        mock_db.get_draft_version = AsyncMock(return_value=None)
+        mock_db.update_workflow = AsyncMock()
+        response = client.put(
+            "/workflow/33",
+            json={
+                "workflow_configurations": {
+                    "model_overrides": {"llm": {"model": "anthropic/claude-sonnet-4"}},
+                },
+            },
+        )
+    assert response.status_code == 422
+    assert "between 0 and 1.0" in response.json()["detail"]
+    mock_db.update_workflow.assert_not_awaited()
+
+
 def test_create_workflow_rejects_invalid_trigger_path_before_db_write():
     app = _make_test_app()
     client = TestClient(app)

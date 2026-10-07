@@ -105,7 +105,7 @@ class DispositionExtractionService:
         if not self._options or self._llm is None or self._context is None:
             return None
         if not has_user_turns(self._context):
-            logger.debug(
+            logger.info(
                 "No user speech in the conversation; skipping disposition extraction"
             )
             return None

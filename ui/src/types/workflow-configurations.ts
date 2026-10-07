@@ -20,8 +20,17 @@ export type AmbientNoiseConfiguration = Omit<
 
 export type TurnStopStrategy = NonNullable<GeneratedWorkflowConfigurationDefaults["turn_stop_strategy"]>;
 export type TurnStartStrategy = NonNullable<GeneratedWorkflowConfigurationDefaults["turn_start_strategy"]>;
-export const DEFAULT_TURN_START_MIN_WORDS = 3;
-export const DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.5;
+export const DEFAULT_TURN_START_STRATEGY: TurnStartStrategy = 'min_words';
+export const DEFAULT_TURN_START_MIN_WORDS = 2;
+
+// "provisional_vad" was retired. Definitions saved before then still carry it,
+// so map it onto the option the backend now resolves such a value to, rather
+// than handing the select a value it has no entry for.
+function coerceTurnStartStrategy(value: string): TurnStartStrategy {
+    return TURN_START_STRATEGY_OPTIONS.some(o => o.value === value)
+        ? (value as TurnStartStrategy)
+        : DEFAULT_TURN_START_STRATEGY;
+}
 
 export const TURN_START_STRATEGY_OPTIONS: Array<{
     value: TurnStartStrategy;
@@ -30,18 +39,13 @@ export const TURN_START_STRATEGY_OPTIONS: Array<{
 }> = [
     {
         value: 'default',
-        label: 'Default',
-        description: 'Use the platform default: external STT turn signals when available, otherwise local VAD.',
+        label: 'Voice activity',
+        description: 'Interrupt when the STT provider or local voice activity detection signals speech.',
     },
     {
         value: 'min_words',
         label: 'Minimum words',
         description: 'Wait for a minimum number of transcribed words before interrupting bot speech.',
-    },
-    {
-        value: 'provisional_vad',
-        label: 'Provisional VAD',
-        description: 'Pause bot audio on voice activity, then confirm the interruption with transcription.',
     },
 ];
 
@@ -69,6 +73,7 @@ export interface VoicemailDetectionConfiguration extends AnswerSupervisorSetting
     provider?: string;
     model?: string;
     api_key?: string;
+    system_prompt?: string;  // Overrides the built-in classifier instructions
 }
 
 export const DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION: VoicemailDetectionConfiguration = {
@@ -130,10 +135,10 @@ type WorkflowConfigurationBase = Omit<
     | "smart_turn_stop_secs"
     | "turn_start_strategy"
     | "turn_start_min_words"
-    | "provisional_vad_pause_secs"
     | "turn_stop_strategy"
     | "dictionary"
     | "context_compaction_enabled"
+    | "tts_cache_enabled"
     | "call_dispositions"
     | "text_chat_inactivity_timeout_seconds"
     | "external_pbx_field_mappings"
@@ -147,12 +152,12 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     smart_turn_stop_secs: number;  // Timeout in seconds for incomplete turn detection
     turn_start_strategy: TurnStartStrategy;  // Strategy for detecting start of user turn/interruption
     turn_start_min_words: number;  // Minimum transcribed words required for minimum-word interruptions
-    provisional_vad_pause_secs: number;  // Seconds to pause bot output while awaiting transcript confirmation
     turn_stop_strategy: TurnStopStrategy;  // Strategy for detecting end of user turn
     dictionary?: string;  // Comma-separated words for voice agent to listen for
     voicemail_detection?: VoicemailDetectionConfiguration;
     transcript_configuration: TranscriptConfiguration;
     context_compaction_enabled: boolean;  // Summarize context on node transitions to remove stale tool calls
+    tts_cache_enabled: boolean;
     call_dispositions: CallDispositionOption[];  // Allowed terminal business outcomes
     text_chat_inactivity_timeout_seconds?: number;  // End inactive text chats after this many seconds
     external_pbx_field_mappings: ExternalPBXFieldMapping[];
@@ -170,13 +175,13 @@ const FALLBACK_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     max_call_duration: 300,
     max_user_idle_timeout: 10,  // 10 seconds
     smart_turn_stop_secs: 2,  // 2 seconds
-    turn_start_strategy: 'default',  // Default to platform-chosen user turn start detection
+    turn_start_strategy: DEFAULT_TURN_START_STRATEGY,
     turn_start_min_words: DEFAULT_TURN_START_MIN_WORDS,
-    provisional_vad_pause_secs: DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     turn_stop_strategy: 'transcription',  // Default to transcription-based detection
     dictionary: '',
     transcript_configuration: DEFAULT_TRANSCRIPT_CONFIGURATION,
     context_compaction_enabled: false,
+    tts_cache_enabled: false,
     call_dispositions: [],
     external_pbx_field_mappings: [],
     external_pbx_lead_headers: [],
@@ -207,18 +212,15 @@ export function resolveWorkflowConfigurations(
             configurations?.smart_turn_stop_secs
             ?? defaults?.smart_turn_stop_secs
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.smart_turn_stop_secs,
-        turn_start_strategy:
+        turn_start_strategy: coerceTurnStartStrategy(
             configurations?.turn_start_strategy
             ?? defaults?.turn_start_strategy
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.turn_start_strategy,
+        ),
         turn_start_min_words:
             configurations?.turn_start_min_words
             ?? defaults?.turn_start_min_words
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.turn_start_min_words,
-        provisional_vad_pause_secs:
-            configurations?.provisional_vad_pause_secs
-            ?? defaults?.provisional_vad_pause_secs
-            ?? FALLBACK_WORKFLOW_CONFIGURATIONS.provisional_vad_pause_secs,
         turn_stop_strategy:
             configurations?.turn_stop_strategy
             ?? defaults?.turn_stop_strategy
@@ -231,6 +233,10 @@ export function resolveWorkflowConfigurations(
             configurations?.context_compaction_enabled
             ?? defaults?.context_compaction_enabled
             ?? FALLBACK_WORKFLOW_CONFIGURATIONS.context_compaction_enabled,
+        tts_cache_enabled:
+            configurations?.tts_cache_enabled
+            ?? defaults?.tts_cache_enabled
+            ?? FALLBACK_WORKFLOW_CONFIGURATIONS.tts_cache_enabled,
         call_dispositions:
             configurations?.call_dispositions
             ?? defaults?.call_dispositions

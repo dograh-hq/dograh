@@ -237,7 +237,7 @@ async def create_engine_with_tracking(
     # Create pipeline task
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
 
-    engine.set_task(task)
+    engine.call_worker = task
 
     return engine, tts, mock_transport, task
 
@@ -634,8 +634,10 @@ class TestEndCallViaClientDisconnect:
             ):
 
                 async def disconnect_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for initial generation to complete
                     await asyncio.sleep(0.1)
@@ -719,8 +721,10 @@ class TestEndCallRaceConditions:
             ):
 
                 async def race_end_calls_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for initial generation
                     await asyncio.sleep(0.1)
@@ -826,8 +830,10 @@ class TestEndCallRaceConditions:
 
                 async def race_disconnect_after_response():
                     nonlocal disconnect_called
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for the end_call tool to be called
                     await asyncio.sleep(0.15)
@@ -912,8 +918,10 @@ class TestEndCallExtractionBehavior:
             ):
 
                 async def end_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for initial generation
                     await asyncio.sleep(0.1)
@@ -1032,8 +1040,10 @@ class TestEndCallExtractionBehavior:
             ):
 
                 async def end_after_response():
-                    await engine.set_node(engine.workflow.start_node_id)
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for initial generation
                     await asyncio.sleep(0.1)
@@ -1118,8 +1128,12 @@ class TestEndCallExtractionBehavior:
                 ):
 
                     async def end_after_response():
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await engine.set_node(
+                            engine.active_agent.workflow.start_node_id
+                        )
+                        await engine.active_agent.llm.queue_frame(
+                            LLMContextFrame(engine.context)
+                        )
                         await asyncio.sleep(0.1)
                         await engine.end_call_with_reason(
                             EndTaskReason.USER_HANGUP.value, abort_immediately=True
@@ -1207,8 +1221,12 @@ class TestEndCallExtractionBehavior:
                 ):
 
                     async def end_after_response():
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await engine.set_node(
+                            engine.active_agent.workflow.start_node_id
+                        )
+                        await engine.active_agent.llm.queue_frame(
+                            LLMContextFrame(engine.context)
+                        )
                         await asyncio.sleep(0.1)
                         await engine.end_call_with_reason(
                             EndTaskReason.USER_HANGUP.value, abort_immediately=True
@@ -1279,8 +1297,10 @@ class TestEndCallExtractionBehavior:
                     ):
 
                         async def end_after_response():
-                            await engine.set_node(engine.workflow.start_node_id)
-                            await engine.llm.queue_frame(
+                            await engine.set_node(
+                                engine.active_agent.workflow.start_node_id
+                            )
+                            await engine.active_agent.llm.queue_frame(
                                 LLMContextFrame(engine.context)
                             )
                             await asyncio.sleep(0.1)
@@ -1341,8 +1361,12 @@ class TestOrganizationDispositionMapping:
                 ):
 
                     async def end_after_response():
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await engine.set_node(
+                            engine.active_agent.workflow.start_node_id
+                        )
+                        await engine.active_agent.llm.queue_frame(
+                            LLMContextFrame(engine.context)
+                        )
                         await asyncio.sleep(0.1)
                         await engine.end_call_with_reason(
                             EndTaskReason.USER_HANGUP.value, abort_immediately=True
@@ -1396,8 +1420,12 @@ class TestOrganizationDispositionMapping:
                 ):
 
                     async def end_after_response():
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                        await engine.set_node(
+                            engine.active_agent.workflow.start_node_id
+                        )
+                        await engine.active_agent.llm.queue_frame(
+                            LLMContextFrame(engine.context)
+                        )
                         await asyncio.sleep(0.1)
                         await engine.end_call_with_reason(
                             EndTaskReason.USER_HANGUP.value, abort_immediately=True

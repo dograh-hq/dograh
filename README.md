@@ -17,7 +17,7 @@
     <img src="https://img.shields.io/badge/⚡_Self--host_in_60s-One_command-111827?style=for-the-badge" alt="Self-host in 60s">
   </a>
   &nbsp;
-  <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-4787daqcn-3TDiQUh~3xrr3pwAqR9wpQ">
+  <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-4anp45mlu-ukR3jTqwdDFMEpqeBhKn6g">
     <img src="https://img.shields.io/badge/💬_Join_Slack-Community-4A154B?style=for-the-badge&logo=slack" alt="Join Slack">
   </a>
 </p>
@@ -98,6 +98,9 @@ An honest comparison on the axes that matter most to teams evaluating voice AI p
 ```bash
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
+
+> **Note**
+> By default the quickstart starts a public `*.trycloudflare.com` quick tunnel to the API (for inbound telephony webhooks), and signup is enabled. After creating your first account, you can close signup by setting `ENABLE_SIGNUP=false` in `.env` and re-running `./start_docker.sh` (`docker compose restart` does not apply `.env` changes).
 
 > **⚡ Prefer an AI agent to set it up for you?**
 > If you use **Claude Code** or **Codex**, install the official [Dograh setup skill](https://github.com/dograh-hq/dograh-plugins) and let your agent handle installation, configuration, and troubleshooting — it detects your OS, picks the right deploy path, runs Dograh's own setup scripts, and verifies the result.
@@ -189,7 +192,7 @@ You can go to [https://docs.dograh.com](https://docs.dograh.com/) for our docume
 - **GitHub Discussions** — share use cases, ask questions, swap workflow recipes.
 - **GitHub Issues** — report bugs or request features.
 
-👉 Join us → [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-4787daqcn-3TDiQUh~3xrr3pwAqR9wpQ)
+👉 Join us → [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-4anp45mlu-ukR3jTqwdDFMEpqeBhKn6g)
 
 ## 🙌 Contributing
 
@@ -221,5 +224,5 @@ Founded by YC alumni and exit founders committed to keeping voice AI open and ac
   <p align="center">
     <a href="https://github.com/dograh-hq/dograh">⭐ Star us on GitHub</a> |
     <a href="https://app.dograh.com">☁️ Try Cloud Version</a> |
-    <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-4787daqcn-3TDiQUh~3xrr3pwAqR9wpQ">💬 Join Slack</a>
+    <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-4anp45mlu-ukR3jTqwdDFMEpqeBhKn6g">💬 Join Slack</a>
   </p>

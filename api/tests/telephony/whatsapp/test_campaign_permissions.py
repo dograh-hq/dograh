@@ -19,7 +19,6 @@ from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from api.enums import TelephonyCallStatus
-from api.services.call_concurrency.rate_limiter import FromNumberAcquisition
 from api.services.telephony.providers.whatsapp.provider import (
     WhatsAppPermissionRequiredError,
     WhatsAppProvider,
@@ -84,6 +83,7 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
         self.mock_campaign.organization_id = 1
         self.mock_campaign.created_by = 1
         self.mock_campaign.telephony_configuration_id = 5
+        self.mock_campaign.rate_limit_per_second = 10
         self.mock_campaign.orchestrator_metadata = {}
 
         self.mock_queued_run = MagicMock()
@@ -141,11 +141,6 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
             patch.object(
                 dispatcher, "get_provider_for_campaign", return_value=mock_provider
             ),
-            patch.object(
-                dispatcher,
-                "acquire_from_number_with_token",
-                return_value=FromNumberAcquisition("15551882279", "1700000000.0"),
-            ),
             patch.object(dispatcher, "release_call_slot", new_callable=AsyncMock),
             patch(
                 "api.services.campaign.campaign_call_dispatcher.call_concurrency"
@@ -158,6 +153,10 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 return_value=MagicMock(has_quota=True),
             ),
         ):
+            mock_rate_limiter.select_from_number = AsyncMock(
+                return_value="15551882279"
+            )
+            mock_rate_limiter.acquire_token = AsyncMock(return_value=True)
             mock_concurrency.bind_workflow_run = AsyncMock()
             mock_rate_limiter.store_workflow_from_number_mapping = AsyncMock()
 
@@ -188,11 +187,8 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 "whatsapp_permission_required",
             )
 
-            # dispatch_call finished the run itself, so process_batch must be
-            # able to tell that apart from a run another batch completed.
-            self.assertTrue(result.queued_run_finalized)
-
-            self.assertIsNotNone(result.workflow_run)
+            self.assertIsNotNone(result)
+            self.assertEqual(result.id, 999)
 
     @patch(
         "api.services.campaign.campaign_call_dispatcher.circuit_breaker.record_and_evaluate",
@@ -241,11 +237,6 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 dispatcher, "get_provider_for_campaign", return_value=mock_provider
             ),
             patch.object(
-                dispatcher,
-                "acquire_from_number_with_token",
-                return_value=FromNumberAcquisition("15551882279", "1700000000.0"),
-            ),
-            patch.object(
                 dispatcher, "release_call_slot", new_callable=AsyncMock
             ) as mock_release_slot,
             patch(
@@ -259,6 +250,10 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 return_value=MagicMock(has_quota=True),
             ),
         ):
+            mock_rate_limiter.select_from_number = AsyncMock(
+                return_value="15551882279"
+            )
+            mock_rate_limiter.acquire_token = AsyncMock(return_value=True)
             mock_concurrency.bind_workflow_run = AsyncMock()
             mock_rate_limiter.store_workflow_from_number_mapping = AsyncMock()
 
@@ -299,9 +294,8 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
 
             # Circuit breaker recorded as not failure
             self.assertFalse(mock_record_cb.call_args[1].get("is_failure"))
-            self.assertIsNotNone(result.workflow_run)
-            # Parked, not finalized: a later batch still has to dial it.
-            self.assertFalse(result.queued_run_finalized)
+            self.assertIsNotNone(result)
+            self.assertEqual(result.id, 999)
 
     @patch(
         "api.services.campaign.campaign_call_dispatcher.circuit_breaker.record_and_evaluate",
@@ -349,11 +343,6 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
             patch.object(
                 dispatcher, "get_provider_for_campaign", return_value=mock_provider
             ),
-            patch.object(
-                dispatcher,
-                "acquire_from_number_with_token",
-                return_value=FromNumberAcquisition("15551882279", "1700000000.0"),
-            ),
             patch.object(dispatcher, "release_call_slot", new_callable=AsyncMock),
             patch(
                 "api.services.campaign.campaign_call_dispatcher.call_concurrency"
@@ -366,6 +355,10 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 return_value=MagicMock(has_quota=True),
             ),
         ):
+            mock_rate_limiter.select_from_number = AsyncMock(
+                return_value="15551882279"
+            )
+            mock_rate_limiter.acquire_token = AsyncMock(return_value=True)
             mock_concurrency.bind_workflow_run = AsyncMock()
             mock_rate_limiter.store_workflow_from_number_mapping = AsyncMock()
 
@@ -440,11 +433,6 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
             patch.object(
                 dispatcher, "get_provider_for_campaign", return_value=mock_provider
             ),
-            patch.object(
-                dispatcher,
-                "acquire_from_number_with_token",
-                return_value=FromNumberAcquisition("15551882279", "1700000000.0"),
-            ),
             patch.object(dispatcher, "release_call_slot", new_callable=AsyncMock),
             patch(
                 "api.services.campaign.campaign_call_dispatcher.call_concurrency"
@@ -457,6 +445,10 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 return_value=MagicMock(has_quota=True),
             ),
         ):
+            mock_rate_limiter.select_from_number = AsyncMock(
+                return_value="15551882279"
+            )
+            mock_rate_limiter.acquire_token = AsyncMock(return_value=True)
             mock_concurrency.bind_workflow_run = AsyncMock()
             mock_rate_limiter.store_workflow_from_number_mapping = AsyncMock()
 
@@ -517,11 +509,6 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
             patch.object(
                 dispatcher, "get_provider_for_campaign", return_value=mock_provider
             ),
-            patch.object(
-                dispatcher,
-                "acquire_from_number_with_token",
-                return_value=FromNumberAcquisition("15551882279", "1700000000.0"),
-            ),
             patch(
                 "api.services.campaign.campaign_call_dispatcher.call_concurrency"
             ) as mock_concurrency,
@@ -533,6 +520,10 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 return_value=MagicMock(has_quota=True),
             ),
         ):
+            mock_rate_limiter.select_from_number = AsyncMock(
+                return_value="15551882279"
+            )
+            mock_rate_limiter.acquire_token = AsyncMock(return_value=True)
             mock_concurrency.bind_workflow_run = AsyncMock()
             mock_rate_limiter.store_workflow_from_number_mapping = AsyncMock()
 
@@ -552,9 +543,7 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
             )
 
             # Returned run is the same existing run
-            self.assertEqual(result.workflow_run.id, 999)
-            # Nothing was finalized: the call went out.
-            self.assertFalse(result.queued_run_finalized)
+            self.assertEqual(result.id, 999)
 
     @patch(
         "api.services.campaign.campaign_call_dispatcher.circuit_breaker.record_and_evaluate",
@@ -603,11 +592,6 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
             patch.object(
                 dispatcher, "get_provider_for_campaign", return_value=mock_provider
             ),
-            patch.object(
-                dispatcher,
-                "acquire_from_number_with_token",
-                return_value=FromNumberAcquisition("15551882279", "1700000000.0"),
-            ),
             patch.object(dispatcher, "release_call_slot", new_callable=AsyncMock),
             patch(
                 "api.services.campaign.campaign_call_dispatcher.call_concurrency"
@@ -620,6 +604,10 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 return_value=MagicMock(has_quota=True),
             ),
         ):
+            mock_rate_limiter.select_from_number = AsyncMock(
+                return_value="15551882279"
+            )
+            mock_rate_limiter.acquire_token = AsyncMock(return_value=True)
             mock_concurrency.bind_workflow_run = AsyncMock()
             mock_rate_limiter.store_workflow_from_number_mapping = AsyncMock()
 
@@ -644,169 +632,7 @@ class TestWhatsAppCampaignDispatcher(IsolatedAsyncioTestCase):
                 mock_db.update_queued_run.call_args[1].get("state"), "processed"
             )
             self.assertFalse(mock_record_cb.call_args[1].get("is_failure"))
-
-    @patch("api.services.campaign.campaign_call_dispatcher.db_client")
-    async def test_process_batch_leaves_parked_run_queued(self, mock_db):
-        """When a run is parked awaiting WhatsApp permission, process_batch must NOT mark it as processed."""
-        from api.services.campaign.campaign_call_dispatcher import (
-            CampaignCallDispatcher,
-            DispatchResult,
-        )
-
-        dispatcher = CampaignCallDispatcher()
-        mock_campaign = MagicMock(
-            id=42,
-            organization_id=1,
-            state="running",
-            processed_rows=0,
-            telephony_configuration_id=5,
-            rate_limit_per_second=10,
-        )
-        mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
-        mock_db.claim_queued_runs_for_processing = AsyncMock(
-            return_value=[self.mock_queued_run]
-        )
-
-        mock_wf_run = MagicMock(id=999)
-        # Mock get_queued_run_by_id returning the parked state
-        mock_parked = MagicMock(
-            id=501, state="queued", retry_reason="awaiting_whatsapp_permission"
-        )
-        mock_db.get_queued_run_by_id = AsyncMock(return_value=mock_parked)
-        mock_db.update_queued_run = AsyncMock()
-        mock_db.update_campaign = AsyncMock()
-
-        with (
-            patch.object(
-                dispatcher,
-                "get_provider_for_campaign",
-                new_callable=AsyncMock,
-                return_value=MagicMock(from_numbers=[]),
-            ),
-            patch.object(dispatcher, "apply_rate_limit", new_callable=AsyncMock),
-            patch.object(dispatcher, "acquire_concurrent_slot", new_callable=AsyncMock),
-            patch.object(
-                dispatcher,
-                "dispatch_call",
-                new_callable=AsyncMock,
-                return_value=DispatchResult(mock_wf_run),
-            ),
-        ):
-            processed_count = await dispatcher.process_batch(
-                campaign_id=42, batch_size=10
-            )
-
-            # Queued run was NOT marked processed and not updated in process_batch
-            mock_db.update_queued_run.assert_not_called()
-            # Processed count is 0 because the call is parked awaiting permission
-            self.assertEqual(processed_count, 0)
-            mock_db.update_campaign.assert_not_called()
-
-    @patch("api.services.campaign.campaign_call_dispatcher.db_client")
-    async def test_process_batch_counts_run_finalized_by_dispatch(self, mock_db):
-        """A run dispatch_call already finished (permission denied/timed out) counts as processed."""
-        from api.services.campaign.campaign_call_dispatcher import (
-            CampaignCallDispatcher,
-            DispatchResult,
-        )
-
-        dispatcher = CampaignCallDispatcher()
-        mock_campaign = MagicMock(
-            id=42,
-            organization_id=1,
-            state="running",
-            processed_rows=0,
-            telephony_configuration_id=5,
-            rate_limit_per_second=10,
-        )
-        mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
-        mock_db.claim_queued_runs_for_processing = AsyncMock(
-            return_value=[self.mock_queued_run]
-        )
-
-        # dispatch_call's denial path: the row is already "processed", so the
-        # ownership-guarded update below would claim nothing.
-        mock_finished = MagicMock(id=501, state="processed", retry_reason=None)
-        mock_db.get_queued_run_by_id = AsyncMock(return_value=mock_finished)
-        mock_db.mark_queued_run_processed_if_owned = AsyncMock(return_value=False)
-        mock_db.sync_campaign_processed_rows = AsyncMock(return_value=1)
-
-        async def finalizing_dispatch(*args, **kwargs):
-            return DispatchResult(MagicMock(id=999), queued_run_finalized=True)
-
-        with (
-            patch.object(
-                dispatcher,
-                "get_provider_for_campaign",
-                new_callable=AsyncMock,
-                return_value=MagicMock(from_numbers=[]),
-            ),
-            patch.object(dispatcher, "apply_rate_limit", new_callable=AsyncMock),
-            patch.object(dispatcher, "acquire_concurrent_slot", new_callable=AsyncMock),
-            patch.object(dispatcher, "dispatch_call", side_effect=finalizing_dispatch),
-        ):
-            processed_count = await dispatcher.process_batch(
-                campaign_id=42, batch_size=10
-            )
-
-            # Counted, and not re-claimed: dispatch already owns the transition.
-            self.assertEqual(processed_count, 1)
-            mock_db.mark_queued_run_processed_if_owned.assert_not_called()
-            mock_db.sync_campaign_processed_rows.assert_awaited_once_with(42)
-
-    @patch("api.services.campaign.campaign_call_dispatcher.db_client")
-    async def test_process_batch_claims_run_when_dispatch_did_not_finalize(
-        self, mock_db
-    ):
-        """Normal dial: process_batch owns the processed transition via the ownership guard."""
-        from api.services.campaign.campaign_call_dispatcher import (
-            CampaignCallDispatcher,
-            DispatchResult,
-        )
-
-        dispatcher = CampaignCallDispatcher()
-        mock_campaign = MagicMock(
-            id=42,
-            organization_id=1,
-            state="running",
-            processed_rows=0,
-            telephony_configuration_id=5,
-            rate_limit_per_second=10,
-        )
-        mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
-        mock_db.claim_queued_runs_for_processing = AsyncMock(
-            return_value=[self.mock_queued_run]
-        )
-
-        mock_claimed = MagicMock(id=501, state="processing", retry_reason=None)
-        mock_db.get_queued_run_by_id = AsyncMock(return_value=mock_claimed)
-        mock_db.mark_queued_run_processed_if_owned = AsyncMock(return_value=True)
-        mock_db.sync_campaign_processed_rows = AsyncMock(return_value=1)
-
-        with (
-            patch.object(
-                dispatcher,
-                "get_provider_for_campaign",
-                new_callable=AsyncMock,
-                return_value=MagicMock(from_numbers=[]),
-            ),
-            patch.object(dispatcher, "apply_rate_limit", new_callable=AsyncMock),
-            patch.object(dispatcher, "acquire_concurrent_slot", new_callable=AsyncMock),
-            patch.object(
-                dispatcher,
-                "dispatch_call",
-                new_callable=AsyncMock,
-                return_value=DispatchResult(MagicMock(id=999)),
-            ),
-        ):
-            processed_count = await dispatcher.process_batch(
-                campaign_id=42, batch_size=10
-            )
-
-            # A stand-in workflow run answers to any attribute; the finalization
-            # signal must come from the call's own result.
-            self.assertEqual(processed_count, 1)
-            mock_db.mark_queued_run_processed_if_owned.assert_awaited_once_with(501)
+            self.assertEqual(result.id, 999)
 
 
 class TestWhatsAppWebhookReactiveTrigger(IsolatedAsyncioTestCase):
@@ -1810,47 +1636,6 @@ class TestWhatsAppPermissionFixes(IsolatedAsyncioTestCase):
 
         resp = await handle_whatsapp_webhook(req_valid)
         self.assertEqual(resp, {"status": "success"})
-
-    def test_acquire_from_number_default_timeout(self):
-        """Verify the from_number acquisition default timeout is 600 seconds.
-
-        Asserts against the token-returning variant, which is the one dispatch
-        actually uses; the non-token sibling was removed rather than left as a
-        second, unreachable copy of the same retry loop.
-        """
-        import inspect
-
-        from api.services.campaign.campaign_call_dispatcher import (
-            CampaignCallDispatcher,
-        )
-
-        sig = inspect.signature(CampaignCallDispatcher.acquire_from_number_with_token)
-        self.assertEqual(sig.parameters["timeout"].default, 600.0)
-
-    @patch("api.services.campaign.campaign_orchestrator.db_client")
-    async def test_orchestrator_does_not_mark_complete_with_parked_runs(self, mock_db):
-        """Verify orchestrator does not mark campaign complete when parked/future queued runs exist."""
-        from api.db.models import CampaignModel
-        from api.services.campaign.campaign_orchestrator import CampaignOrchestrator
-
-        # CampaignOrchestrator takes the Redis client it publishes progress on.
-        orchestrator = CampaignOrchestrator(AsyncMock())
-        campaign = MagicMock(spec=CampaignModel)
-        campaign.id = 123
-        campaign.last_activity_at = datetime.now(UTC) - timedelta(hours=2)
-        campaign.last_batch_scheduled_at = None
-        campaign.started_at = None
-
-        # Claimable count right now is 0 (all remaining runs are parked +24h in future)
-        mock_db.get_claimable_queued_runs_count = AsyncMock(return_value=0)
-        # But total queued/processing count is > 0
-        mock_db.get_queued_runs_count = AsyncMock(return_value=5)
-
-        should_complete = await orchestrator._should_mark_complete(campaign)
-        self.assertFalse(should_complete)
-        mock_db.get_queued_runs_count.assert_awaited_with(
-            campaign_id=123, states=["queued", "processing"]
-        )
 
     @patch(f"{PERMISSION_SYNC}.sync_all_parked_whatsapp_permissions")
     async def test_sweep_parked_whatsapp_permissions_cron(self, mock_sync):

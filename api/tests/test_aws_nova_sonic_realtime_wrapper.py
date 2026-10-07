@@ -645,13 +645,13 @@ async def test_node_transition_tool_waits_for_nova_audio_turn(monkeypatch):
     await service.run_function_calls([function_call])
 
     upstream_run.assert_not_awaited()
-    assert service._deferred_node_transition_function_calls == [function_call]
+    assert service._workflow_tool_deferral.pending == [function_call]
 
     service._assistant_is_responding = False
     await service._run_deferred_node_transition_function_calls()
 
     upstream_run.assert_awaited_once_with([function_call])
-    assert service._deferred_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []
 
 
 @pytest.mark.asyncio
@@ -671,7 +671,7 @@ async def test_ordinary_tool_runs_while_nova_audio_turn_is_active(monkeypatch):
     await service.run_function_calls([function_call])
 
     upstream_run.assert_awaited_once_with([function_call])
-    assert service._deferred_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []
 
 
 @pytest.mark.asyncio
@@ -745,7 +745,7 @@ async def test_end_node_reconnect_removes_previous_transition_tools(
     assert [
         tool["toolSpec"]["name"]
         for tool in initial_prompt["toolConfiguration"]["tools"]
-    ] == [engine.workflow.nodes["agent"].out_edges[0].get_function_name()]
+    ] == [engine.active_agent.workflow.nodes["agent"].out_edges[0].get_function_name()]
     service.send_event.reset_mock()
     service._send_text_event.reset_mock()
 
@@ -764,7 +764,9 @@ async def test_end_node_reconnect_removes_previous_transition_tools(
         "text": service._settings.system_instruction,
         "role": Role.SYSTEM,
     }
-    assert engine.workflow.nodes["end"].prompt in sent_text[0].kwargs["text"]
+    assert (
+        engine.active_agent.workflow.nodes["end"].prompt in sent_text[0].kwargs["text"]
+    )
     assert sent_text[-1].kwargs == {
         "text": "End the call.",
         "role": Role.USER,

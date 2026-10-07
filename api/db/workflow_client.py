@@ -11,6 +11,47 @@ from api.db.models import WorkflowDefinitionModel, WorkflowModel, WorkflowRunMod
 
 
 class WorkflowClient(BaseDBClient):
+    async def get_workflow_definition(
+        self, workflow_id: int, definition_id: int, organization_id: int
+    ) -> WorkflowDefinitionModel | None:
+        async with self.async_session() as session:
+            return await session.scalar(
+                select(WorkflowDefinitionModel)
+                .join(
+                    WorkflowModel,
+                    WorkflowModel.id == WorkflowDefinitionModel.workflow_id,
+                )
+                .where(
+                    WorkflowDefinitionModel.id == definition_id,
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowModel.organization_id == organization_id,
+                )
+            )
+
+    async def get_workflow_version_summaries(
+        self, workflow_id: int, organization_id: int
+    ):
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(
+                    WorkflowDefinitionModel.id,
+                    WorkflowDefinitionModel.version_number,
+                    WorkflowDefinitionModel.status,
+                    WorkflowDefinitionModel.published_at,
+                )
+                .join(
+                    WorkflowModel,
+                    WorkflowModel.id == WorkflowDefinitionModel.workflow_id,
+                )
+                .where(
+                    WorkflowModel.id == workflow_id,
+                    WorkflowModel.organization_id == organization_id,
+                    WorkflowDefinitionModel.status.in_(["published", "archived"]),
+                )
+                .order_by(WorkflowDefinitionModel.version_number.desc())
+            )
+            return [dict(row) for row in result.mappings()]
+
     async def _next_version_number(self, session, workflow_id: int) -> int:
         """Get the next version number for a workflow."""
         result = await session.execute(
@@ -67,6 +108,45 @@ class WorkflowClient(BaseDBClient):
     # ------------------------------------------------------------------
     # Versioning methods
     # ------------------------------------------------------------------
+
+    async def update_workflow_version_metadata(
+        self,
+        workflow_id: int,
+        definition_id: int,
+        organization_id: int,
+        updates: dict[str, str | None],
+    ) -> WorkflowDefinitionModel | None:
+        """Update release notes while preserving the version's behavioral snapshot."""
+        async with self.async_session() as session:
+            version = await session.scalar(
+                select(WorkflowDefinitionModel)
+                .join(
+                    WorkflowModel,
+                    WorkflowModel.id == WorkflowDefinitionModel.workflow_id,
+                )
+                .where(
+                    WorkflowDefinitionModel.id == definition_id,
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowModel.organization_id == organization_id,
+                    WorkflowDefinitionModel.status.in_(["published", "archived"]),
+                )
+                .with_for_update(of=WorkflowDefinitionModel)
+            )
+            if version is None:
+                return None
+
+            metadata = dict(version.extra_metadata or {})
+            for key in ("version_name", "change_description"):
+                if key not in updates:
+                    continue
+                if updates[key] is None:
+                    metadata.pop(key, None)
+                else:
+                    metadata[key] = updates[key]
+            version.extra_metadata = metadata
+            await session.commit()
+            await session.refresh(version)
+            return version
 
     async def save_workflow_draft(
         self,
@@ -148,6 +228,9 @@ class WorkflowClient(BaseDBClient):
     async def publish_workflow_draft(
         self,
         workflow_id: int,
+        *,
+        version_name: str | None = None,
+        change_description: str | None = None,
     ) -> WorkflowDefinitionModel:
         """Promote the current draft to published.
 
@@ -182,6 +265,17 @@ class WorkflowClient(BaseDBClient):
             draft.status = "published"
             draft.published_at = datetime.now(UTC)
             draft.is_current = True
+            metadata = dict(draft.extra_metadata or {})
+            for key, value in {
+                "version_name": version_name,
+                "change_description": change_description,
+            }.items():
+                if value is None:
+                    metadata.pop(key, None)
+                else:
+                    metadata[key] = value
+            # Assign a new object so SQLAlchemy persists the JSON update.
+            draft.extra_metadata = metadata
 
             # Update workflow's released pointer + legacy fields
             wf_result = await session.execute(
@@ -335,6 +429,8 @@ class WorkflowClient(BaseDBClient):
         workflow_id: int,
         limit: int | None = None,
         offset: int = 0,
+        version_number: int | None = None,
+        status: str | None = None,
     ) -> list[WorkflowDefinitionModel]:
         """List versions for a workflow, newest first.
 
@@ -354,6 +450,12 @@ class WorkflowClient(BaseDBClient):
                 )
                 .order_by(WorkflowDefinitionModel.version_number.desc())
             )
+            if version_number is not None:
+                query = query.where(
+                    WorkflowDefinitionModel.version_number == version_number
+                )
+            if status is not None:
+                query = query.where(WorkflowDefinitionModel.status == status)
             if offset:
                 query = query.offset(offset)
             if limit is not None:

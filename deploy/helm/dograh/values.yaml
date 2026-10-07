@@ -646,12 +646,13 @@ redisinternal:
     limits: { cpu: 500m, memory: 256Mi }
 
 minio:
-  # Official upstream MinIO. Root creds are shared with the app (single source of
-  # truth) so they can't drift; the app creates its bucket on first use.
+  # MinIO built from the community fork by github.com/dograh-hq/minio (upstream
+  # MinIO no longer publishes images). Root creds are shared with the app (single
+  # source of truth) so they can't drift; the app creates its bucket on first use.
   image:
     registry: docker.io
-    repository: minio/minio
-    tag: RELEASE.2025-04-22T22-12-26Z
+    repository: dograhai/minio
+    tag: "2026.09.22"
     pullPolicy: IfNotPresent
   auth:
     rootUser: minioadmin

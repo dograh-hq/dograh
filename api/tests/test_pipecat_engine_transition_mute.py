@@ -101,7 +101,7 @@ async def _build_engine_and_pipeline(
     )
 
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
-    engine.set_task(task)
+    engine.call_worker = task
 
     return (
         engine,

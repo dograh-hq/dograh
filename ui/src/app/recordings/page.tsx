@@ -6,10 +6,12 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
 
 import RecordingsList from "./RecordingsList";
 import { RecordingsUploadDialog } from "./RecordingsUploadDialog";
+import TtsCacheList from "./TtsCacheList";
 
 export default function RecordingsPage() {
     const { user, redirectToLogin, loading } = useAuth();
@@ -47,25 +49,46 @@ export default function RecordingsPage() {
                 </p>
             </div>
 
-            <Card>
-                <CardHeader>
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <CardTitle>All Recordings</CardTitle>
+            <Tabs defaultValue="recordings" key={`${user.id}:${"selectedTeam" in user ? user.selectedTeam?.id : user.organizationId}`}>
+                <TabsList className="mb-4">
+                    <TabsTrigger value="recordings">Uploaded recordings</TabsTrigger>
+                    <TabsTrigger value="tts-cache">TTS cache</TabsTrigger>
+                </TabsList>
+                <TabsContent value="recordings">
+                    <Card>
+                        <CardHeader>
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <CardTitle>All Recordings</CardTitle>
+                                    <CardDescription>
+                                        Audio recordings shared across all agents in your organization
+                                    </CardDescription>
+                                </div>
+                                <Button onClick={() => setIsUploadOpen(true)}>
+                                    <Upload className="w-4 h-4 mr-2" />
+                                    Upload Recording
+                                </Button>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <RecordingsList refreshKey={refreshKey} />
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+                <TabsContent value="tts-cache">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Cached speech</CardTitle>
                             <CardDescription>
-                                Audio recordings shared across all agents in your organization
+                                Speech reused across your organization’s workflows. Listen to a phrase and invalidate it to generate fresh audio on its next request.
                             </CardDescription>
-                        </div>
-                        <Button onClick={() => setIsUploadOpen(true)}>
-                            <Upload className="w-4 h-4 mr-2" />
-                            Upload Recording
-                        </Button>
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    <RecordingsList refreshKey={refreshKey} />
-                </CardContent>
-            </Card>
+                        </CardHeader>
+                        <CardContent>
+                            <TtsCacheList />
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
 
             <RecordingsUploadDialog
                 open={isUploadOpen}

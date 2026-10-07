@@ -2,6 +2,8 @@ import type {
     ConversationItem,
     RealtimeFeedbackEvent,
     RealtimeFeedbackMessage,
+    ToolCallStatus,
+    TtfbKind,
 } from "../types";
 
 function feedbackEventText(event: RealtimeFeedbackEvent) {
@@ -13,6 +15,12 @@ function feedbackEventText(event: RealtimeFeedbackEvent) {
         event.payload.node_name ??
         ""
     );
+}
+
+// Reasoning delay is the LLM's TTFB. STT and TTS report TTFB too; events
+// without a kind predate that and are LLM measurements.
+export function isLlmTtfb(kind: TtfbKind | undefined) {
+    return (kind ?? "llm") === "llm";
 }
 
 function liveFeedbackItem(message: RealtimeFeedbackMessage, reasoningDurationMs?: number): ConversationItem | null {
@@ -125,7 +133,10 @@ export function conversationItemsFromLiveFeedback(messages: RealtimeFeedbackMess
     return items;
 }
 
-export function conversationItemsFromRealtimeFeedbackEvents(events: RealtimeFeedbackEvent[]) {
+export function conversationItemsFromRealtimeFeedbackEvents(
+    events: RealtimeFeedbackEvent[],
+    toolResults?: unknown,
+) {
     const items: ConversationItem[] = [];
     const toolCallIndexById = new Map<string, number>();
     let pendingReasoningDurationMs: number | undefined;
@@ -134,7 +145,7 @@ export function conversationItemsFromRealtimeFeedbackEvents(events: RealtimeFeed
 
     events.forEach((event, index) => {
         if (event.type === "rtf-ttfb-metric") {
-            if (event.payload.ttfb_seconds !== undefined) {
+            if (event.payload.ttfb_seconds !== undefined && isLlmTtfb(event.payload.kind)) {
                 pendingReasoningDurationMs = event.payload.ttfb_seconds * 1000;
             }
             return;
@@ -234,6 +245,9 @@ export function conversationItemsFromRealtimeFeedbackEvents(events: RealtimeFeed
                 status: "completed",
                 reasoningDurationMs: pendingReasoningDurationMs,
             });
+            if (toolCallId) {
+                toolCallIndexById.set(toolCallId, items.length - 1);
+            }
             pendingReasoningDurationMs = undefined;
             return;
         }
@@ -278,6 +292,45 @@ export function conversationItemsFromRealtimeFeedbackEvents(events: RealtimeFeed
             });
         }
     });
+
+    // Ordinary tools can finish after hangup, when no result frame reaches the
+    // feedback observer. The call-owned records also cover older saved runs
+    // with only a start event, so reconcile them at display time by invocation.
+    for (const record of Array.isArray(toolResults) ? toolResults : []) {
+        if (
+            !record ||
+            typeof record.tool_call_id !== "string" || !record.tool_call_id ||
+            typeof record.function_name !== "string" ||
+            !["completed", "timeout", "failed", "cancelled"].includes(record.status)
+        ) {
+            continue;
+        }
+        const status: ToolCallStatus = record.status === "completed" && record.result?.status === "error"
+            ? "failed"
+            : record.status;
+        const existingIndex = toolCallIndexById.get(record.tool_call_id);
+        const existingItem = existingIndex !== undefined ? items[existingIndex] : undefined;
+        if (existingIndex !== undefined && existingItem?.kind === "tool-call") {
+            items[existingIndex] = {
+                ...existingItem,
+                functionName: existingItem.functionName === "tool" ? record.function_name : existingItem.functionName,
+                arguments: existingItem.arguments ?? record.arguments,
+                status,
+                result: record.result === undefined ? existingItem.result : record.result,
+            };
+        } else {
+            toolCallIndexById.set(record.tool_call_id, items.length);
+            items.push({
+                kind: "tool-call",
+                id: record.tool_call_id,
+                toolCallId: record.tool_call_id,
+                functionName: record.function_name,
+                arguments: record.arguments,
+                status,
+                result: record.result,
+            });
+        }
+    }
 
     return items;
 }

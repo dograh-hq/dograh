@@ -12,7 +12,11 @@ from groq import Groq
 from api.schemas.ai_model_configuration import (
     EffectiveAIModelConfiguration,
 )
-from api.services.configuration.registry import ServiceConfig, ServiceProviders
+from api.services.configuration.registry import (
+    HOPPER_API_BASE_URL,
+    ServiceConfig,
+    ServiceProviders,
+)
 from api.services.mps_service_key_client import mps_service_key_client
 from api.utils.url_security import validate_user_configured_service_url
 
@@ -32,12 +36,23 @@ class APIKeyStatusResponse(TypedDict):
     status: list[APIKeyStatus]
 
 
+_OPENAI_COMPATIBLE_PROVIDER_NAMES = {
+    ServiceProviders.ATLASCLOUD.value: "Atlas Cloud",
+    ServiceProviders.HOPPER.value: "Hopper",
+}
+
+_OPENAI_COMPATIBLE_PROVIDER_BASE_URLS = {
+    ServiceProviders.HOPPER.value: HOPPER_API_BASE_URL,
+}
+
+
 class UserConfigurationValidator:
     def __init__(self):
         self._dograh_service_key_validation_cache: dict[str, bool] = {}
         self._validator_map = {
             ServiceProviders.OPENAI.value: self._check_openai_api_key,
             ServiceProviders.ATLASCLOUD.value: self._check_openai_api_key,
+            ServiceProviders.HOPPER.value: self._check_openai_api_key,
             ServiceProviders.DEEPGRAM.value: self._check_deepgram_api_key,
             ServiceProviders.GROQ.value: self._check_groq_api_key,
             ServiceProviders.OPENROUTER.value: self._check_openrouter_api_key,
@@ -64,6 +79,7 @@ class UserConfigurationValidator:
             ServiceProviders.AWS_NOVA_SONIC.value: self._check_aws_bedrock_api_key,
             ServiceProviders.ASSEMBLYAI.value: self._check_assemblyai_api_key,
             ServiceProviders.GLADIA.value: self._check_gladia_api_key,
+            ServiceProviders.SONIOX.value: self._check_soniox_api_key,
             ServiceProviders.RIME.value: self._check_rime_api_key,
             ServiceProviders.MINIMAX.value: self._check_minimax_api_key,
             ServiceProviders.SMALLEST.value: self._check_smallest_api_key,
@@ -240,6 +256,7 @@ class UserConfigurationValidator:
         if provider in (
             ServiceProviders.OPENAI.value,
             ServiceProviders.ATLASCLOUD.value,
+            ServiceProviders.HOPPER.value,
             ServiceProviders.OPENAI_REALTIME.value,
         ):
             return validator(provider, api_key, service_config)
@@ -248,11 +265,11 @@ class UserConfigurationValidator:
     def _check_openai_api_key(
         self, model: str, api_key: str, service_config: Optional[ServiceConfig] = None
     ) -> bool:
-        provider_name = (
-            "Atlas Cloud" if model == ServiceProviders.ATLASCLOUD.value else "OpenAI"
-        )
+        provider_name = _OPENAI_COMPATIBLE_PROVIDER_NAMES.get(model, "OpenAI")
         client_kwargs: dict[str, str] = {"api_key": api_key}
-        base_url = getattr(service_config, "base_url", None) if service_config else None
+        base_url = (
+            getattr(service_config, "base_url", None) if service_config else None
+        ) or _OPENAI_COMPATIBLE_PROVIDER_BASE_URLS.get(model)
         if base_url:
             client_kwargs["base_url"] = base_url
         client = openai.OpenAI(**client_kwargs)
@@ -504,6 +521,31 @@ class UserConfigurationValidator:
 
     def _check_gladia_api_key(self, model: str, api_key: str) -> bool:
         return True
+
+    def _check_soniox_api_key(self, model: str, api_key: str) -> bool:
+        try:
+            response = httpx.get(
+                "https://api.soniox.com/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            return True
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (401, 403):
+                raise ValueError(
+                    "Invalid Soniox API key. The key was rejected by the Soniox API. "
+                    "Please verify that your API key is correct and active."
+                ) from exc
+            raise ValueError(
+                "The Soniox API returned an error while validating the API key. "
+                "Please try again later."
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ValueError(
+                "Could not connect to the Soniox API. Please check your network "
+                "connection and try again."
+            ) from exc
 
     def _check_rime_api_key(self, model: str, api_key: str) -> bool:
         return True

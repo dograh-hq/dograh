@@ -90,6 +90,9 @@ async def test_run_pipeline_fires_initial_response_and_completes_run(
     response is triggered (set_node), and on_pipeline_finished updates
     the workflow_run row to COMPLETED."""
     workflow_run, user, workflow = workflow_run_setup
+    await db_session.update_workflow_run(
+        workflow_run.id, initial_context={"workflow_run_id": "stale-run-id"}
+    )
     transport = MockTransport(
         TransportParams(
             audio_in_enabled=True,
@@ -108,6 +111,7 @@ async def test_run_pipeline_fires_initial_response_and_completes_run(
             user_id=user.id,
             audio_config=audio_config,
             user_provider_id=user.provider_id,
+            call_context_vars={"workflow_run_id": "external-run-id"},
         )
         run_task = asyncio.create_task(run_coro)
 
@@ -136,6 +140,7 @@ async def test_run_pipeline_fires_initial_response_and_completes_run(
     refreshed = await db_session.get_workflow_run_by_id(workflow_run.id)
     assert refreshed.is_completed is True
     assert refreshed.state == WorkflowRunState.COMPLETED.value
+    assert refreshed.initial_context["workflow_run_id"] == workflow_run.id
     # set_node("start") populates "nodes_visited" via _gathered_context, and
     # on_pipeline_finished merges call_tags into gathered_context.
     assert "Start" in refreshed.gathered_context.get("nodes_visited", [])

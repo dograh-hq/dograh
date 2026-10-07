@@ -210,7 +210,7 @@ async def create_test_pipeline(
     # Create pipeline task
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
 
-    engine.set_task(task)
+    engine.call_worker = task
 
     return engine, transport, task
 

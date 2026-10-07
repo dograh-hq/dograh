@@ -158,7 +158,7 @@ async def create_pipeline_with_speech_injection(
     user_params = LLMUserAggregatorParams(
         user_turn_strategies=user_turn_strategies,
         user_mute_strategies=user_mute_strategies,
-        user_idle_timeout=user_idle_timeout,
+        user_idle_timeout=0,
     )
 
     assistant_params = LLMAssistantAggregatorParams()
@@ -169,16 +169,8 @@ async def create_pipeline_with_speech_injection(
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
 
-    # Register user idle event handlers
-    user_idle_handler = engine.create_user_idle_handler()
-
-    @user_context_aggregator.event_handler("on_user_turn_idle")
-    async def on_user_turn_idle(aggregator):
-        await user_idle_handler.handle_idle(aggregator)
-
-    @user_context_aggregator.event_handler("on_user_turn_started")
-    async def on_user_turn_started(aggregator, strategy):
-        user_idle_handler.reset()
+    user_idle_handler = engine.call_monitor
+    user_idle_handler.bind_user(user_context_aggregator, idle_timeout=user_idle_timeout)
 
     # Build pipeline:
     # transport.input → speech_injector → user_aggregator → LLM → TTS → transport.output → assistant_aggregator
@@ -187,6 +179,7 @@ async def create_pipeline_with_speech_injection(
             transport.input(),
             user_speech_injector,
             user_context_aggregator,
+            engine.call_monitor,
             mock_llm,
             tts,
             transport.output(),
@@ -195,7 +188,7 @@ async def create_pipeline_with_speech_injection(
     )
 
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
-    engine.set_task(task)
+    engine.call_worker = task
 
     return engine, transport, task, user_idle_handler
 

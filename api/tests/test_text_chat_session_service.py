@@ -441,3 +441,34 @@ async def test_reload_text_chat_session_raises_when_run_organization_is_missing(
 
     with pytest.raises(TextChatSessionExecutionError, match="organization not found"):
         await _reload_text_chat_session(123)
+
+
+@pytest.mark.asyncio
+async def test_failure_preserves_already_streamed_speech(monkeypatch):
+    from api.services.workflow.text_chat_session_service import (
+        _mark_pending_turn_failed,
+    )
+
+    session = SimpleNamespace(
+        revision=3,
+        session_data={
+            "status": "pending_assistant_turn",
+            "turns": [build_pending_text_chat_turn(user_text="Check")],
+        },
+    )
+    event = {
+        "type": "bot_speech",
+        "created_at": "2026-01-01T00:00:00Z",
+        "payload": {"text": "Please wait."},
+    }
+    save = AsyncMock()
+    monkeypatch.setattr(
+        text_chat_session_service.db_client, "update_workflow_run_text_session", save
+    )
+    await _mark_pending_turn_failed(
+        run_id=42, text_session=session, error_message="Tool failed", events=[event]
+    )
+    stored = save.await_args.kwargs["session_data"]["turns"][-1]
+    assert stored["status"] == "failed"
+    assert stored["events"][0] == event
+    assert stored["events"][1]["type"] == "execution_error"

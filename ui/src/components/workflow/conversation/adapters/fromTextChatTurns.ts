@@ -14,6 +14,7 @@ interface TextChatEventLike {
 interface TextChatTurnLike {
     id: string;
     status?: string;
+    message_events_version?: number;
     created_at?: string;
     user_message?: TextChatMessageLike | null;
     assistant_message?: TextChatMessageLike | null;
@@ -59,6 +60,21 @@ function conversationItemsFromTextChatEvents(
                 previousNodeName: asString(payload.previous_node_name),
                 allowInterrupt: typeof payload.allow_interrupt === "boolean" ? payload.allow_interrupt : undefined,
             });
+            return;
+        }
+
+        if (eventType === "bot_speech") {
+            const text = asString(payload.text);
+            if (text) {
+                items.push({
+                    kind: "message",
+                    id: `${turnId}-speech-${index}`,
+                    turnId,
+                    timestamp,
+                    role: "assistant",
+                    text,
+                });
+            }
             return;
         }
 
@@ -145,13 +161,15 @@ export function conversationItemsFromTextChatTurns(turns: TextChatTurnLike[]) {
 
         items.push(
             ...conversationItemsFromTextChatEvents(
-                turn.events ?? [],
+                turn.message_events_version === 1
+                    ? turn.events ?? []
+                    : (turn.events ?? []).filter(event => event.type !== "bot_speech"),
                 turn.id,
                 turn.created_at,
             ),
         );
 
-        if (turn.assistant_message?.text) {
+        if (turn.assistant_message?.text && turn.message_events_version !== 1) {
             items.push({
                 kind: "message",
                 id: `${turn.id}-assistant`,

@@ -35,7 +35,8 @@
     // Chat widget state (widgetType === 'chat'). The server transcript is the
     // source of truth: every successful response full-replaces turns/revision.
     chat: {
-      status: 'idle', // idle | starting | ready | waiting | ended | expired | error
+      status: 'idle', // idle | starting | ready | waiting | recovering | ended | expired | error
+      isCompleted: false,
       panelOpen: false,
       revision: null,
       turns: [],
@@ -44,7 +45,7 @@
       confirmingEnd: false,
       draft: '',
       banner: null,
-      seenAssistantTurnIds: new Set() // for onMessage diffing
+      seenAssistantMessageIds: new Set() // for onMessage diffing
     },
     chatEls: null, // { panel, messages, banner, input, sendBtn, endBtn, endConfirmation, confirmEndBtn } — null in headless
     callbacks: {
@@ -1866,6 +1867,8 @@
     }
     if (state.chat.status === 'idle' || state.chat.status === 'error') {
       await startChatSession();
+    } else if (state.chat.status === 'recovering') {
+      await recoverChatSession();
     } else {
       renderChat();
     }
@@ -1875,11 +1878,12 @@
     state.sessionToken = null;
     state.workflowRunId = null;
     state.chat.revision = null;
+    state.chat.isCompleted = false;
     state.chat.turns = [];
     state.chat.pendingUserText = null;
     state.chat.ending = false;
     state.chat.confirmingEnd = false;
-    state.chat.seenAssistantTurnIds = new Set();
+    state.chat.seenAssistantMessageIds = new Set();
   }
 
   async function startNewChatSession() {
@@ -1893,14 +1897,14 @@
 
   /**
    * Initialize the embed session for chat. The server derives the run type
-   * from the token settings and returns the greeting transcript inline.
+   * from the token settings and streams the opening messages as they arrive.
    */
   async function startChatSession() {
     if (state.chat.status === 'starting') return;
     updateChatStatus('starting');
 
     try {
-      const response = await fetch(`${state.config.apiBaseUrl}/api/v1/public/embed/init`, {
+      const response = await fetch(`${state.config.apiBaseUrl}/api/v1/public/embed/init/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1920,14 +1924,15 @@
         throw new Error(`Failed to start chat: ${response.status}`);
       }
 
-      const data = await response.json();
-      state.sessionToken = data.session_token;
-      state.workflowRunId = data.workflow_run_id;
-      const completed = applyChatSession(data.chat_session);
-      updateChatStatus(completed ? 'ended' : 'ready', completed ? widgetText('conversationEndedText') : null);
+      await readChatStream(response);
+      finishChatResponse();
     } catch (error) {
       console.error('Dograh Widget: Failed to start chat', error);
-      updateChatStatus('error', 'Could not start the chat.');
+      if (state.sessionToken) {
+        await recoverChatSession();
+      } else {
+        updateChatStatus('error', 'Could not start the chat.');
+      }
       if (state.callbacks.onError) {
         state.callbacks.onError(error);
       }
@@ -1941,21 +1946,119 @@
   function applyChatSession(chatSession) {
     if (!chatSession) return false;
     state.chat.revision = chatSession.revision;
-    state.chat.turns = chatSession.turns || [];
+    state.chat.isCompleted = Boolean(chatSession.is_completed);
+    // Pending snapshots have no saved speech yet. Preserve messages delivered
+    // before a disconnect until the final, authoritative transcript is saved.
+    state.chat.turns = (chatSession.turns || []).map((turn) => {
+      const previous = state.chat.turns.find((candidate) => candidate.id === turn.id);
+      if (turn.status === 'pending' && previous && previous.assistant_messages) {
+        return { ...turn, assistant_messages: previous.assistant_messages };
+      }
+      return turn;
+    });
     state.chat.pendingUserText = null;
     notifyNewAssistantMessages();
-    return Boolean(chatSession.is_completed);
+    return state.chat.isCompleted;
+  }
+
+  function assistantMessages(turn) {
+    if (Array.isArray(turn.assistant_messages)) return turn.assistant_messages;
+    return turn.assistant_message ? [turn.assistant_message] : [];
   }
 
   function notifyNewAssistantMessages() {
     state.chat.turns.forEach((turn) => {
-      if (turn.status !== 'completed' || !turn.assistant_message || !turn.assistant_message.text) return;
-      if (state.chat.seenAssistantTurnIds.has(turn.id)) return;
-      state.chat.seenAssistantTurnIds.add(turn.id);
-      if (state.callbacks.onMessage) {
-        state.callbacks.onMessage(turn.assistant_message.text, turn);
-      }
+      assistantMessages(turn).forEach((message, index) => {
+        if (!message || !message.text) return;
+        const id = `${turn.id}:${index}`;
+        if (state.chat.seenAssistantMessageIds.has(id)) return;
+        state.chat.seenAssistantMessageIds.add(id);
+        if (state.callbacks.onMessage) {
+          state.callbacks.onMessage(message.text, turn);
+        }
+      });
     });
+  }
+
+  function finishChatResponse() {
+    const pending = state.chat.turns.some((turn) => turn.status === 'pending');
+    const failed = state.chat.turns.length && state.chat.turns[state.chat.turns.length - 1].status === 'failed';
+    updateChatStatus(
+      state.chat.isCompleted ? 'ended' : pending ? 'waiting' : 'ready',
+      state.chat.isCompleted ? widgetText('conversationEndedText') : failed ? 'Assistant failed to respond.' : null
+    );
+  }
+
+  async function readChatStream(response) {
+    if (!response.body) throw new Error('Chat streaming is unavailable');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let data = [];
+    let completed = false;
+
+    function dispatch() {
+      if (!data.length) return;
+      const event = JSON.parse(data.join('\n'));
+      data = [];
+      if (event.type === 'session' || event.type === 'complete') {
+        if (event.session_token) state.sessionToken = event.session_token;
+        if (event.workflow_run_id) state.workflowRunId = event.workflow_run_id;
+        applyChatSession(event.session);
+        completed = event.type === 'complete';
+      } else if (event.type === 'message') {
+        const turn = state.chat.turns.find((candidate) => candidate.id === event.turn_id);
+        if (turn) {
+          if (!Array.isArray(turn.assistant_messages)) turn.assistant_messages = [];
+          turn.assistant_messages[event.index] = event.message;
+          notifyNewAssistantMessages();
+        }
+      } else if (event.type === 'error') {
+        throw new Error(event.message || 'Assistant failed to respond');
+      }
+      renderChat();
+    }
+
+    try {
+      while (!completed) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        let newline;
+        while ((newline = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, newline).replace(/\r$/, '');
+          buffer = buffer.slice(newline + 1);
+          if (line === '') dispatch();
+          else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+        }
+        if (done) break;
+      }
+      if (!completed) throw new Error('Chat stream ended before the response finished');
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
+  }
+
+  async function recoverChatSession() {
+    // An accepted POST keeps executing after disconnect. Only GET is retried;
+    // replaying the visitor message could run a tool twice.
+    let failures = 0;
+    updateChatStatus('waiting', 'Reconnecting…');
+    while (state.sessionToken) {
+      if (await resyncChatSession()) {
+        failures = 0;
+        finishChatResponse();
+        if (state.chat.status !== 'waiting') return true;
+      } else if (state.chat.status === 'expired') {
+        updateChatStatus('expired');
+        return false;
+      } else if (++failures >= 3) {
+        updateChatStatus('recovering', 'Connection interrupted. Reconnect to check the response.');
+        return false;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    return false;
   }
 
   /**
@@ -1973,7 +2076,7 @@
       console.warn('Dograh Widget: no active chat session');
       return null;
     }
-    if (state.chat.status === 'waiting' || state.chat.status === 'starting') {
+    if (state.chat.status === 'waiting' || state.chat.status === 'starting' || state.chat.status === 'recovering') {
       return null; // one turn at a time; the composer is disabled anyway
     }
 
@@ -1982,7 +2085,7 @@
 
     try {
       const response = await fetch(
-        `${state.config.apiBaseUrl}/api/v1/public/embed/chat/${state.sessionToken}/messages`,
+        `${state.config.apiBaseUrl}/api/v1/public/embed/chat/${state.sessionToken}/messages/stream`,
         {
           method: 'POST',
           headers: {
@@ -1994,24 +2097,19 @@
       );
 
       if (response.ok) {
-        const data = await response.json();
-        const completed = applyChatSession(data);
-        updateChatStatus(completed ? 'ended' : 'ready', completed ? widgetText('conversationEndedText') : null);
+        await readChatStream(response);
+        finishChatResponse();
         return state.chat.turns;
       }
 
       state.chat.pendingUserText = null;
 
       if (response.status === 409) {
-        // Someone else advanced the session (e.g. a second tab). Resync the
-        // transcript and hand the text back as a draft.
-        const resynced = await resyncChatSession();
-        if (!resynced && state.chat.status === 'expired') {
-          updateChatStatus('expired');
-          return null;
-        }
         state.chat.draft = trimmed;
-        updateChatStatus('ready', 'Message not sent — please try again.');
+        await recoverChatSession();
+        if (state.chat.status === 'ready') {
+          updateChatStatus('ready', 'Message not sent — please try again.');
+        }
         return null;
       }
       if (response.status === 402) {
@@ -2036,8 +2134,7 @@
     } catch (error) {
       console.error('Dograh Widget: Failed to send message', error);
       state.chat.pendingUserText = null;
-      state.chat.draft = trimmed;
-      updateChatStatus('ready', 'Message not sent — please try again.');
+      await recoverChatSession();
       if (state.callbacks.onError) {
         state.callbacks.onError(error);
       }
@@ -2064,7 +2161,7 @@
     if (!state.sessionToken || state.chat.status === 'ended' || state.chat.status === 'expired') {
       return state.chat.turns.slice();
     }
-    if (state.chat.status === 'starting' || state.chat.status === 'waiting' || state.chat.ending) {
+    if (state.chat.status === 'starting' || state.chat.status === 'waiting' || state.chat.status === 'recovering' || state.chat.ending) {
       return null;
     }
 
@@ -2122,7 +2219,7 @@
   }
 
   /**
-   * Refetch the transcript (409 recovery). Marks the session expired on
+   * Refetch the transcript after a conflict or disconnect. Marks it expired on
    * 403/404 so the caller can surface the restart UI.
    */
   async function resyncChatSession() {
@@ -2196,9 +2293,9 @@
       if (turn.user_message && turn.user_message.text) {
         messages.appendChild(buildChatBubble(turn.user_message.text, 'user', turn.status === 'failed'));
       }
-      if (turn.assistant_message && turn.assistant_message.text) {
-        messages.appendChild(buildChatBubble(turn.assistant_message.text, 'assistant', false));
-      }
+      assistantMessages(turn).forEach((message) => {
+        if (message && message.text) messages.appendChild(buildChatBubble(message.text, 'assistant', false));
+      });
     });
 
     if (state.chat.pendingUserText) {
@@ -2253,12 +2350,12 @@
       restart.textContent = widgetText('startNewChatText');
       restart.onclick = startNewChatSession;
       banner.appendChild(restart);
-    } else if (state.chat.status === 'error') {
+    } else if (state.chat.status === 'error' || state.chat.status === 'recovering') {
       const retry = document.createElement('button');
       retry.type = 'button';
       retry.className = 'dograh-chat-restart';
       retry.textContent = widgetText('chatRetryText');
-      retry.onclick = () => startChatSession();
+      retry.onclick = () => state.chat.status === 'recovering' ? recoverChatSession() : startChatSession();
       banner.appendChild(retry);
     }
   }

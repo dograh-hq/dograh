@@ -121,7 +121,10 @@ async def _create_user_and_workflow(
 
 
 @pytest.mark.asyncio
-async def test_text_chat_session_creation_requires_selected_organization():
+@pytest.mark.parametrize("endpoint_suffix", ["", "/stream"])
+async def test_text_chat_session_creation_requires_selected_organization(
+    endpoint_suffix,
+):
     from httpx import ASGITransport, AsyncClient
 
     from api.app import app
@@ -140,7 +143,7 @@ async def test_text_chat_session_creation_requires_selected_organization():
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/api/v1/workflow/123/text-chat/sessions", json={}
+                f"/api/v1/workflow/123/text-chat/sessions{endpoint_suffix}", json={}
             )
     finally:
         if original_override:
@@ -222,10 +225,12 @@ async def test_user_can_end_text_chat_session(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint_suffix", ["", "/stream"])
 async def test_text_chat_session_creation_executes_initial_assistant_turn(
     db_session,
     async_session,
     test_client_factory,
+    endpoint_suffix,
 ):
     workflow_definition = {
         "nodes": [
@@ -299,11 +304,25 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
             ),
         ):
             create_response = await client.post(
-                f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions{endpoint_suffix}",
                 json={"initial_context": {"name": "explicit"}},
             )
             assert create_response.status_code == 200
-            created = create_response.json()
+            if endpoint_suffix:
+                updates = [
+                    json.loads(line[6:])
+                    for line in create_response.text.splitlines()
+                    if line.startswith("data: ")
+                ]
+                assert updates[0]["type"] == "session"
+                assert updates[-1]["type"] == "complete"
+                assert any(
+                    item.get("event", {}).get("type") == "bot_speech"
+                    for item in updates
+                )
+                created = updates[-1]["session"]
+            else:
+                created = create_response.json()
             run_response = await client.get(
                 f"/api/v1/workflow/{workflow.id}/runs/{created['workflow_run_id']}"
             )
@@ -2285,6 +2304,15 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
             json={"expected_revision": created["revision"]},
         )
         assert end_response.status_code == 404
+        for path, body in [
+            (f"/api/v1/workflow/{workflow.id}/text-chat/sessions/stream", {}),
+            (
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{created['workflow_run_id']}/messages/stream",
+                {"text": "Unauthorized"},
+            ),
+        ]:
+            response = await other_client.post(path, json=body)
+            assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -2519,3 +2547,219 @@ async def test_text_chat_append_rejects_quota_without_mutating_session(
     assert (
         session_payload["session_data"]["status"] == created["session_data"]["status"]
     )
+
+
+@pytest.mark.asyncio
+async def test_text_chat_stream_sends_announcement_while_http_tool_is_pending(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    from uuid import uuid4
+
+    from api.app import app
+    from api.db.models import ToolModel
+
+    tool_uuid = str(uuid4())
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "Help the user.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "greeting_type": "text",
+                    "greeting": "Welcome.",
+                },
+            },
+            {
+                "id": "lookup",
+                "type": "agentNode",
+                "position": {"x": 0, "y": 200},
+                "data": {
+                    "name": "Lookup",
+                    "prompt": "Look up their details.",
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "tool_uuids": [tool_uuid],
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-lookup",
+                "source": "start",
+                "target": "lookup",
+                "data": {
+                    "label": "Go To Lookup",
+                    "condition": "Look up the details.",
+                    "transition_speech": "Please wait.",
+                    "transition_speech_type": "text",
+                },
+            }
+        ],
+    }
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="stream-tool",
+    )
+    tool = ToolModel(
+        tool_uuid=tool_uuid,
+        organization_id=user.selected_organization_id,
+        created_by=user.id,
+        name="lookup_details",
+        description="Look up details",
+        category="http_api",
+        definition={
+            "schema_version": 1,
+            "type": "http_api",
+            "config": {"parameters": []},
+        },
+    )
+    async_session.add(tool)
+    await async_session.flush()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    delivered = asyncio.Queue()
+
+    async def execute_http(**kwargs):
+        entered.set()
+        await asyncio.wait_for(release.wait(), timeout=15)
+        return {"balance": 100}
+
+    llms = [
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+        MockLLMService(
+            mock_steps=[
+                MockLLMService.create_mixed_chunks(
+                    "Let me check.", "go_to_lookup", {}, tool_call_id="transition-1"
+                ),
+                MockLLMService.create_mixed_chunks(
+                    "", "lookup_details", {}, tool_call_id="lookup-1"
+                ),
+                MockLLMService.create_text_chunks("Your balance is 100."),
+            ],
+            chunk_delay=0.001,
+        ),
+    ]
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llms,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+                new=execute_http,
+            ),
+        ):
+            response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions", json={}
+            )
+            assert response.status_code == 200
+            initial = response.json()
+            run_id = initial["workflow_run_id"]
+            path = f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{run_id}/messages/stream"
+            request_body = json.dumps(
+                {"text": "Check my balance", "expected_revision": initial["revision"]}
+            ).encode()
+            sent_request = False
+            disconnect = asyncio.Event()
+            status_codes = []
+
+            async def receive():
+                nonlocal sent_request
+                if not sent_request:
+                    sent_request = True
+                    return {
+                        "type": "http.request",
+                        "body": request_body,
+                        "more_body": False,
+                    }
+                await asyncio.wait_for(disconnect.wait(), timeout=20)
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                if message["type"] == "http.response.start":
+                    status_codes.append(message["status"])
+                elif message["type"] == "http.response.body":
+                    for line in message.get("body", b"").decode().splitlines():
+                        if line.startswith("data: "):
+                            delivered.put_nowait(json.loads(line[6:]))
+
+            # ASGITransport buffers the entire body. Observe actual ASGI sends
+            # instead, proving bytes are delivered while the HTTP tool is blocked.
+            scope = {
+                "type": "http",
+                "asgi": {"version": "3.0", "spec_version": "2.4"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": path,
+                "raw_path": path.encode(),
+                "query_string": b"",
+                "headers": [(b"content-type", b"application/json")],
+                "client": ("127.0.0.1", 1234),
+                "server": ("test", 80),
+                "root_path": "",
+            }
+            request_task = asyncio.create_task(app(scope, receive, send))
+            observed = []
+            try:
+                await asyncio.wait_for(entered.wait(), timeout=10)
+                while True:
+                    update = await asyncio.wait_for(delivered.get(), timeout=5)
+                    observed.append(update)
+                    if (
+                        update.get("event", {}).get("payload", {}).get("text")
+                        == "Please wait."
+                    ):
+                        break
+                assert status_codes == [200]
+                assert not request_task.done()
+                assert not release.is_set()
+                # A second POST cannot replace the pending turn, even if the
+                # caller obtains its fresh revision from the initial SSE event.
+                accepted = observed[0]["session"]
+                duplicate = await client.post(
+                    path,
+                    json={
+                        "text": "Check again",
+                        "expected_revision": accepted["revision"],
+                    },
+                )
+                assert duplicate.status_code == 409
+                release.set()
+                await asyncio.wait_for(request_task, timeout=10)
+                while not delivered.empty():
+                    observed.append(delivered.get_nowait())
+            finally:
+                release.set()
+                disconnect.set()
+                await asyncio.wait_for(request_task, timeout=10)
+
+    assert observed[-1]["type"] == "complete"
+    final = observed[-1]["session"]
+    turn = final["session_data"]["turns"][-1]
+    speech = [
+        item["payload"]["text"]
+        for item in turn["events"]
+        if item["type"] == "bot_speech"
+    ]
+    assert speech == ["Let me check.", "Please wait.", "Your balance is 100."]
+    assert turn["assistant_message"]["text"] == "\n\n".join(speech)
+    assert turn["message_events_version"] == 1
+    assert [item["event"] for item in observed if item["type"] == "turn_event"] == turn[
+        "events"
+    ]

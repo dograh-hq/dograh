@@ -14,6 +14,8 @@ type WidgetWindow = Window & {
         start: () => Promise<void>;
         startChat: () => Promise<void>;
         endChat: () => Promise<unknown[] | null>;
+        sendMessage: (text: string) => Promise<unknown[] | null>;
+        onMessage: (callback: (text: string) => void) => void;
         getState: () => { chat: { status: string } };
     };
 };
@@ -37,6 +39,22 @@ async function flushMicrotasks() {
     for (let i = 0; i < 5; i += 1) {
         await Promise.resolve();
     }
+}
+
+function encodeEvent(event: unknown) {
+    return new TextEncoder().encode(`data: ${JSON.stringify(event)}\r\n\r\n`);
+}
+
+const initialSession = { revision: 2, state: 'running', is_completed: false, turns: [] };
+
+function initStreamResponse() {
+    return new Response(new ReadableStream({
+        start(controller) {
+            controller.enqueue(encodeEvent({ type: 'session', session_token: 'emb_session_TEST', workflow_run_id: 101, session: initialSession }));
+            controller.enqueue(encodeEvent({ type: 'complete', session: initialSession }));
+            controller.close();
+        },
+    }));
 }
 
 function createFetchMock(autoStart: boolean) {
@@ -72,26 +90,13 @@ function createFetchMock(autoStart: boolean) {
             } as Response;
         }
 
-        return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-                session_token: 'emb_session_TEST',
-                workflow_run_id: 101,
-                chat_session: {
-                    revision: 2,
-                    state: 'running',
-                    is_completed: false,
-                    turns: [],
-                },
-            }),
-        } as Response;
+        return initStreamResponse();
     });
 }
 
 function countInitCalls(fetchMock: ReturnType<typeof createFetchMock>) {
     return fetchMock.mock.calls.filter(([url]) =>
-        String(url).endsWith('/api/v1/public/embed/init'),
+        String(url).endsWith('/api/v1/public/embed/init/stream'),
     ).length;
 }
 
@@ -207,22 +212,8 @@ describe('public embed widget chat lifecycle', () => {
             if (url.includes('/api/v1/public/embed/config/')) {
                 return configResponse;
             }
-            if (url.endsWith('/api/v1/public/embed/init')) {
-                return {
-                    ok: true,
-                    status: 200,
-                    json: async () => ({
-                        session_token: 'emb_session_TEST',
-                        workflow_run_id: 101,
-                        config: { workflow_id: 7 },
-                        chat_session: {
-                            revision: 2,
-                            state: 'running',
-                            is_completed: false,
-                            turns: [],
-                        },
-                    }),
-                } as Response;
+            if (url.endsWith('/api/v1/public/embed/init/stream')) {
+                return initStreamResponse();
             }
             if (url.includes('/turn-credentials/')) {
                 return { ok: false, status: 503 } as Response;
@@ -270,4 +261,121 @@ describe('public embed widget chat lifecycle', () => {
         expect(getUserMedia).not.toHaveBeenCalled();
         expect(document.querySelector('.dograh-chat-panel--inline')).not.toBeNull();
     });
+
+    it('renders and notifies the announcement before a delayed result, without duplicates', async () => {
+        const fetchMock = createFetchMock(false);
+        const widget = await loadWidget(fetchMock);
+        await widget.startChat();
+        const onMessage = vi.fn();
+        widget.onMessage(onMessage);
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        const response = new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value; } }));
+        fetchMock.mockResolvedValueOnce(response);
+        const sending = widget.sendMessage('Look it up');
+        const turn = { id: 'turn1', status: 'pending', user_message: { text: 'Look it up' }, assistant_messages: [] };
+        const pending = { ...initialSession, revision: 3, turns: [turn] };
+        controller.enqueue(encodeEvent({ type: 'session', session: pending }));
+        const announcement = { text: 'I’ll check…' };
+        const bytes = encodeEvent({ type: 'message', turn_id: turn.id, index: 0, message: announcement });
+        // Split inside a multibyte character and the CRLF frame separator.
+        const split = bytes.findIndex((byte) => byte >= 128) + 1;
+        controller.enqueue(bytes.slice(0, split));
+        controller.enqueue(bytes.slice(split, -1));
+        controller.enqueue(bytes.slice(-1));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(document.querySelectorAll('.dograh-chat-bubble--assistant')).toHaveLength(1);
+        expect(document.querySelector('.dograh-chat-bubble--assistant')?.textContent).toBe(announcement.text);
+        expect(widget.getState().chat.status).toBe('waiting');
+        expect(document.querySelector<HTMLButtonElement>('.dograh-chat-send')?.disabled).toBe(true);
+        expect(onMessage.mock.calls.map(([text]) => text)).toEqual([announcement.text]);
+
+        const result = { text: 'Found it.' };
+        controller.enqueue(encodeEvent({ type: 'message', turn_id: turn.id, index: 1, message: result }));
+        controller.enqueue(encodeEvent({ type: 'complete', session: {
+            ...pending, revision: 4, turns: [{ ...turn, status: 'completed',
+                assistant_messages: [announcement, result], assistant_message: { text: 'I’ll check… Found it.' } }],
+        } }));
+        controller.close();
+        await sending;
+        expect(Array.from(document.querySelectorAll('.dograh-chat-bubble--assistant')).map((el) => el.textContent))
+            .toEqual([announcement.text, result.text]);
+        expect(onMessage.mock.calls.map(([text]) => text)).toEqual([announcement.text, result.text]);
+        expect(widget.getState().chat.status).toBe('ready');
+        expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/messages/stream'))).toHaveLength(1);
+    });
+
+    it('recovers an interrupted accepted turn with GET while preserving delivered speech', async () => {
+        const fetchMock = createFetchMock(false);
+        const widget = await loadWidget(fetchMock);
+        await widget.startChat();
+        const onMessage = vi.fn();
+        widget.onMessage(onMessage);
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        fetchMock.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value; } })));
+        const turn = { id: 'turn1', status: 'pending', user_message: { text: 'Look it up' }, assistant_messages: [] };
+        const pending = { ...initialSession, revision: 3, turns: [turn] };
+        const announcement = { text: 'Checking.' };
+        const result = { text: 'Done.' };
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(pending)));
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...pending, revision: 4, turns: [{ ...turn, status: 'completed', assistant_messages: [announcement, result] }] })));
+        const sending = widget.sendMessage('Look it up');
+        controller.enqueue(encodeEvent({ type: 'session', session: pending }));
+        controller.enqueue(encodeEvent({ type: 'message', turn_id: turn.id, index: 0, message: announcement }));
+        await vi.advanceTimersByTimeAsync(0);
+        controller.close();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(document.querySelector('.dograh-chat-bubble--assistant')?.textContent).toBe(announcement.text);
+        expect(widget.getState().chat.status).toBe('waiting');
+        await widget.sendMessage('duplicate');
+        await vi.advanceTimersByTimeAsync(1000);
+        await sending;
+        expect(onMessage.mock.calls.map(([text]) => text)).toEqual([announcement.text, result.text]);
+        expect(widget.getState().chat.status).toBe('ready');
+        expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/messages/stream'))).toHaveLength(1);
+        expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/chat/emb_session_TEST'))).toHaveLength(2);
+    });
+
+    it('streams the opening announcement while initialization is still running', async () => {
+        const fetchMock = createFetchMock(false);
+        const widget = await loadWidget(fetchMock);
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        fetchMock.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value; } })));
+        const starting = widget.startChat();
+        const turn = { id: 'greeting', status: 'pending', assistant_messages: [] };
+        const pending = { ...initialSession, turns: [turn] };
+        const greeting = { text: 'Let me check your account.' };
+        controller.enqueue(encodeEvent({ type: 'session', session_token: 'emb_session_TEST', session: pending }));
+        controller.enqueue(encodeEvent({ type: 'message', turn_id: turn.id, index: 0, message: greeting }));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(document.querySelector('.dograh-chat-bubble--assistant')?.textContent).toBe(greeting.text);
+        expect(widget.getState().chat.status).toBe('starting');
+        controller.enqueue(encodeEvent({ type: 'complete', session: { ...pending, turns: [{ ...turn, status: 'completed', assistant_messages: [greeting] }] } }));
+        controller.close();
+        await starting;
+        expect(widget.getState().chat.status).toBe('ready');
+    });
+
+
+    it('keeps the composer disabled if reconnect fails, then retries only GET', async () => {
+        const fetchMock = createFetchMock(false);
+        const widget = await loadWidget(fetchMock);
+        await widget.startChat();
+        fetchMock.mockRejectedValueOnce(new Error('Connection dropped'));
+        for (let i = 0; i < 3; i += 1) fetchMock.mockRejectedValueOnce(new Error('Offline'));
+        const sending = widget.sendMessage('Look it up');
+        await vi.advanceTimersByTimeAsync(2000);
+        await sending;
+        expect(widget.getState().chat.status).toBe('recovering');
+        expect(document.querySelector<HTMLButtonElement>('.dograh-chat-send')?.disabled).toBe(true);
+        await widget.sendMessage('Do it again');
+        await widget.endChat();
+        expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/messages/stream'))).toHaveLength(1);
+        expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/end'))).toBe(false);
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...initialSession, revision: 4, turns: [{ id: 'turn1', status: 'completed', assistant_messages: [{ text: 'Done.' }] }] })));
+        await widget.startChat();
+        expect(widget.getState().chat.status).toBe('ready');
+        expect(document.querySelector('.dograh-chat-bubble--assistant')?.textContent).toBe('Done.');
+        expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/messages/stream'))).toHaveLength(1);
+    });
+
 });

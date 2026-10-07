@@ -1,5 +1,6 @@
 """Service helpers for text-chat session lifecycle orchestration."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -43,6 +44,10 @@ class TextChatSessionRevisionConflictError(Exception):
 
 class TextChatSessionExecutionError(Exception):
     """Raised when the assistant turn fails to execute."""
+
+
+class TextChatTurnInProgressError(Exception):
+    """A new message or rewind cannot replace an executing turn."""
 
 
 class TextChatPendingTurnLostError(Exception):
@@ -124,6 +129,8 @@ async def append_text_chat_user_message(
     session_data = normalize_text_chat_session_data(text_session.session_data)
     checkpoint = normalize_text_chat_checkpoint(text_session.checkpoint)
 
+    if session_data["status"] == "pending_assistant_turn":
+        raise TextChatTurnInProgressError("An assistant turn is already running")
     active_turns, discarded_future = truncate_text_chat_future_turns(session_data)
     active_turns.append(build_pending_text_chat_turn(user_text=user_text))
 
@@ -138,7 +145,11 @@ async def append_text_chat_user_message(
             run_id,
             session_data=session_data,
             checkpoint=checkpoint,
-            expected_revision=expected_revision,
+            expected_revision=(
+                text_session.revision
+                if expected_revision is None
+                else expected_revision
+            ),
         )
     except WorkflowRunTextSessionRevisionConflictError as e:
         raise TextChatSessionRevisionConflictError(
@@ -157,6 +168,8 @@ async def rewind_text_chat_session_state(
     expected_revision: int | None,
 ) -> WorkflowRunTextSessionModel:
     session_data = normalize_text_chat_session_data(text_session.session_data)
+    if session_data["status"] == "pending_assistant_turn":
+        raise TextChatTurnInProgressError("An assistant turn is already running")
     validate_text_chat_turn_cursor(session_data, cursor_turn_id)
 
     session_data["cursor_turn_id"] = cursor_turn_id
@@ -166,7 +179,11 @@ async def rewind_text_chat_session_state(
         await db_client.update_workflow_run_text_session(
             run_id,
             session_data=session_data,
-            expected_revision=expected_revision,
+            expected_revision=(
+                text_session.revision
+                if expected_revision is None
+                else expected_revision
+            ),
         )
     except WorkflowRunTextSessionRevisionConflictError as e:
         raise TextChatSessionRevisionConflictError(
@@ -364,10 +381,18 @@ async def execute_pending_text_chat_turn(
     workflow_id: int,
     run_id: int,
     text_session: WorkflowRunTextSessionModel,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> WorkflowRunTextSessionModel:
     """Execute the current pending assistant turn and persist its side effects."""
     session_data = normalize_text_chat_session_data(text_session.session_data)
     checkpoint = normalize_text_chat_checkpoint(text_session.checkpoint)
+
+    captured_events: list[dict[str, Any]] = []
+
+    def capture_event(event: dict[str, Any]) -> None:
+        captured_events.append(event)
+        if on_event:
+            on_event(event)
 
     try:
         execution = await execute_text_chat_pending_turn(
@@ -375,12 +400,14 @@ async def execute_pending_text_chat_turn(
             workflow_id=workflow_id,
             session_data=session_data,
             checkpoint=checkpoint,
+            on_event=capture_event,
         )
     except Exception as e:
         await _mark_pending_turn_failed(
             run_id=run_id,
             text_session=text_session,
             error_message=str(e),
+            events=captured_events,
         )
         raise TextChatSessionExecutionError(
             f"Failed to execute text chat assistant turn: {e}"
@@ -403,6 +430,7 @@ async def execute_pending_text_chat_turn(
         else None
     )
     completed_turns[-1]["events"] = execution.events
+    completed_turns[-1]["message_events_version"] = 1
     completed_turns[-1]["usage"] = execution.usage
     completed_turns[-1]["checkpoint_after_turn"] = execution.checkpoint
     completed_session_data["turns"] = completed_turns
@@ -520,6 +548,9 @@ def build_pending_text_chat_turn(*, user_text: str | None) -> dict[str, Any]:
             else None
         ),
         "assistant_message": None,
+        # Every assistant segment is represented by a bot_speech event. Legacy
+        # turns lack this marker and still render their combined message.
+        "message_events_version": 1,
         "events": [],
         "usage": {},
     }
@@ -530,6 +561,7 @@ async def _mark_pending_turn_failed(
     run_id: int,
     text_session: WorkflowRunTextSessionModel,
     error_message: str,
+    events: list[dict[str, Any]] | None = None,
 ) -> None:
     failed_session_data = normalize_text_chat_session_data(text_session.session_data)
     failed_turns = list(failed_session_data.get("turns") or [])
@@ -538,7 +570,7 @@ async def _mark_pending_turn_failed(
 
     failed_turns[-1]["status"] = "failed"
     failed_turns[-1]["events"] = [
-        *(failed_turns[-1].get("events") or []),
+        *(events if events is not None else failed_turns[-1].get("events") or []),
         {
             "type": "execution_error",
             "created_at": datetime.now(UTC).isoformat(),
@@ -625,13 +657,14 @@ async def _reload_text_chat_session(run_id: int) -> WorkflowRunTextSessionModel:
 
 __all__ = [
     "TEXT_CHAT_SESSION_VERSION",
+    "TextChatPendingTurnLostError",
+    "TextChatSessionExecutionError",
+    "TextChatSessionRevisionConflictError",
+    "TextChatTurnInProgressError",
     "TextChatTurnNotFoundError",
     "append_text_chat_user_message",
     "build_pending_text_chat_turn",
     "complete_text_chat_session",
-    "TextChatPendingTurnLostError",
-    "TextChatSessionExecutionError",
-    "TextChatSessionRevisionConflictError",
     "default_text_chat_checkpoint",
     "default_text_chat_session_data",
     "execute_pending_text_chat_turn",

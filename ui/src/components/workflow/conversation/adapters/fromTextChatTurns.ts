@@ -169,8 +169,11 @@ export function conversationItemsFromTextChatTurns(turns: TextChatTurnLike[]) {
             let remainingText = turn.assistant_message.text.trim();
             for (const item of eventItems) {
                 if (item.kind === "message" && item.role === "assistant" && item.text) {
-                    if (remainingText.startsWith(item.text)) {
-                        remainingText = remainingText.slice(item.text.length).trim();
+                    const idx = remainingText.indexOf(item.text);
+                    if (idx !== -1) {
+                        const before = remainingText.slice(0, idx).trimEnd();
+                        const after = remainingText.slice(idx + item.text.length).trimStart();
+                        remainingText = [before, after].filter(Boolean).join(" ");
                     }
                 }
             }

@@ -118,4 +118,50 @@ describe("conversationItemsFromTextChatTurns", () => {
             text: "Hello, how can I help you?",
         });
     });
+
+    it("strips transition speech even when preceding assistant text exists", () => {
+        const turns = [
+            {
+                id: "turn-1",
+                created_at: "2026-01-01T00:00:00.000Z",
+                user_message: {
+                    text: "Check my order",
+                    created_at: "2026-01-01T00:00:00.000Z",
+                },
+                events: [
+                    {
+                        type: "bot_speech",
+                        created_at: "2026-01-01T00:00:01.500Z",
+                        payload: {
+                            text: "Please give me a moment to review your attachments.",
+                        },
+                    },
+                ],
+                assistant_message: {
+                    text: "Sure thing! Please give me a moment to review your attachments. Here are your details.",
+                    created_at: "2026-01-01T00:00:06.000Z",
+                },
+            },
+        ];
+
+        const items = conversationItemsFromTextChatTurns(turns);
+
+        expect(items.map((item) => ({ kind: item.kind, role: "role" in item ? item.role : undefined, text: "text" in item ? item.text : undefined }))).toEqual([
+            {
+                kind: "message",
+                role: "user",
+                text: "Check my order",
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Please give me a moment to review your attachments.",
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Sure thing! Here are your details.",
+            },
+        ]);
+    });
 });

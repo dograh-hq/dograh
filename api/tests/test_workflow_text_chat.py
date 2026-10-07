@@ -2647,6 +2647,14 @@ async def test_text_chat_captures_edge_transition_speech_as_bot_speech_event(
         == "Please give me a moment to review your attachments."
     )
 
+    # Verify event ordering: bot_speech is recorded during node transition
+    event_types = [event["type"] for event in turn_1_events]
+    assert "node_transition" in event_types
+    assert "bot_speech" in event_types
+    node_transition_idx = event_types.index("node_transition")
+    bot_speech_idx = event_types.index("bot_speech")
+    assert node_transition_idx < bot_speech_idx
+
     # Verify turn assistant_message still preserves the full output
     assistant_text = turn_1["assistant_message"]["text"]
     assert "Please give me a moment to review your attachments." in assistant_text

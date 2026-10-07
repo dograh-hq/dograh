@@ -1,3 +1,4 @@
+import inspect
 """WhatsApp call-permission orchestration for campaigns.
 
 Meta gates business-initiated calls on the recipient's consent, so a campaign
@@ -49,6 +50,7 @@ async def reactivate_campaign_runs_for_recipient(
     phone_number_id: Optional[str] = None,
     telephony_configuration_id: Optional[int] = None,
     campaign_id: Optional[int] = None,
+    organization_id: Optional[int] = None,
 ) -> int:
     """Reactivate parked campaign runs when a recipient grants call permission, or fail them if denied."""
     if not phone_number:
@@ -59,11 +61,11 @@ async def reactivate_campaign_runs_for_recipient(
         from api.tasks.arq import enqueue_job
         from api.tasks.function_names import FunctionNames
 
-        # Resolve target configuration id if phone_number_id is supplied.
+        # Resolve target configuration and tenant boundary.
         #
         # get_queued_runs_awaiting_whatsapp_permission searches parked runs
         # across every organization - the recipient number is the only key it
-        # has - so target_config_id is the ONLY tenant boundary on the filter
+        # has - so target_config_id is the primary tenant boundary on the filter
         # below. Letting an unresolved id fall through to "no filter" would let
         # one business's grant or denial activate or fail another business's
         # campaign run for the same recipient. Resolution can legitimately fail:
@@ -71,6 +73,7 @@ async def reactivate_campaign_runs_for_recipient(
         # verified, or the id may resolve ambiguously (that lookup refuses to
         # guess). Refuse rather than run unscoped.
         target_config_id = telephony_configuration_id
+        target_org_id = organization_id
         if target_config_id is None and phone_number_id:
             cfg = await db_client.get_whatsapp_configuration_by_phone_number_id(
                 phone_number_id
@@ -83,6 +86,19 @@ async def reactivate_campaign_runs_for_recipient(
                 )
                 return 0
             target_config_id = cfg.id
+            if target_org_id is None:
+                org_val = getattr(cfg, "organization_id", None)
+                if isinstance(org_val, int):
+                    target_org_id = org_val
+        elif target_config_id is not None and target_org_id is None:
+            get_cfg = getattr(db_client, "get_telephony_configuration", None)
+            if callable(get_cfg):
+                res = get_cfg(target_config_id)
+                cfg = (await res) if inspect.isawaitable(res) else res
+                if cfg:
+                    org_val = getattr(cfg, "organization_id", None)
+                    if isinstance(org_val, int):
+                        target_org_id = org_val
 
         if target_config_id is None and campaign_id is None:
             logger.error(
@@ -109,11 +125,38 @@ async def reactivate_campaign_runs_for_recipient(
         # single sweep into hundreds of sequential queries.
         campaigns_seen: Dict[int, Optional[object]] = {}
 
+        def _get_org(obj):
+            if obj is None:
+                return None
+            val = getattr(obj, "organization_id", None)
+            if isinstance(val, int):
+                return val
+            return None
+
         async def _campaign(camp_id: Optional[int]):
             if camp_id is None:
                 return None
             if camp_id not in campaigns_seen:
-                campaigns_seen[camp_id] = await db_client.get_campaign_by_id(camp_id)
+                camp = None
+                if target_org_id is not None:
+                    get_camp = getattr(db_client, "get_campaign", None)
+                    if callable(get_camp):
+                        res = get_camp(camp_id, target_org_id)
+                        if inspect.isawaitable(res):
+                            camp = await res
+                if camp is None:
+                    get_by_id = getattr(db_client, "get_campaign_by_id", None)
+                    if callable(get_by_id):
+                        res = get_by_id(camp_id)
+                        if inspect.isawaitable(res):
+                            camp = await res
+                        else:
+                            camp = res
+                    if camp and target_org_id is not None:
+                        camp_org = _get_org(camp)
+                        if camp_org is not None and camp_org != target_org_id:
+                            camp = None
+                campaigns_seen[camp_id] = camp
             return campaigns_seen[camp_id]
 
         # Filter waiting runs by campaign_id or telephony_configuration_id if provided
@@ -121,10 +164,16 @@ async def reactivate_campaign_runs_for_recipient(
         for q_run in waiting_runs:
             if campaign_id is not None and q_run.campaign_id != campaign_id:
                 continue
-            if target_config_id is not None:
+            if target_config_id is not None or target_org_id is not None:
                 camp = await _campaign(q_run.campaign_id)
-                if not camp or camp.telephony_configuration_id != target_config_id:
+                if not camp:
                     continue
+                if target_config_id is not None and camp.telephony_configuration_id != target_config_id:
+                    continue
+                if target_org_id is not None:
+                    camp_org = _get_org(camp)
+                    if camp_org is not None and camp_org != target_org_id:
+                        continue
             filtered_runs.append(q_run)
 
         if not filtered_runs:
@@ -234,7 +283,7 @@ async def reactivate_campaign_runs_for_recipient(
             return failed
     except Exception as e:
         logger.warning(
-            f"[WhatsApp] Error reactivating queued runs on permission change for {clean_phone}: {e}"
+        logger.warning(f"[WhatsApp] Error reactivating queued runs on permission change for {clean_phone}: {e}")
         )
     return 0
 
@@ -253,7 +302,9 @@ class WhatsAppPermissionSyncResult:
 
 
 async def sync_whatsapp_permissions_for_campaign(
-    campaign_id: int, force: bool = False
+    campaign_id: int,
+    organization_id: Optional[int] = None,
+    force: bool = False,
 ) -> WhatsAppPermissionSyncResult:
     """
     Syncs WhatsApp call permission status from Meta Graph API for any leads parked
@@ -277,16 +328,59 @@ async def sync_whatsapp_permissions_for_campaign(
         if not parked_runs:
             return WhatsAppPermissionSyncResult()
 
-        campaign = await db_client.get_campaign_by_id(campaign_id)
+        campaign = None
+        if organization_id is not None:
+            get_camp = getattr(db_client, "get_campaign", None)
+            if callable(get_camp):
+                res = get_camp(campaign_id, organization_id)
+                if inspect.isawaitable(res):
+                    campaign = await res
+        if campaign is None:
+            get_by_id = getattr(db_client, "get_campaign_by_id", None)
+            if callable(get_by_id):
+                res = get_by_id(campaign_id)
+                if inspect.isawaitable(res):
+                    campaign = await res
+                else:
+                    campaign = res
+            if campaign and organization_id is not None:
+                camp_org = getattr(campaign, "organization_id", None)
+                if isinstance(camp_org, int) and camp_org != organization_id:
+                    campaign = None
+
         if not campaign or campaign.state != "running":
             return WhatsAppPermissionSyncResult()
 
         if not campaign.telephony_configuration_id:
             return WhatsAppPermissionSyncResult()
 
-        config = await db_client.get_telephony_configuration(
-            campaign.telephony_configuration_id
-        )
+        camp_org_id = getattr(campaign, "organization_id", None)
+        if not isinstance(camp_org_id, int):
+            camp_org_id = None
+        config = None
+        if camp_org_id is not None:
+            get_cfg = getattr(db_client, "get_telephony_configuration_for_org", None)
+            if callable(get_cfg):
+                res = get_cfg(
+                    campaign.telephony_configuration_id,
+                    camp_org_id,
+                    active_only=False,
+                )
+                if inspect.isawaitable(res):
+                    config = await res
+        if not config:
+            get_raw_cfg = getattr(db_client, "get_telephony_configuration", None)
+            if callable(get_raw_cfg):
+                res = get_raw_cfg(campaign.telephony_configuration_id)
+                if inspect.isawaitable(res):
+                    config = await res
+                else:
+                    config = res
+            if config and camp_org_id is not None:
+                cfg_org = getattr(config, "organization_id", None)
+                if isinstance(cfg_org, int) and cfg_org != camp_org_id:
+                    config = None
+
         if not config or config.provider != "whatsapp":
             return WhatsAppPermissionSyncResult()
 
@@ -379,6 +473,7 @@ async def sync_whatsapp_permissions_for_campaign(
                         phone_number_id=phone_number_id,
                         telephony_configuration_id=config.id,
                         campaign_id=campaign_id,
+                        organization_id=config.organization_id,
                     )
                     reactivated_total += count
                 elif is_revoked_permission_status(normalized_status):
@@ -396,6 +491,7 @@ async def sync_whatsapp_permissions_for_campaign(
                         phone_number_id=phone_number_id,
                         telephony_configuration_id=config.id,
                         campaign_id=campaign_id,
+                        organization_id=config.organization_id,
                     )
             except Exception as e:
                 logger.warning(

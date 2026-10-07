@@ -1730,3 +1730,113 @@ class TestWhatsAppPermissionFixes(IsolatedAsyncioTestCase):
         # _possibly_dispatched_workflow_exists() should not classify it as dispatched.
         expr = client._possibly_dispatched_workflow_exists()
         self.assertIsNotNone(expr)
+    async def test_reactivate_campaign_runs_scoped_by_organization_id(self):
+        """Tenant isolation: parked runs in campaigns belonging to other organizations are ignored."""
+        from api.services.telephony.providers.whatsapp.permission_sync import (
+            reactivate_campaign_runs_for_recipient,
+        )
+
+        run1 = MagicMock(id=101, campaign_id=1)
+        run2 = MagicMock(id=102, campaign_id=2)
+
+        mock_db = MagicMock()
+        mock_db.get_queued_runs_awaiting_whatsapp_permission = AsyncMock(
+            return_value=[run1, run2]
+        )
+        mock_db.activate_queued_run_for_immediate_dial = AsyncMock()
+
+        # Config belongs to Org 100
+        mock_config = MagicMock(id=10, organization_id=100)
+        mock_db.get_whatsapp_configuration_by_phone_number_id = AsyncMock(
+            return_value=mock_config
+        )
+
+        camp1 = MagicMock(id=1, telephony_configuration_id=10, organization_id=100, state="running")
+        camp2 = MagicMock(id=2, telephony_configuration_id=10, organization_id=200, state="running")
+
+        async def mock_get_campaign(cid, org_id):
+            if cid == 1 and org_id == 100:
+                return camp1
+            return None
+
+        mock_db.get_campaign = AsyncMock(side_effect=mock_get_campaign)
+        mock_db.get_campaign_by_id = AsyncMock(return_value=camp2)
+
+        with (
+            patch("api.tasks.arq.enqueue_job", new_callable=AsyncMock) as mock_enqueue,
+            patch_permission_sync(db_client=mock_db),
+        ):
+            count = await reactivate_campaign_runs_for_recipient(
+                phone_number="+15551234567",
+                status="granted_temporary",
+                phone_number_id="phone_num_10",
+                organization_id=100,
+            )
+
+            # Only run 1 (belonging to Org 100) should be activated; run 2 belongs to Org 200
+            self.assertEqual(count, 1)
+            mock_db.activate_queued_run_for_immediate_dial.assert_called_once_with(101)
+            mock_enqueue.assert_called_once_with("process_campaign_batch", 1, 10)
+
+    async def test_sync_whatsapp_permissions_for_campaign_tenant_scoped(self):
+        """sync_whatsapp_permissions_for_campaign uses tenant-scoped campaign and telephony lookups."""
+        from api.services.telephony.providers.whatsapp.permission_sync import (
+            sync_whatsapp_permissions_for_campaign,
+        )
+
+        mock_db = MagicMock()
+        mock_parked = MagicMock(
+            id=101,
+            campaign_id=20,
+            context_variables={"phone_number": "+917505327482"},
+        )
+        mock_db.get_all_queued_runs_awaiting_whatsapp_permission = AsyncMock(
+            return_value=[mock_parked]
+        )
+        mock_campaign = MagicMock(id=20, organization_id=100, state="running", telephony_configuration_id=2)
+        mock_db.get_campaign = AsyncMock(return_value=mock_campaign)
+        mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+
+        mock_config = MagicMock(
+            id=2,
+            organization_id=100,
+            provider="whatsapp",
+            credentials={
+                "phone_number_id": "1057750320752614",
+                "access_token": "token123",
+            },
+        )
+        mock_db.get_telephony_configuration_for_org = AsyncMock(return_value=mock_config)
+        mock_db.upsert_whatsapp_call_permission = AsyncMock()
+        mock_db.get_queued_runs_awaiting_whatsapp_permission = AsyncMock(
+            return_value=[mock_parked]
+        )
+        mock_db.activate_queued_run_for_immediate_dial = AsyncMock()
+
+        mock_client = AsyncMock()
+        mock_client.check_call_permission = AsyncMock(
+            return_value={
+                "messaging_product": "whatsapp",
+                "permission": {"status": "permanent"},
+                "actions": [{"action_name": "start_call", "can_perform_action": True}],
+            }
+        )
+        mock_get_client = MagicMock(return_value=mock_client)
+
+        with (
+            patch("api.tasks.arq.enqueue_job", new_callable=AsyncMock) as mock_enqueue,
+            patch_permission_sync(
+                db_client=mock_db,
+                _get_redis=AsyncMock(return_value=None),
+                _get_or_create_whatsapp_client=mock_get_client,
+            ),
+        ):
+            result = await sync_whatsapp_permissions_for_campaign(
+                20, organization_id=100, force=True
+            )
+
+            self.assertEqual(result.reactivated, 1)
+            self.assertEqual(mock_db.get_campaign.call_count, 2)
+            mock_db.get_campaign.assert_called_with(20, 100)
+            mock_db.get_telephony_configuration_for_org.assert_called_once_with(2, 100, active_only=False)
+

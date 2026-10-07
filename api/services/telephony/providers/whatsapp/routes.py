@@ -1134,7 +1134,9 @@ async def sync_campaign_whatsapp_permissions(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    result = await sync_whatsapp_permissions_for_campaign(campaign_id, force=False)
+    result = await sync_whatsapp_permissions_for_campaign(
+        campaign_id, organization_id=user.selected_organization_id, force=False
+    )
     return WhatsAppCampaignPermissionSyncResponse(
         success=True,
         campaign_id=campaign_id,
@@ -1304,6 +1306,7 @@ async def check_whatsapp_permission(
                     actual_status,
                     phone_number_id=phone_number_id,
                     telephony_configuration_id=config.id,
+                    organization_id=config.organization_id,
                 )
 
                 return WhatsAppPermissionCheckResponse(
@@ -1335,6 +1338,7 @@ async def check_whatsapp_permission(
                             normalized_st,
                             phone_number_id=phone_number_id,
                             telephony_configuration_id=config.id,
+                            organization_id=config.organization_id,
                         )
         except HTTPException as he:
             if he.status_code == 401 or "token" in str(he.detail).lower():

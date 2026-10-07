@@ -1052,6 +1052,12 @@ export type CreateServiceKeyResponse = {
  */
 export type CreateTextChatSessionRequest = {
     /**
+     * Request Id
+     *
+     * Client correlation ID for recovery if the creation response is lost.
+     */
+    request_id?: string | null;
+    /**
      * Name
      */
     name?: string | null;
@@ -3837,6 +3843,25 @@ export type PublicEmbedChatMessageRequest = {
 };
 
 /**
+ * PublicEmbedChatMessageStreamEvent
+ */
+export type PublicEmbedChatMessageStreamEvent = {
+    /**
+     * Type
+     */
+    type?: 'message';
+    /**
+     * Turn Id
+     */
+    turn_id: string;
+    /**
+     * Index
+     */
+    index: number;
+    message: PublicEmbedChatMessage;
+};
+
+/**
  * PublicEmbedChatSessionResponse
  */
 export type PublicEmbedChatSessionResponse = {
@@ -3859,6 +3884,39 @@ export type PublicEmbedChatSessionResponse = {
 };
 
 /**
+ * PublicEmbedChatSessionStreamEvent
+ */
+export type PublicEmbedChatSessionStreamEvent = {
+    /**
+     * Type
+     */
+    type: 'session' | 'complete';
+    session: PublicEmbedChatSessionResponse;
+    /**
+     * Session Token
+     */
+    session_token?: string | null;
+    /**
+     * Workflow Run Id
+     */
+    workflow_run_id?: number | null;
+};
+
+/**
+ * PublicEmbedChatStreamError
+ */
+export type PublicEmbedChatStreamError = {
+    /**
+     * Type
+     */
+    type?: 'error';
+    /**
+     * Message
+     */
+    message?: string;
+};
+
+/**
  * PublicEmbedChatTurn
  */
 export type PublicEmbedChatTurn = {
@@ -3872,6 +3930,10 @@ export type PublicEmbedChatTurn = {
     status: string;
     user_message?: PublicEmbedChatMessage | null;
     assistant_message?: PublicEmbedChatMessage | null;
+    /**
+     * Assistant Messages
+     */
+    assistant_messages?: Array<PublicEmbedChatMessage> | null;
 };
 
 /**
@@ -4955,6 +5017,66 @@ export type TextChatInactivityTimeoutConstraints = {
      * Maximum Seconds
      */
     maximum_seconds?: number;
+};
+
+/**
+ * TextChatSessionStreamEvent
+ */
+export type TextChatSessionStreamEvent = {
+    /**
+     * Type
+     */
+    type: 'session' | 'complete';
+    session: WorkflowRunTextSessionResponse;
+};
+
+/**
+ * TextChatStreamError
+ */
+export type TextChatStreamError = {
+    /**
+     * Type
+     */
+    type: 'error';
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * TextChatTurnEvent
+ */
+export type TextChatTurnEvent = {
+    /**
+     * Type
+     */
+    type: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Payload
+     */
+    payload: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * TextChatTurnStreamEvent
+ */
+export type TextChatTurnStreamEvent = {
+    /**
+     * Type
+     */
+    type: 'turn_event';
+    /**
+     * Turn Id
+     */
+    turn_id: string;
+    event: TextChatTurnEvent;
 };
 
 /**
@@ -8850,6 +8972,56 @@ export type GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetRes
 
 export type GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponse = GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponses[keyof GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponses];
 
+export type RecoverTextChatSessionData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Request Id
+         */
+        request_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions/recovery/{request_id}';
+};
+
+export type RecoverTextChatSessionErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RecoverTextChatSessionError = RecoverTextChatSessionErrors[keyof RecoverTextChatSessionErrors];
+
+export type RecoverTextChatSessionResponses = {
+    /**
+     * Response Recovertextchatsession
+     *
+     * Successful Response
+     */
+    200: WorkflowRunTextSessionResponse | null;
+};
+
+export type RecoverTextChatSessionResponse = RecoverTextChatSessionResponses[keyof RecoverTextChatSessionResponses];
+
 export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostData = {
     body: AppendTextChatMessageRequest;
     headers?: {
@@ -8993,6 +9165,114 @@ export type RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRew
 };
 
 export type RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostResponse = RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostResponses[keyof RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostResponses];
+
+export type StreamTextChatSessionData = {
+    body: CreateTextChatSessionRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions/stream';
+};
+
+export type StreamTextChatSessionErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StreamTextChatSessionError = StreamTextChatSessionErrors[keyof StreamTextChatSessionErrors];
+
+export type StreamTextChatSessionResponses = {
+    /**
+     * Response 200 Streamtextchatsession
+     *
+     * Successful Response
+     */
+    200: ({
+        type: 'session' | 'complete';
+    } & TextChatSessionStreamEvent) | ({
+        type: 'turn_event';
+    } & TextChatTurnStreamEvent) | ({
+        type: 'error';
+    } & TextChatStreamError);
+};
+
+export type StreamTextChatSessionResponse = StreamTextChatSessionResponses[keyof StreamTextChatSessionResponses];
+
+export type StreamTextChatMessageData = {
+    body: AppendTextChatMessageRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Run Id
+         */
+        run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions/{run_id}/messages/stream';
+};
+
+export type StreamTextChatMessageErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StreamTextChatMessageError = StreamTextChatMessageErrors[keyof StreamTextChatMessageErrors];
+
+export type StreamTextChatMessageResponses = {
+    /**
+     * Response 200 Streamtextchatmessage
+     *
+     * Successful Response
+     */
+    200: ({
+        type: 'session' | 'complete';
+    } & TextChatSessionStreamEvent) | ({
+        type: 'turn_event';
+    } & TextChatTurnStreamEvent) | ({
+        type: 'error';
+    } & TextChatStreamError);
+};
+
+export type StreamTextChatMessageResponse = StreamTextChatMessageResponses[keyof StreamTextChatMessageResponses];
 
 export type GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetData = {
     body?: never;
@@ -13478,6 +13758,64 @@ export type InitializeEmbedSessionApiV1PublicEmbedInitPostResponses = {
 
 export type InitializeEmbedSessionApiV1PublicEmbedInitPostResponse = InitializeEmbedSessionApiV1PublicEmbedInitPostResponses[keyof InitializeEmbedSessionApiV1PublicEmbedInitPostResponses];
 
+export type OptionsInitApiV1PublicEmbedInitStreamOptionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/public/embed/init/stream';
+};
+
+export type OptionsInitApiV1PublicEmbedInitStreamOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type OptionsInitApiV1PublicEmbedInitStreamOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type StreamInitializeEmbedChatApiV1PublicEmbedInitStreamPostData = {
+    body: InitEmbedRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/public/embed/init/stream';
+};
+
+export type StreamInitializeEmbedChatApiV1PublicEmbedInitStreamPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StreamInitializeEmbedChatApiV1PublicEmbedInitStreamPostError = StreamInitializeEmbedChatApiV1PublicEmbedInitStreamPostErrors[keyof StreamInitializeEmbedChatApiV1PublicEmbedInitStreamPostErrors];
+
+export type StreamInitializeEmbedChatApiV1PublicEmbedInitStreamPostResponses = {
+    /**
+     * Response 200 Stream Initialize Embed Chat Api V1 Public Embed Init Stream Post
+     *
+     * Successful Response
+     */
+    200: ({
+        type: 'session' | 'complete';
+    } & PublicEmbedChatSessionStreamEvent) | ({
+        type: 'message';
+    } & PublicEmbedChatMessageStreamEvent) | ({
+        type: 'error';
+    } & PublicEmbedChatStreamError);
+};
+
+export type StreamInitializeEmbedChatApiV1PublicEmbedInitStreamPostResponse = StreamInitializeEmbedChatApiV1PublicEmbedInitStreamPostResponses[keyof StreamInitializeEmbedChatApiV1PublicEmbedInitStreamPostResponses];
+
 export type GetEmbedConfigApiV1PublicEmbedConfigTokenGetData = {
     body?: never;
     path: {
@@ -13807,6 +14145,80 @@ export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostRes
 };
 
 export type PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponse = PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses[keyof PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses];
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesStreamOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/messages/stream';
+};
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesStreamOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesStreamOptionsError = OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesStreamOptionsErrors[keyof OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesStreamOptionsErrors];
+
+export type OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesStreamOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type StreamPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesStreamPostData = {
+    body: PublicEmbedChatMessageRequest;
+    path: {
+        /**
+         * Session Token
+         */
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/chat/{session_token}/messages/stream';
+};
+
+export type StreamPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesStreamPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StreamPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesStreamPostError = StreamPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesStreamPostErrors[keyof StreamPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesStreamPostErrors];
+
+export type StreamPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesStreamPostResponses = {
+    /**
+     * Response 200 Stream Public Chat Message Api V1 Public Embed Chat  Session Token  Messages Stream Post
+     *
+     * Successful Response
+     */
+    200: ({
+        type: 'session' | 'complete';
+    } & PublicEmbedChatSessionStreamEvent) | ({
+        type: 'message';
+    } & PublicEmbedChatMessageStreamEvent) | ({
+        type: 'error';
+    } & PublicEmbedChatStreamError);
+};
+
+export type StreamPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesStreamPostResponse = StreamPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesStreamPostResponses[keyof StreamPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesStreamPostResponses];
 
 export type InitiateCallApiV1PublicAgentUuidPostData = {
     body: TriggerCallRequest;

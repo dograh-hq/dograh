@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cleanConfiguration, cleanSettings, configurationForMode, fieldForModel, selectionForConnection } from "./configuration";
+import { cleanConfiguration, cleanSettings, compatibleConnections, configurationForMode, configurationMode, fieldForModel, selectionForConnection } from "./configuration";
 import type { ConfigurationSpec, ModelConnectionCatalog, ProviderConnection } from "./types";
 
 const connection = (uuid: string, provider: string): ProviderConnection => ({ uuid, provider, name: uuid, connection_settings: {}, configured_credentials: ["api_key"], revision: 1, is_active: true });
@@ -15,6 +15,27 @@ const catalog: ModelConnectionCatalog = { services: { llm: {
 const base: ConfigurationSpec = { version: 3, mode: "pipeline", llm: { provider_connection_uuid: "openai-primary", settings: { model: "gpt-4.1", temperature: 0.2 } }, stt: { provider_connection_uuid: "stt", settings: { model: "transcriber" } }, tts: { provider_connection_uuid: "tts", settings: { voice: "Alice" } }, embeddings: { provider_connection_uuid: "embedding", settings: {} } };
 
 describe("model connection editor settings", () => {
+    it("preserves mixed managed and external providers on a rename-only save", () => {
+        const available = [...connections, connection("managed", "dograh")];
+        const mixed: ConfigurationSpec = { ...base, llm: { provider_connection_uuid: "managed", settings: {} }, embeddings: null };
+        expect(configurationMode(mixed, available)).toBe("cascade");
+        const cleaned = cleanConfiguration(mixed, catalog, available);
+        expect(cleaned.llm.provider_connection_uuid).toBe("managed");
+        expect(cleaned.stt?.provider_connection_uuid).toBe(base.stt?.provider_connection_uuid);
+        expect(cleaned.tts?.provider_connection_uuid).toBe(base.tts?.provider_connection_uuid);
+        expect(cleaned.embeddings).toBeNull();
+    });
+
+    it("filters connections by the selected service's required credentials", () => {
+        const google = { ...connections[2], configured_credentials: [] };
+        const required = { services: { llm: { google: { ...catalog.services.llm!.google, credential_required: ["api_key"] } } } };
+        expect(compatibleConnections(required, [google], "llm")).toEqual([]);
+        expect(compatibleConnections(required, [{ ...google, configured_credentials: ["api_key"] }], "llm")).toHaveLength(1);
+    });
+
+    it("skips invalid model constraint patterns", () => {
+        expect(fieldForModel({ model_constraints: [{ pattern: "[", maximum: 1 }, { pattern: "^gpt", maximum: 2 }] }, { model: "gpt-4.1" }).maximum).toBe(2);
+    });
     it("preserves parameters for a connection change within the same provider", () => {
         expect(selectionForConnection(catalog, "llm", connections[1], base.llm, connections)).toEqual({ provider_connection_uuid: "openai-secondary", settings: base.llm.settings });
     });

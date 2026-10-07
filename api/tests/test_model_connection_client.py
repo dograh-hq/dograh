@@ -81,6 +81,44 @@ async def test_credential_update_replaces_value_and_rejects_stale_edit(db_sessio
 
 
 @pytest.mark.asyncio
+async def test_noop_edits_keep_revisions_and_credentials_can_be_removed(db_session):
+    org = await create_org(db_session)
+    row = await db_session.create_provider_connection(
+        org,
+        name="AWS",
+        provider="aws_bedrock",
+        credentials={
+            "aws_access_key": "access",
+            "aws_secret_key": "secret",
+            "aws_session_token": "expired",
+        },
+        connection_settings={},
+    )
+    unchanged = await db_session.update_provider_connection(
+        org, row.uuid, changes={"name": "AWS", "credentials": {}}
+    )
+    assert unchanged.revision == 1
+    changed = await db_session.update_provider_connection(
+        org, row.uuid, changes={"credentials": {"aws_session_token": None}}
+    )
+    assert changed.credentials == {
+        "aws_access_key": "access",
+        "aws_secret_key": "secret",
+    }
+    assert changed.revision == 2
+
+    named = await db_session.create_named_model_configuration(
+        org, name="Unchanged", configuration=pipeline(row)
+    )
+    unchanged = await db_session.update_named_model_configuration(
+        org,
+        named.uuid,
+        changes={"name": named.name, "configuration": named.configuration},
+    )
+    assert unchanged.revision == 1
+
+
+@pytest.mark.asyncio
 async def test_default_and_connection_archive_reference_guards(db_session):
     org = await create_org(db_session)
     other = await create_org(db_session)
@@ -252,6 +290,10 @@ async def test_campaign_archived_version_prevents_configuration_archive(
     await async_session.flush()
     with pytest.raises(ModelCatalogConflict, match="campaign"):
         await db_session.archive_named_model_configuration(org, named.uuid)
+    campaign.state = "failed"
+    await async_session.flush()
+    await db_session.archive_named_model_configuration(org, named.uuid)
+    assert await db_session.get_named_model_configuration(org, named.uuid) is None
 
 
 @pytest.mark.asyncio

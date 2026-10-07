@@ -112,7 +112,7 @@ async def rig(
         else:
 
             @asynccontextmanager
-            async def client(**_):
+            async def client(*_args, **_kwargs):
                 yield SimpleNamespace(
                     converse_stream=AsyncMock(return_value={"stream": stream()})
                 )

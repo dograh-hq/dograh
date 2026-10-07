@@ -223,24 +223,19 @@ async def apply_pre_call_model_overrides(
     was authorized.
     """
     from api.services.configuration.model_connections import (
-        resolve_model_configuration,
+        resolve_pre_call_model_configuration,
     )
-    from api.services.managed_model_services import get_dograh_service_api_key
 
     if fetched.model_overrides is None:
         return None
 
-    configurations, api_override = _run_inputs(workflow_run)
     try:
         override = PreCallModelOverride.model_validate(fetched.model_overrides)
-        resolved = await resolve_model_configuration(
+        resolved = await resolve_pre_call_model_configuration(
             organization_id,
-            workflow_override=await get_workflow_model_override(
-                organization_id, configurations
-            ),
-            api_override=api_override,
-            pre_call_override=override.model_dump(mode="json", exclude_unset=True),
-            preferred_dograh_key=get_dograh_service_api_key(run_model_configuration),
+            workflow_run.model_configuration_snapshot,
+            run_model_configuration,
+            override,
         )
         await validate_workflow_model_compatibility(
             organization_id, resolved.effective, workflow_run.definition

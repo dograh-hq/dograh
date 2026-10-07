@@ -224,6 +224,33 @@ async def test_dograh_checks_keep_organization_context(api, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_every_bad_key_is_reported_without_exposing_the_pool(api):
+    response = await api.client.post(
+        "/model-connections/provider-connections",
+        json={
+            "name": "Pool",
+            "provider": "openai",
+            "credentials": {"api_key": ["bad-one", "valid-two", "bad-three"]},
+        },
+    )
+    assert response.status_code == 422
+    assert api.probe.call_count == 3
+    assert "Key 1:" in response.text and "Key 3:" in response.text
+    assert "bad-one" not in response.text and "bad-three" not in response.text
+    api.create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_removing_required_credentials_is_rejected_before_saving(api):
+    response = await api.client.patch(
+        f"/model-connections/provider-connections/{api.row.uuid}",
+        json={"credentials": {"api_key": None}},
+    )
+    assert response.status_code == 422
+    api.update.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_structural_errors_do_not_probe_the_provider(api):
     response = await api.client.post(
         "/model-connections/provider-connections",

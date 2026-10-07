@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import pytest
 from google.genai.types import GenerateContentConfig, LiveConnectConfig
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
@@ -186,13 +187,23 @@ def test_gemini_live_config_accepts_json_schema_tools():
     LiveConnectConfig(tools=tools)
 
 
-def test_signature_scopes_preserve_own_history_and_import_foreign_tools():
+@pytest.mark.parametrize("same_connection", [False, True])
+def test_signature_scopes_preserve_own_history_and_import_foreign_tools(
+    same_connection,
+):
     from pipecat.processors.aggregators.llm_context import LLMContext
+    from pipecat.services.settings import LLMSettings
 
     own = DograhGeminiJSONSchemaAdapter()
     own.signature_scope = "primary-connection"
+    own.signature_settings = LLMSettings(model="primary-model")
     backup = DograhGeminiJSONSchemaAdapter()
-    backup.signature_scope = "backup-connection"
+    backup.signature_scope = (
+        own.signature_scope if same_connection else "backup-connection"
+    )
+    backup.signature_settings = LLMSettings(
+        model="backup-model" if same_connection else "primary-model"
+    )
     signature = own.create_llm_specific_message(
         {
             "type": "thought_signature",

@@ -32,4 +32,3 @@ def downgrade():
             "provider_connections",
             sa.Column(name, column_type, nullable=False, server_default=default),
         )
-        op.alter_column("provider_connections", name, server_default=None)

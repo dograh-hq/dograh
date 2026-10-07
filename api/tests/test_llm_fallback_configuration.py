@@ -285,3 +285,8 @@ async def test_fallback_counters_sum_retired_and_active_visits():
         "started": 9,
         "won": 5,
     }
+    engine._gathered_context["llm_fallback_metrics"] = {"started": "corrupt"}
+    assert (await engine.get_gathered_context())["llm_fallback_metrics"] == {
+        "started": 5,
+        "won": 3,
+    }

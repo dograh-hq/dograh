@@ -25,6 +25,13 @@ CONNECTION_FIELDS = frozenset(
 )
 
 
+def merge_provider_credentials(current: dict, updates: dict) -> dict:
+    """Omitted keys are unchanged; an explicit null removes a stored key."""
+    return {
+        key: value for key, value in {**current, **updates}.items() if value is not None
+    }
+
+
 class CatalogSchema(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 

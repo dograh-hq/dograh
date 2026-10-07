@@ -47,8 +47,12 @@ def sentinel(monkeypatch):
     state = SimpleNamespace(row=None)
     monkeypatch.setattr(
         bootstrap.db_client,
-        "get_configuration",
-        AsyncMock(side_effect=lambda *_: state.row),
+        "get_configuration_values",
+        AsyncMock(
+            side_effect=lambda *_: (
+                {bootstrap._BOOTSTRAP_KEY: state.row.value} if state.row else {}
+            )
+        ),
     )
     return state
 
@@ -354,13 +358,12 @@ async def test_existing_catalog_default_is_not_reimported(
 ):
     monkeypatch.setattr(
         bootstrap.db_client,
-        "get_configuration",
+        "get_configuration_values",
         AsyncMock(
-            side_effect=lambda org_id, key: SimpleNamespace(
-                value={"status": LEASE_COMPLETED}
-                if key == bootstrap._BOOTSTRAP_KEY
-                else "existing-config-uuid"
-            )
+            return_value={
+                bootstrap._BOOTSTRAP_KEY: {"status": LEASE_COMPLETED},
+                bootstrap._CATALOG_DEFAULT_KEY: "existing-config-uuid",
+            }
         ),
     )
     assert await bootstrap.ensure_organization_bootstrapped(
@@ -368,3 +371,4 @@ async def test_existing_catalog_default_is_not_reimported(
     )
     catalog.assert_not_awaited()
     mps.assert_not_awaited()
+    bootstrap.db_client.get_configuration_values.assert_awaited_once()

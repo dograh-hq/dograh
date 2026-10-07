@@ -23,9 +23,7 @@ export function NamedConfigurationEditor({ catalog, connections, saved, duplicat
     const [configuration, setConfiguration] = useState(saved?.configuration || emptyConfiguration(catalog, connections));
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    return <form className="space-y-5" onSubmit={async event => {
-        event.preventDefault();
-        const editFallbacks = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "fallbacks";
+    const save = async (editFallbacks = false) => {
         setSaving(true);
         setError(null);
         try {
@@ -38,6 +36,10 @@ export function NamedConfigurationEditor({ catalog, connections, saved, duplicat
             await onSaved(result.data.uuid, editFallbacks);
         } catch (cause) { setError(cause instanceof Error ? cause.message : "Failed to save model configuration"); }
         finally { setSaving(false); }
+    };
+    return <form className="space-y-5" onSubmit={event => {
+        event.preventDefault();
+        void save();
     }}>
         <div className="space-y-2">
             <h1 className="text-2xl font-bold">{saved && !duplicate ? "Edit Model Configuration" : "Add Model Configuration"}</h1>
@@ -49,7 +51,9 @@ export function NamedConfigurationEditor({ catalog, connections, saved, duplicat
         <div className="space-y-1.5"><Label htmlFor="configuration-name">Configuration name</Label>
             <Input id="configuration-name" required maxLength={128} placeholder="Sales assistant" value={name} onChange={event => setName(event.target.value)} /></div>
         <ConfigurationFields catalog={catalog} connections={connections} configuration={configuration} onChange={setConfiguration}
-            llmActions={<Button type="submit" name="intent" value="fallbacks" variant="outline" size="sm" disabled={saving || !name.trim()}>Configure fallbacks</Button>} />
+            llmActions={<Button type="button" name="intent" value="fallbacks" variant="outline" size="sm" disabled={saving || !name.trim()} onClick={event => {
+                if (event.currentTarget.form?.reportValidity()) void save(true);
+            }}>Configure fallbacks</Button>} />
         <div className="flex justify-end"><Button type="submit" disabled={saving || !name.trim()}>{saving ? "Saving…" : "Save Configuration"}</Button></div>
     </form>;
 }

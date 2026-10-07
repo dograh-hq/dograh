@@ -77,8 +77,15 @@ class WorkflowClient(BaseDBClient):
                 raise ModelCatalogNotFound("Model configuration not found")
             selected.append(configuration.configuration)
         for configuration in selected:
-            for role in ("llm", "stt", "tts", "realtime", "embeddings"):
-                selection = configuration.get(role)
+            selections = [
+                configuration.get(role)
+                for role in ("llm", "stt", "tts", "realtime", "embeddings")
+            ]
+            selections.extend(
+                rule["target"]
+                for rule in (configuration.get("llm_fallback") or {}).get("rules", [])
+            )
+            for selection in selections:
                 if not selection or "provider_connection_uuid" not in selection:
                     continue
                 connection = await ModelConnectionClient._catalog_row(

@@ -64,11 +64,15 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
             {roles.map(role => {
                 const selection = configuration[role];
                 const options = compatibleConnections(catalog, connections, role);
+                // Existing mixed configurations may include a managed service.
+                // Keep that selection visible without replacing it during edits.
+                const selected = connections.find(item => item.is_active && item.uuid === selection?.provider_connection_uuid && item.provider === "dograh");
+                if (selected) options.push(selected);
                 const connection = options.find(item => item.uuid === selection?.provider_connection_uuid);
                 const provider = connection ? catalog.services[role]?.[connection.provider] : undefined;
                 const isEmbedding = role === "embeddings";
                 return <section key={role} aria-labelledby={`service-${role}`} className="space-y-4 rounded-lg border p-4">
-                    <div className="flex items-center justify-between gap-3"><h3 id={`service-${role}`} className="text-sm font-semibold">{ROLE_LABELS[role]}</h3>{role === "llm" && llmActions}</div>
+                    <div className="flex items-center justify-between gap-3"><h3 id={`service-${role}`} className="text-sm font-semibold">{ROLE_LABELS[role]}</h3>{role === "llm" && connection?.provider !== "dograh" && llmActions}</div>
                     {isEmbedding && <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={Boolean(selection)} onChange={event => changeSelection(role,
                             event.target.checked ? (options[0] ? selectionForConnection(catalog, role, options[0]) : { provider_connection_uuid: "", settings: {} }) : null)} />

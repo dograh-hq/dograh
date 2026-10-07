@@ -205,7 +205,7 @@ function CredentialDialogForm({
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                {credentialType === "none" && <SelectItem value="none">No Authentication</SelectItem>}
+                                <SelectItem value="none">No Authentication</SelectItem>
                                 <SelectItem value="bearer_token">Bearer Token</SelectItem>
                                 <SelectItem value="api_key">API Key</SelectItem>
                                 <SelectItem value="basic_auth">Basic Auth</SelectItem>

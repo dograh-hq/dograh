@@ -16,6 +16,17 @@ function Editor({ schema, initial, onSave = vi.fn() }: { schema: FieldSchema; in
 }
 
 describe("provider field controls", () => {
+    it("requires a replacement credential but permits an empty extra pool row", () => {
+        render(<SchemaFields secret configuredFields={["api_key"]} values={{}} onChange={vi.fn()} schema={{ required: ["api_key"], properties: { api_key: { title: "API key", anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] } } }} />);
+        fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+        expect((screen.getByLabelText("API key") as HTMLInputElement).required).toBe(true);
+    });
+
+    it("allows trailing empty rows for required string arrays", () => {
+        render(<Editor schema={{ required: ["keyterms"], properties: { keyterms: { type: "array", title: "Keyterms", items: { type: "string" } } } }} initial={{ keyterms: ["Dograh", ""] }} />);
+        expect((screen.getByLabelText("Keyterms") as HTMLInputElement).required).toBe(true);
+        expect((screen.getByLabelText("keyterms 2") as HTMLInputElement).required).toBe(false);
+    });
     it("restores Flux language hint checkboxes, readable labels, and model-dependent visibility", () => {
         const onSave = vi.fn();
         const schema: FieldSchema = { properties: {

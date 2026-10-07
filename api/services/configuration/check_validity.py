@@ -104,6 +104,11 @@ class UserConfigurationValidator:
         status_list = []
 
         status_list.extend(self._validate_service(configuration.llm, "llm"))
+        if configuration.llm_fallback is not None:
+            for index, rule in enumerate(configuration.llm_fallback.rules):
+                status_list.extend(
+                    self._validate_service(rule.target, f"llm_fallback_{index + 1}")
+                )
         if configuration.is_realtime:
             status_list.extend(
                 self._validate_service(
@@ -147,10 +152,14 @@ class UserConfigurationValidator:
             if keys
             else [service_config]
         )
-        for selection in selections:
-            errors = self._validate_service(selection, "connection")
-            if errors:
-                raise ValueError("; ".join(error["message"] for error in errors))
+        errors = []
+        for index, selection in enumerate(selections):
+            errors.extend(
+                f"Key {index + 1}: {error['message']}"
+                for error in self._validate_service(selection, "connection")
+            )
+        if errors:
+            raise ValueError("; ".join(errors))
 
     def _validate_service(
         self,

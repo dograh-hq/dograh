@@ -492,6 +492,8 @@ async def ensure_legacy_workflow_model_configuration(
             plan.imported_configuration = _CatalogImporter(source, plan).specification(
                 effective, None
             )
+        except ModelConfigurationMigrationError:
+            raise
         except (ValueError, TypeError, AttributeError):
             raise ModelConfigurationMigrationError(
                 "invalid_legacy_workflow_configuration"

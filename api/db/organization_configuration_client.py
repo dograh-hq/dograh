@@ -15,6 +15,22 @@ LEASE_COMPLETED = "completed"
 
 
 class OrganizationConfigurationClient(BaseDBClient):
+    async def get_configuration_values(
+        self, organization_id: int, keys: list[str]
+    ) -> dict:
+        """Read selected organization state in one round trip."""
+        async with self.async_session() as session:
+            rows = await session.execute(
+                select(
+                    OrganizationConfigurationModel.key,
+                    OrganizationConfigurationModel.value,
+                ).where(
+                    OrganizationConfigurationModel.organization_id == organization_id,
+                    OrganizationConfigurationModel.key.in_(keys),
+                )
+            )
+            return dict(rows.all())
+
     async def get_configuration(
         self, organization_id: int, key: str
     ) -> Optional[OrganizationConfigurationModel]:

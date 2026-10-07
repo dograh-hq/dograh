@@ -64,6 +64,7 @@ def test_text_chat_checkpoint_messages_round_trip_google_thought_signature():
     assert encoded[-1] == {
         "__specific__": True,
         "llm": "google",
+        "is_metadata": False,
         "message": {
             "type": "thought_signature",
             "signature": {

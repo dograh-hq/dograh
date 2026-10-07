@@ -28,6 +28,8 @@ describe("model connection loading", () => {
         state.auth = { loading: false, user: null };
         hook.rerender();
         expect(getModelConnectionCatalog).not.toHaveBeenCalled();
+        expect(hook.result.current.loading).toBe(false);
+        expect(hook.result.current.error).toContain("Sign in");
         state.auth = { loading: false, user: { id: "user" } };
         hook.rerender();
         await waitFor(() => expect(hook.result.current.loading).toBe(false));

@@ -7,6 +7,7 @@ index; hydration reads the connection's current credentials.
 from copy import deepcopy
 from dataclasses import dataclass
 from secrets import choice
+from types import SimpleNamespace
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
@@ -132,8 +133,12 @@ def _validate_connection_urls(connection_settings):
                     not isinstance(url, str)
                     or urlparse(url).username
                     or urlparse(url).password
+                    or urlparse(url).query
+                    or urlparse(url).fragment
                 ):
-                    raise ValueError("URL credentials are not permitted")
+                    raise ValueError(
+                        "Connection URLs cannot contain credentials, queries or fragments"
+                    )
                 validate_user_configured_service_url(url, field_name=field)
             except ValueError:
                 raise _invalid(f"Invalid {field} connection setting") from None
@@ -240,8 +245,9 @@ async def resolve_model_configuration(
     pre_call_override=None,
     *,
     preferred_dograh_key=None,
+    default_row=None,
 ):
-    default = await get_default_model_configuration(organization_id)
+    default = default_row or await get_default_model_configuration(organization_id)
     config = deepcopy(default.configuration) if default else {}
     provenance = (
         [
@@ -291,30 +297,7 @@ async def resolve_model_configuration(
             )
         else:
             provenance.append({"source": source})
-        if "mode" in patch:
-            config["mode"] = patch.pop("mode")
-        if "llm_fallback" in patch:
-            # Policies replace atomically. An empty rules array disables them;
-            # omitting the policy inherits it from the selected configuration.
-            config["llm_fallback"] = patch.pop("llm_fallback")
-        for role, selection in patch.items():
-            if selection is None:  # Only embeddings accepts explicit null.
-                config[role] = None
-                continue
-            previous = config.get(role) or {}
-            old_uuid = previous.get("provider_connection_uuid")
-            new_uuid = selection.get("provider_connection_uuid", old_uuid)
-            settings = deepcopy(previous.get("settings", {}))
-            if new_uuid and new_uuid != old_uuid:
-                new_connection = await get_connection(new_uuid)
-                old_connection = await get_connection(old_uuid) if old_uuid else None
-                if (
-                    old_connection is None
-                    or old_connection.provider != new_connection.provider
-                ):
-                    settings = {}
-            settings.update(selection.get("settings", {}))
-            config[role] = {"provider_connection_uuid": new_uuid, "settings": settings}
+        await _apply_model_patch(config, patch, get_connection)
     return await _resolve_spec(
         organization_id,
         config,
@@ -324,8 +307,124 @@ async def resolve_model_configuration(
     )
 
 
+async def _apply_model_patch(config, patch, get_connection):
+    if "mode" in patch:
+        config["mode"] = patch.pop("mode")
+    if "llm_fallback" in patch:
+        # Policies replace atomically. An empty rules array disables them;
+        # omitting the policy inherits it from the selected configuration.
+        config["llm_fallback"] = patch.pop("llm_fallback")
+    for role, selection in patch.items():
+        if selection is None:  # Only embeddings accepts explicit null.
+            config[role] = None
+            continue
+        previous = config.get(role) or {}
+        old_uuid = previous.get("provider_connection_uuid")
+        new_uuid = selection.get("provider_connection_uuid", old_uuid)
+        settings = deepcopy(previous.get("settings", {}))
+        if new_uuid and new_uuid != old_uuid:
+            new_connection = await get_connection(new_uuid)
+            old_connection = await get_connection(old_uuid) if old_uuid else None
+            if (
+                old_connection is None
+                or old_connection.provider != new_connection.provider
+            ):
+                settings = {}
+        settings.update(selection.get("settings", {}))
+        config[role] = {"provider_connection_uuid": new_uuid, "settings": settings}
+
+
 async def resolve_inline_model_configuration(organization_id, configuration):
     return await _resolve_spec(organization_id, configuration, [], {})
+
+
+async def resolve_pre_call_model_configuration(
+    organization_id, snapshot, effective, override
+):
+    """Patch the authorized snapshot, preserving its settings and selected keys.
+
+    Only newly selected connections are read from the catalog. A catalog edit
+    during ringing cannot change an already running recognition/realtime service
+    or make a settings-only hook resample the run's credential pools.
+    """
+    from api.services.managed_model_services import get_dograh_service_api_key
+
+    config = {"version": 3, "mode": snapshot["mode"]}
+    connections = {}
+    pins = {}
+
+    def selection(saved, service):
+        uuid = saved["provider_connection_uuid"]
+        _, credentials, _, _ = split_service_configuration(service)
+        if uuid in connections:
+            connections[uuid].credentials.update(credentials)
+            connections[uuid].connection_settings.update(saved["connection_settings"])
+        else:
+            connections[uuid] = SimpleNamespace(
+                uuid=uuid,
+                provider=saved["provider"],
+                revision=saved["connection_revision"],
+                credentials=credentials,
+                connection_settings=deepcopy(saved["connection_settings"]),
+            )
+        if saved.get("api_key_index") is not None:
+            pins[uuid] = saved["api_key_index"]
+        return {
+            "provider_connection_uuid": uuid,
+            "settings": deepcopy(saved["settings"]),
+        }
+
+    for role, saved in snapshot["services"].items():
+        config[role] = selection(saved, getattr(effective, role))
+    if snapshot.get("llm_fallback") is not None:
+        config["llm_fallback"] = {
+            "version": 1,
+            "rules": [
+                {
+                    "condition": deepcopy(rule["condition"]),
+                    "target": selection(
+                        rule["target"],
+                        effective.llm_fallback.rules[index].target,
+                    ),
+                }
+                for index, rule in enumerate(snapshot["llm_fallback"]["rules"])
+            ],
+        }
+
+    async def get_connection(uuid):
+        uuid = str(uuid)
+        if uuid not in connections:
+            connections[uuid] = await _connection(organization_id, uuid)
+        return connections[uuid]
+
+    await _apply_model_patch(
+        config, override.model_dump(mode="json", exclude_unset=True), get_connection
+    )
+    authorized_key = get_dograh_service_api_key(effective)
+    resolved = await _resolve_spec(
+        organization_id,
+        config,
+        [*deepcopy(snapshot.get("provenance", [])), {"source": "pre_call"}],
+        connections,
+        preferred_dograh_key=authorized_key,
+    )
+    if (
+        authorized_key is None
+        and get_dograh_service_api_key(resolved.effective) is not None
+    ):
+        raise _invalid(
+            "Pre-call overrides cannot introduce an unauthorized Dograh service key"
+        )
+    selections = list(resolved.snapshot["services"].values())
+    selections.extend(
+        rule["target"]
+        for rule in (resolved.snapshot.get("llm_fallback") or {}).get("rules", [])
+    )
+    for saved in selections:
+        uuid = saved["provider_connection_uuid"]
+        if uuid in pins:
+            saved["api_key_index"] = pins[uuid]
+    return resolved
 
 
 async def _resolve_spec(

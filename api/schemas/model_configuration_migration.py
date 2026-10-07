@@ -1,6 +1,6 @@
 """Private, in-memory values used by the catalog normalization command.
 
-These objects contain credentials. Only ``MigrationPlan.report`` is suitable for
+These objects contain credentials. Only ``ModelConfigurationMigrationPlan.report`` is suitable for
 operator output; the private source/plan objects must never be serialized/logged.
 """
 

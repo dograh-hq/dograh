@@ -32,10 +32,14 @@ export function LLMFallbackEditor({ saved, catalog, connections, onSaved }: {
     const available = compatibleConnections(catalog, connections, "llm");
     const primary = connections.find(connection => connection.uuid === saved.configuration.llm.provider_connection_uuid);
     const primaryModel = saved.configuration.llm.settings.model || (primary && catalog.services.llm?.[primary.provider]?.settings_schema.properties?.model?.default);
+    const duplicatesPrimary = (rule: FallbackRule) => rule.target.provider_connection_uuid === saved.configuration.llm.provider_connection_uuid
+        && (rule.target.settings.model || (primary && catalog.services.llm?.[primary.provider]?.settings_schema.properties?.model?.default)) === primaryModel;
+    const hasDuplicate = rules.some(duplicatesPrimary);
     const update = (type: FallbackCondition["type"], rule: FallbackRule) => setRules(current => current.map(item => item.condition.type === type ? rule : item));
 
     return <form className="space-y-6" onSubmit={async event => {
         event.preventDefault();
+        if (hasDuplicate) return;
         setSaving(true);
         setError(null);
         try {
@@ -98,13 +102,14 @@ export function LLMFallbackEditor({ saved, catalog, connections, onSaved }: {
                                 if (value === undefined) delete settings[name];
                                 update(type, { ...rule, target: { ...rule.target, settings } });
                             }} />}
+                        {duplicatesPrimary(rule) && <p role="alert" className="text-sm text-destructive">Choose a different connection or model from the primary LLM.</p>}
                     </div>}
                 </section>;
             })}
         </fieldset>
         <div className="flex flex-wrap items-start justify-between gap-4 border-t pt-5">
             <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">Fallbacks apply only before answer output or tool execution begins. Backup requests can add cost and send conversation data to their configured provider and region. Changes apply to future runs.</p>
-            <Button type="submit" disabled={saving || rules.some(rule => !available.some(connection => connection.uuid === rule.target.provider_connection_uuid))}>{saving ? "Saving…" : "Save fallbacks"}</Button>
+            <Button type="submit" disabled={saving || hasDuplicate || rules.some(rule => !available.some(connection => connection.uuid === rule.target.provider_connection_uuid))}>{saving ? "Saving…" : "Save fallbacks"}</Button>
         </div>
     </form>;
 }

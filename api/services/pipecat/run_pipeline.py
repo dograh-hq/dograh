@@ -65,6 +65,7 @@ from api.services.pipecat.service_factory import (
     create_llm_service_from_provider,
     create_realtime_llm_service,
     create_stt_service,
+    get_llm_runtime_configuration,
     stt_uses_external_turns,
 )
 from api.services.pipecat.termination_funnel_processor import (
@@ -806,8 +807,7 @@ async def _run_pipeline_impl(
         runtime_configuration = {
             "realtime_provider": user_config.realtime.provider,
             "realtime_model": user_config.realtime.model,
-            "llm_provider": user_config.llm.provider,
-            "llm_model": user_config.llm.model,
+            **get_llm_runtime_configuration(user_config),
         }
     else:
         stt = create_stt_service(

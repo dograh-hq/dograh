@@ -66,8 +66,11 @@ async def get_resolved_ai_model_configuration(
             resolve_model_configuration,
         )
 
-        if await get_default_model_configuration(organization_id) is not None:
-            resolved = await resolve_model_configuration(organization_id)
+        default = await get_default_model_configuration(organization_id)
+        if default is not None:
+            resolved = await resolve_model_configuration(
+                organization_id, default_row=default
+            )
             return ResolvedAIModelConfiguration(
                 effective=resolved.effective, source="organization_v3"
             )

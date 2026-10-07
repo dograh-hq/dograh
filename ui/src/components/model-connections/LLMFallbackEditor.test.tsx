@@ -25,6 +25,14 @@ beforeEach(() => {
 });
 
 describe("LLM fallback editor", () => {
+    it("requires a different model when the primary is the only connection", () => {
+        render(<LLMFallbackEditor saved={saved} connections={[connections[0]]} catalog={catalog} onSaved={onSaved} />);
+        fireEvent.click(screen.getByRole("switch", { name: "Request error" }));
+        expect((screen.getByRole("button", { name: "Save fallbacks" }) as HTMLButtonElement).disabled).toBe(true);
+        expect(screen.getByRole("alert").textContent).toContain("different connection or model");
+        fireEvent.change(screen.getByLabelText("Model"), { target: { value: "another-model" } });
+        expect((screen.getByRole("button", { name: "Save fallbacks" }) as HTMLButtonElement).disabled).toBe(false);
+    });
     it("saves two independent conditions and provider targets with a revision", async () => {
         render(<LLMFallbackEditor saved={saved} connections={connections} catalog={catalog} onSaved={onSaved} />);
         fireEvent.click(screen.getByRole("switch", { name: "Slow response" }));

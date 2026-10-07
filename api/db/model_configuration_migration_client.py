@@ -261,6 +261,7 @@ class ModelConfigurationMigrationClient(BaseDBClient):
                     KnowledgeBaseChunkModel.organization_id == organization_id,
                     KnowledgeBaseDocumentModel.organization_id == organization_id,
                     KnowledgeBaseDocumentModel.is_active.is_(True),
+                    KnowledgeBaseDocumentModel.retrieval_mode == "chunked",
                 )
                 .group_by(
                     KnowledgeBaseChunkModel.embedding_model,

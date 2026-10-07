@@ -25,7 +25,12 @@ export function useModelConnections({ includeArchived = false }: { includeArchiv
     const reload = useCallback(async () => {
         // Organization-context requests also finish signup provisioning. Wait
         // for them so parallel catalog reads cannot capture a half-built setup.
-        if (authLoading || !userId || organizationLoading || organizationId == null) return;
+        if (authLoading || organizationLoading) return;
+        if (!userId || organizationId == null) {
+            setLoading(false);
+            setError(!userId ? "Sign in to manage model configurations." : "Select an organization to manage model configurations.");
+            return;
+        }
         const currentRequest = ++request.current;
         setLoading(true);
         setError(null);

@@ -1,7 +1,7 @@
 """Behavioral tests for catalog precedence, tenant isolation and credential pins."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -211,13 +211,45 @@ async def test_connection_reference_is_organization_scoped(catalog):
 @pytest.mark.asyncio
 async def test_named_reference_is_organization_scoped(catalog):
     catalog(connection(), default=True)
-    named = catalog(connection(), configuration=pipeline(connection()))
+    row = connection()
+    named = catalog(row, configuration=pipeline(row))
     named.organization_id = 2
     with pytest.raises(HTTPException) as caught:
         await service.resolve_model_configuration(
             1, api_override={"model_configuration_uuid": named.uuid}
         )
     assert caught.value.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    ["?api_key=private-token", "?access_token=private-token", "#private-token"],
+)
+def test_connection_urls_cannot_store_credentials_in_public_settings(suffix):
+    with pytest.raises(HTTPException) as caught:
+        service.validate_provider_connection(
+            "openai",
+            {"api_key": "key"},
+            {"base_url": "https://api.openai.com/v1" + suffix},
+        )
+    assert caught.value.status_code == 422
+    assert "private-token" not in caught.value.detail
+
+
+@pytest.mark.asyncio
+async def test_masked_configuration_includes_fallback_without_credentials(catalog):
+    from api.services.configuration.masking import mask_user_config
+
+    primary = connection("openai")
+    backup = catalog(connection("openai", keys="private-fallback-key"))
+    config = pipeline(primary)
+    config["llm_fallback"] = {"rules": [fallback_rule(backup)]}
+    catalog(primary, default=True, configuration=config)
+    resolved = await service.resolve_model_configuration(1)
+    masked = mask_user_config(resolved.effective)
+    assert masked["llm_fallback"]["rules"][0]["condition"] == {"type": "error"}
+    assert "private-fallback-key" not in str(masked)
+    assert masked["llm_fallback"]["rules"][0]["target"]["api_key"].endswith("-key")
 
 
 @pytest.mark.asyncio
@@ -459,12 +491,23 @@ async def test_legacy_routes_reject_v3_shadow_writes(monkeypatch):
         with pytest.raises(HTTPException) as caught:
             await action()
         assert caught.value.status_code == 409
-    validator = AsyncMock()
-    monkeypatch.setattr(user, "UserConfigurationValidator", validator)
+    status = {"status": [{"model": "all", "message": "ok"}]}
+    validator = SimpleNamespace(validate=AsyncMock(return_value=status))
+    monkeypatch.setattr(
+        user, "UserConfigurationValidator", Mock(return_value=validator)
+    )
     assert await user.validate_user_configurations(
         validity_ttl_seconds=0, user=caller
     ) == {"status": [{"model": "all", "message": "ok"}]}
-    validator.assert_not_called()
+    validator.validate.assert_awaited_once_with(
+        resolved.effective, organization_id=1, created_by="test"
+    )
+    validator.validate.side_effect = ValueError(
+        [{"model": "llm", "message": "Invalid key"}]
+    )
+    with pytest.raises(HTTPException) as caught:
+        await user.validate_user_configurations(validity_ttl_seconds=0, user=caller)
+    assert caught.value.status_code == 422
 
 
 def fallback_rule(row, condition=None, **settings):

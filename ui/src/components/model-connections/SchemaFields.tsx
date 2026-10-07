@@ -46,7 +46,7 @@ function StringListInput({ id, name, values, onChange, secret, required }: {
         {values.map((value, index) => <div key={index} className="flex gap-2">
             <Input id={index === 0 ? id : `${id}-${index}`} aria-label={index ? `${label} ${index + 1}` : undefined}
                 type={secret ? "password" : "text"} autoComplete={secret ? "new-password" : "off"}
-                placeholder={`Enter ${label}`} value={value} required={required}
+                placeholder={`Enter ${label}`} value={value} required={required && index === 0}
                 onChange={event => onChange(values.map((item, i) => i === index ? event.target.value : item))} />
             {(!secret || values.length > 1) && <Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label={`Remove ${label} ${index + 1}`}
                 onClick={() => onChange(values.filter((_, i) => i !== index))}><X className="h-4 w-4" /></Button>}
@@ -141,6 +141,7 @@ export function SchemaFields({ schema, values, onChange, secret = false, configu
             const id = `${prefix}-${name}`;
             const configured = secret && configuredFields.includes(name);
             const editing = !configured || replacing.includes(name);
+            const removing = configured && values[name] === null;
             const suggestions = field.model_options?.[String(resolvedValues.model || "")];
             const label = field.title || name.replaceAll("_", " ");
             const fullWidth = field.multiline || field.type === "array" || field.anyOf?.some(option => option.type === "array") || (role === "tts" && name === "voice");
@@ -151,10 +152,13 @@ export function SchemaFields({ schema, values, onChange, secret = false, configu
                 {editing ? <ValueInput id={id} name={name} provider={provider} role={role} model={String(resolvedValues.model || "") || undefined}
                     schema={suggestions ? { ...field, examples: suggestions, enum: field.enum ? suggestions : undefined } : field}
                     value={Object.hasOwn(values, name) ? values[name] : field.default} secret={secret}
-                    required={Boolean(schema.required?.includes(name)) && !configured} onChange={value => onChange(name, value)} />
+                    required={Boolean(schema.required?.includes(name))} onChange={value => onChange(name, value)} />
                     : <div className="flex h-10 items-center justify-between rounded-md border px-3 text-sm">
-                        <span className="text-muted-foreground">Configured</span>
-                        <Button type="button" size="sm" variant="ghost" onClick={() => setReplacing(previous => [...previous, name])}>Replace</Button>
+                        <span className="text-muted-foreground">{removing ? "Will be removed" : "Configured"}</span>
+                        {removing ? <Button type="button" size="sm" variant="ghost" onClick={() => onChange(name, undefined)}>Keep existing credential</Button> : <div className="flex">
+                            {!schema.required?.includes(name) && <Button type="button" size="sm" variant="ghost" onClick={() => onChange(name, null)}>Remove</Button>}
+                            <Button type="button" size="sm" variant="ghost" onClick={() => setReplacing(previous => [...previous, name])}>Replace</Button>
+                        </div>}
                     </div>}
                 {configured && editing && <button type="button" className="text-xs underline" onClick={() => {
                     setReplacing(previous => previous.filter(field => field !== name));

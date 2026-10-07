@@ -93,9 +93,13 @@ def test_effective_parameters_and_pooled_credentials_survive(configuration):
     original = compile_ai_model_configuration_v2(
         OrganizationAIModelConfigurationV2.model_validate(configuration)
     )
-    for role, service in _rehydrate(
-        plan, plan.configurations[0]["configuration"]
-    ).items():
+    rehydrated = _rehydrate(plan, plan.configurations[0]["configuration"])
+    assert rehydrated.keys() == {
+        role
+        for role in ("llm", "stt", "tts", "realtime", "embeddings")
+        if getattr(original, role) is not None
+    }
+    for role, service in rehydrated.items():
         assert service.model_dump(mode="json") == getattr(original, role).model_dump(
             mode="json"
         )

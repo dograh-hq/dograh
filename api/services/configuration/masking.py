@@ -140,6 +140,20 @@ def mask_user_config(config: EffectiveAIModelConfiguration) -> Dict[str, Any]:
 
     return {
         "llm": _mask_service(config.llm),
+        "llm_fallback": (
+            {
+                "version": config.llm_fallback.version,
+                "rules": [
+                    {
+                        "condition": rule.condition.model_dump(mode="json"),
+                        "target": _mask_service(rule.target),
+                    }
+                    for rule in config.llm_fallback.rules
+                ],
+            }
+            if config.llm_fallback is not None
+            else None
+        ),
         "tts": _mask_service(config.tts),
         "stt": _mask_service(config.stt),
         "embeddings": _mask_service(config.embeddings),

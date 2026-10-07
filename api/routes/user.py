@@ -307,10 +307,6 @@ async def validate_user_configurations(
     )
     configurations = resolved_config.effective
 
-    if resolved_config.source == "organization_v3":
-        # V3 resolution already performs local semantic validation.
-        return {"status": [{"model": "all", "message": "ok"}]}
-
     if _is_validation_cache_stale(
         configurations.last_validated_at,
         validity_ttl_seconds,

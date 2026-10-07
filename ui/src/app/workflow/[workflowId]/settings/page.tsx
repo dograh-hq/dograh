@@ -1576,7 +1576,7 @@ function WorkflowSettingsInner({
             </header>
 
             {/* Main + right nav */}
-            <PageShell className="flex gap-8">
+            <PageShell className="flex max-w-5xl gap-8 px-6">
                 {/* Sections */}
                 <div className="min-w-0 flex-1 space-y-8">
                     {resolvedWorkflowConfigurationsForRender && (

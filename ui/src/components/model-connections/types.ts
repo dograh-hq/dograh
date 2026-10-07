@@ -1,3 +1,12 @@
+import type {
+    FallbackPolicyServiceSelection as ApiFallbackPolicy,
+    FallbackRuleServiceSelection as ApiFallbackRule,
+    ModelConfigurationSpec as ApiConfigurationSpec,
+    NamedModelConfigurationResponse,
+    ProviderConnectionResponse,
+    ServiceSelection as ApiServiceSelection,
+} from "@/client/types.gen";
+
 // Catalog field metadata comes from the backend provider registry. It describes
 // rendering only; the server remains authoritative for semantic validation.
 export interface FieldSchema {
@@ -48,41 +57,18 @@ export interface ModelConnectionCatalog {
     services: Partial<Record<ServiceRole, Record<string, ProviderCatalogEntry>>>;
 }
 
-export interface ProviderConnection {
-    uuid: string;
-    name: string;
-    provider: string;
-    connection_settings: Record<string, unknown>;
-    configured_credentials: string[];
-    revision: number;
-    is_active: boolean;
-}
+export type ProviderConnection = ProviderConnectionResponse;
 
-export interface ServiceSelection {
-    provider_connection_uuid: string;
-    settings: Record<string, unknown>;
-}
-
-export type FallbackCondition = { type: "no_output"; after_ms: number } | { type: "error" };
-export interface FallbackRule {
-    condition: FallbackCondition;
-    target: ServiceSelection;
-}
-export interface FallbackPolicy {
-    version: 1;
-    rules: FallbackRule[];
-}
-
-export type ConfigurationSpec = {
-    version: 3;
-    mode: "pipeline" | "realtime";
-    llm: ServiceSelection;
-    llm_fallback?: FallbackPolicy | null;
-    stt?: ServiceSelection | null;
-    tts?: ServiceSelection | null;
-    realtime?: ServiceSelection | null;
-    embeddings?: ServiceSelection | null;
-};
+// The editor materializes schema defaults; derive the wire shape from the SDK.
+export type ServiceSelection = Required<ApiServiceSelection>;
+export type FallbackCondition = ApiFallbackRule["condition"];
+export type FallbackRule = Omit<ApiFallbackRule, "target"> & { target: ServiceSelection };
+export type FallbackPolicy = Omit<Required<ApiFallbackPolicy>, "rules"> & { rules: FallbackRule[] };
+export type ConfigurationSpec = Omit<ApiConfigurationSpec, ServiceRole | "llm_fallback"> &
+    Required<Pick<ApiConfigurationSpec, "version" | "mode">> & {
+        llm: ServiceSelection;
+        llm_fallback?: FallbackPolicy | null;
+    } & Partial<Record<Exclude<ServiceRole, "llm">, ServiceSelection | null>>;
 
 
 export type ConfigurationEditorMode = "dograh" | "cascade" | "realtime";
@@ -90,10 +76,6 @@ export const MODE_LABELS: Record<ConfigurationEditorMode, string> = {
     dograh: "Dograh", cascade: "Cascade", realtime: "Realtime",
 };
 
-export interface NamedModelConfiguration {
-    uuid: string;
-    name: string;
+export type NamedModelConfiguration = Omit<NamedModelConfigurationResponse, "configuration"> & {
     configuration: ConfigurationSpec;
-    revision: number;
-    is_active: boolean;
-}
+};

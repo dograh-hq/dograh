@@ -180,7 +180,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
     }, [fetchWorkflowRuns, currentPage, appliedFilters, sortBy, sortOrder]);
 
     return (
-        <PageShell>
+        <PageShell width="full">
             <WorkflowRunsTable
                 runs={workflowRuns}
                 loading={loading}

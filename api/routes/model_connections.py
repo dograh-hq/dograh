@@ -18,6 +18,7 @@ from api.schemas.model_connections import (
     ProviderConnectionCreate,
     ProviderConnectionResponse,
     ProviderConnectionUpdate,
+    merge_provider_credentials,
 )
 from api.services.auth.depends import get_user_with_selected_organization
 from api.services.configuration.model_connections import (
@@ -154,7 +155,9 @@ async def update_connection(
         raise HTTPException(
             status_code=409, detail="Provider connection changed; refresh and retry"
         )
-    credentials = {**row.credentials, **changes.get("credentials", {})}
+    credentials = merge_provider_credentials(
+        row.credentials, changes.get("credentials", {})
+    )
     settings = changes.get("connection_settings", row.connection_settings)
     if changes.get("credentials") or settings != row.connection_settings:
         await validate_provider_connection_credentials(

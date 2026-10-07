@@ -309,3 +309,68 @@ async def test_pre_call_override_can_pick_a_connection_sharing_the_run_key(
     )
     assert patched is not None
     assert patched.tts.api_key == pinned.llm.api_key == "shared"
+
+
+@pytest.mark.asyncio
+async def test_pre_call_uses_the_pin_after_catalog_edits_and_archive(
+    catalog, run_state
+):
+    row = connection("openai", keys=["key-a", "key-b"])
+    original = catalog(row, default=True, configuration=pipeline(row))
+    pinned = await service.resolve_run_model_configuration(
+        organization_id=1, workflow_run=run_state
+    )
+    before = deepcopy(run_state.model_configuration_snapshot)
+    original.configuration["stt"]["settings"]["model"] = "changed-stt"
+    original.configuration["tts"]["settings"]["voice"] = "changed-voice"
+    row.connection_settings = {"base_url": "https://changed.example.com/v1"}
+    row.is_active = False
+    catalog(connection(), default=True)
+
+    patched = await service.apply_pre_call_model_overrides(
+        organization_id=1,
+        workflow_run=run_state,
+        run_model_configuration=pinned,
+        fetched=PreCallFetchResult(
+            model_overrides={"llm": {"settings": {"temperature": 0.6}}},
+            outcome="completed",
+        ),
+    )
+    assert patched is not None
+    assert patched.llm.temperature == 0.6
+    assert patched.stt == pinned.stt
+    assert patched.tts == pinned.tts
+    assert patched.llm.api_key == pinned.llm.api_key
+    assert patched.llm.base_url == pinned.llm.base_url
+    assert (
+        run_state.model_configuration_snapshot["services"]["stt"]
+        == before["services"]["stt"]
+    )
+    hydrated = await catalog_service.hydrate_model_configuration_snapshot(
+        1, run_state.model_configuration_snapshot
+    )
+    assert hydrated.llm.api_key == pinned.llm.api_key
+
+
+@pytest.mark.asyncio
+async def test_pre_call_cannot_add_managed_services_to_an_authorized_byok_run(
+    catalog, run_state, failures
+):
+    catalog(connection("openai"), default=True)
+    dograh = catalog(connection())
+    pinned = await service.resolve_run_model_configuration(
+        organization_id=1, workflow_run=run_state
+    )
+    before = deepcopy(run_state.model_configuration_snapshot)
+    patched = await service.apply_pre_call_model_overrides(
+        organization_id=1,
+        workflow_run=run_state,
+        run_model_configuration=pinned,
+        fetched=PreCallFetchResult(
+            model_overrides={"tts": {"provider_connection_uuid": dograh.uuid}},
+            outcome="completed",
+        ),
+    )
+    assert patched is None
+    assert run_state.model_configuration_snapshot == before
+    assert failures.call_args.args[0].code == "pre-call-model-overrides-rejected"

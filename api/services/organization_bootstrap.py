@@ -39,6 +39,9 @@ MANAGED_SERVICE_KEY_NAME = "Default Dograh Model Service Key"
 BOOTSTRAP_LEASE_STALE_AFTER = timedelta(minutes=5)
 
 _BOOTSTRAP_KEY = OrganizationConfigurationKey.ORGANIZATION_BOOTSTRAP.value
+_CATALOG_DEFAULT_KEY = (
+    OrganizationConfigurationKey.MODEL_CONFIGURATION_DEFAULT_UUID.value
+)
 
 
 async def ensure_organization_bootstrapped(
@@ -52,14 +55,18 @@ async def ensure_organization_bootstrapped(
     Catalog import uses the persisted V2 configuration and an organization DB
     lock; it never issues another service key or changes an existing V3 default.
     """
-    services_ready = await _ensure_organization_services_bootstrapped(
-        organization_id, created_by=created_by
-    )
     try:
-        default = await db_client.get_configuration(
-            organization_id, "MODEL_CONFIGURATION_DEFAULT_UUID"
+        state = await db_client.get_configuration_values(
+            organization_id, [_BOOTSTRAP_KEY, _CATALOG_DEFAULT_KEY]
         )
-        if default is not None and isinstance(default.value, str) and default.value:
+        services_ready = await _ensure_organization_services_bootstrapped(
+            organization_id,
+            created_by=created_by,
+            completed=(state.get(_BOOTSTRAP_KEY) or {}).get("status")
+            == LEASE_COMPLETED,
+        )
+        default = state.get(_CATALOG_DEFAULT_KEY)
+        if isinstance(default, str) and default:
             catalog_ready = True
         else:
             from api.services.configuration.model_configuration_migration import (
@@ -73,7 +80,7 @@ async def ensure_organization_bootstrapped(
             "Failed to initialize model catalog for organization {}; will retry",
             organization_id,
         )
-        catalog_ready = False
+        return False
     return services_ready and catalog_ready
 
 
@@ -81,6 +88,7 @@ async def _ensure_organization_services_bootstrapped(
     organization_id: int,
     *,
     created_by: str,
+    completed: bool,
 ) -> bool:
     """Ensure an organization has its Dograh-managed model services and SIP.
 
@@ -97,7 +105,7 @@ async def _ensure_organization_services_bootstrapped(
     Never raises. A provisioning failure must not fail authentication — the
     caller is a legitimately authenticated user either way.
     """
-    if await _is_bootstrap_complete(organization_id):
+    if completed:
         return True
 
     configuration = await get_organization_ai_model_configuration_v2(organization_id)
@@ -149,11 +157,6 @@ async def _ensure_organization_services_bootstrapped(
         organization_id, _BOOTSTRAP_KEY, owner_token
     )
     return True
-
-
-async def _is_bootstrap_complete(organization_id: int) -> bool:
-    row = await db_client.get_configuration(organization_id, _BOOTSTRAP_KEY)
-    return bool(row and (row.value or {}).get("status") == LEASE_COMPLETED)
 
 
 async def _has_managed_sip_connectivity(organization_id: int) -> bool:

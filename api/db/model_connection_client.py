@@ -22,6 +22,7 @@ from api.db.models import (
     WorkflowModel,
 )
 from api.enums import OrganizationConfigurationKey
+from api.schemas.model_connections import merge_provider_credentials
 
 DEFAULT_KEY = OrganizationConfigurationKey.MODEL_CONFIGURATION_DEFAULT_UUID.value
 
@@ -153,14 +154,19 @@ class ModelConnectionClient(BaseDBClient):
                 raise ModelCatalogConflict(
                     "Provider connection changed; refresh and retry"
                 )
+            updates = {
+                key: deepcopy(changes[key])
+                for key in ("name", "connection_settings")
+                if key in changes
+            }
             if "credentials" in changes:
-                row.credentials = {
-                    **row.credentials,
-                    **deepcopy(changes["credentials"]),
-                }
-            for key in ("name", "connection_settings"):
-                if key in changes:
-                    setattr(row, key, deepcopy(changes[key]))
+                updates["credentials"] = merge_provider_credentials(
+                    row.credentials, deepcopy(changes["credentials"])
+                )
+            if all(getattr(row, key) == value for key, value in updates.items()):
+                return row
+            for key, value in updates.items():
+                setattr(row, key, value)
             row.revision += 1
             row.updated_at = datetime.now(UTC)
             await session.commit()
@@ -228,9 +234,15 @@ class ModelConnectionClient(BaseDBClient):
                 await self._check_connection_references(
                     session, organization_id, changes["configuration"]
                 )
-            for key in ("name", "configuration"):
-                if key in changes:
-                    setattr(row, key, deepcopy(changes[key]))
+            updates = {
+                key: deepcopy(changes[key])
+                for key in ("name", "configuration")
+                if key in changes
+            }
+            if all(getattr(row, key) == value for key, value in updates.items()):
+                return row
+            for key, value in updates.items():
+                setattr(row, key, value)
             row.revision += 1
             row.updated_at = datetime.now(UTC)
             await session.commit()
@@ -340,7 +352,7 @@ class ModelConnectionClient(BaseDBClient):
             campaign_metadata = await session.scalars(
                 select(CampaignModel.orchestrator_metadata).where(
                     CampaignModel.organization_id == organization_id,
-                    CampaignModel.state != "completed",
+                    CampaignModel.state.not_in(("completed", "failed")),
                 )
             )
             pinned_definition_ids = {

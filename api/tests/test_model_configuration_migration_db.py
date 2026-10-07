@@ -384,6 +384,63 @@ async def test_workflow_save_and_connection_archive_cannot_leave_dangling_refere
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["archived", "foreign"])
+async def test_workflow_restore_rejects_unavailable_inline_fallback(
+    migration_db, invalid
+):
+    from api.db.model_connection_client import ModelCatalogNotFound
+
+    client, organization_id = migration_db
+    async with client.async_session() as session:
+        owner = organization_id
+        if invalid == "foreign":
+            foreign = OrganizationModel(provider_id=f"fallback-test-{uuid4()}")
+            session.add(foreign)
+            await session.flush()
+            owner = foreign.id
+        connection = ProviderConnectionModel(
+            organization_id=owner,
+            name="Fallback",
+            provider="openai",
+            credentials={"api_key": "test-key"},
+            connection_settings={},
+            is_active=invalid != "archived",
+        )
+        session.add(connection)
+        await session.flush()
+        workflow = WorkflowModel(
+            organization_id=organization_id,
+            name="Archived fallback workflow",
+            status="archived",
+            workflow_configurations={
+                "model_configuration_override": {
+                    "llm_fallback": {
+                        "rules": [
+                            {
+                                "condition": {"type": "error"},
+                                "target": {
+                                    "provider_connection_uuid": connection.uuid,
+                                    "settings": {},
+                                },
+                            }
+                        ]
+                    }
+                }
+            },
+        )
+        session.add(workflow)
+        await session.commit()
+        workflow_id = workflow.id
+    with pytest.raises(ModelCatalogNotFound):
+        await client.update_workflow_status(
+            workflow_id, status="active", organization_id=organization_id
+        )
+    async with client.async_session() as session:
+        workflow = await session.get(WorkflowModel, workflow_id)
+        assert workflow.status == "archived"
+
+
+@pytest.mark.asyncio
 async def test_workflow_save_checks_configuration_reference_organization(migration_db):
     from api.db.model_connection_client import ModelCatalogNotFound
 

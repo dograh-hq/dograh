@@ -1,6 +1,16 @@
 import type { ConfigurationEditorMode, ConfigurationSpec, FallbackPolicy, FieldSchema, ModelConnectionCatalog, ProviderCatalogEntry, ProviderConnection, ServiceRole, ServiceSelection } from "./types";
 import { ROLES } from "./types";
 
+const modelPatterns = new Map<string, RegExp | null>();
+
+function matchesModel(pattern: string, model: string): boolean {
+    if (!modelPatterns.has(pattern)) {
+        try { modelPatterns.set(pattern, new RegExp(pattern)); }
+        catch { modelPatterns.set(pattern, null); }
+    }
+    return modelPatterns.get(pattern)?.test(model) ?? false;
+}
+
 export function connectionProviders(catalog: ModelConnectionCatalog): Record<string, ProviderCatalogEntry> {
     const providers: Record<string, ProviderCatalogEntry> = {};
     for (const role of ROLES) {
@@ -40,7 +50,7 @@ export function fieldForModel(schema: FieldSchema, values: Record<string, unknow
         if (isCustom) result.description = endpoint.description;
     }
     const model = String(values.model || "");
-    const rule = schema.model_constraints?.find(item => new RegExp(item.pattern).test(model));
+    const rule = schema.model_constraints?.find(item => matchesModel(item.pattern, model));
     if (rule) result = { ...result, ...rule };
     return result;
 }
@@ -59,12 +69,21 @@ export function schemaDefaults(schema?: FieldSchema): Record<string, unknown> {
 }
 
 export function compatibleConnections(catalog: ModelConnectionCatalog, connections: ProviderConnection[], role: ServiceRole) {
-    return connections.filter(connection => connection.is_active && connection.provider !== "dograh" && Boolean(catalog.services[role]?.[connection.provider]));
+    return connections.filter(connection => {
+        const entry = catalog.services[role]?.[connection.provider];
+        return connection.is_active && connection.provider !== "dograh" && entry
+            && (entry.credential_required || []).every(field => connection.configured_credentials.includes(field))
+            && (entry.connection_required || []).every(field => Boolean(connection.connection_settings[field]));
+    });
 }
 
 export function configurationMode(configuration: ConfigurationSpec, connections: ProviderConnection[]): ConfigurationEditorMode {
     if (configuration.mode === "realtime") return "realtime";
-    return connections.find(connection => connection.uuid === configuration.llm.provider_connection_uuid)?.provider === "dograh" ? "dograh" : "cascade";
+    const uuid = configuration.llm.provider_connection_uuid;
+    const managed = connections.find(connection => connection.uuid === uuid)?.provider === "dograh"
+        && (["stt", "tts"] as const).every(role => configuration[role]?.provider_connection_uuid === uuid)
+        && (!configuration.embeddings || configuration.embeddings.provider_connection_uuid === uuid);
+    return managed ? "dograh" : "cascade";
 }
 
 export function dograhConfiguration(catalog: ModelConnectionCatalog, connection?: ProviderConnection, previous?: ConfigurationSpec, connections: ProviderConnection[] = []): ConfigurationSpec {
@@ -131,10 +150,7 @@ export function cleanFallbackPolicy(policy: FallbackPolicy, catalog: ModelConnec
 
 export function cleanConfiguration(configuration: ConfigurationSpec, catalog: ModelConnectionCatalog, connections: ProviderConnection[]): ConfigurationSpec {
     const mode = configurationMode(configuration, connections);
-    const normalized = mode === "dograh"
-        ? dograhConfiguration(catalog, connections.find(connection => connection.uuid === configuration.llm.provider_connection_uuid), configuration, connections)
-        : configuration;
-    const result = { ...normalized };
+    const result = { ...configuration };
     if (mode === "dograh") {
         delete result.llm_fallback;
     } else if (result.llm_fallback) {

@@ -298,7 +298,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                             "w-full justify-between",
                             !value && "text-muted-foreground"
                         )}
-                        disabled={isLoading}
+                        disabled={isLoading || authLoading || !userId}
                     >
                         <span className="truncate">
                             {isLoading ? "Loading voices..." : getSelectedVoiceName()}

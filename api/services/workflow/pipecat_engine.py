@@ -2090,7 +2090,14 @@ class PipecatEngine:
             fallback_metrics.append(previous_metrics)
         if fallback_metrics:
             context["llm_fallback_metrics"] = {
-                key: sum(metrics[key] for metrics in fallback_metrics)
+                key: sum(
+                    value
+                    for metrics in fallback_metrics
+                    if isinstance(metrics, dict)
+                    and isinstance(value := metrics.get(key, 0), int)
+                    and not isinstance(value, bool)
+                    and value >= 0
+                )
                 for key in ("started", "won")
             }
         return context

@@ -132,8 +132,10 @@ export default function ModelConnectionsManager({ view, docsUrl }: { view: "prov
                 </CollapsibleTrigger>
                 <CollapsibleContent className="space-y-3 pt-3">
                     {archivedItems.map(item => {
-                        const needsProviders = "configuration" in item && ROLES.some(role => {
-                            const selection = item.configuration[role];
+                        const needsProviders = "configuration" in item && [
+                            ...ROLES.map(role => item.configuration[role]),
+                            ...(item.configuration.llm_fallback?.rules || []).map(rule => rule.target),
+                        ].some(selection => {
                             return selection && !activeConnections.some(connection => connection.uuid === selection.provider_connection_uuid);
                         });
                         return <div key={item.uuid} className="flex flex-col justify-between gap-3 rounded-md border p-4 sm:flex-row sm:items-center">

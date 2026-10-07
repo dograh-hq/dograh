@@ -62,6 +62,21 @@ function conversationItemsFromTextChatEvents(
             return;
         }
 
+        if (eventType === "bot_speech") {
+            const text = asString(payload.text);
+            if (text) {
+                items.push({
+                    kind: "message",
+                    id: `${turnId}-bot-speech-${index}`,
+                    turnId,
+                    timestamp,
+                    role: "assistant",
+                    text,
+                });
+            }
+            return;
+        }
+
         if (eventType === "execution_error") {
             items.push({
                 kind: "notice",
@@ -143,23 +158,33 @@ export function conversationItemsFromTextChatTurns(turns: TextChatTurnLike[]) {
             });
         }
 
-        items.push(
-            ...conversationItemsFromTextChatEvents(
-                turn.events ?? [],
-                turn.id,
-                turn.created_at,
-            ),
+        const eventItems = conversationItemsFromTextChatEvents(
+            turn.events ?? [],
+            turn.id,
+            turn.created_at,
         );
+        items.push(...eventItems);
 
         if (turn.assistant_message?.text) {
-            items.push({
-                kind: "message",
-                id: `${turn.id}-assistant`,
-                turnId: turn.id,
-                timestamp: turn.assistant_message.created_at ?? turn.created_at,
-                role: "assistant",
-                text: turn.assistant_message.text,
-            });
+            let remainingText = turn.assistant_message.text.trim();
+            for (const item of eventItems) {
+                if (item.kind === "message" && item.role === "assistant" && item.text) {
+                    if (remainingText.startsWith(item.text)) {
+                        remainingText = remainingText.slice(item.text.length).trim();
+                    }
+                }
+            }
+
+            if (remainingText) {
+                items.push({
+                    kind: "message",
+                    id: `${turn.id}-assistant`,
+                    turnId: turn.id,
+                    timestamp: turn.assistant_message.created_at ?? turn.created_at,
+                    role: "assistant",
+                    text: remainingText,
+                });
+            }
             return;
         }
 

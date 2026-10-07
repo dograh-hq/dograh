@@ -289,6 +289,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
             if text:
                 await self._engine.should_mute_user(BotStartedSpeakingFrame())
                 self._response_window.outputs.append(text)
+                self._append_event("bot_speech", {"text": text})
                 if append_to_context:
                     self._context.add_message({"role": "assistant", "content": text})
                 await self._engine.should_mute_user(BotStoppedSpeakingFrame())

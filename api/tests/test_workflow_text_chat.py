@@ -2531,3 +2531,123 @@ async def test_text_chat_append_rejects_quota_without_mutating_session(
     assert (
         session_payload["session_data"]["status"] == created["session_data"]["status"]
     )
+
+
+@pytest.mark.asyncio
+async def test_text_chat_captures_edge_transition_speech_as_bot_speech_event(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "You are at the start node.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "greeting_type": "text",
+                    "greeting": "Welcome to the workflow tester.",
+                    "extraction_enabled": False,
+                },
+            },
+            {
+                "id": "agent1",
+                "type": "agentNode",
+                "position": {"x": 0, "y": 200},
+                "data": {
+                    "name": "Agent One",
+                    "prompt": "You are in agent one.",
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-agent1",
+                "source": "start",
+                "target": "agent1",
+                "data": {
+                    "label": "Go To Agent One",
+                    "condition": "Move to agent one.",
+                    "transition_speech": "Please give me a moment to review your attachments.",
+                    "transition_speech_type": "text",
+                },
+            }
+        ],
+    }
+
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="transition-speech-turn",
+    )
+
+    llm_responses = [
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+        MockLLMService(
+            mock_steps=[
+                MockLLMService.create_mixed_chunks(
+                    "",
+                    "go_to_agent_one",
+                    {},
+                    tool_call_id="call_agent_one",
+                ),
+                MockLLMService.create_text_chunks("Here are your attachment details."),
+            ],
+            chunk_delay=0.001,
+        ),
+    ]
+
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+        ):
+            create_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                json={},
+            )
+            assert create_response.status_code == 200
+            session = create_response.json()
+
+            message_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{session['workflow_run_id']}/messages",
+                json={
+                    "text": "Review my attachments",
+                    "expected_revision": session["revision"],
+                },
+            )
+            assert message_response.status_code == 200
+
+    payload = message_response.json()
+    turn_1 = payload["session_data"]["turns"][1]
+    turn_1_events = turn_1["events"]
+
+    # Verify bot_speech event for transition speech is captured
+    bot_speech_events = [
+        event for event in turn_1_events if event["type"] == "bot_speech"
+    ]
+    assert len(bot_speech_events) == 1
+    assert (
+        bot_speech_events[0]["payload"]["text"]
+        == "Please give me a moment to review your attachments."
+    )
+
+    # Verify turn assistant_message still preserves the full output
+    assistant_text = turn_1["assistant_message"]["text"]
+    assert "Please give me a moment to review your attachments." in assistant_text
+    assert "Here are your attachment details." in assistant_text

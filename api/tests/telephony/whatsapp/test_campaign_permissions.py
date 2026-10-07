@@ -1839,4 +1839,20 @@ class TestWhatsAppPermissionFixes(IsolatedAsyncioTestCase):
             self.assertEqual(mock_db.get_campaign.call_count, 2)
             mock_db.get_campaign.assert_called_with(20, 100)
             mock_db.get_telephony_configuration_for_org.assert_called_once_with(2, 100, active_only=False)
+    async def test_reactivate_campaign_runs_returns_zero_on_pending_status(self):
+        """Verify reactivate_campaign_runs_for_recipient returns integer 0 on non-activating statuses like pending."""
+        from api.services.telephony.providers.whatsapp.permission_sync import (
+            reactivate_campaign_runs_for_recipient,
+        )
+
+        mock_db = MagicMock()
+        mock_db.get_queued_runs_awaiting_whatsapp_permission = AsyncMock(return_value=[])
+
+        result = await reactivate_campaign_runs_for_recipient(
+            phone_number="+15551234567",
+            status="pending",
+            phone_number_id="pn_1",
+        )
+        self.assertEqual(result, 0)
+        self.assertIsInstance(result, int)
 

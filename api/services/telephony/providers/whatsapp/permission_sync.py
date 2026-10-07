@@ -285,7 +285,7 @@ async def reactivate_campaign_runs_for_recipient(
         logger.warning(
             f"[WhatsApp] Error reactivating queued runs on permission change for {clean_phone}: {e}"
         )
-        return 0
+    return 0
 
 
 @dataclass(frozen=True)

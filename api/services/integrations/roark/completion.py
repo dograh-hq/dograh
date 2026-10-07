@@ -7,6 +7,7 @@ from loguru import logger
 
 from api.constants import BACKEND_API_ENDPOINT, ROARK_BASE_URL
 from api.services.integrations.base import IntegrationCompletionContext
+from api.utils.common import get_backend_endpoints
 
 from .client import RoarkDeliveryConfig, RoarkDeliveryError, create_call
 from .node import RoarkNodeData
@@ -19,7 +20,29 @@ from .payload import TEXT_MODES, build_call_payload
 _RECORDING_FILENAME = "recording.wav"
 
 
-def build_recording_url(context: IntegrationCompletionContext) -> str | None:
+async def resolve_public_base_url() -> str:
+    """The base URL Roark should fetch the recording from.
+
+    Roark downloads the audio itself, so unlike the other post-call exports this
+    URL has to be reachable from the internet. `get_backend_endpoints()` is the
+    same resolver telephony webhooks use: it prefers a publicly reachable
+    `BACKEND_API_ENDPOINT` and otherwise falls back to the running cloudflared
+    tunnel, which is what makes a laptop or a private-network deployment work.
+    Its own failure mode is to raise, so a deployment with neither still gets
+    the configured address and a clear refusal from Roark rather than a crash.
+    """
+    try:
+        backend_endpoint, _ws = await get_backend_endpoints()
+        return backend_endpoint.rstrip("/")
+    except Exception as exc:
+        logger.warning(
+            f"Roark could not resolve a public backend endpoint ({exc}), "
+            f"falling back to BACKEND_API_ENDPOINT"
+        )
+        return (BACKEND_API_ENDPOINT or "").rstrip("/")
+
+
+async def build_recording_url(context: IntegrationCompletionContext) -> str | None:
     """A URL Roark can fetch the recording from, or None if there is none.
 
     The public-token route is used rather than a signed storage URL because
@@ -32,8 +55,9 @@ def build_recording_url(context: IntegrationCompletionContext) -> str | None:
         return None
     if not context.public_token:
         return None
+    base_url = await resolve_public_base_url()
     return (
-        f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow/"
+        f"{base_url}/api/v1/public/download/workflow/"
         f"{context.public_token}/recording?filename={_RECORDING_FILENAME}"
     )
 
@@ -43,7 +67,7 @@ async def run_completion(
     context: IntegrationCompletionContext,
 ) -> dict[str, Any]:
     results: dict[str, Any] = {}
-    recording_url = build_recording_url(context)
+    recording_url = await build_recording_url(context)
     mode = getattr(context.workflow_run, "mode", None)
 
     for node in nodes:

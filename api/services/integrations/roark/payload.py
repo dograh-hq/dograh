@@ -92,10 +92,30 @@ def parse_event_timestamp(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def _event_start(event: dict[str, Any]) -> datetime | None:
+def _event_logged_at(event: dict[str, Any]) -> datetime | None:
+    """When the event was written to the buffer.
+
+    This is the only stamp every event carries, so it orders the stream. For a
+    turn it is NOT the moment the speaking started: an utterance is logged once
+    it has been aggregated, which is at or after its end.
+    """
     payload = event.get("payload") or {}
     return parse_event_timestamp(event.get("timestamp")) or parse_event_timestamp(
         payload.get("timestamp")
+    )
+
+
+def _event_start(event: dict[str, Any]) -> datetime | None:
+    """When the speaking in this event actually began.
+
+    `payload.timestamp` is the provider's own onset for the utterance and is
+    what a player has to align to. The top-level stamp is only a fallback,
+    because reading it as a start places the turn at its end instead: on a
+    measured call the bot's greeting was logged 5.6s after it began speaking.
+    """
+    payload = event.get("payload") or {}
+    return parse_event_timestamp(payload.get("timestamp")) or parse_event_timestamp(
+        event.get("timestamp")
     )
 
 
@@ -146,9 +166,10 @@ def build_transcript(
     of each, and Roark attributes an unlabelled turn to the single participant
     of that role.
     """
+    ordered = list(events)
     entries: list[dict[str, Any]] = []
 
-    for event in events:
+    for index, event in enumerate(ordered):
         event_type = event.get("type")
         payload = event.get("payload") or {}
 
@@ -165,26 +186,70 @@ def build_transcript(
         if not isinstance(text, str) or not text.strip():
             continue
 
-        start_offset_ms = _offset_ms(_event_start(event), anchor)
+        start = _event_start(event)
+        if start is None:
+            continue
+        # A turn with no onset of its own fell back to its logged time, which
+        # sits at the end of the utterance. For the agent the first TTS byte is
+        # a far better guess: it is the moment its audio started.
+        if role == "AGENT" and not payload.get("timestamp"):
+            tts_start = _preceding_tts_start(ordered, index)
+            if tts_start is not None and tts_start < start:
+                start = tts_start
+
+        start_offset_ms = _offset_ms(start, anchor)
         if start_offset_ms is None:
             continue
-        end_offset_ms = _offset_ms(_event_end(event), anchor)
 
         entry: dict[str, Any] = {
             "role": role,
             "text": text,
             "startOffsetMs": start_offset_ms,
-            # Roark requires an end offset on every turn. Dograh only records
-            # one when the provider reported it, so an unknown end collapses the
-            # turn to an instant rather than inventing a duration: Roark extends
-            # an implausibly short turn to the next turn's start on ingest, which
-            # is a better guess than anything computable here.
-            "endOffsetMs": max(end_offset_ms or 0, start_offset_ms),
+            "endOffsetMs": max(
+                _offset_ms(_event_end(event), anchor) or 0, start_offset_ms
+            ),
         }
         if role == "CUSTOMER":
             entry["customer"] = {"label": CUSTOMER_LABEL}
         entries.append(entry)
 
+    entries.sort(key=lambda entry: entry["startOffsetMs"])
+    return _fill_missing_turn_ends(entries)
+
+
+def _preceding_tts_start(events: list[dict[str, Any]], index: int) -> datetime | None:
+    """The most recent text-to-speech first-byte before ``index``.
+
+    `rtf-ttfb-metric` with ``kind="tts"`` is emitted when the synthesizer
+    produced the first audio of an utterance, so it marks where that utterance
+    begins in the recording.
+    """
+    for event in reversed(events[:index]):
+        if event.get("type") != RealtimeFeedbackType.TTFB_METRIC.value:
+            continue
+        if (event.get("payload") or {}).get("kind") != "tts":
+            continue
+        return _event_logged_at(event)
+    return None
+
+
+def _fill_missing_turn_ends(
+    entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Give a zero-length turn an end at the next turn's start.
+
+    Dograh only records an utterance's end when the provider reported one, and
+    Roark requires an end on every turn. Roark would repair this itself on
+    ingest, but doing it here keeps what we send and what a player draws the
+    same thing, and the last turn (which Roark cannot repair, having nothing
+    after it) is left alone rather than guessed at.
+    """
+    for position, entry in enumerate(entries[:-1]):
+        if entry["endOffsetMs"] > entry["startOffsetMs"]:
+            continue
+        next_start = entries[position + 1]["startOffsetMs"]
+        if next_start > entry["startOffsetMs"]:
+            entry["endOffsetMs"] = next_start
     return entries
 
 
@@ -395,4 +460,4 @@ def _sorted_events(workflow_run: Any) -> list[dict[str, Any]]:
         return []
     typed = [event for event in events if isinstance(event, dict)]
     unstamped = datetime.max.replace(tzinfo=UTC)
-    return sorted(typed, key=lambda event: _event_start(event) or unstamped)
+    return sorted(typed, key=lambda event: _event_logged_at(event) or unstamped)

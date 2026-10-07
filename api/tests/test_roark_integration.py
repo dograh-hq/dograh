@@ -345,6 +345,159 @@ def test_build_transcript_maps_roles_and_offsets():
     ]
 
 
+def _logged_turn(kind, text, logged, *, speech_start=None, speech_end=None, final=True):
+    """A turn shaped the way Dograh really writes one.
+
+    The top-level stamp is when the event was logged, which is at or after the
+    end of the utterance. The provider's own onset, when there is one, is
+    `payload.timestamp`.
+    """
+    payload = {"text": text}
+    if kind == "rtf-user-transcription":
+        payload["final"] = final
+    if speech_start is not None:
+        payload["timestamp"] = _stamp(speech_start)
+    if speech_end is not None:
+        payload["end_timestamp"] = _stamp(speech_end)
+    return {"type": kind, "timestamp": _stamp(logged), "payload": payload}
+
+
+def _tts_first_byte(at):
+    return {
+        "type": "rtf-ttfb-metric",
+        "timestamp": _stamp(at),
+        "payload": {"kind": "tts", "ttfb_seconds": 0.3, "processor": "x", "model": "y"},
+    }
+
+
+def test_turn_starts_at_the_spoken_onset_not_when_it_was_logged():
+    """The regression this file exists for.
+
+    A bot turn is logged once aggregated, which on a measured call was 5.6s
+    after it began speaking. Reading the logged stamp as the start put every
+    subtitle seconds late in the player.
+    """
+    events = [
+        _logged_turn(
+            "rtf-bot-text",
+            "Hello there.",
+            14.811,
+            speech_start=12.906,
+            speech_end=16.267,
+        )
+    ]
+
+    entries = build_transcript(events, T0)
+
+    assert entries[0]["startOffsetMs"] == 12906
+    assert entries[0]["endOffsetMs"] == 16267
+
+
+def test_customer_turn_also_starts_at_its_spoken_onset():
+    events = [
+        _logged_turn(
+            "rtf-user-transcription",
+            "Yes, that works.",
+            9.610,
+            speech_start=8.565,
+            speech_end=9.609,
+        )
+    ]
+
+    entries = build_transcript(events, T0)
+
+    assert entries[0]["startOffsetMs"] == 8565
+    assert entries[0]["endOffsetMs"] == 9609
+
+
+def test_agent_turn_without_an_onset_falls_back_to_the_tts_first_byte():
+    """Dograh records no onset for the opening greeting, and its logged stamp
+    sits at the end of the utterance. The synthesizer's first audio byte is
+    where that speech actually starts in the recording."""
+    events = [
+        {
+            "type": "rtf-node-transition",
+            "timestamp": _stamp(0.0),
+            "payload": {"node_name": "Start Call"},
+        },
+        _tts_first_byte(1.374),
+        _logged_turn("rtf-bot-text", "Hello! Calling to confirm.", 6.987),
+        _logged_turn(
+            "rtf-user-transcription",
+            "Yes.",
+            9.610,
+            speech_start=8.565,
+            speech_end=9.609,
+        ),
+    ]
+
+    entries = build_transcript(events, T0)
+
+    assert entries[0]["startOffsetMs"] == 1374
+    # and the end, which Dograh never recorded, reaches the next turn
+    assert entries[0]["endOffsetMs"] == 8565
+
+
+def test_the_tts_fallback_only_looks_backwards():
+    """A later utterance's first byte must not be read as this one's start."""
+    events = [
+        _tts_first_byte(1.0),
+        _logged_turn("rtf-bot-text", "First.", 4.0),
+        _tts_first_byte(6.0),
+        _logged_turn("rtf-bot-text", "Second.", 9.0),
+    ]
+
+    entries = build_transcript(events, T0)
+
+    assert [entry["startOffsetMs"] for entry in entries] == [1000, 6000]
+
+
+def test_a_turn_with_no_end_reaches_the_next_turn():
+    events = [
+        _logged_turn("rtf-bot-text", "Hi.", 1.0, speech_start=1.0),
+        _logged_turn(
+            "rtf-user-transcription", "Hello.", 5.0, speech_start=4.0, speech_end=5.0
+        ),
+    ]
+
+    entries = build_transcript(events, T0)
+
+    assert entries[0]["startOffsetMs"] == 1000
+    assert entries[0]["endOffsetMs"] == 4000
+
+
+def test_the_final_turn_is_not_given_an_invented_end():
+    """Nothing follows it, so any end would be a guess. Roark cannot repair it
+    either, and a guess would be indistinguishable from a measured value."""
+    events = [_logged_turn("rtf-bot-text", "Goodbye.", 3.0, speech_start=3.0)]
+
+    entries = build_transcript(events, T0)
+
+    assert entries[0]["endOffsetMs"] == entries[0]["startOffsetMs"]
+
+
+def test_turns_are_ordered_by_onset_not_by_when_they_were_logged():
+    """An utterance that started earlier can be logged later than a short one
+    that followed it, so emitting in log order would hand the player a
+    backwards transcript."""
+    events = [
+        _logged_turn(
+            "rtf-user-transcription", "Short.", 4.0, speech_start=3.5, speech_end=4.0
+        ),
+        _logged_turn(
+            "rtf-bot-text",
+            "A much longer sentence.",
+            9.0,
+            speech_start=1.0,
+            speech_end=8.9,
+        ),
+    ]
+
+    entries = build_transcript(events, T0)
+
+    assert [entry["text"] for entry in entries] == ["A much longer sentence.", "Short."]
+
+
 def test_build_transcript_skips_interim_user_transcriptions():
     entries = build_transcript([_user_event("partial", 1.0, final=False)], T0)
     assert entries == []
@@ -542,21 +695,48 @@ def test_build_call_payload_falls_back_to_created_at_without_events():
 # ───────────────────────────── recording URL ──────────────────────────────
 
 
-def test_build_recording_url_names_a_wav_so_roark_accepts_it():
-    url = build_recording_url(_completion_context())
+async def test_build_recording_url_names_a_wav_so_roark_accepts_it():
+    url = await build_recording_url(_completion_context())
     # Roark decides a URL is audio from its shape before fetching it.
     assert url.endswith(
         "/public/download/workflow/tok-123/recording?filename=recording.wav"
     )
 
 
-def test_build_recording_url_is_none_without_a_recording():
+async def test_build_recording_url_is_none_without_a_recording():
     context = _completion_context(_workflow_run(recording_url=None))
-    assert build_recording_url(context) is None
+    assert await build_recording_url(context) is None
 
 
-def test_build_recording_url_is_none_without_a_public_token():
-    assert build_recording_url(_completion_context(public_token=None)) is None
+async def test_build_recording_url_is_none_without_a_public_token():
+    assert await build_recording_url(_completion_context(public_token=None)) is None
+
+
+async def test_recording_url_prefers_the_tunnel_over_a_local_endpoint():
+    """Roark fetches the recording itself, so a laptop or private-network
+    deployment has to hand it the cloudflared URL, not localhost."""
+    with patch(
+        "api.services.integrations.roark.completion.get_backend_endpoints",
+        AsyncMock(return_value=("https://sent-anywhere.trycloudflare.com", "wss://x")),
+    ):
+        url = await build_recording_url(_completion_context())
+
+    assert url.startswith(
+        "https://sent-anywhere.trycloudflare.com/api/v1/public/download/"
+    )
+
+
+async def test_recording_url_falls_back_when_no_public_endpoint_resolves():
+    """A deployment with neither a public address nor a tunnel still gets a URL
+    and a clear refusal from Roark, rather than an exception in the task."""
+    with patch(
+        "api.services.integrations.roark.completion.get_backend_endpoints",
+        AsyncMock(side_effect=ValueError("No tunnel URL available")),
+    ):
+        url = await build_recording_url(_completion_context())
+
+    assert url is not None
+    assert url.endswith("/recording?filename=recording.wav")
 
 
 # ───────────────────────────── completion handler ─────────────────────────

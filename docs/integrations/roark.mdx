@@ -85,15 +85,24 @@ With **Send Dograh transcript** on, Roark grades the transcript Dograh captured 
 Turn it off to have Roark transcribe the recording with its own speech-to-text instead. The useful reason to do that is to compare the two, for example to measure your provider's accuracy against Roark's.
 
 <Note>
-  Turn offsets are measured from the first event in the call, because Dograh
-  does not record the moment the recording started. The transcript is
-  self-consistent, and can sit a fraction of a second after the start of the
-  audio.
+  Each turn is timed from when the speaking started, not from when Dograh
+  logged it, so the transcript lines up with the recording in Roark's player.
+  Offsets are measured from the first event in the call, because Dograh does
+  not record the moment recording began; on measured calls that leaves the
+  transcript around half a second ahead of the audio.
 </Note>
 
 ## Reachability
 
-Roark downloads the recording from your Dograh deployment rather than having it pushed, so **`BACKEND_API_ENDPOINT` must be reachable from the public internet**. A Dograh running on `localhost` or inside a private network will have its exports refused, with Roark reporting that the recording URL is not accessible.
+Roark downloads the recording from your Dograh deployment rather than having it pushed, so the address it is given has to be reachable from the public internet.
+
+Dograh resolves that address the same way it does for telephony webhooks: it uses `BACKEND_API_ENDPOINT` when that is publicly reachable, and otherwise falls back to the URL of a running [Cloudflare tunnel](/integrations/telephony/inbound). So a deployment on a laptop or inside a private network works as long as the tunnel is up:
+
+```bash
+docker compose --profile tunnel up -d cloudflared
+```
+
+With neither a public address nor a tunnel, the export is refused and the run's annotations carry Roark's message that the recording URL is not accessible.
 
 The download URL is unauthenticated but unguessable: it carries the run's public access token, the same token QA and webhook exports use, and re-signs storage access on each request so it does not expire.
 

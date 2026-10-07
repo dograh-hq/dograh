@@ -32,10 +32,11 @@ _WEB_MODES = {
 # separate chat resource. Runs in this mode are skipped rather than exported.
 TEXT_MODES = {WorkflowRunMode.TEXTCHAT.value, WorkflowRunMode.CHAT.value}
 
-# Dograh's end-of-call reason -> Roark's `endedStatus`. Reasons with no honest
-# Roark equivalent are left out on purpose: `endedStatus` is omitted rather
-# than guessed, and the raw Dograh value always ships as a call property.
-_ENDED_STATUS_BY_DISPOSITION = {
+# Dograh's observed termination mechanism (`gathered_context["call_status"]`)
+# -> Roark's `endedStatus`. Reasons with no honest Roark equivalent are left
+# out on purpose: `endedStatus` is omitted rather than guessed, and the raw
+# Dograh values always ship as call properties.
+_ENDED_STATUS_BY_TERMINATION = {
     EndTaskReason.CALL_DURATION_EXCEEDED.value: "MAX_DURATION_REACHED",
     EndTaskReason.CALL_TRANSFERRED.value: "AGENT_TRANSFERRED_CALL",
     EndTaskReason.TRANSFER_CALL.value: "AGENT_TRANSFERRED_CALL",
@@ -56,7 +57,9 @@ CUSTOMER_LABEL = "Customer"
 _MIN_OFFSET_MS = 0
 
 # Gathered-context keys that already ship as their own call property.
-_DISPOSITION_CONTEXT_KEYS = frozenset({"call_disposition", "mapped_call_disposition"})
+_OWN_PROPERTY_CONTEXT_KEYS = frozenset(
+    {"call_status", "call_disposition", "mapped_call_disposition"}
+)
 
 
 def mode_to_interface_type(mode: str | None) -> str:
@@ -69,11 +72,37 @@ def call_type_to_direction(call_type: str | None) -> str:
     return "INBOUND" if call_type == CallType.INBOUND.value else "OUTBOUND"
 
 
-def disposition_to_ended_status(disposition: str | None) -> str | None:
-    """Roark's `endedStatus`, or None when Dograh's reason has no equivalent."""
-    if not disposition:
+def termination_to_ended_status(reason: str | None) -> str | None:
+    """Roark's `endedStatus` for one Dograh termination reason.
+
+    None when Dograh's reason has no honest Roark equivalent.
+    """
+    if not reason:
         return None
-    return _ENDED_STATUS_BY_DISPOSITION.get(disposition)
+    return _ENDED_STATUS_BY_TERMINATION.get(reason)
+
+
+def ended_status_from_context(gathered_context: dict[str, Any]) -> str | None:
+    """Roark's `endedStatus` for a finished run.
+
+    `call_status` is the mechanism Dograh observed the call end by, and is the
+    only field that always holds one: `call_disposition` starts as a copy of it
+    but an end-call tool, a transfer or disposition extraction replaces it with
+    a business outcome (`appointment_confirmed`), which is not a hangup reason
+    and has no `endedStatus` at all. Reading the disposition would therefore
+    drop the termination reason from exactly the calls that have an outcome
+    worth reporting.
+
+    `call_status` is read even when it has no mapping, rather than falling back
+    to the disposition: a disposition that differs from the status is a business
+    outcome by construction, so a fallback could only ever guess. Runs that
+    finished before Dograh recorded `call_status` carry the mechanism in
+    `call_disposition`, and those are read from there.
+    """
+    status = gathered_context.get("call_status")
+    if status:
+        return termination_to_ended_status(status)
+    return termination_to_ended_status(gathered_context.get("call_disposition"))
 
 
 def parse_event_timestamp(value: Any) -> datetime | None:
@@ -374,6 +403,11 @@ def build_properties(
     if getattr(workflow_run, "campaign_id", None) is not None:
         properties["dograh_campaign_id"] = workflow_run.campaign_id
 
+    # Both ship: `call_status` is how the call ended, `call_disposition` is
+    # what came of it, and a report needs to group on either.
+    call_status = gathered_context.get("call_status")
+    if call_status:
+        properties["dograh_call_status"] = call_status
     disposition = gathered_context.get("call_disposition")
     if disposition:
         properties["dograh_call_disposition"] = disposition
@@ -383,9 +417,10 @@ def build_properties(
 
     if include_gathered_context:
         for key, value in gathered_context.items():
-            # Both dispositions already ship above under their own names; a
-            # prefixed copy would only be a second column holding the same value.
-            if key in _DISPOSITION_CONTEXT_KEYS:
+            # The status and both dispositions already ship above under their
+            # own names; a prefixed copy would only be a second column holding
+            # the same value.
+            if key in _OWN_PROPERTY_CONTEXT_KEYS:
                 continue
             properties[f"dograh_context_{key}"] = value
 
@@ -432,7 +467,7 @@ def build_call_payload(
         "externalId": f"dograh-run-{workflow_run.id}",
     }
 
-    ended_status = disposition_to_ended_status(gathered_context.get("call_disposition"))
+    ended_status = ended_status_from_context(gathered_context)
     if ended_status:
         payload["endedStatus"] = ended_status
 

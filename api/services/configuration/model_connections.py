@@ -24,7 +24,12 @@ from api.schemas.model_connections import (
     ModelConfigurationSpec,
 )
 from api.services.configuration.check_validity import UserConfigurationValidator
-from api.services.configuration.registry import REGISTRY, ServiceType
+from api.services.configuration.registry import (
+    REGISTRY,
+    ServiceType,
+    get_provider_definition,
+    get_service_configuration,
+)
 from api.utils.url_security import validate_user_configured_service_url
 
 ROLES = ("llm", "stt", "tts", "realtime", "embeddings")
@@ -46,8 +51,14 @@ def _provider(value):
     return str(getattr(value, "value", value))
 
 
+def connection_provider(provider):
+    provider = _provider(provider)
+    definition = get_provider_definition(provider)
+    return definition.id if definition else provider
+
+
 def _schema(role, provider):
-    schema = REGISTRY[ServiceType[role.upper()]].get(provider)
+    schema = get_service_configuration(ServiceType[role.upper()], _provider(provider))
     if schema is None:
         raise _invalid(f"Provider does not support {role}")
     return schema
@@ -87,8 +98,9 @@ def model_connection_catalog():
     services = {}
     for role in ROLES:
         providers = {}
-        for provider, cls in REGISTRY[ServiceType[role.upper()]].items():
+        for cls in REGISTRY[ServiceType[role.upper()]].values():
             schema = cls.model_json_schema(mode="validation")
+            provider = cls.provider_definition
             properties = schema.get("properties", {})
             required = schema.get("required", [])
             settings = {
@@ -96,8 +108,8 @@ def model_connection_catalog():
                 for key, value in properties.items()
                 if key not in CREDENTIAL_FIELDS | CONNECTION_FIELDS | {"provider"}
             }
-            providers[_provider(provider)] = {
-                "title": schema.get("title", _provider(provider)),
+            providers[provider.id] = {
+                "title": provider.title,
                 "credential_fields": {
                     key: value
                     for key, value in properties.items()
@@ -147,8 +159,12 @@ def _validate_connection_urls(connection_settings):
 def validate_provider_connection(provider, credentials, connection_settings):
     """A connection must locally validate for at least one registered service."""
     _validate_connection_urls(connection_settings)
+    provider = connection_provider(provider)
     schemas = [
-        mapping[provider] for mapping in REGISTRY.values() if provider in mapping
+        schema
+        for mapping in REGISTRY.values()
+        for schema in mapping.values()
+        if schema.provider_definition.id == provider
     ]
     if not schemas:
         raise _invalid("Unknown provider")
@@ -172,7 +188,9 @@ def validate_provider_connection(provider, credentials, connection_settings):
             if key in schema.model_fields
         }
         try:
-            service = schema.model_validate({**payload, "provider": provider})
+            service = schema.model_validate(
+                {**payload, "provider": schema.model_fields["provider"].default}
+            )
             _check_required_credentials(service)
             return service
         except (ValidationError, HTTPException):
@@ -338,10 +356,9 @@ async def _apply_model_patch(config, patch, get_connection):
         if new_uuid and new_uuid != old_uuid:
             new_connection = await get_connection(new_uuid)
             old_connection = await get_connection(old_uuid) if old_uuid else None
-            if (
-                old_connection is None
-                or old_connection.provider != new_connection.provider
-            ):
+            if old_connection is None or connection_provider(
+                old_connection.provider
+            ) != connection_provider(new_connection.provider):
                 settings = {}
         settings.update(selection.get("settings", {}))
         config[role] = {"provider_connection_uuid": new_uuid, "settings": settings}
@@ -600,7 +617,9 @@ def _build_service(role, provider, credentials, connection_settings, settings):
         if key in schema.model_fields
     }
     try:
-        service = schema.model_validate({**payload, **settings, "provider": provider})
+        service = schema.model_validate(
+            {**payload, **settings, "provider": schema.model_fields["provider"].default}
+        )
         _check_required_credentials(service)
         return service
     except ValidationError as exc:
@@ -625,7 +644,8 @@ async def hydrate_model_configuration_snapshot(organization_id, snapshot):
                 organization_id, uuid, active_only=False
             )
         row = connections[uuid]
-        if row.provider != selection["provider"]:
+        runtime_provider = _schema(role, row.provider).model_fields["provider"].default
+        if runtime_provider != selection["provider"]:
             raise _invalid("Prepared provider does not match connection")
         credentials = deepcopy(row.credentials)
         index = selection.get("api_key_index")

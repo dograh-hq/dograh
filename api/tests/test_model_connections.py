@@ -8,7 +8,10 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from api.schemas.model_connections import ModelConfigurationOverride
+from api.schemas.model_connections import (
+    ModelConfigurationOverride,
+    PreCallModelOverride,
+)
 from api.services.configuration import model_connections as service
 
 
@@ -354,6 +357,123 @@ def test_catalog_separates_credentials_connection_and_model_fields():
     assert "api_key" not in entry["settings_schema"]["properties"]
 
 
+@pytest.mark.parametrize(
+    "provider,title,role",
+    [
+        ("openai", "OpenAI", "llm"),
+        ("google", "Google", "llm"),
+        ("google_vertex", "Google Vertex", "llm"),
+    ],
+)
+def test_catalog_shares_provider_identity_across_standard_and_realtime(
+    provider, title, role
+):
+    services = service.model_connection_catalog()["services"]
+    assert services[role][provider]["title"] == title
+    assert services["realtime"][provider]["title"] == title
+    assert (
+        services[role][provider]["settings_schema"]
+        != services["realtime"][provider]["settings_schema"]
+    )
+    assert not any(
+        key in {"openai_realtime", "google_realtime", "google_vertex_realtime"}
+        for providers in services.values()
+        for key in providers
+    )
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize(
+    "provider,realtime_provider,connection_settings",
+    [
+        ("openai", "openai_realtime", {}),
+        ("google", "google_realtime", {}),
+        ("google_vertex", "google_vertex_realtime", {"project_id": "project"}),
+    ],
+)
+@pytest.mark.asyncio
+async def test_one_account_runs_standard_and_realtime_with_pinned_credentials(
+    catalog, provider, realtime_provider, connection_settings, legacy
+):
+    row = connection(realtime_provider if legacy else provider, keys=["one", "two"])
+    row.connection_settings = connection_settings
+    catalog(
+        row,
+        default=True,
+        configuration={
+            "version": 3,
+            "mode": "realtime",
+            "llm": selection(row),
+            "realtime": selection(row),
+        },
+    )
+    resolved = await service.resolve_model_configuration(1)
+    assert resolved.effective.llm.provider == provider
+    assert resolved.effective.realtime.provider == realtime_provider
+    assert resolved.effective.llm.api_key == resolved.effective.realtime.api_key
+    assert resolved.snapshot["services"]["realtime"]["provider"] == realtime_provider
+
+    # A pre-call settings override keeps the shared account and realtime pin.
+    patched = await service.resolve_pre_call_model_configuration(
+        1,
+        resolved.snapshot,
+        resolved.effective,
+        PreCallModelOverride(llm={"settings": {"temperature": 0.3}}),
+    )
+    assert patched.effective.llm.temperature == 0.3
+    assert patched.effective.realtime == resolved.effective.realtime
+
+    row.credentials["api_key"] = ["rotated-one", "rotated-two"]
+    row.is_active = False
+    hydrated = await service.hydrate_model_configuration_snapshot(1, resolved.snapshot)
+    assert hydrated.llm.provider == provider
+    assert hydrated.realtime.provider == realtime_provider
+    assert hydrated.llm.api_key == hydrated.realtime.api_key
+    assert hydrated.realtime.api_key.startswith("rotated-")
+
+
+@pytest.mark.asyncio
+async def test_legacy_realtime_connection_switch_preserves_same_account_settings(
+    catalog,
+):
+    old = connection("openai_realtime")
+    catalog(
+        old,
+        default=True,
+        configuration={
+            "version": 3,
+            "mode": "realtime",
+            "llm": selection(old),
+            "realtime": selection(old, voice="cedar"),
+        },
+    )
+    new = catalog(connection("openai"))
+    resolved = await service.resolve_model_configuration(
+        1, api_override={"realtime": {"provider_connection_uuid": new.uuid}}
+    )
+    assert resolved.effective.realtime.voice == "cedar"
+
+
+@pytest.mark.parametrize("provider", ["openai", "google_realtime"])
+@pytest.mark.asyncio
+async def test_snapshot_still_rejects_a_different_runtime_provider(catalog, provider):
+    row = connection("openai")
+    catalog(
+        row,
+        default=True,
+        configuration={
+            "version": 3,
+            "mode": "realtime",
+            "llm": selection(row),
+            "realtime": selection(row),
+        },
+    )
+    resolved = await service.resolve_model_configuration(1)
+    resolved.snapshot["services"]["realtime"]["provider"] = provider
+    with pytest.raises(HTTPException, match="Prepared provider does not match"):
+        await service.hydrate_model_configuration_snapshot(1, resolved.snapshot)
+
+
 def test_connection_validation_is_local_and_rejects_unknown_credentials():
     service.validate_provider_connection("dograh", {"api_key": ["one", "two"]}, {})
     with pytest.raises(HTTPException):
@@ -407,8 +527,19 @@ async def test_embedding_index_compatibility_checks_only_selected_documents(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider,expected_provider",
+    [
+        ("dograh", "dograh"),
+        ("openai_realtime", "openai"),
+        ("google_realtime", "google"),
+        ("google_vertex_realtime", "google_vertex"),
+    ],
+)
 async def test_http_connection_responses_and_errors_never_return_credentials(
     monkeypatch,
+    provider,
+    expected_provider,
 ):
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient
@@ -416,8 +547,8 @@ async def test_http_connection_responses_and_errors_never_return_credentials(
     from api.routes.model_connections import router
     from api.services.auth.depends import get_user_with_selected_organization
 
-    row = connection(keys="private-secret")
-    row.name = "Dograh"
+    row = connection(provider, keys="private-secret")
+    row.name = "Production account"
     monkeypatch.setattr(
         service.db_client, "list_provider_connections", AsyncMock(return_value=[row])
     )
@@ -431,6 +562,7 @@ async def test_http_connection_responses_and_errors_never_return_credentials(
     ) as client:
         response = await client.get("/model-connections/provider-connections")
         assert response.status_code == 200
+        assert response.json()[0]["provider"] == expected_provider
         assert response.json()[0]["configured_credentials"] == ["api_key"]
         assert "private-secret" not in response.text
         response = await client.patch(
@@ -439,6 +571,49 @@ async def test_http_connection_responses_and_errors_never_return_credentials(
         )
         assert response.status_code == 422
         assert "private-secret" not in response.text
+
+
+@pytest.mark.parametrize(
+    "provider,expected_provider",
+    [
+        ("openai", "openai"),
+        ("openai_realtime", "openai"),
+        ("google_realtime", "google"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_creating_connections_stores_account_identity(
+    monkeypatch, provider, expected_provider
+):
+    from unittest.mock import Mock
+
+    from api.routes.model_connections import create_connection
+    from api.schemas.model_connections import ProviderConnectionCreate
+
+    row = connection(expected_provider)
+    row.name = "Production account"
+    create = AsyncMock(return_value=row)
+    validate = Mock()
+    monkeypatch.setattr(service.db_client, "create_provider_connection", create)
+    monkeypatch.setattr(
+        service.UserConfigurationValidator, "validate_connection", validate
+    )
+    response = await create_connection(
+        ProviderConnectionCreate(
+            name=row.name, provider=provider, credentials={"api_key": "secret"}
+        ),
+        SimpleNamespace(selected_organization_id=1, provider_id="user"),
+    )
+    assert response.provider == expected_provider
+    create.assert_awaited_once_with(
+        1,
+        name=row.name,
+        provider=expected_provider,
+        credentials={"api_key": "secret"},
+        connection_settings={},
+    )
+    validate.assert_called_once()
+    assert validate.call_args.args[0].provider == expected_provider
 
 
 def fallback_rule(row, condition=None, **settings):

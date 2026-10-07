@@ -62,6 +62,29 @@ async def build_recording_url(context: IntegrationCompletionContext) -> str | No
     )
 
 
+def describe_validation_failure(exc: Exception) -> str:
+    """Why a node failed validation, without quoting what it contained.
+
+    Stringifying a pydantic error embeds the offending input, and for a
+    model-level validator that input is the whole node, including
+    ``roark_api_key``. Only the field and the message are reported, so a
+    misconfigured node cannot put a customer's key in the logs.
+    """
+    errors = getattr(exc, "errors", None)
+    if not callable(errors):
+        return type(exc).__name__
+    try:
+        reported = errors()
+    except Exception:
+        return type(exc).__name__
+
+    parts = []
+    for error in reported:
+        field = ".".join(str(part) for part in error.get("loc") or ()) or "node"
+        parts.append(f"{field}: {error.get('msg', 'invalid')}")
+    return "; ".join(parts) or type(exc).__name__
+
+
 async def run_completion(
     nodes: list[dict[str, Any]],
     context: IntegrationCompletionContext,
@@ -77,7 +100,11 @@ async def run_completion(
         try:
             roark_data = RoarkNodeData.model_validate(node.get("data", {}))
         except Exception as exc:
-            logger.warning(f"Roark node #{node_id} failed validation, skipping: {exc}")
+            logger.warning(
+                "Roark node #{} failed validation, skipping: {}",
+                node_id,
+                describe_validation_failure(exc),
+            )
             results[result_key] = {"error": "validation_failed"}
             continue
 

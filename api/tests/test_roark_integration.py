@@ -15,7 +15,11 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from api.services.configuration.masking import mask_key, mask_workflow_definition
+from api.services.configuration.masking import (
+    mask_key,
+    mask_workflow_definition,
+    merge_workflow_api_keys,
+)
 from api.services.integrations.base import IntegrationCompletionContext
 from api.services.integrations.registry import (
     get_node_registration,
@@ -28,6 +32,7 @@ from api.services.integrations.roark.client import (
 )
 from api.services.integrations.roark.completion import (
     build_recording_url,
+    describe_validation_failure,
     run_completion,
 )
 from api.services.integrations.roark.node import RoarkNodeData
@@ -240,6 +245,28 @@ def test_masks_roark_api_key():
     masked_key = masked["nodes"][0]["data"]["roark_api_key"]
     assert masked_key == mask_key(real_key)
     assert masked_key.endswith("mnop")
+
+
+def test_saving_a_masked_key_keeps_the_stored_one():
+    """The editor shows the key masked. Saving the node without retyping it
+    sends the mask back, and that must not overwrite the real key with asterisks
+    and silently break every later export."""
+    real_key = "rk_live_abcdefghijklmnop"
+    stored = {"nodes": [_roark_node(api_key=real_key)]}
+    from_editor = mask_workflow_definition(stored)
+
+    merged = merge_workflow_api_keys(from_editor, stored)
+
+    assert merged["nodes"][0]["data"]["roark_api_key"] == real_key
+
+
+def test_saving_a_newly_typed_key_replaces_the_stored_one():
+    stored = {"nodes": [_roark_node(api_key="rk_live_old_key_value")]}
+    from_editor = {"nodes": [_roark_node(api_key="rk_live_brand_new_key")]}
+
+    merged = merge_workflow_api_keys(from_editor, stored)
+
+    assert merged["nodes"][0]["data"]["roark_api_key"] == "rk_live_brand_new_key"
 
 
 # ───────────────────────────── field mapping ──────────────────────────────
@@ -776,6 +803,51 @@ async def test_completion_skips_a_disabled_node():
     delivery.assert_not_awaited()
 
 
+def test_a_validation_failure_is_described_without_quoting_the_node():
+    """A node that fails the model-level validator must not put its API key in
+    the logs. Stringifying the pydantic error embeds the whole input, which for
+    a model-level error is the node itself."""
+    secret = "rk_live_leakme"
+    try:
+        RoarkNodeData.model_validate(
+            {"name": "Roark", "roark_enabled": True, "roark_api_key": secret}
+        )
+        raise AssertionError("expected the node to fail validation")
+    except Exception as exc:
+        assert secret in str(exc), "fixture no longer reproduces the leak"
+        described = describe_validation_failure(exc)
+
+    assert secret not in described
+    # still says enough to fix the node
+    assert "roark_agent_name" in described
+
+
+def test_a_validation_failure_names_the_offending_field():
+    try:
+        RoarkNodeData.model_validate(
+            {
+                "name": "Roark",
+                "roark_enabled": True,
+                "roark_api_key": "rk_live_x",
+                "roark_agent_name": "A",
+                "roark_send_transcript": "not-a-boolean",
+            }
+        )
+        raise AssertionError("expected the node to fail validation")
+    except Exception as exc:
+        described = describe_validation_failure(exc)
+
+    assert described.startswith("roark_send_transcript:")
+    assert "not-a-boolean" not in described
+
+
+def test_a_non_pydantic_failure_is_reported_by_type_alone():
+    assert (
+        describe_validation_failure(ValueError("rk_live_secret in here"))
+        == "ValueError"
+    )
+
+
 async def test_completion_records_a_validation_failure():
     bad_node = {"id": "roark-1", "type": "roark", "data": {"name": "Roark"}}
 
@@ -907,9 +979,14 @@ async def test_create_call_raises_with_roarks_own_message():
     assert excinfo.value.detail == "recordingUrl is required"
 
 
-async def test_create_call_falls_back_to_the_body_when_there_is_no_message():
+async def test_an_unreadable_error_body_is_not_echoed():
+    """The request carries a transcript and a caller's number. A gateway that
+    reflects the request back must not put either in the logs or the run's
+    annotations."""
+    echoed = "transcript: my name is Ada and my number is +14155550123"
+
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(502, text="upstream unavailable")
+        return httpx.Response(502, text=echoed)
 
     with _roark_http(handler):
         with pytest.raises(RoarkDeliveryError) as excinfo:
@@ -920,8 +997,9 @@ async def test_create_call_falls_back_to_the_body_when_there_is_no_message():
                 {"externalId": "dograh-run-1"},
             )
 
-    assert excinfo.value.status_code == 502
-    assert "upstream unavailable" in excinfo.value.detail
+    assert "Ada" not in excinfo.value.detail
+    assert "+14155550123" not in excinfo.value.detail
+    assert "502" in excinfo.value.detail
 
 
 def test_delivery_config_rejects_a_blank_api_key():

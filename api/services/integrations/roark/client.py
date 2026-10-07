@@ -11,9 +11,11 @@ from pydantic import BaseModel, field_validator
 # post-call exports in this package.
 _REQUEST_TIMEOUT_SECONDS = 10
 
-# How much of an error body to log. Roark returns a readable `message`, and the
-# whole body can carry the echoed-back request.
-_ERROR_BODY_CHARS = 400
+# Roark reports a refusal as `{"code": ..., "message": ...}`, and that message is
+# the only part of a response body this integration repeats. An arbitrary body is
+# never echoed: the request carries a transcript and a caller's number, so a
+# gateway that reflects it back would otherwise put both in the logs and in the
+# run's annotations.
 
 
 class RoarkDeliveryError(Exception):
@@ -109,4 +111,5 @@ def _error_detail(response: httpx.Response) -> str:
         message = body.get("message") or body.get("detail")
         if isinstance(message, str) and message:
             return message
-    return response.text[:_ERROR_BODY_CHARS]
+    # Not something Roark produced: a proxy or gateway answered instead.
+    return f"Roark returned an unreadable {response.status_code} response"

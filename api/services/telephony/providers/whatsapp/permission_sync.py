@@ -1,4 +1,3 @@
-import inspect
 """WhatsApp call-permission orchestration for campaigns.
 
 Meta gates business-initiated calls on the recipient's consent, so a campaign
@@ -16,6 +15,7 @@ Entry points:
   * ``sync_all_parked_whatsapp_permissions`` - the cron sweep over campaigns.
 """
 
+import inspect
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -283,9 +283,9 @@ async def reactivate_campaign_runs_for_recipient(
             return failed
     except Exception as e:
         logger.warning(
-        logger.warning(f"[WhatsApp] Error reactivating queued runs on permission change for {clean_phone}: {e}")
+            f"[WhatsApp] Error reactivating queued runs on permission change for {clean_phone}: {e}"
         )
-    return 0
+        return 0
 
 
 @dataclass(frozen=True)

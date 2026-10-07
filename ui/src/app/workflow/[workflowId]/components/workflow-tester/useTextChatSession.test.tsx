@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { StreamTextChatMessageResponse, WorkflowRunTextSessionResponse } from "@/client/types.gen";
 
@@ -7,12 +7,13 @@ import type { TextChatSession, TextChatTurn } from "./types";
 import { useTextChatSession } from "./useTextChatSession";
 
 const mocks = vi.hoisted(() => ({
-    create: vi.fn(), message: vi.fn(), get: vi.fn(), rewind: vi.fn(), end: vi.fn(), error: vi.fn(),
+    create: vi.fn(), message: vi.fn(), get: vi.fn(), recover: vi.fn(), rewind: vi.fn(), end: vi.fn(), error: vi.fn(),
 }));
 vi.mock("@/client/sdk.gen", () => ({
     streamTextChatSession: mocks.create,
     streamTextChatMessage: mocks.message,
     getTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGet: mocks.get,
+    recoverTextChatSession: mocks.recover,
     rewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPost: mocks.rewind,
     endTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPost: mocks.end,
 }));
@@ -75,8 +76,59 @@ beforeEach(() => {
     vi.resetAllMocks();
     mocks.create.mockImplementation(async () => ({ stream: completeSession() }));
 });
+afterEach(() => vi.unstubAllGlobals());
 
 describe("streaming Test Chat", () => {
+    it("recovers by the client request ID when even the response headers are lost", async () => {
+        mocks.create.mockRejectedValue(new Error("Connection lost"));
+        mocks.recover.mockResolvedValueOnce({ data: null }).mockResolvedValue({ data: initial });
+        const { result } = renderHook(() => useTextChatSession({ workflowId: 3, ready: true, disabled: false }));
+        act(() => result.current.startSession());
+        await waitFor(() => expect(mocks.recover).toHaveBeenCalledTimes(1));
+        expect(result.current.creatingSession).toBe(true);
+        expect(result.current.inputDisabled).toBe(true);
+        await waitFor(() => expect(result.current.session?.revision).toBe(2), { timeout: 2500 });
+        expect(mocks.create).toHaveBeenCalledTimes(1);
+        expect(mocks.recover.mock.calls[0][0].path).toEqual({
+            workflow_id: 3, request_id: mocks.create.mock.calls[0][0].body.request_id,
+        });
+    });
+
+    it("allows a fresh start after creation was explicitly rejected", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 402 })));
+        mocks.create.mockImplementation(async (options) => {
+            await options.fetch("https://api.test/session");
+            throw new Error("SSE failed: 402");
+        });
+        const { result } = renderHook(() => useTextChatSession({ workflowId: 3, ready: true, disabled: false }));
+        act(() => result.current.startSession());
+        await waitFor(() => expect(result.current.started).toBe(false));
+        expect(mocks.recover).not.toHaveBeenCalled();
+        expect(mocks.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("recovers initialization by the response run ID before receiving any SSE event", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, {
+            headers: { "X-Workflow-Run-Id": "42" },
+        })));
+        mocks.create.mockImplementation(async (options) => {
+            await options.fetch("https://api.test/session");
+            return { stream: (async function* () {
+                throw new Error("Disconnected before the first event");
+            })() };
+        });
+        mocks.get.mockRejectedValueOnce(new Error("Offline"))
+            .mockResolvedValue({ data: initial });
+        const { result } = renderHook(() => useTextChatSession({ workflowId: 3, ready: true, disabled: false }));
+        act(() => result.current.startSession());
+        await waitFor(() => expect(result.current.session?.revision).toBe(2));
+        expect(result.current.started).toBe(true);
+        expect(result.current.creatingSession).toBe(false);
+        expect(mocks.create).toHaveBeenCalledTimes(1);
+        expect(mocks.get).toHaveBeenCalledTimes(2);
+        expect(mocks.get.mock.calls[0][0].path).toEqual({ workflow_id: 3, run_id: 42 });
+    });
+
     it("shows the announcement while the tool is pending and reconciles without duplicates", async () => {
         const tool = deferred();
         async function* messages(): AsyncGenerator<StreamTextChatMessageResponse> {
@@ -127,7 +179,21 @@ describe("streaming Test Chat", () => {
             yield { type: "complete", session: apiSession(completed) };
         })() }));
         mocks.rewind.mockResolvedValue({ data: { ...initial, revision: 10 } });
-        mocks.message.mockImplementation(async () => ({ stream: completeSession() }));
+        const edited = {
+            ...completed, revision: 12,
+            session_data: { ...completed.session_data, turns: [greeting, {
+                ...turn("edited-turn", "Edited check"), events: [speech("Updated result.")],
+            }] },
+        };
+        mocks.message.mockImplementation(async () => ({ stream: (async function* () {
+            yield { type: "session", session: apiSession({
+                ...edited, revision: 11,
+                session_data: { ...edited.session_data, status: "pending_assistant_turn", turns: [greeting, {
+                    ...turn("edited-turn", "Edited check"), status: "pending",
+                }] },
+            }) };
+            yield { type: "complete", session: apiSession(edited) };
+        })() }));
         const { result } = renderHook(() => useTextChatSession({ workflowId: 3, ready: true, disabled: false }));
         act(() => result.current.startSession());
         await waitFor(() => expect(result.current.creatingSession).toBe(false));
@@ -137,6 +203,11 @@ describe("streaming Test Chat", () => {
         await act(async () => { await result.current.submitComposer(); });
         expect(mocks.message.mock.calls[0][0].body).toEqual({ text: "Edited check", expected_revision: 10 });
         expect(result.current.editingTurnId).toBeNull();
+        expect(result.current.session?.revision).toBe(12);
+        expect(result.current.turns).toEqual(edited.session_data.turns);
+        expect(messageTexts(result.current.conversationItems)).toEqual(["Welcome.", "Edited check", "Updated result."]);
+        expect(result.current.draft).toBe("");
+        expect(result.current.sendingMessage).toBe(false);
     });
 
     it("waits for authentication readiness before opening a stream", async () => {

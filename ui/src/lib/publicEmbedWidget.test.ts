@@ -356,25 +356,50 @@ describe('public embed widget chat lifecycle', () => {
     });
 
 
-    it('keeps the composer disabled if reconnect fails, then retries only GET', async () => {
+    it.each([false, true])('restores a lost draft only when GET confirms no accepted turn (accepted=%s)', async (accepted) => {
+        const fetchMock = createFetchMock(false);
+        const widget = await loadWidget(fetchMock);
+        await widget.startChat();
+        fetchMock.mockRejectedValueOnce(new Error('Connection dropped before an SSE event'));
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(accepted ? {
+            ...initialSession, revision: 4, turns: [{ id: 'turn1', status: 'completed',
+                user_message: { text: 'Look it up' }, assistant_messages: [{ text: 'Done.' }] }],
+        } : initialSession)));
+        const input = document.querySelector<HTMLTextAreaElement>('.dograh-chat-input')!;
+        input.value = 'Look it up';
+        input.dispatchEvent(new Event('input'));
+        document.querySelector<HTMLButtonElement>('.dograh-chat-send')!.click();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(input.value).toBe(accepted ? '' : 'Look it up');
+        expect(widget.getState().chat.status).toBe('ready');
+        if (!accepted) expect(document.querySelector('.dograh-chat-banner')?.textContent).toContain('Message not sent');
+        expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/messages/stream'))).toHaveLength(1);
+    });
+
+    it.each([false, true])('retains the submitted draft through failed recovery reads (accepted=%s)', async (accepted) => {
         const fetchMock = createFetchMock(false);
         const widget = await loadWidget(fetchMock);
         await widget.startChat();
         fetchMock.mockRejectedValueOnce(new Error('Connection dropped'));
         for (let i = 0; i < 3; i += 1) fetchMock.mockRejectedValueOnce(new Error('Offline'));
-        const sending = widget.sendMessage('Look it up');
+        const input = document.querySelector<HTMLTextAreaElement>('.dograh-chat-input')!;
+        input.value = 'Look it up';
+        input.dispatchEvent(new Event('input'));
+        document.querySelector<HTMLButtonElement>('.dograh-chat-send')!.click();
         await vi.advanceTimersByTimeAsync(2000);
-        await sending;
         expect(widget.getState().chat.status).toBe('recovering');
         expect(document.querySelector<HTMLButtonElement>('.dograh-chat-send')?.disabled).toBe(true);
         await widget.sendMessage('Do it again');
         await widget.endChat();
         expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/messages/stream'))).toHaveLength(1);
         expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/end'))).toBe(false);
-        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...initialSession, revision: 4, turns: [{ id: 'turn1', status: 'completed', assistant_messages: [{ text: 'Done.' }] }] })));
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(accepted
+            ? { ...initialSession, revision: 4, turns: [{ id: 'turn1', status: 'completed', assistant_messages: [{ text: 'Done.' }] }] }
+            : initialSession)));
         await widget.startChat();
         expect(widget.getState().chat.status).toBe('ready');
-        expect(document.querySelector('.dograh-chat-bubble--assistant')?.textContent).toBe('Done.');
+        expect(input.value).toBe(accepted ? '' : 'Look it up');
+        if (accepted) expect(document.querySelector('.dograh-chat-bubble--assistant')?.textContent).toBe('Done.');
         expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/messages/stream'))).toHaveLength(1);
     });
 

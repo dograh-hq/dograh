@@ -159,6 +159,7 @@ app.add_middleware(
     allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Workflow-Run-Id"],
 )
 
 

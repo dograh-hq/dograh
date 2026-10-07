@@ -41,6 +41,7 @@
       revision: null,
       turns: [],
       pendingUserText: null, // optimistic bubble while a POST is in flight
+      pendingSubmission: null, // retain text/revision until acceptance is known
       ending: false,
       confirmingEnd: false,
       draft: '',
@@ -1882,6 +1883,7 @@
     state.chat.turns = [];
     state.chat.pendingUserText = null;
     state.chat.ending = false;
+    state.chat.pendingSubmission = null;
     state.chat.confirmingEnd = false;
     state.chat.seenAssistantMessageIds = new Set();
   }
@@ -2047,7 +2049,16 @@
     while (state.sessionToken) {
       if (await resyncChatSession()) {
         failures = 0;
+        const submission = state.chat.pendingSubmission;
+        const notAccepted = submission && state.chat.revision === submission.revision;
+        if (submission) {
+          if (notAccepted) state.chat.draft = submission.text;
+          state.chat.pendingSubmission = null;
+        }
         finishChatResponse();
+        if (notAccepted && state.chat.status === 'ready') {
+          updateChatStatus('ready', 'Message not sent — please try again.');
+        }
         if (state.chat.status !== 'waiting') return true;
       } else if (state.chat.status === 'expired') {
         updateChatStatus('expired');
@@ -2081,6 +2092,7 @@
     }
 
     state.chat.pendingUserText = trimmed;
+    state.chat.pendingSubmission = { text: trimmed, revision: state.chat.revision };
     updateChatStatus('waiting');
 
     try {
@@ -2098,6 +2110,7 @@
 
       if (response.ok) {
         await readChatStream(response);
+        state.chat.pendingSubmission = null;
         finishChatResponse();
         return state.chat.turns;
       }
@@ -2105,6 +2118,7 @@
       state.chat.pendingUserText = null;
 
       if (response.status === 409) {
+        state.chat.pendingSubmission = null;
         state.chat.draft = trimmed;
         await recoverChatSession();
         if (state.chat.status === 'ready') {
@@ -2113,19 +2127,23 @@
         return null;
       }
       if (response.status === 402) {
+        state.chat.pendingSubmission = null;
         updateChatStatus('ended', 'The agent is unavailable right now.');
         return null;
       }
       if (response.status === 429) {
+        state.chat.pendingSubmission = null;
         updateChatStatus('ended', 'Message limit reached for this conversation.');
         return null;
       }
       if (response.status === 403 || response.status === 404) {
+        state.chat.pendingSubmission = null;
         // The 1-hour embed session expired (or the token was deactivated).
         updateChatStatus('expired');
         return null;
       }
       if (response.status === 400) {
+        state.chat.pendingSubmission = null;
         // Conversation completed server-side (e.g. reached an end node).
         updateChatStatus('ended', widgetText('conversationEndedText'));
         return null;

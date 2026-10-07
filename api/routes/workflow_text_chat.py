@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -39,6 +39,10 @@ router = APIRouter(prefix="/workflow", tags=["workflow-text-chat"])
 
 
 class CreateTextChatSessionRequest(BaseModel):
+    request_id: UUID | None = Field(
+        default=None,
+        description="Client correlation ID for recovery if the creation response is lost.",
+    )
     name: str | None = None
     initial_context: dict[str, Any] | None = None
     annotations: dict[str, Any] | None = None
@@ -212,6 +216,8 @@ async def _prepare_text_chat_session(
     }
     if request.annotations:
         annotations = {**annotations, **request.annotations}
+    if request.request_id:
+        annotations["text_chat_request_id"] = str(request.request_id)
     workflow_run = await db_client.update_workflow_run(
         workflow_run.id,
         annotations=annotations,
@@ -262,6 +268,25 @@ async def get_text_chat_session(
 ) -> WorkflowRunTextSessionResponse:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
     return _build_response(text_session)
+
+
+@router.get(
+    "/{workflow_id}/text-chat/sessions/recovery/{request_id}",
+    operation_id="recoverTextChatSession",
+    response_model=WorkflowRunTextSessionResponse | None,
+)
+async def recover_text_chat_session(
+    workflow_id: int,
+    request_id: UUID,
+    user: Annotated[UserModel, Depends(get_user_with_selected_organization)],
+) -> WorkflowRunTextSessionResponse | None:
+    """Find a creation whose response was lost; null means it is not visible yet."""
+    text_session = await db_client.get_workflow_run_text_session_by_request_id(
+        workflow_id=workflow_id,
+        request_id=str(request_id),
+        organization_id=user.selected_organization_id,
+    )
+    return _build_response(text_session) if text_session else None
 
 
 async def _prepare_text_chat_message(
@@ -442,7 +467,13 @@ def _stream_pending_turn_response(
             stream.disconnect()
 
     return TextChatEventStreamResponse(
-        body(), headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+        body(),
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            # Recovery must not depend on receiving the first SSE frame.
+            "X-Workflow-Run-Id": str(text_session.workflow_run_id),
+        },
     )
 
 

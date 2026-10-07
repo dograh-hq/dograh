@@ -1052,6 +1052,12 @@ export type CreateServiceKeyResponse = {
  */
 export type CreateTextChatSessionRequest = {
     /**
+     * Request Id
+     *
+     * Client correlation ID for recovery if the creation response is lost.
+     */
+    request_id?: string | null;
+    /**
      * Name
      */
     name?: string | null;
@@ -8965,6 +8971,56 @@ export type GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetRes
 };
 
 export type GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponse = GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponses[keyof GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponses];
+
+export type RecoverTextChatSessionData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Request Id
+         */
+        request_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions/recovery/{request_id}';
+};
+
+export type RecoverTextChatSessionErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RecoverTextChatSessionError = RecoverTextChatSessionErrors[keyof RecoverTextChatSessionErrors];
+
+export type RecoverTextChatSessionResponses = {
+    /**
+     * Response Recovertextchatsession
+     *
+     * Successful Response
+     */
+    200: WorkflowRunTextSessionResponse | null;
+};
+
+export type RecoverTextChatSessionResponse = RecoverTextChatSessionResponses[keyof RecoverTextChatSessionResponses];
 
 export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostData = {
     body: AppendTextChatMessageRequest;

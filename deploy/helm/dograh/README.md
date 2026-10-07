@@ -47,9 +47,11 @@ TURN traffic: dedicated L4 Service of type `LoadBalancer`.
 These are choices the chart made where `HELM_DEPLOYMENT_PLAN.md` was
 silent. Each is exposed in `values.yaml` for operator override.
 
-- **terminationGracePeriodSeconds for web: 1260s.** Covers a full-length
+- **terminationGracePeriodSeconds for web: 1275s.** Covers a full-length
   (20-minute) call so scale-down / rolling updates drain instead of cutting
-  it; tune to your call-length distribution.
+  it, plus 60s after preStop for bounded text-chat finalization and resource
+  shutdown; tune to your call-length distribution. Unfinished chat turns are
+  marked failed before cancellation so recovery GETs do not remain pending.
 - **preStop active-call drain (scripts/drain_web.sh).** Waits
   `preStopSleepSeconds` (15s) for the gateway to stop dispatching new
   connections, then polls /api/v1/health/active-calls and holds SIGTERM until
@@ -126,7 +128,7 @@ Spot-check expectations:
   `strategy.type: Recreate`.
 - `Deployment/<release>-campaign-orchestrator` has `replicas: 1` and
   `strategy.type: Recreate`.
-- `Deployment/<release>-web` has `terminationGracePeriodSeconds: 1260`
+- `Deployment/<release>-web` has `terminationGracePeriodSeconds: 1275`
   and a `lifecycle.preStop` exec hook running `./scripts/drain_web.sh`.
 - Liveness probe on ari-manager / campaign-orchestrator uses `exec`,
   not `httpGet`.

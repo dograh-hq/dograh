@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
     endTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPost,
     getTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGet,
+    recoverTextChatSession,
     rewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPost,
     streamTextChatMessage,
     streamTextChatSession,
@@ -24,6 +25,7 @@ import {
 import { extractSdkErrorMessage, getErrorMessage, getReplayCursorTurnId } from "./utils";
 
 type StreamOptions = {
+    fetch: typeof fetch;
     signal: AbortSignal;
     sseMaxRetryAttempts: number;
     onSseError: (error: unknown) => void;
@@ -59,6 +61,11 @@ export function useTextChatSession({
     const lastNotifiedNodeTransitionIdRef = useRef<string | null>(null);
     const activeRequest = useRef<AbortController | null>(null);
     const latestSession = useRef<TextChatSession | null>(null);
+    const acceptedRunId = useRef<number | null>(null);
+    const [recoveringRunId, setRecoveringRunId] = useState<number | null>(null);
+    const [recoveringRequestId, setRecoveringRequestId] = useState<string | null>(null);
+    const streamResponseStatus = useRef<number | null>(null);
+    const recovering = recoveringRunId !== null || recoveringRequestId !== null;
     const pendingTurn = session?.session_data.status === "pending_assistant_turn";
     const sessionRunId = session?.workflow_run_id;
 
@@ -78,12 +85,24 @@ export function useTextChatSession({
         if (response.error || !response.data) {
             throw new Error(extractSdkErrorMessage(response.error, "Failed to refresh chat"));
         }
-        updateSession(reconcileTextChatSession(latestSession.current, toTextChatSession(response.data)));
+        const refreshed = toTextChatSession(response.data);
+        updateSession(reconcileTextChatSession(latestSession.current, refreshed));
+        if (refreshed.session_data.status !== "pending_assistant_turn") setRecoveringRunId(null);
     }, [updateSession, workflowId]);
 
     const consumeStream = useCallback(async (open: OpenChatStream, controller: AbortController) => {
         let streamError: unknown;
+        streamResponseStatus.current = null;
         const { stream } = await open({
+            // The generated SDK still builds/authenticates this request. Capture
+            // its response header before the body can fail or end without data.
+            fetch: async (input, init) => {
+                const response = await fetch(input, init);
+                streamResponseStatus.current = response.status;
+                const runId = Number(response.headers.get("X-Workflow-Run-Id"));
+                if (response.ok && Number.isSafeInteger(runId) && runId > 0) acceptedRunId.current = runId;
+                return response;
+            },
             signal: controller.signal,
             // Reconnecting a POST would execute the message's tools again.
             sseMaxRetryAttempts: 1,
@@ -105,16 +124,22 @@ export function useTextChatSession({
         }
     }, [updateSession]);
 
-    const recoverStream = useCallback(async (error: unknown, controller: AbortController) => {
+    const recoverStream = useCallback(async (error: unknown, controller: AbortController, requestId?: string) => {
         if (controller.signal.aborted) return;
         toast.error(getErrorMessage(error));
-        const current = latestSession.current;
-        if (current) {
+        const runId = latestSession.current?.workflow_run_id ?? acceptedRunId.current;
+        if (runId !== null) {
+            setRecoveringRunId(runId);
             try {
-                await refreshSession(current.workflow_run_id, controller.signal);
+                await refreshSession(runId, controller.signal);
             } catch {
                 // A pending turn is polled below until its persisted result is available.
             }
+        } else if (requestId && (streamResponseStatus.current === null || streamResponseStatus.current < 400 || streamResponseStatus.current >= 500)) {
+            // No response does not mean the POST was rejected. Look up the
+            // client correlation ID across workers, even if creation is still
+            // being prepared. Only reads may be retried after an ambiguous POST.
+            setRecoveringRequestId(requestId);
         } else {
             setStarted(false);
         }
@@ -123,12 +148,24 @@ export function useTextChatSession({
     // Once a stream disconnects, recover by reading the accepted turn. Never
     // resubmit it: an HTTP tool may already have performed its side effects.
     useEffect(() => {
-        if (!pendingTurn || sendingMessage || creatingSession || sessionRunId === undefined || !ready) return;
+        const runId = recoveringRunId ?? sessionRunId;
+        if ((!pendingTurn && !recovering) || sendingMessage || creatingSession || !ready) return;
         const controller = new AbortController();
         let timer: ReturnType<typeof setTimeout>;
         const poll = async () => {
             try {
-                await refreshSession(sessionRunId, controller.signal);
+                if (runId !== undefined) {
+                    await refreshSession(runId, controller.signal);
+                } else if (recoveringRequestId) {
+                    const response = await recoverTextChatSession({
+                        path: { workflow_id: workflowId, request_id: recoveringRequestId },
+                        signal: controller.signal,
+                    });
+                    if (!controller.signal.aborted && !response.error && response.data) {
+                        updateSession(toTextChatSession(response.data));
+                        setRecoveringRequestId(null);
+                    }
+                }
             } catch {
                 // Retry only this read when connectivity returns.
             }
@@ -136,7 +173,7 @@ export function useTextChatSession({
         };
         void poll();
         return () => { controller.abort(); clearTimeout(timer); };
-    }, [creatingSession, pendingTurn, ready, refreshSession, sendingMessage, sessionRunId]);
+    }, [creatingSession, pendingTurn, ready, recovering, recoveringRequestId, recoveringRunId, refreshSession, sendingMessage, sessionRunId, updateSession, workflowId]);
 
     const turns = session?.session_data.turns ?? EMPTY_TEXT_CHAT_TURNS;
     const editingTurn = editingTurnId
@@ -150,11 +187,13 @@ export function useTextChatSession({
         const controller = new AbortController();
         activeRequest.current = controller;
         setCreatingSession(true);
+        const requestId = crypto.randomUUID();
         try {
             await consumeStream(options => streamTextChatSession({
                 ...options,
                 path: { workflow_id: workflowId },
                 body: {
+                    request_id: requestId,
                     initial_context: initialContextVariables ?? {},
                     annotations: {
                         tester: { source: "workflow_editor", modality: "text", ui_mode: "manual_text" },
@@ -163,7 +202,7 @@ export function useTextChatSession({
             }), controller);
             if (!controller.signal.aborted) setDraft("");
         } catch (error) {
-            await recoverStream(error, controller);
+            await recoverStream(error, controller, requestId);
         } finally {
             if (activeRequest.current === controller) activeRequest.current = null;
             if (!controller.signal.aborted) setCreatingSession(false);
@@ -171,11 +210,11 @@ export function useTextChatSession({
     }, [consumeStream, disabled, initialContextVariables, ready, recoverStream, workflowId]);
 
     useEffect(() => {
-        if (!started || creatingSession || session || !ready || disabled) {
+        if (!started || creatingSession || recovering || session || !ready || disabled) {
             return;
         }
         void createSession();
-    }, [createSession, creatingSession, disabled, ready, session, started]);
+    }, [createSession, creatingSession, disabled, ready, recovering, session, started]);
 
     useEffect(() => {
         onActiveChange?.(started);
@@ -214,7 +253,7 @@ export function useTextChatSession({
     const submitMessage = useCallback(async (messageText: string, replayOptions?: TurnActionState) => {
         const trimmedText = messageText.trim();
         if (!session || session.is_completed || !trimmedText || !ready || disabled ||
-            endingSession || pendingTurn || activeRequest.current) return;
+            endingSession || pendingTurn || recovering || activeRequest.current) return;
         const controller = new AbortController();
         activeRequest.current = controller;
 
@@ -262,10 +301,10 @@ export function useTextChatSession({
                 setActiveTurnAction(null);
             }
         }
-    }, [consumeStream, disabled, endingSession, pendingTurn, ready, recoverStream, session, updateSession, workflowId]);
+    }, [consumeStream, disabled, endingSession, pendingTurn, ready, recovering, recoverStream, session, updateSession, workflowId]);
 
     const endSession = useCallback(async () => {
-        if (!session || session.is_completed || pendingTurn || activeRequest.current || endingSession) return;
+        if (!session || session.is_completed || pendingTurn || recovering || activeRequest.current || endingSession) return;
 
         setEndingSession(true);
         try {
@@ -287,7 +326,7 @@ export function useTextChatSession({
         } finally {
             setEndingSession(false);
         }
-    }, [endingSession, pendingTurn, session, updateSession, workflowId]);
+    }, [endingSession, pendingTurn, recovering, session, updateSession, workflowId]);
 
     const rewindTurn = useCallback(async (turn: TextChatTurn) => {
         if (!turn.user_message) return;
@@ -328,12 +367,12 @@ export function useTextChatSession({
         turns,
         editingTurn,
         editingTurnId,
-        creatingSession,
-        sendingMessage: sendingMessage || Boolean(pendingTurn),
+        creatingSession: creatingSession || (recovering && !session),
+        sendingMessage: sendingMessage || Boolean(pendingTurn) || recovering,
         endingSession,
         activeTurnAction,
         composerId,
-        inputDisabled: disabled || !ready || !session || session.is_completed || endingSession || Boolean(pendingTurn) || sendingMessage,
+        inputDisabled: disabled || !ready || !session || session.is_completed || endingSession || Boolean(pendingTurn) || sendingMessage || recovering,
         conversationItems,
         setDraft,
         startSession: () => setStarted(true),

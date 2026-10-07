@@ -1,11 +1,12 @@
 import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from api.routes.workflow_text_chat import _stream_pending_turn_response
-from api.services.workflow import text_chat_stream
+from api.services.workflow import text_chat_session_service, text_chat_stream
 from api.services.workflow.text_chat_stream import TextChatTurnStream
 
 
@@ -60,6 +61,7 @@ async def test_stream_delivers_announcement_before_execution_finishes(monkeypatc
         final = await asyncio.wait_for(anext(iterator), timeout=2)
         assert '"type":"complete"' in final
         assert response.headers["x-accel-buffering"] == "no"
+        assert response.headers["x-workflow-run-id"] == "42"
     finally:
         release.set()
         await iterator.aclose()
@@ -110,3 +112,64 @@ async def test_execution_failure_is_a_terminal_stream_event(monkeypatch):
 
 async def _collect(stream):
     return [update async for update in stream]
+
+
+@pytest.mark.asyncio
+async def test_shutdown_allows_a_turn_to_finish_during_grace(monkeypatch):
+    saved = asyncio.Event()
+
+    async def execute(**kwargs):
+        await asyncio.sleep(0)
+        saved.set()
+        return session()
+
+    fail = AsyncMock()
+    monkeypatch.setattr(text_chat_stream, "execute_pending_text_chat_turn", execute)
+    monkeypatch.setattr(text_chat_stream, "_mark_pending_turn_failed", fail)
+    stream = TextChatTurnStream(workflow_id=3, run_id=42, text_session=session())
+    stream.disconnect()
+    await asyncio.wait_for(text_chat_stream.finish_streaming_text_chat_turns(), 2)
+    assert saved.is_set()
+    assert not stream.task.cancelled()
+    fail.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_persists_failure_before_slow_cancellation_cleanup(monkeypatch):
+    started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    saved = AsyncMock()
+    event = {"type": "bot_speech", "payload": {"text": "Checking."}}
+
+    async def execute(**kwargs):
+        kwargs["on_event"](event)
+        started.set()
+        try:
+            await asyncio.wait_for(asyncio.Event().wait(), 5)
+        except asyncio.CancelledError:
+            # Even a blocked tool cleanup cannot keep the session pending.
+            saved.assert_awaited_once()
+            await asyncio.wait_for(release_cleanup.wait(), 5)
+            raise
+
+    monkeypatch.setattr(text_chat_stream, "execute_pending_text_chat_turn", execute)
+    monkeypatch.setattr(
+        text_chat_session_service.db_client, "update_workflow_run_text_session", saved
+    )
+    monkeypatch.setattr(text_chat_stream, "SHUTDOWN_TURN_GRACE_SECONDS", 0)
+    monkeypatch.setattr(text_chat_stream, "SHUTDOWN_CANCEL_SECONDS", 0)
+    stream = TextChatTurnStream(workflow_id=3, run_id=42, text_session=session())
+    stream.disconnect()
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        await asyncio.wait_for(text_chat_stream.finish_streaming_text_chat_turns(), 2)
+        stored = saved.await_args.kwargs["session_data"]
+        assert stored["status"] == "error"
+        assert stored["turns"][-1]["status"] == "failed"
+        assert stored["turns"][-1]["events"][0] == event
+        assert stored["turns"][-1]["events"][-1]["type"] == "execution_error"
+        assert saved.await_args.kwargs["expected_revision"] == 1
+    finally:
+        release_cleanup.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(stream.task, 2)

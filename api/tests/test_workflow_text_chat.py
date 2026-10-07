@@ -3,6 +3,7 @@ import copy
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 import pytest
 from pipecat.processors.aggregators.llm_context import LLMSpecificMessage
@@ -2268,7 +2269,14 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
         suffix="other",
     )
 
+    request_id = str(uuid4())
+    recovery_path = (
+        f"/api/v1/workflow/{workflow.id}/text-chat/sessions/recovery/{request_id}"
+    )
     async with test_client_factory(owner_user) as owner_client:
+        missing = await owner_client.get(recovery_path)
+        assert missing.status_code == 200
+        assert missing.json() is None
         llm = MockLLMService(
             mock_steps=[
                 MockLLMService.create_text_chunks("Hello from the workflow tester.")
@@ -2287,12 +2295,23 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
         ):
             create_response = await owner_client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
-                json={},
+                json={"request_id": request_id},
             )
             assert create_response.status_code == 200
             created = create_response.json()
+        recovered = await owner_client.get(recovery_path)
+        assert recovered.status_code == 200
+        assert recovered.json()["workflow_run_id"] == created["workflow_run_id"]
+
+        wrong_workflow = await owner_client.get(
+            f"/api/v1/workflow/{workflow.id + 1}/text-chat/sessions/recovery/{request_id}"
+        )
+        assert wrong_workflow.json() is None
 
     async with test_client_factory(other_user) as other_client:
+        recovery_response = await other_client.get(recovery_path)
+        assert recovery_response.status_code == 200
+        assert recovery_response.json() is None
         get_response = await other_client.get(
             f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{created['workflow_run_id']}"
         )
@@ -2313,6 +2332,15 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
         ]:
             response = await other_client.post(path, json=body)
             assert response.status_code == 404
+
+    assert (
+        await db_session.get_workflow_run_text_session_by_request_id(
+            workflow_id=workflow.id,
+            request_id=str(uuid4()),
+            organization_id=owner_user.selected_organization_id,
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio

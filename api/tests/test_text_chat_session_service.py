@@ -472,3 +472,32 @@ async def test_failure_preserves_already_streamed_speech(monkeypatch):
     assert stored["status"] == "failed"
     assert stored["events"][0] == event
     assert stored["events"][1]["type"] == "execution_error"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,completed", [("textchat", False), ("web", True)])
+async def test_finalization_handoff_requires_a_completed_text_chat(
+    monkeypatch, mode, completed
+):
+    from api.tasks import arq
+
+    session = SimpleNamespace(
+        workflow_run=SimpleNamespace(mode=mode, is_completed=completed)
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_reload_text_chat_session",
+        AsyncMock(return_value=session),
+    )
+    enqueue = AsyncMock()
+    upload = AsyncMock()
+    monkeypatch.setattr(arq, "enqueue_job", enqueue)
+    monkeypatch.setattr(
+        text_chat_session_service, "_upload_text_chat_transcript", upload
+    )
+
+    assert await text_chat_session_service.hand_off_completed_text_chat(42) is None
+    await text_chat_session_service.finalize_completed_text_chat(42)
+
+    enqueue.assert_not_awaited()
+    upload.assert_not_awaited()

@@ -50,8 +50,15 @@ silent. Each is exposed in `values.yaml` for operator override.
 - **terminationGracePeriodSeconds for web: 1275s.** Covers a full-length
   (20-minute) call so scale-down / rolling updates drain instead of cutting
   it, plus 60s after preStop for bounded text-chat finalization and resource
-  shutdown; tune to your call-length distribution. Unfinished chat turns are
-  marked failed before cancellation so recovery GETs do not remain pending.
+  shutdown; tune to your call-length distribution. Shutdown attempts to mark
+  unfinished chat turns failed before cancellation. If completion already
+  committed, it hands transcript upload and completion enqueue to an ARQ worker
+  before cancelling the local task. Both operations share a 5-second deadline;
+  a failed database write or handoff leaves the local task running for the
+  remaining shutdown window. This is best effort: dependency outages or forced
+  termination can still leave a session pending or interrupt work before handoff.
+  Deploy ARQ workers with `finalize_completed_text_chat` support before updating
+  web instances that can enqueue that job.
 - **preStop active-call drain (scripts/drain_web.sh).** Waits
   `preStopSleepSeconds` (15s) for the gateway to stop dispatching new
   connections, then polls /api/v1/health/active-calls and holds SIGTERM until

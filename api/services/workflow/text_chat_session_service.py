@@ -13,7 +13,7 @@ from api.db.models import WorkflowRunTextSessionModel
 from api.db.workflow_run_text_session_client import (
     WorkflowRunTextSessionRevisionConflictError,
 )
-from api.enums import WorkflowRunState
+from api.enums import WorkflowRunMode, WorkflowRunState
 from api.services.workflow.disposition_mapping import map_disposition
 from api.services.workflow.text_chat_logs import (
     build_text_chat_realtime_feedback_events,
@@ -562,11 +562,12 @@ async def _mark_pending_turn_failed(
     text_session: WorkflowRunTextSessionModel,
     error_message: str,
     events: list[dict[str, Any]] | None = None,
-) -> None:
+) -> bool:
+    """Return whether this caller won the revision-guarded failure write."""
     failed_session_data = normalize_text_chat_session_data(text_session.session_data)
     failed_turns = list(failed_session_data.get("turns") or [])
     if not failed_turns or failed_turns[-1].get("status") != "pending":
-        return
+        return False
 
     failed_turns[-1]["status"] = "failed"
     failed_turns[-1]["events"] = [
@@ -586,7 +587,46 @@ async def _mark_pending_turn_failed(
             expected_revision=text_session.revision,
         )
     except WorkflowRunTextSessionRevisionConflictError:
+        return False
+    return True
+
+
+async def hand_off_completed_text_chat(
+    run_id: int,
+) -> WorkflowRunTextSessionModel | None:
+    """Queue replayable post-commit work before its local owner is cancelled."""
+    text_session = await _reload_text_chat_session(run_id)
+    if (
+        text_session.workflow_run.mode != WorkflowRunMode.TEXTCHAT.value
+        or not text_session.workflow_run.is_completed
+    ):
+        return None
+
+    from api.tasks.arq import enqueue_job
+
+    # An existing job with this ID also owns the work. Its worker reconstructs
+    # the transcript from the committed session, with no in-memory payload.
+    await enqueue_job(
+        FunctionNames.FINALIZE_COMPLETED_TEXT_CHAT,
+        run_id,
+        _job_id=f"text-chat-finalization-{run_id}",
+    )
+    return text_session
+
+
+async def finalize_completed_text_chat(run_id: int) -> None:
+    """Recover a completed run's transcript and deduplicated completion enqueue."""
+    text_session = await _reload_text_chat_session(run_id)
+    if (
+        text_session.workflow_run.mode != WorkflowRunMode.TEXTCHAT.value
+        or not text_session.workflow_run.is_completed
+    ):
         return
+    feedback_events = build_text_chat_realtime_feedback_events(
+        normalize_text_chat_session_data(text_session.session_data)
+    )
+    await _upload_text_chat_transcript(run_id, feedback_events)
+    await _enqueue_text_chat_completion(run_id)
 
 
 async def _enqueue_text_chat_completion(run_id: int) -> None:
@@ -668,6 +708,8 @@ __all__ = [
     "default_text_chat_checkpoint",
     "default_text_chat_session_data",
     "execute_pending_text_chat_turn",
+    "finalize_completed_text_chat",
+    "hand_off_completed_text_chat",
     "initialize_text_chat_session",
     "latest_completed_text_chat_turn_id",
     "normalize_text_chat_checkpoint",

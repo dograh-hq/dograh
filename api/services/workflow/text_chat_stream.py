@@ -17,6 +17,7 @@ from api.db.models import WorkflowRunTextSessionModel
 from api.services.workflow.text_chat_session_service import (
     _mark_pending_turn_failed,
     execute_pending_text_chat_turn,
+    hand_off_completed_text_chat,
 )
 
 # Strong references keep accepted executions alive after their listener disconnects.
@@ -92,24 +93,40 @@ class TextChatTurnStream:
 
     async def interrupt_for_shutdown(self) -> None:
         error = RuntimeError("Chat turn interrupted by server shutdown")
+        update = None
         try:
             # Persist before cancellation: pipeline/tool cleanup can itself take
             # too long. The revision guard prevents overwriting a finished turn
             # and prevents late execution from overwriting this failure.
             async with asyncio.timeout(SHUTDOWN_SAVE_SECONDS):
-                await _mark_pending_turn_failed(
+                failed = await _mark_pending_turn_failed(
                     run_id=self._run_id,
                     text_session=self._text_session,
                     error_message=str(error),
                     events=self._events,
                 )
+                if failed:
+                    update = TextChatStreamUpdate(kind="error", error=error)
+                elif not self.task.done():
+                    # The completion write may have won while transcript upload
+                    # or billing/integration enqueue is still running. Transfer
+                    # that work to ARQ before cancelling its local owner.
+                    completed = await hand_off_completed_text_chat(self._run_id)
+                    if completed is not None:
+                        update = TextChatStreamUpdate(
+                            kind="complete", session=completed
+                        )
         except Exception:
             logger.exception(
-                "Failed to persist shutdown for text chat run {}", self._run_id
+                "Could not persist failure or hand off text chat run {}; leaving its task running",
+                self._run_id,
             )
         finally:
-            self.task.cancel()
-            self._publish(TextChatStreamUpdate(kind="error", error=error))
+            # No successful write/handoff means we do not own cancellation.
+            # In particular, a revision conflict alone proves no such ownership.
+            if update is not None:
+                self.task.cancel()
+                self._publish(update)
 
     async def __aiter__(self) -> AsyncIterator[TextChatStreamUpdate]:
         try:
@@ -138,5 +155,5 @@ async def finish_streaming_text_chat_turns() -> None:
     _, pending = await asyncio.wait(pending, timeout=SHUTDOWN_CANCEL_SECONDS)
     if pending:
         logger.warning(
-            "{} text chat tasks still cleaning up after shutdown", len(pending)
+            "{} text chat tasks still running at the shutdown deadline", len(pending)
         )

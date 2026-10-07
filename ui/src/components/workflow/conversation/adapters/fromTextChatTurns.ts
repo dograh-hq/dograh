@@ -181,27 +181,20 @@ export function conversationItemsFromTextChatTurns(turns: TextChatTurnLike[]) {
                 }
             });
 
-            // Find the first event that matched speech (if any)
-            const firstSpeechEventIndex = eventItems.findIndex((_, idx) => segmentsBeforeEventIndex.has(idx));
-
-            // If there was text before the first speech announcement, it was uttered before any transition events
-            if (firstSpeechEventIndex !== -1) {
-                const initialText = segmentsBeforeEventIndex.get(firstSpeechEventIndex);
-                if (initialText) {
-                    items.push({
-                        kind: "message",
-                        id: `${turn.id}-assistant-initial`,
-                        turnId: turn.id,
-                        timestamp: turn.assistant_message.created_at ?? turn.created_at,
-                        role: "assistant",
-                        text: initialText,
-                    });
-                    segmentsBeforeEventIndex.delete(firstSpeechEventIndex);
+            // If an assistant segment occurred before an announcement, and that announcement
+            // was immediately preceded by a node_transition, the assistant segment was uttered
+            // before the transition occurred (e.g. at the previous node).
+            const segmentBeforeIndexToEmitAt = new Map<number, string>();
+            segmentsBeforeEventIndex.forEach((text, speechIdx) => {
+                let emitIdx = speechIdx;
+                if (speechIdx > 0 && eventItems[speechIdx - 1]?.kind === "node-transition") {
+                    emitIdx = speechIdx - 1;
                 }
-            }
+                segmentBeforeIndexToEmitAt.set(emitIdx, text);
+            });
 
             eventItems.forEach((eventItem, index) => {
-                const segmentBefore = segmentsBeforeEventIndex.get(index);
+                const segmentBefore = segmentBeforeIndexToEmitAt.get(index);
                 if (segmentBefore) {
                     items.push({
                         kind: "message",

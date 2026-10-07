@@ -184,15 +184,16 @@ export function conversationItemsFromTextChatTurns(turns: TextChatTurnLike[]) {
             // If an assistant segment occurred before an announcement, and that announcement
             // was preceded by a transition sequence (node_transition and/or the transition tool call),
             // the assistant segment was uttered before the transition sequence was initiated.
+            // We bound this check to the immediate node-transition (and its preceding transition tool call)
+            // so we do not move assistant text before prior completed data lookup tools.
             const segmentBeforeIndexToEmitAt = new Map<number, string>();
             segmentsBeforeEventIndex.forEach((text, speechIdx) => {
                 let emitIdx = speechIdx;
-                while (
-                    emitIdx > 0 &&
-                    (eventItems[emitIdx - 1]?.kind === "node-transition" ||
-                        eventItems[emitIdx - 1]?.kind === "tool-call")
-                ) {
+                if (emitIdx > 0 && eventItems[emitIdx - 1]?.kind === "node-transition") {
                     emitIdx--;
+                    if (emitIdx > 0 && eventItems[emitIdx - 1]?.kind === "tool-call") {
+                        emitIdx--;
+                    }
                 }
                 segmentBeforeIndexToEmitAt.set(emitIdx, text);
             });

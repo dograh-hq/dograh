@@ -414,4 +414,114 @@ describe("conversationItemsFromTextChatTurns", () => {
             },
         ]);
     });
+
+    it("keeps completed data lookup tool call before assistant reply when transition occurs afterward", () => {
+        const turns = [
+            {
+                id: "turn-1",
+                created_at: "2026-01-01T00:00:00.000Z",
+                user_message: {
+                    text: "What is my balance?",
+                    created_at: "2026-01-01T00:00:00.000Z",
+                },
+                events: [
+                    {
+                        type: "tool_call_started",
+                        created_at: "2026-01-01T00:00:01.000Z",
+                        payload: {
+                            function_name: "lookup_balance",
+                            tool_call_id: "call-lookup",
+                        },
+                    },
+                    {
+                        type: "tool_call_result",
+                        created_at: "2026-01-01T00:00:02.000Z",
+                        payload: {
+                            function_name: "lookup_balance",
+                            tool_call_id: "call-lookup",
+                            result: { balance: 100 },
+                        },
+                    },
+                    {
+                        type: "tool_call_started",
+                        created_at: "2026-01-01T00:00:03.000Z",
+                        payload: {
+                            function_name: "go_to_agent_one",
+                            tool_call_id: "call-transfer",
+                        },
+                    },
+                    {
+                        type: "node_transition",
+                        created_at: "2026-01-01T00:00:03.500Z",
+                        payload: {
+                            node_id: "agent_node",
+                            node_name: "Agent One",
+                            previous_node_id: "start_node",
+                            previous_node_name: "Start",
+                        },
+                    },
+                    {
+                        type: "bot_speech",
+                        created_at: "2026-01-01T00:00:04.000Z",
+                        payload: {
+                            text: "Connecting to agent.",
+                        },
+                    },
+                    {
+                        type: "tool_call_result",
+                        created_at: "2026-01-01T00:00:04.500Z",
+                        payload: {
+                            function_name: "go_to_agent_one",
+                            tool_call_id: "call-transfer",
+                            result: { status: "done" },
+                        },
+                    },
+                ],
+                assistant_message: {
+                    text: "Your balance is $100. Transferring you.\n\nConnecting to agent.\n\nHello from agent one!",
+                    created_at: "2026-01-01T00:00:06.000Z",
+                },
+            },
+        ];
+
+        const items = conversationItemsFromTextChatTurns(turns);
+
+        expect(items.map((item) => ({ kind: item.kind, role: "role" in item ? item.role : undefined, text: "text" in item ? item.text : undefined }))).toEqual([
+            {
+                kind: "message",
+                role: "user",
+                text: "What is my balance?",
+            },
+            {
+                kind: "tool-call",
+                role: undefined,
+                text: undefined,
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Your balance is $100. Transferring you.",
+            },
+            {
+                kind: "tool-call",
+                role: undefined,
+                text: undefined,
+            },
+            {
+                kind: "node-transition",
+                role: undefined,
+                text: undefined,
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Connecting to agent.",
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Hello from agent one!",
+            },
+        ]);
+    });
 });

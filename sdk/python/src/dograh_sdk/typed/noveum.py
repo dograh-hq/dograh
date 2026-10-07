@@ -16,8 +16,9 @@ from dograh_sdk.typed._base import TypedNode
 @dataclass(kw_only=True)
 class Noveum(TypedNode):
     """
-    Export the completed call to Noveum for tracing and evaluation  LLM
-    hint: Noveum is a post-call observability export. It does not
+    Export the completed call to Noveum for tracing and evaluation
+
+    LLM hint: Noveum is a post-call observability export. It does not
     participate in the conversation graph and should not be connected to
     other nodes.
     """

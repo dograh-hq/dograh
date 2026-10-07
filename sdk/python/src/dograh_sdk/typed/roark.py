@@ -17,10 +17,12 @@ from dograh_sdk.typed._base import TypedNode
 class Roark(TypedNode):
     """
     Send the completed call to Roark for transcription, scoring and
-    analytics  LLM hint: Roark is a post-call analytics export. It does not
-    participate in the conversation graph and should not be connected to
-    other nodes. The call recording must be reachable from the public
-    internet for Roark to ingest it.
+    analytics
+
+    LLM hint: Roark is a post-call analytics export. It does not participate
+    in the conversation graph and should not be connected to other nodes.
+    The call recording must be reachable from the public internet for Roark
+    to ingest it.
     """
 
     type: ClassVar[str] = 'roark'
@@ -54,9 +56,10 @@ class Roark(TypedNode):
 
     roark_send_transcript: bool = True
     """
-    Send the transcript Dograh captured during the call. Turn this off to
-    have Roark transcribe the recording itself, for example to measure your
-    own speech-to-text against Roark's.
+    Send the transcript and tool calls Dograh captured during the call. Turn
+    this off to have Roark transcribe the recording itself, for example to
+    measure your own speech-to-text against Roark's. Roark then has no
+    record of the tool calls either.
     """
 
     roark_send_gathered_context: bool = False

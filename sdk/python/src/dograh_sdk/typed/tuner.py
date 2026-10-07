@@ -16,9 +16,11 @@ from dograh_sdk.typed._base import TypedNode
 @dataclass(kw_only=True)
 class Tuner(TypedNode):
     """
-    Export the completed call to Tuner for Agent Observability  LLM hint:
-    Tuner is a post-call observability export. It does not participate in
-    the conversation graph and should not be connected to other nodes.
+    Export the completed call to Tuner for Agent Observability
+
+    LLM hint: Tuner is a post-call observability export. It does not
+    participate in the conversation graph and should not be connected to
+    other nodes.
     """
 
     type: ClassVar[str] = 'tuner'

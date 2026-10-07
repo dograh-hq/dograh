@@ -33,8 +33,8 @@ In the workflow editor choose **Add node**, scroll to **Integrations**, and sele
 |---|---|---|
 | **Roark API Key** | Yes | The project key from step 1. |
 | **Roark Agent Name** | One of these two | The agent's name in Roark. Roark reuses an agent with this exact name in the project, or creates it on the first call. |
-| **Roark Agent ID** | One of these two | The UUID of an agent that already exists in Roark. Takes precedence over the name. |
-| **Send Dograh transcript** | No, on by default | Send the turns Dograh captured. Off means Roark transcribes the recording itself. |
+| **Roark Agent ID** | One of these two | The UUID of an agent that already exists in Roark, as shown in the Roark dashboard. Takes precedence over the name, and is rejected on save if it is not a UUID. |
+| **Send Dograh transcript** | No, on by default | Send the turns and tool calls Dograh captured. Off means Roark transcribes the recording itself and receives neither. |
 | **Send gathered context** | No, off by default | Also send the variables the agent gathered as Roark call properties. |
 | **Enabled** | No, on by default | Turn the export off without deleting the node. |
 
@@ -52,7 +52,7 @@ Choose **Save**, then **Publish** the workflow.
 
 Make a test call through your agent. When it completes, the call appears in Roark under the agent you configured. Its **External ID** is `dograh-run-<id>`, matching the Dograh run.
 
-If nothing arrives, open the Dograh run and look at its annotations: every attempt records its outcome under a `roark_<node id>` key, including the message Roark replied with.
+If nothing arrives, open the Dograh run and look at its annotations: every attempt records its outcome under a `roark_<node id>` key, including the message Roark replied with. A node that was misconfigured records `validation_failed` with the fields to fix, so you do not need access to the server logs.
 
 ## What Dograh sends
 
@@ -64,17 +64,19 @@ One `POST /v1/call` per completed run, per enabled Roark node.
 | `startedAt` | The first event recorded in the call |
 | `interfaceType` | `WEB` for a browser call, `PHONE` for a telephony call |
 | `callDirection` | The run's inbound/outbound call type |
-| `endedStatus` | Mapped from Dograh's end-of-call reason |
+| `endedStatus` | Mapped from `call_status`, the mechanism Dograh observed the call end by |
 | `agent` | The agent name or ID from the node |
 | `customer` | The caller's number inbound, the dialled number outbound |
 | `transcript` | Final user transcriptions and bot turns, with offsets |
 | `toolInvocations` | Function calls the agent made, with arguments and results |
 | `externalId` | `dograh-run-<id>` |
-| `properties` | Dograh run, workflow, definition, campaign and disposition identifiers |
+| `properties` | Dograh run, workflow, definition, campaign, status and disposition identifiers |
 
 ### Call properties
 
-Every export carries a fixed set of properties you can filter and group on in Roark: `dograh_workflow_run_id`, `dograh_workflow_id`, `dograh_workflow_name`, `dograh_run_mode`, `dograh_definition_id`, `dograh_call_disposition` and `dograh_mapped_call_disposition`, plus `dograh_campaign_id` on a campaign call.
+Every export carries `dograh_workflow_run_id`, `dograh_workflow_id` and `dograh_run_mode`, which you can filter and group on in Roark. The rest ship when the run has them: `dograh_workflow_name`, `dograh_definition_id`, `dograh_campaign_id` on a campaign call, and `dograh_call_status`, `dograh_call_disposition` and `dograh_mapped_call_disposition` once the call has been dispositioned.
+
+`dograh_call_status` is how the call ended and `dograh_call_disposition` is what came of it. They hold the same value until something records an outcome: an end-call tool, a transfer, or disposition extraction.
 
 Turning on **Send gathered context** adds the variables the agent collected during the call, each prefixed `dograh_context_`. It is off by default because gathered context routinely holds personal data, and Roark is a separate system with its own retention.
 
@@ -82,7 +84,7 @@ Turning on **Send gathered context** adds the variables the agent collected duri
 
 With **Send Dograh transcript** on, Roark grades the transcript Dograh captured during the call: what your speech-to-text actually heard and what your agent actually said. That is usually what you want, because it is what the agent reasoned over.
 
-Turn it off to have Roark transcribe the recording with its own speech-to-text instead. The useful reason to do that is to compare the two, for example to measure your provider's accuracy against Roark's.
+Turn it off to have Roark transcribe the recording with its own speech-to-text instead. The useful reason to do that is to compare the two, for example to measure your provider's accuracy against Roark's. Note that this also stops Dograh sending the call's tool invocations, which are read from the same event stream: Roark then has the audio and the call properties only.
 
 <Note>
   Each turn is timed from when the speaking started, not from when Dograh
@@ -102,7 +104,7 @@ Dograh resolves that address the same way it does for telephony webhooks: it use
 docker compose --profile tunnel up -d cloudflared
 ```
 
-With neither a public address nor a tunnel, the export is refused and the run's annotations carry Roark's message that the recording URL is not accessible.
+With neither a public address nor a tunnel, the export is refused before it is sent and the run's annotations carry `recording_url_not_public` along with the host that was resolved. Roark fetches the recording asynchronously, so a private address would not fail the POST: the call would land in Roark and simply never get its audio.
 
 The download URL is unauthenticated but unguessable: it carries the run's public access token, the same token QA and webhook exports use, and re-signs storage access on each request so it does not expire.
 
@@ -112,7 +114,7 @@ The download URL is unauthenticated but unguessable: it carries the run's public
 
 ## Limits
 
-- **A call with no recording is not exported.** Roark ingests a call around its audio, so a run that produced none is skipped and recorded as `missing_recording`.
+- **A call with no recording is not exported.** Roark ingests a call around its audio, so a run that produced none is skipped and recorded as `missing_recording`. A recording Roark could not reach is refused the same way, as `recording_url_not_public`.
 - **Text chat runs are not exported.** They have no audio, and Roark models a chat as a separate resource.
 - **The export is not retried.** A refusal is recorded in the run's annotations with Roark's message; publish the fix and the next call exports normally.
 - **Mono only.** Dograh keeps separate agent and caller tracks, but sends the mixed recording, so Roark separates speakers itself rather than reading them off channels.

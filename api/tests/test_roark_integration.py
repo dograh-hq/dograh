@@ -34,6 +34,7 @@ from api.services.integrations.roark.completion import (
     build_recording_url,
     describe_validation_failure,
     run_completion,
+    unreachable_recording_host,
 )
 from api.services.integrations.roark.node import RoarkNodeData
 from api.services.integrations.roark.payload import (
@@ -43,9 +44,10 @@ from api.services.integrations.roark.payload import (
     build_tool_invocations,
     build_transcript,
     call_type_to_direction,
-    disposition_to_ended_status,
+    ended_status_from_context,
     mode_to_interface_type,
     resolve_anchor,
+    termination_to_ended_status,
 )
 from api.services.workflow.node_specs import all_specs
 
@@ -143,8 +145,12 @@ def _workflow_run(**overrides):
         recording_url="recordings/4242.wav",
         initial_context={"phone_number": "+14155551234", "direction": "outbound"},
         gathered_context={
-            "call_disposition": "user_hangup",
-            "mapped_call_disposition": "appointment_confirmed",
+            # The shape a real dispositioned call has: `call_status` is the
+            # mechanism Dograh observed, `call_disposition` is the outcome an
+            # end-call tool or extraction recorded over it.
+            "call_status": "user_hangup",
+            "call_disposition": "appointment_confirmed",
+            "mapped_call_disposition": "Appointment Confirmed",
             "customer_name": "Ada",
         },
         logs={"realtime_feedback_events": _events()},
@@ -163,6 +169,21 @@ def _completion_context(workflow_run=None, public_token="tok-123"):
         organization_id=1,
         public_token=public_token,
     )
+
+
+@pytest.fixture(autouse=True)
+def _public_backend_endpoint():
+    """Resolve a publicly reachable backend for every test in this file.
+
+    The test environment sets `BACKEND_API_ENDPOINT` to localhost, which Roark
+    cannot fetch a recording from, so the export now refuses it. The tests
+    about reachability patch this themselves and those patches win.
+    """
+    with patch(
+        "api.services.integrations.roark.completion.get_backend_endpoints",
+        AsyncMock(return_value=("https://dograh.example", "wss://dograh.example")),
+    ):
+        yield
 
 
 def _roark_node(node_id="roark-1", api_key="rk_live_secret", **extra):
@@ -231,6 +252,49 @@ def test_enabled_node_accepts_an_agent_id_instead_of_a_name():
     assert data.roark_agent_name is None
 
 
+def test_an_agent_id_that_is_not_a_uuid_is_rejected_on_save():
+    """Roark's `agent.roarkId` is a UUID. Caught here, on the field being
+    edited, instead of as a 400 once the call is over and nothing retries."""
+    with pytest.raises(ValidationError) as excinfo:
+        RoarkNodeData.model_validate(
+            {
+                "name": "Roark",
+                "roark_enabled": True,
+                "roark_api_key": "rk_live_x",
+                "roark_agent_id": "Sales Bot",
+            }
+        )
+
+    assert "roark_agent_id" in str(excinfo.value)
+
+
+def test_an_agent_id_is_normalised_to_the_form_roark_matches_on():
+    """A bare 32-character hex id is a valid UUID that Roark still rejects."""
+    node = RoarkNodeData.model_validate(
+        {
+            "name": "Roark",
+            "roark_enabled": True,
+            "roark_api_key": "rk_live_x",
+            "roark_agent_id": " 6D1E0D6E0F7A4F779B3F3A1B2C3D4E5F ",
+        }
+    )
+    assert node.roark_agent_id == "6d1e0d6e-0f7a-4f77-9b3f-3a1b2c3d4e5f"
+
+
+def test_a_blank_agent_id_is_not_an_agent_id():
+    """An emptied field must not satisfy "name or id", or the node saves and
+    then fails at export time with no agent at all."""
+    with pytest.raises(ValidationError):
+        RoarkNodeData.model_validate(
+            {
+                "name": "Roark",
+                "roark_enabled": True,
+                "roark_api_key": "rk_live_x",
+                "roark_agent_id": "   ",
+            }
+        )
+
+
 def test_disabled_node_validates_without_credentials():
     data = RoarkNodeData.model_validate({"name": "Roark", "roark_enabled": False})
     assert data.roark_enabled is False
@@ -295,7 +359,7 @@ def test_call_type_to_direction(call_type, expected):
 
 
 @pytest.mark.parametrize(
-    ("disposition", "expected"),
+    ("reason", "expected"),
     [
         ("user_hangup", "CUSTOMER_ENDED_CALL"),
         ("end_call", "AGENT_ENDED_CALL"),
@@ -308,8 +372,48 @@ def test_call_type_to_direction(call_type, expected):
         (None, None),
     ],
 )
-def test_disposition_to_ended_status(disposition, expected):
-    assert disposition_to_ended_status(disposition) == expected
+def test_termination_to_ended_status(reason, expected):
+    assert termination_to_ended_status(reason) == expected
+
+
+def test_ended_status_reads_the_mechanism_not_the_business_outcome():
+    """`call_disposition` is overwritten with a business outcome by an end-call
+    tool, a transfer or disposition extraction, and a business outcome has no
+    `endedStatus` at all. Reading it would drop the termination reason from
+    exactly the calls that have an outcome worth reporting."""
+    assert (
+        ended_status_from_context(
+            {
+                "call_status": "call_transferred",
+                "call_disposition": "appointment_confirmed",
+            }
+        )
+        == "AGENT_TRANSFERRED_CALL"
+    )
+
+
+def test_ended_status_reads_the_disposition_on_a_run_with_no_call_status():
+    """Runs that finished before Dograh recorded `call_status` carry the
+    mechanism in the disposition instead."""
+    assert (
+        ended_status_from_context({"call_disposition": "call_duration_exceeded"})
+        == "MAX_DURATION_REACHED"
+    )
+
+
+def test_an_unmapped_call_status_does_not_fall_back_to_the_disposition():
+    """A disposition that differs from the status is a business outcome by
+    construction, so a fallback could only guess."""
+    assert (
+        ended_status_from_context(
+            {"call_status": "system_cancelled", "call_disposition": "end_call"}
+        )
+        is None
+    )
+
+
+def test_ended_status_is_none_for_a_run_with_neither_field():
+    assert ended_status_from_context({}) is None
 
 
 def test_build_customer_reads_the_caller_on_an_inbound_call():
@@ -614,6 +718,7 @@ def test_build_call_payload_happy_path():
     assert payload["startedAt"] == T0.isoformat()
     assert payload["interfaceType"] == "PHONE"
     assert payload["callDirection"] == "OUTBOUND"
+    # From `call_status`, not from the business outcome the disposition holds.
     assert payload["endedStatus"] == "CUSTOMER_ENDED_CALL"
     assert payload["agent"] == {"name": "Support Bot"}
     assert payload["customer"]["phoneNumberE164"] == "+14155551234"
@@ -669,10 +774,34 @@ def test_build_call_payload_properties_identify_the_dograh_run():
     assert properties["dograh_run_mode"] == "twilio"
     assert properties["dograh_definition_id"] == 9
     assert properties["dograh_campaign_id"] == 11
-    assert properties["dograh_call_disposition"] == "user_hangup"
-    assert properties["dograh_mapped_call_disposition"] == "appointment_confirmed"
+    assert properties["dograh_call_status"] == "user_hangup"
+    assert properties["dograh_call_disposition"] == "appointment_confirmed"
+    assert properties["dograh_mapped_call_disposition"] == "Appointment Confirmed"
     # Gathered context is opt-in because it routinely holds personal data.
     assert "dograh_context_customer_name" not in properties
+
+
+def test_properties_omit_what_the_run_does_not_have():
+    """The identifier set is not fixed: a run with no workflow row, definition
+    or disposition sends only what it actually has."""
+    run = _workflow_run(workflow=None, gathered_context={})
+    payload = build_call_payload(
+        workflow_run=run,
+        definition_id=None,
+        recording_url="https://dograh.example/rec",
+        agent_id=None,
+        agent_name="Support Bot",
+        send_transcript=False,
+        send_gathered_context=False,
+    )
+
+    properties = payload["properties"]
+    assert set(properties) == {
+        "dograh_workflow_run_id",
+        "dograh_workflow_id",
+        "dograh_run_mode",
+    }
+    assert "endedStatus" not in payload
 
 
 def test_gathered_context_does_not_duplicate_the_dispositions():
@@ -686,7 +815,9 @@ def test_gathered_context_does_not_duplicate_the_dispositions():
         send_gathered_context=True,
     )
     properties = payload["properties"]
-    assert properties["dograh_call_disposition"] == "user_hangup"
+    assert properties["dograh_call_status"] == "user_hangup"
+    assert properties["dograh_call_disposition"] == "appointment_confirmed"
+    assert "dograh_context_call_status" not in properties
     assert "dograh_context_call_disposition" not in properties
     assert "dograh_context_mapped_call_disposition" not in properties
 
@@ -754,8 +885,8 @@ async def test_recording_url_prefers_the_tunnel_over_a_local_endpoint():
 
 
 async def test_recording_url_falls_back_when_no_public_endpoint_resolves():
-    """A deployment with neither a public address nor a tunnel still gets a URL
-    and a clear refusal from Roark, rather than an exception in the task."""
+    """A deployment with neither a public address nor a tunnel still gets a
+    URL, rather than an exception in the post-call task."""
     with patch(
         "api.services.integrations.roark.completion.get_backend_endpoints",
         AsyncMock(side_effect=ValueError("No tunnel URL available")),
@@ -764,6 +895,19 @@ async def test_recording_url_falls_back_when_no_public_endpoint_resolves():
 
     assert url is not None
     assert url.endswith("/recording?filename=recording.wav")
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://dograh.example/api/v1/public/download/x", None),
+        ("http://localhost:8000/api/v1/public/download/x", "localhost:8000"),
+        ("http://127.0.0.1:8010/api/v1/public/download/x", "127.0.0.1:8010"),
+        ("http://10.1.2.3/api/v1/public/download/x", "10.1.2.3"),
+    ],
+)
+def test_unreachable_recording_host(url, expected):
+    assert unreachable_recording_host(url) == expected
 
 
 # ───────────────────────────── completion handler ─────────────────────────
@@ -848,12 +992,42 @@ def test_a_non_pydantic_failure_is_reported_by_type_alone():
     )
 
 
-async def test_completion_records_a_validation_failure():
-    bad_node = {"id": "roark-1", "type": "roark", "data": {"name": "Roark"}}
+async def test_completion_records_a_validation_failure_with_what_to_fix():
+    """The annotation is the only place a user without log access can look, so
+    it names the fields, and still never the API key that failed with them."""
+    secret = "rk_live_leakme"
+    bad_node = {
+        "id": "roark-1",
+        "type": "roark",
+        "data": {"name": "Roark", "roark_enabled": True, "roark_api_key": secret},
+    }
 
     results = await run_completion([bad_node], _completion_context())
 
-    assert results["roark_roark-1"] == {"error": "validation_failed"}
+    result = results["roark_roark-1"]
+    assert result["error"] == "validation_failed"
+    assert "roark_agent_name" in result["detail"]
+    assert secret not in result["detail"]
+
+
+async def test_completion_refuses_a_recording_roark_could_not_fetch():
+    """Roark downloads the audio asynchronously, so a private address does not
+    fail the POST: the call lands in Roark and never gets its recording."""
+    delivery = AsyncMock()
+    with (
+        patch(
+            "api.services.integrations.roark.completion.get_backend_endpoints",
+            AsyncMock(return_value=("http://localhost:8000", "ws://localhost:8000")),
+        ),
+        patch("api.services.integrations.roark.completion.create_call", delivery),
+    ):
+        results = await run_completion([_roark_node()], _completion_context())
+
+    assert results["roark_roark-1"] == {
+        "error": "recording_url_not_public",
+        "recording_host": "localhost:8000",
+    }
+    delivery.assert_not_awaited()
 
 
 async def test_completion_reports_a_missing_recording():
@@ -976,7 +1150,7 @@ async def test_create_call_raises_with_roarks_own_message():
             )
 
     assert excinfo.value.status_code == 400
-    assert excinfo.value.detail == "recordingUrl is required"
+    assert excinfo.value.detail == "validation_error: recordingUrl is required"
 
 
 async def test_an_unreadable_error_body_is_not_echoed():
@@ -1000,6 +1174,52 @@ async def test_an_unreadable_error_body_is_not_echoed():
     assert "Ada" not in excinfo.value.detail
     assert "+14155550123" not in excinfo.value.detail
     assert "502" in excinfo.value.detail
+
+
+async def test_a_json_error_body_without_a_code_is_not_echoed():
+    """Every error Roark returns carries a `code`. A JSON body without one came
+    from something in between, which is the thing that might be reflecting the
+    request, and the request holds the transcript and the caller's number."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "message": "rejected transcript: my name is Ada, +14155550123",
+            },
+        )
+
+    with _roark_http(handler):
+        with pytest.raises(RoarkDeliveryError) as excinfo:
+            await create_call(
+                RoarkDeliveryConfig(
+                    base_url="https://api.roark.ai", api_key="rk_live_x"
+                ),
+                {"externalId": "dograh-run-1"},
+            )
+
+    assert "Ada" not in excinfo.value.detail
+    assert "+14155550123" not in excinfo.value.detail
+
+
+async def test_a_redirect_is_not_a_delivery():
+    """This client does not follow redirects, so a gateway answering 3xx means
+    the call never reached Roark. Reporting `delivered` would hide that, with
+    no Roark identifiers to notice were missing."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(307, headers={"location": "https://elsewhere.example"})
+
+    with _roark_http(handler):
+        with pytest.raises(RoarkDeliveryError) as excinfo:
+            await create_call(
+                RoarkDeliveryConfig(
+                    base_url="https://api.roark.ai", api_key="rk_live_x"
+                ),
+                {"externalId": "dograh-run-1"},
+            )
+
+    assert excinfo.value.status_code == 307
 
 
 def test_delivery_config_rejects_a_blank_api_key():

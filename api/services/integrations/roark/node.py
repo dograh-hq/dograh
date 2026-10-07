@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import model_validator
+from uuid import UUID
+
+from pydantic import field_validator, model_validator
 
 from api.services.integrations.base import IntegrationNodeRegistration
 from api.services.workflow.node_data import BaseNodeData
@@ -104,9 +106,10 @@ class RoarkNodeData(BaseNodeData):
         ui_type=PropertyType.boolean,
         display_name="Send Dograh transcript",
         description=(
-            "Send the transcript Dograh captured during the call. Turn this off "
-            "to have Roark transcribe the recording itself, for example to "
-            "measure your own speech-to-text against Roark's."
+            "Send the transcript and tool calls Dograh captured during the "
+            "call. Turn this off to have Roark transcribe the recording "
+            "itself, for example to measure your own speech-to-text against "
+            "Roark's. Roark then has no record of the tool calls either."
         ),
     )
     roark_send_gathered_context: bool = spec_field(
@@ -119,6 +122,30 @@ class RoarkNodeData(BaseNodeData):
             "gathered context often holds personal data."
         ),
     )
+
+    @field_validator("roark_agent_id")
+    @classmethod
+    def _agent_id_must_be_a_uuid(cls, value: str | None) -> str | None:
+        """Reject a non-UUID agent id while the node is still being saved.
+
+        Roark's `agent.roarkId` is a UUID, so a value of any other shape is
+        refused with a 400 once the call is already over and there is nothing
+        left to retry. Checked here instead, where the workflow save surfaces
+        it on the field the user is editing.
+
+        The value is also normalised to the canonical dashed form, because
+        Roark matches on that spelling and a bare 32-character hex id is a
+        valid UUID that it would still reject.
+        """
+        if value is None:
+            return value
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        try:
+            return str(UUID(trimmed))
+        except ValueError:
+            raise ValueError("must be a UUID, as issued by Roark") from None
 
     @model_validator(mode="after")
     def _validate_enabled_config(self):

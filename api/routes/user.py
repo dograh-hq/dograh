@@ -23,6 +23,7 @@ from api.services.auth.depends import get_user
 from api.services.configuration.ai_model_configuration import (
     convert_legacy_ai_model_configuration_to_v2,
     get_resolved_ai_model_configuration,
+    reject_mixed_dograh_legacy_configuration,
     update_organization_ai_model_configuration_last_validated_at,
     upsert_organization_ai_model_configuration_v2,
 )
@@ -224,6 +225,11 @@ async def update_user_configurations(
             check_for_masked_keys(user_configurations)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+
+        try:
+            reject_mixed_dograh_legacy_configuration(user_configurations)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
 
         try:
             validator = UserConfigurationValidator()

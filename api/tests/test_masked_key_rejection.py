@@ -2,11 +2,17 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.user import router
-from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.schemas.ai_model_configuration import (
+    DograhManagedAIModelConfiguration,
+    EffectiveAIModelConfiguration,
+    OrganizationAIModelConfigurationV2,
+    compile_ai_model_configuration_v2,
+)
 from api.services.auth.depends import get_user
 from api.services.configuration.ai_model_configuration import (
     ResolvedAIModelConfiguration,
@@ -273,3 +279,70 @@ class TestMaskedKeyRejection:
             mock_db.update_user_configuration.assert_not_called()
             mock_validator.return_value.validate.assert_not_called()
             upsert_preferences.assert_awaited_once()
+
+
+def _dograh_managed_config():
+    dograh = DograhManagedAIModelConfiguration(api_key="mps-secret")
+    return compile_ai_model_configuration_v2(
+        OrganizationAIModelConfigurationV2(mode="dograh", dograh=dograh)
+    )
+
+
+LLM = {"provider": "openai", "api_key": REAL_KEY, "model": "gpt-4.1"}
+EMB = {"provider": "openai", "api_key": REAL_KEY, "model": "text-embedding-3-small"}
+RT = {"provider": "google_realtime", "api_key": "g-key", "model": "gemini-live"}
+
+
+class TestMixedDograhRejection:
+    # A partial switch off Dograh used to be saved as Dograh mode (#615).
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"llm": LLM},
+            {"is_realtime": True, "realtime": RT, "llm": LLM, "embeddings": EMB},
+        ],
+    )
+    def test_rejects_partial_switch_off_dograh(self, body):
+        client = TestClient(_make_test_app())
+
+        with _patch_config_update(_dograh_managed_config()) as mocks:
+            response = client.put("/user/configurations/user", json=body)
+
+            assert response.status_code == 422
+            assert "still use Dograh" in response.json()["detail"]
+            mocks.upsert_config.assert_not_awaited()
+
+    def test_allows_full_switch_off_dograh(self):
+        tts = {**LLM, "model": "gpt-4o-mini-tts", "voice": "alloy"}
+        stt = {"provider": "deepgram", "api_key": REAL_KEY, "model": "nova-3-general"}
+        body = {"llm": LLM, "tts": tts, "stt": stt, "embeddings": EMB}
+        client = TestClient(_make_test_app())
+
+        with _patch_config_update(_dograh_managed_config()) as mocks:
+            response = client.put("/user/configurations/user", json=body)
+
+            assert response.status_code == 200
+            assert mocks.upsert_config.await_args.args[1].mode == "byok"
+
+    def test_allows_switch_from_byok_realtime_to_dograh(self):
+        # The merge keeps the stored realtime block, but is_realtime=False
+        # makes it inactive, so it must not count as BYOK.
+        existing = EffectiveAIModelConfiguration.model_validate(
+            {"is_realtime": True, "realtime": RT, "llm": LLM, "embeddings": EMB}
+        )
+        dograh = {"provider": "dograh", "api_key": "mps-secret", "model": "default"}
+        body = {
+            "is_realtime": False,
+            "realtime": None,
+            "llm": dograh,
+            "tts": {**dograh, "voice": "default"},
+            "stt": {**dograh, "language": "multi"},
+            "embeddings": {**dograh, "model": "dograh_embedding_v1"},
+        }
+        client = TestClient(_make_test_app())
+
+        with _patch_config_update(existing) as mocks:
+            response = client.put("/user/configurations/user", json=body)
+
+            assert response.status_code == 200
+            assert mocks.upsert_config.await_args.args[1].mode == "dograh"

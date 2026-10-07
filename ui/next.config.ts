@@ -1,11 +1,28 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
+// Type-checking and linting inside `next build` are what push the Docker image
+// build over its memory budget, so they are skipped *there* — and only there.
+//
+// This used to be unconditional, on the stated grounds that CI ran
+// `tsc --noEmit` separately. It does not: no workflow in .github/workflows/
+// type-checks the UI, so every other build silently accepted type errors too.
+// Gating on the flag the Docker build sets means a local or CI `next build`
+// fails on them again, which is the only enforcement that currently exists.
+const skipBuildChecks = process.env.NEXT_SKIP_BUILD_CHECKS === '1';
+
 const nextConfig: NextConfig = {
   /* config options here */
   output: 'standalone',
+  typescript: {
+    ignoreBuildErrors: skipBuildChecks,
+  },
+  eslint: {
+    ignoreDuringBuilds: skipBuildChecks,
+  },
   experimental: {
     serverSourceMaps: true,
+    cpus: 1,
   },
   async rewrites() {
     return [

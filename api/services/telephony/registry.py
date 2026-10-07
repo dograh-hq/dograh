@@ -244,6 +244,22 @@ TrunkRemover = Callable[[Dict[str, Any], TrunkDesiredState], Awaitable[None]]
 
 
 @dataclass(frozen=True)
+class LiveCallState:
+    """What a worker knows about a call that is still up in this process.
+
+    ``peer_connected`` and ``answered`` are deliberately separate. On most
+    providers media only flows once the call is answered, so the two coincide.
+    On WhatsApp the WebRTC transport comes up while the handset is still
+    ringing, so a connected peer says nothing about whether anyone picked up.
+    Collapsing them is what makes a ringing call report as connected.
+    """
+
+    call_id: Optional[str] = None
+    peer_connected: bool = False
+    answered: bool = False
+
+
+@dataclass(frozen=True)
 class ProviderSpec:
     """Everything needed to plug a telephony provider into the platform.
 
@@ -261,6 +277,7 @@ class ProviderSpec:
             uses (e.g. 8000 for Twilio/Plivo, 16000 for Vonage). The pipecat
             layer derives the full ``AudioConfig`` from this.
         config_request_cls: Pydantic model for incoming save requests.
+        config_response_cls: Optional Pydantic model for outgoing (masked) responses.
         ui_metadata: Optional form metadata used by the telephony-config
             UI to render a provider-specific form. Surfaced via
             ``GET /api/v1/telephony/providers/metadata``.
@@ -307,6 +324,7 @@ class ProviderSpec:
     transport_factory: TransportFactory
     transport_sample_rate: int
     config_request_cls: Type[BaseModel]
+    config_response_cls: Optional[Type[BaseModel]] = None
     ui_metadata: Optional[ProviderUIMetadata] = None
     # Credential field that uniquely identifies the provider account. Used to
     # (a) match an inbound webhook to the right org config when multiple configs
@@ -327,6 +345,14 @@ class ProviderSpec:
     # Optional hook reporting outstanding setup for a stored configuration.
     # Unset means the provider is ready as soon as its credentials are saved.
     setup_checklist_resolver: Optional[SetupChecklistResolver] = None
+    # Optional hook reporting what this worker knows, right now, about an
+    # in-flight call. Like setup_checklist_resolver it must be pure and
+    # synchronous: it is called from the call-status endpoint, which the UI
+    # polls once a second, so it may read in-process state only - never the
+    # database or the provider's API.
+    live_call_state_resolver: Optional[
+        Callable[[Optional[str], int], Optional["LiveCallState"]]
+    ] = None
     # Whether phone service is bought from this provider or brought to it.
     # Defaults to "api": most providers are carriers in their own right.
     connectivity: ProviderConnectivity = "api"
@@ -349,6 +375,14 @@ class ProviderSpec:
     # our table. Called on save and delete respectively.
     apply_trunk_on_save: Optional[TrunkApplier] = None
     remove_trunk_on_delete: Optional[TrunkRemover] = None
+    # Whether the recipient must grant consent before this provider will place
+    # a business-initiated call. True only for WhatsApp today, but the UI needs
+    # the answer to decide whether a campaign offers a permission strategy and
+    # whether reloading its runs should first re-check consent with the
+    # provider - and it must not decide that by comparing provider names.
+    # Denormalised onto the configuration list response alongside
+    # `connectivity`, for the same reason.
+    requires_call_permission: bool = False
 
     @property
     def supports_trunks(self) -> bool:

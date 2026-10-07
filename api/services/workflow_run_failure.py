@@ -23,13 +23,19 @@ from api.services.workflow.disposition_mapping import map_disposition
 from api.tasks.function_names import FunctionNames
 
 
-async def mark_workflow_run_failed(workflow_run_id: int, error_message: str) -> None:
+async def mark_workflow_run_failed(
+    workflow_run_id: int,
+    error_message: str,
+    *,
+    only_if_incomplete: bool = False,
+    disposition: str = TelephonyCallStatus.ERROR.value,
+) -> None:
     """Complete the run with a user-visible error and notify integrations.
 
     Best-effort: callers invoke this while rejecting a call, so a bookkeeping
     failure must never mask the original rejection path.
     """
-    error_disposition = TelephonyCallStatus.ERROR.value
+    error_disposition = disposition
     failure_event = stamp_realtime_feedback_event(
         build_pipeline_error_event(
             error=error_message,
@@ -48,7 +54,7 @@ async def mark_workflow_run_failed(workflow_run_id: int, error_message: str) -> 
             await db_client.get_organization_id_by_workflow_run_id(workflow_run_id),
             error_disposition,
         )
-        await db_client.update_workflow_run(
+        updated_run = await db_client.update_workflow_run(
             run_id=workflow_run_id,
             is_completed=True,
             state=WorkflowRunState.COMPLETED.value,
@@ -62,7 +68,13 @@ async def mark_workflow_run_failed(workflow_run_id: int, error_message: str) -> 
                 "call_status": error_disposition,
             },
             logs={"realtime_feedback_events": [failure_event]},
+            only_if_incomplete=only_if_incomplete,
         )
+        if only_if_incomplete and updated_run is None:
+            logger.info(
+                f"Workflow run {workflow_run_id} was already completed; skipping failure enqueue"
+            )
+            return
     except Exception as e:  # noqa: BLE001 - bookkeeping must remain best-effort
         logger.error(f"Failed to record failure on workflow run {workflow_run_id}: {e}")
         return

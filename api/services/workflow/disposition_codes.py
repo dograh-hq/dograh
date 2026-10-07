@@ -41,6 +41,11 @@ _TELEPHONY_DISPOSITIONS: tuple[str, ...] = (
     TelephonyCallStatus.FAILED.value,
     TelephonyCallStatus.CANCELED.value,
     TelephonyCallStatus.ERROR.value,
+    TelephonyCallStatus.NO_PERMISSION.value,
+    TelephonyCallStatus.AWAITING_PERMISSION.value,
+    TelephonyCallStatus.PERMISSION_DENIED.value,
+    TelephonyCallStatus.PERMISSION_TIMEOUT.value,
+    TelephonyCallStatus.TOKEN_EXPIRED.value,
 )
 
 SYSTEM_DISPOSITION_CODES: tuple[str, ...] = tuple(

@@ -179,6 +179,81 @@ async def get_telephony_provider_for_run(
     return await get_default_telephony_provider(organization_id)
 
 
+async def get_telephony_provider_for_active_call(
+    workflow_run: WorkflowRunModel,
+    organization_id: int,
+) -> Optional[TelephonyProvider]:
+    """Resolve the provider that actually placed this run's call.
+
+    Deliberately *not* ``get_telephony_provider_for_run``. That one falls back to
+    the org's current default when a run predates
+    ``initial_context.telephony_configuration_id``, which is right for starting
+    work but wrong for acting on a leg that is already up: hanging up or
+    transferring has to reach the carrier holding the call, and the org default
+    may since have changed or be another provider entirely. Sending a Twilio
+    call id to WhatsApp does not fail loudly, it just does nothing.
+
+    Returns ``None`` when the owning provider cannot be identified, so callers
+    can say so instead of acting on the wrong carrier.
+    """
+    recorded = (workflow_run.gathered_context or {}).get(
+        "provider"
+    ) or workflow_run.mode
+
+    cfg_id = (workflow_run.initial_context or {}).get("telephony_configuration_id")
+    if cfg_id is not None:
+        provider = await get_telephony_provider_by_id(cfg_id, organization_id)
+        if not recorded or provider.PROVIDER_NAME == recorded:
+            return provider
+        logger.warning(
+            f"Run {workflow_run.id} records provider {recorded!r} but its "
+            f"telephony configuration {cfg_id} is {provider.PROVIDER_NAME!r}; "
+            "resolving by the recorded provider instead."
+        )
+
+    # Legacy run, or a configuration that has since been repointed. Fall back to
+    # the provider the run itself recorded - never to the org default.
+    if not recorded or registry.get_optional(recorded) is None:
+        # e.g. mode "smallwebrtc": a browser run with no telephony carrier.
+        return None
+
+    configs = await db_client.list_telephony_configurations_by_provider(
+        organization_id, recorded
+    )
+    if not configs:
+        return None
+
+    if len(configs) > 1:
+        # Narrow by the provider's account id, the same credential the inbound
+        # matcher uses to tell two configs of one provider apart. Outbound runs
+        # record it in gathered_context (WhatsApp stores phone_number_id there
+        # via provider_metadata), so the account that placed the call is usually
+        # recoverable even for a run with no pinned configuration.
+        spec = registry.get_optional(recorded)
+        field = spec.account_id_credential_field if spec else ""
+        account_id = (workflow_run.gathered_context or {}).get(field) if field else None
+        if account_id:
+            matched = [
+                c for c in configs if (c.credentials or {}).get(field) == account_id
+            ]
+            if matched:
+                configs = matched
+
+    if len(configs) > 1:
+        # Picking one here would act on a live call with another account's
+        # credentials: the carrier does not know the call id, so the hangup
+        # quietly does nothing while reporting that it went somewhere.
+        logger.error(
+            f"Run {workflow_run.id} has no pinned telephony configuration and "
+            f"{len(configs)} {recorded!r} configurations match organization "
+            f"{organization_id} (ids={[c.id for c in configs]}); refusing to "
+            "guess which one owns the call."
+        )
+        return None
+
+    return await get_telephony_provider_by_id(configs[0].id, organization_id)
+
+
 async def get_default_telephony_provider(organization_id: int) -> TelephonyProvider:
     set_current_org_id(organization_id)
     config = await load_default_telephony_config(organization_id)
@@ -325,6 +400,8 @@ async def _normalize_with_phone_numbers(
 
     addresses = await db_client.list_active_normalized_addresses_for_config(row.id)
     base["from_numbers"] = addresses
+    base["telephony_configuration_id"] = row.id
+    base["organization_id"] = row.organization_id
 
     default_row = await db_client.get_default_caller_id(row.id)
     # Membership in the active-address list also guards against a default

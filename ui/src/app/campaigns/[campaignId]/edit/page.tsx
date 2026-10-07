@@ -12,7 +12,7 @@ import {
     listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
     updateCampaignApiV1CampaignCampaignIdPatch
 } from '@/client/sdk.gen';
-import type { CampaignResponse, TrafficVariantRequest } from '@/client/types.gen';
+import type { CampaignResponse, TelephonyConfigurationListItem, TrafficVariantRequest } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,7 @@ import { useAuth } from '@/lib/auth';
 
 import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../../CampaignAdvancedSettings';
 import TrafficSplitEditor, { trafficSplitError } from '../../TrafficSplitEditor';
+import { WhatsAppPermissionCard } from '../../WhatsAppPermissionCard';
 
 export default function EditCampaignPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
@@ -48,6 +49,14 @@ export default function EditCampaignPage() {
     // Limits state
     const [orgConcurrentLimit, setOrgConcurrentLimit] = useState<number>(2);
     const [fromNumbersCount, setFromNumbersCount] = useState<number>(0);
+    const [telephonyConfigs, setTelephonyConfigs] = useState<TelephonyConfigurationListItem[]>([]);
+    // Whether the telephony configuration this campaign uses has actually been
+    // resolved yet. `matchingConfig` being undefined is ambiguous on its own —
+    // it means "not WhatsApp" just as often as it means "haven't found out
+    // yet" (this fetch races the campaign fetch) or "the fetch failed". Only
+    // 'loaded' lets `requiresCallPermission` be trusted; the other two states must block
+    // submission instead of silently collapsing to "not WhatsApp".
+    const [telephonyConfigsStatus, setTelephonyConfigsStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
 
     // Retry config state
     const [retryEnabled, setRetryEnabled] = useState(true);
@@ -68,6 +77,7 @@ export default function EditCampaignPage() {
     const [circuitBreakerFailureThreshold, setCircuitBreakerFailureThreshold] = useState<string>('50');
     const [circuitBreakerWindowSeconds, setCircuitBreakerWindowSeconds] = useState<string>('120');
     const [circuitBreakerMinCalls, setCircuitBreakerMinCalls] = useState<string>('5');
+    const [whatsappPermissionAction, setWhatsappPermissionAction] = useState<string>('skip');
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -158,15 +168,53 @@ export default function EditCampaignPage() {
                     setCircuitBreakerWindowSeconds(String(cb.window_seconds));
                     setCircuitBreakerMinCalls(String(cb.min_calls_in_window));
                 }
+
+                if (c.whatsapp_permission_action) {
+                    setWhatsappPermissionAction(
+                        c.whatsapp_permission_action as 'skip' | 'request_and_wait'
+                    );
+                }
+                setTelephonyConfigs(configsResponse.data.configurations ?? []);
+                setTelephonyConfigsStatus('loaded');
             }
         } catch (error) {
             console.error('Failed to fetch campaign:', error);
+            setTelephonyConfigsStatus('error');
             toast.error(error instanceof Error ? error.message : 'Failed to load campaign');
             router.replace(`/campaigns/${campaignId}`);
         } finally {
             setIsLoading(false);
         }
     }, [user, getAccessToken, campaignId, router]);
+
+    // Retry fetch campaign limits & telephony configs if lookup failed
+    const fetchCampaignDefaults = useCallback(async () => {
+        if (!user) return;
+        setTelephonyConfigsStatus('loading');
+        try {
+            const accessToken = await getAccessToken();
+            const headers = { 'Authorization': `Bearer ${accessToken}` };
+            const [defaultsRes, configsRes] = await Promise.all([
+                getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet({ headers }),
+                listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet({ headers }),
+            ]);
+
+            if (defaultsRes.error || !defaultsRes.data) {
+                throw new Error(detailFromError(defaultsRes.error, 'Failed to load campaign limits'));
+            }
+            if (configsRes.error || !configsRes.data) {
+                throw new Error(detailFromError(configsRes.error, 'Failed to load telephony configurations'));
+            }
+
+            setOrgConcurrentLimit(defaultsRes.data.concurrent_call_limit);
+            setFromNumbersCount(defaultsRes.data.from_numbers_count);
+            setTelephonyConfigs(configsRes.data.configurations ?? []);
+            setTelephonyConfigsStatus('loaded');
+        } catch (error) {
+            console.error('Failed to fetch campaign limits:', error);
+            setTelephonyConfigsStatus('error');
+        }
+    }, [user, getAccessToken]);
 
     // Initial load
     useEffect(() => {
@@ -175,7 +223,16 @@ export default function EditCampaignPage() {
         }
     }, [fetchCampaign, loading, user]);
 
+    const matchingConfig = telephonyConfigs.find(
+        (tc) => tc.id === campaign?.telephony_configuration_id
+    );
+    // Provider capability, not provider name - see providers/AGENTS.md.
+    const requiresCallPermission =
+        telephonyConfigsStatus === 'loaded' && matchingConfig?.requires_call_permission === true;
+    const effectiveFromNumbers = requiresCallPermission ? 1 : (matchingConfig?.phone_number_count ?? fromNumbersCount);
+
     const effectiveLimit = orgConcurrentLimit;
+
 
     // Handle form submission
     const handleSubmit = async (e: React.FormEvent) => {
@@ -187,6 +244,19 @@ export default function EditCampaignPage() {
             return;
         }
 
+        // Whether this is a WhatsApp campaign decides whether
+        // whatsapp_permission_action is sent and whether the permission card
+        // was even shown. Do not submit on an unresolved or failed lookup —
+        // that would silently save a WhatsApp campaign as if it were plain
+        // voice (or vice versa).
+        if (telephonyConfigsStatus !== 'loaded') {
+            toast.error(
+                telephonyConfigsStatus === 'error'
+                    ? 'Could not verify the telephony configuration for this campaign. Refresh the page and try again.'
+                    : 'Still checking the telephony configuration for this campaign. Please wait a moment and try again.',
+            );
+            return;
+        }
         const splitError = trafficSplitError(variants);
         if (splitChanged && splitError) {
             toast.error(splitError);
@@ -265,6 +335,7 @@ export default function EditCampaignPage() {
                     rate_limit_per_second: dialRate,
                     schedule_config: scheduleConfig,
                     circuit_breaker: circuitBreakerConfig,
+                    whatsapp_permission_action: requiresCallPermission ? whatsappPermissionAction : undefined,
                 },
                 headers: { 'Authorization': `Bearer ${accessToken}` },
             });
@@ -350,6 +421,35 @@ export default function EditCampaignPage() {
                             />
                         </div>
 
+                        {/* WhatsApp Permission Policy */}
+                        {telephonyConfigsStatus === 'error' && (
+                            <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive flex items-center justify-between gap-3">
+                                <span>
+                                    Could not verify whether this is a WhatsApp campaign. Saving
+                                    is disabled until this is resolved.
+                                </span>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => fetchCampaignDefaults()}
+                                >
+                                    Retry
+                                </Button>
+                            </div>
+                        )}
+                        {telephonyConfigsStatus === 'loading' && (
+                            <p className="text-sm text-muted-foreground">
+                                Checking campaign telephony configuration…
+                            </p>
+                        )}
+                        {requiresCallPermission && (
+                            <WhatsAppPermissionCard
+                                value={whatsappPermissionAction as 'skip' | 'request_and_wait'}
+                                onChange={setWhatsappPermissionAction}
+                            />
+                        )}
+
                         <Separator />
 
                         <TrafficSplitEditor value={variants} onChange={value => { setVariants(value); setSplitChanged(true); }} disabled={isSubmitting} editing />
@@ -359,7 +459,8 @@ export default function EditCampaignPage() {
                             onMaxConcurrencyChange={setMaxConcurrency}
                             effectiveLimit={effectiveLimit}
                             orgConcurrentLimit={orgConcurrentLimit}
-                            fromNumbersCount={fromNumbersCount}
+                            fromNumbersCount={effectiveFromNumbers}
+                            configuredPhoneNumberCount={matchingConfig?.phone_number_count ?? fromNumbersCount}
                             rateLimitPerSecond={rateLimitPerSecond}
                             onRateLimitPerSecondChange={setRateLimitPerSecond}
                             outboundBlockedReason={outboundBlockedReason}
@@ -389,6 +490,7 @@ export default function EditCampaignPage() {
                             onCircuitBreakerWindowSecondsChange={setCircuitBreakerWindowSeconds}
                             circuitBreakerMinCalls={circuitBreakerMinCalls}
                             onCircuitBreakerMinCallsChange={setCircuitBreakerMinCalls}
+                            requiresCallPermission={requiresCallPermission}
                         />
 
                         {submitError && (
@@ -400,7 +502,7 @@ export default function EditCampaignPage() {
                         <div className="flex gap-4 pt-4">
                             <Button
                                 type="submit"
-                                disabled={isSubmitting || !campaignName.trim()}
+                                disabled={isSubmitting || !campaignName.trim() || telephonyConfigsStatus !== 'loaded'}
                             >
                                 {isSubmitting ? 'Saving...' : 'Save Changes'}
                             </Button>

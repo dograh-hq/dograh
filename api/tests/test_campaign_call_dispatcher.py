@@ -808,6 +808,62 @@ async def test_stale_claim_only_requeues_when_entire_workflow_history_never_dial
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["started", "dispatched"])
+async def test_stale_claim_marks_processed_when_dialing_started(
+    finished_campaign, sessions, outcome
+):
+    """When a worker crashed during or after dialing, stale claim recovery must mark the row processed, not queued (preventing duplicate calls)."""
+    s = finished_campaign
+    await db_client.update_campaign(s.campaign.id, processed_rows=9)
+    await db_client.update_queued_run(
+        s.rows[0].id, state="processing", claimed_at=expired_claim_time()
+    )
+    await db_client.update_workflow_run(
+        s.run.id, logs={"campaign_dispatch": {"outcome": outcome}}
+    )
+    assert (
+        await db_client.recover_stale_campaign_claims(
+            s.campaign.id, s.org.id, claimed_before=expired_claim_time()
+        )
+        == 1
+    )
+    async with sessions() as session:
+        row = await session.get(QueuedRunModel, s.rows[0].id)
+        campaign = await session.get(CampaignModel, s.campaign.id)
+    assert row.state == "processed"
+    assert campaign.processed_rows == 10
+
+
+@pytest.mark.asyncio
+async def test_terminal_permission_increments_campaign_processed_rows(
+    finished_campaign, sessions
+):
+    """When a contact fails with a terminal permission status, mark_campaign_run_dispatched increments processed_rows."""
+    from datetime import UTC, datetime
+
+    s = finished_campaign
+    await db_client.update_campaign(s.campaign.id, processed_rows=0)
+    await db_client.update_queued_run(
+        s.rows[0].id, state="processing", claimed_at=datetime.now(UTC)
+    )
+    await db_client.update_workflow_run(
+        s.run.id,
+        is_completed=True,
+        state="completed",
+        logs={"campaign_dispatch": {"outcome": "failed"}},
+    )
+    success = await db_client.mark_campaign_run_dispatched(
+        s.rows[0].id, s.run.id, s.campaign.id, s.org.id
+    )
+    assert success is True
+    async with sessions() as session:
+        row = await session.get(QueuedRunModel, s.rows[0].id)
+        campaign = await session.get(CampaignModel, s.campaign.id)
+    assert row.state == "processed"
+    assert campaign.processed_rows == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("inactive_campaign", [False, True])
 async def test_claim_recovery_requires_running_campaign_and_matching_org(
     campaign_data, sessions, inactive_campaign

@@ -35,6 +35,7 @@ from api.services.pipecat.agent_runtime_factory import (
     AgentRuntimeFactory,
 )
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
+from api.services.pipecat.call_gate import OutboundCallGate
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
     register_event_handlers,
@@ -467,6 +468,7 @@ async def run_pipeline_smallwebrtc(
     call_context_vars: dict = {},
     user_provider_id: str | None = None,
     organization_id: int | None = None,
+    call_answered_event: OutboundCallGate | None = None,
 ) -> None:
     """Run pipeline for WebRTC connections."""
     # Register before any async setup so deploy drains see calls that are still
@@ -481,6 +483,7 @@ async def run_pipeline_smallwebrtc(
             call_context_vars=call_context_vars,
             user_provider_id=user_provider_id,
             organization_id=organization_id,
+            call_answered_event=call_answered_event,
         )
     finally:
         try:
@@ -497,6 +500,7 @@ async def _run_pipeline_smallwebrtc_impl(
     call_context_vars: dict = {},
     user_provider_id: str | None = None,
     organization_id: int | None = None,
+    call_answered_event: OutboundCallGate | None = None,
 ) -> None:
     """Run pipeline for WebRTC connections"""
     logger.debug(
@@ -570,6 +574,7 @@ async def _run_pipeline_smallwebrtc_impl(
         workflow_run=workflow_run,
         resolved_user_config=user_config,
         organization_id=organization_id,
+        call_answered_event=call_answered_event,
     )
 
 
@@ -584,6 +589,7 @@ async def _run_pipeline(
     workflow_run=None,
     resolved_user_config=None,
     organization_id: int | None = None,
+    call_answered_event: OutboundCallGate | None = None,
 ) -> None:
     """Run the pipeline with active-call drain accounting."""
     register_worker_active_call(workflow_run_id)
@@ -599,6 +605,7 @@ async def _run_pipeline(
             workflow_run=workflow_run,
             resolved_user_config=resolved_user_config,
             organization_id=organization_id,
+            call_answered_event=call_answered_event,
         )
     finally:
         try:
@@ -619,6 +626,7 @@ async def _run_pipeline_impl(
     resolved_user_config=None,
     organization_id: int | None = None,
     provider_call_id: str | None = None,
+    call_answered_event: OutboundCallGate | None = None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -1304,6 +1312,7 @@ async def _run_pipeline_impl(
         integration_runtime_sessions=integration_runtime_sessions,
         call_events_session=call_events_session,
         include_transcript_end_timestamps=include_transcript_end_timestamps,
+        call_answered_event=call_answered_event,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)

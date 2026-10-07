@@ -176,7 +176,13 @@ async def test_find_telephony_config_for_inbound_excludes_inactive_ari_row():
 
 
 def _config_row() -> SimpleNamespace:
-    return SimpleNamespace(id=14, provider="twilio", credentials={"account_sid": "AC1"})
+    # The loaded config carries the owning org, so the stand-in row has one.
+    return SimpleNamespace(
+        id=14,
+        organization_id=1,
+        provider="twilio",
+        credentials={"account_sid": "AC1"},
+    )
 
 
 def _normalize_patches(addresses, default_row):

@@ -59,6 +59,19 @@ export interface CampaignAdvancedSettingsProps {
     onCircuitBreakerWindowSecondsChange: (value: string) => void;
     circuitBreakerMinCalls: string;
     onCircuitBreakerMinCallsChange: (value: string) => void;
+    // True when the provider requires recipient consent before dialling: the
+    // caller-ID based concurrency hints below do not apply to those campaigns.
+    requiresCallPermission?: boolean;
+    // How many numbers the configuration actually has.
+    //
+    // Required, and deliberately not defaulted to `fromNumbersCount`: that
+    // one is a concurrency input, which a caller may replace with a sentinel
+    // when a provider's concurrency is not capped by caller IDs. Falling back
+    // to it would answer "does this campaign have a number at all?" with that
+    // sentinel, which is how the warning below came to be unreachable on the
+    // edit page. Making it required means a caller that forgets is a type
+    // error rather than a silently suppressed warning.
+    configuredPhoneNumberCount: number;
 }
 
 /** Extract the string timezone value from ITimezoneOption | string */
@@ -119,6 +132,8 @@ export default function CampaignAdvancedSettings({
     circuitBreakerFailureThreshold, onCircuitBreakerFailureThresholdChange,
     circuitBreakerWindowSeconds, onCircuitBreakerWindowSecondsChange,
     circuitBreakerMinCalls, onCircuitBreakerMinCallsChange,
+    requiresCallPermission,
+    configuredPhoneNumberCount,
 }: CampaignAdvancedSettingsProps) {
     const timezoneSelectId = useId();
 
@@ -138,7 +153,7 @@ export default function CampaignAdvancedSettings({
                 />
                 <p className="text-sm text-muted-foreground">
                     Maximum number of simultaneous calls. Leave empty to use {effectiveLimit}.
-                    {fromNumbersCount > 0 && ` You have ${fromNumbersCount} CLI${fromNumbersCount !== 1 ? 's' : ''} and an org limit of ${orgConcurrentLimit}.`}
+                    {!requiresCallPermission && fromNumbersCount > 0 && ` You have ${fromNumbersCount} CLI${fromNumbersCount !== 1 ? 's' : ''} and an org limit of ${orgConcurrentLimit}.`}
                 </p>
                 {fromNumbersCount > 0 && (
                     <p className="text-sm text-muted-foreground">
@@ -149,6 +164,11 @@ export default function CampaignAdvancedSettings({
                     <p className="text-sm text-amber-600 dark:text-amber-400">
                         {outboundBlockedReason}{' '}
                         <Link href="/telephony-configurations" className="underline font-medium">Open Telephony Configuration</Link>.
+                    </p>
+                )}
+                {configuredPhoneNumberCount === 0 && !outboundBlockedReason && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                        No phone numbers configured. Add one in <Link href="/telephony-configurations" className="underline font-medium">Telephony Configuration</Link> before running the campaign.
                     </p>
                 )}
             </div>

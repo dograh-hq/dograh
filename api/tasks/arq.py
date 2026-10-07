@@ -59,6 +59,7 @@ REDIS_SETTINGS = RedisSettings(
 
 from api.tasks.campaign_tasks import (
     process_campaign_batch,
+    sweep_parked_whatsapp_permissions,
     sync_campaign_source,
 )
 from api.tasks.knowledge_base_processing import process_knowledge_base_document
@@ -71,6 +72,15 @@ from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
 from api.tasks.workflow_completion import process_workflow_completion
 
 
+async def startup(ctx):
+    """Wire anything the worker needs before it can run a job.
+
+    Eagerly load telephony providers so provider registration runs via package
+    imports at worker startup.
+    """
+    import api.services.telephony  # noqa: F401
+
+
 class WorkerSettings:
     functions = [
         run_integrations_post_workflow_run,
@@ -80,6 +90,7 @@ class WorkerSettings:
         process_knowledge_base_document,
         deliver_webhook,
         complete_inactive_text_chat_session,
+        sweep_parked_whatsapp_permissions,
     ]
     cron_jobs = [
         # Safety net for webhook deliveries whose ARQ job was lost (worker
@@ -98,7 +109,16 @@ class WorkerSettings:
             second=30,
             run_at_startup=True,
         ),
+        # Check and reactivate parked WhatsApp leads across running campaigns when
+        # recipients grant call permission.
+        cron(
+            sweep_parked_whatsapp_permissions,
+            minute=set(range(0, 60, 2)),
+            second=15,
+            run_at_startup=True,
+        ),
     ]
+    on_startup = startup
     redis_settings = REDIS_SETTINGS
     max_jobs = 10
 

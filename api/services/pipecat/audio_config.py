@@ -100,6 +100,6 @@ def create_audio_config(transport_type: str) -> AudioConfig:
     return AudioConfig(
         transport_in_sample_rate=rate,
         transport_out_sample_rate=rate,
-        vad_sample_rate=rate,
-        pipeline_sample_rate=rate,
+        vad_sample_rate=min(rate, 16000),
+        pipeline_sample_rate=min(rate, 16000),
     )

@@ -31,6 +31,7 @@ import { useAuth } from '@/lib/auth';
 import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../CampaignAdvancedSettings';
 import CsvUploadSelector from '../CsvUploadSelector';
 import TrafficSplitEditor, { trafficSplitError } from '../TrafficSplitEditor';
+import { WhatsAppPermissionCard } from '../WhatsAppPermissionCard';
 
 export default function NewCampaignPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
@@ -80,6 +81,7 @@ export default function NewCampaignPage() {
     const [circuitBreakerFailureThreshold, setCircuitBreakerFailureThreshold] = useState<string>('50');
     const [circuitBreakerWindowSeconds, setCircuitBreakerWindowSeconds] = useState<string>('120');
     const [circuitBreakerMinCalls, setCircuitBreakerMinCalls] = useState<string>('5');
+    const [whatsappPermissionAction, setWhatsappPermissionAction] = useState<'skip' | 'request_and_wait'>('skip');
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -205,6 +207,10 @@ export default function NewCampaignPage() {
 
     const effectiveLimit = orgConcurrentLimit;
 
+    // Provider capability, not provider name - see providers/AGENTS.md.
+    const requiresCallPermission =
+        selectedTelephonyConfig?.requires_call_permission === true;
+
     // Handle form submission
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -273,6 +279,7 @@ export default function NewCampaignPage() {
                     rate_limit_per_second: dialRate,
                     schedule_config: scheduleConfig,
                     circuit_breaker: circuitBreakerConfig,
+                    whatsapp_permission_action: requiresCallPermission ? whatsappPermissionAction : 'skip',
                 },
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -400,6 +407,13 @@ export default function NewCampaignPage() {
                                 </p>
                             </div>
 
+                            {requiresCallPermission && (
+                                <WhatsAppPermissionCard
+                                    value={whatsappPermissionAction}
+                                    onChange={setWhatsappPermissionAction}
+                                />
+                            )}
+
                             <div className="space-y-2">
                                 <Label htmlFor="source-type">Data Source Type</Label>
                                 <Select
@@ -449,6 +463,7 @@ export default function NewCampaignPage() {
                                         effectiveLimit={effectiveLimit}
                                         orgConcurrentLimit={orgConcurrentLimit}
                                         fromNumbersCount={availableFromNumbersCount}
+                                        configuredPhoneNumberCount={selectedTelephonyConfig?.phone_number_count ?? fromNumbersCount}
                                         rateLimitPerSecond={rateLimitPerSecond}
                                         onRateLimitPerSecondChange={setRateLimitPerSecond}
                                         outboundBlockedReason={selectedTelephonyConfig?.outbound_blocked_reason}
@@ -478,6 +493,7 @@ export default function NewCampaignPage() {
                                         onCircuitBreakerWindowSecondsChange={setCircuitBreakerWindowSeconds}
                                         circuitBreakerMinCalls={circuitBreakerMinCalls}
                                         onCircuitBreakerMinCallsChange={setCircuitBreakerMinCalls}
+                                        requiresCallPermission={requiresCallPermission}
                                     />
                                 </CollapsibleContent>
                             </Collapsible>

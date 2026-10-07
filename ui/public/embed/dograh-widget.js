@@ -978,7 +978,11 @@
     // Handle incoming audio
     state.pc.ontrack = (event) => {
       if (event.track.kind === 'audio' && state.audioElement) {
-        state.audioElement.srcObject = event.streams[0];
+        const stream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
+        state.audioElement.srcObject = stream;
+        state.audioElement.play().catch((err) => {
+          console.warn('Failed to autoplay audio track:', err);
+        });
       }
     };
 

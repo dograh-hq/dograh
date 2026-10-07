@@ -223,6 +223,9 @@ class CreateCampaignRequest(BaseModel):
     rate_limit_per_second: int = Field(default=1, ge=1, strict=True)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
+    whatsapp_permission_action: Optional[str] = Field(
+        default="skip", pattern="^(skip|request_and_wait)$"
+    )
 
     @model_validator(mode="after")
     def validate_agent_selection(self):
@@ -239,6 +242,9 @@ class UpdateCampaignRequest(BaseModel):
     rate_limit_per_second: Optional[int] = Field(default=None, ge=1, strict=True)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
+    whatsapp_permission_action: Optional[str] = Field(
+        None, pattern="^(skip|request_and_wait)$"
+    )
 
 
 class CampaignLogEntryResponse(BaseModel):
@@ -281,6 +287,7 @@ class CampaignResponse(BaseModel):
     redialed_campaign_id: Optional[int] = None
     telephony_configuration_id: Optional[int] = None
     telephony_configuration_name: Optional[str] = None
+    whatsapp_permission_action: Optional[str] = "skip"
     logs: List[CampaignLogEntryResponse] = Field(default_factory=list)
     # Things the operator should know that are not errors - dialling wider
     # than the caller-ID pool, for instance.
@@ -348,6 +355,7 @@ async def _build_campaign_response(
     circuit_breaker_config = CircuitBreakerConfigResponse()
     parent_campaign_id = None
     redialed_campaign_id = None
+    whatsapp_permission_action = "skip"
     if campaign.orchestrator_metadata:
         max_concurrency = campaign.orchestrator_metadata.get("max_concurrency")
         sc = campaign.orchestrator_metadata.get("schedule_config")
@@ -363,6 +371,9 @@ async def _build_campaign_response(
         parent_campaign_id = campaign.orchestrator_metadata.get("parent_campaign_id")
         redialed_campaign_id = campaign.orchestrator_metadata.get(
             "redialed_campaign_id"
+        )
+        whatsapp_permission_action = campaign.orchestrator_metadata.get(
+            "whatsapp_permission_action", "skip"
         )
 
     return CampaignResponse(
@@ -394,6 +405,7 @@ async def _build_campaign_response(
         redialed_campaign_id=redialed_campaign_id,
         telephony_configuration_id=campaign.telephony_configuration_id,
         telephony_configuration_name=telephony_configuration_name,
+        whatsapp_permission_action=whatsapp_permission_action,
         logs=[
             CampaignLogEntryResponse(**entry)
             for entry in (campaign.logs or [])
@@ -597,6 +609,7 @@ async def create_campaign(
         schedule_config=schedule_config,
         circuit_breaker=circuit_breaker_config,
         telephony_configuration_id=telephony_configuration_id,
+        whatsapp_permission_action=request.whatsapp_permission_action,
         rate_limit_per_second=request.rate_limit_per_second,
     )
 
@@ -819,6 +832,10 @@ async def update_campaign(
         metadata_patch["schedule_config"] = request.schedule_config.model_dump()
     if request.circuit_breaker is not None:
         metadata_patch["circuit_breaker"] = request.circuit_breaker.model_dump()
+    if request.whatsapp_permission_action is not None:
+        metadata_patch["whatsapp_permission_action"] = (
+            request.whatsapp_permission_action
+        )
     if request.traffic_split is not None:
         try:
             resolved = await resolve_variants(

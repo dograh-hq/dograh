@@ -250,6 +250,7 @@ class CampaignCallDispatcher:
                         "call_status": None,
                         "error": None,
                     },
+                    logs={"campaign_dispatch": {"outcome": "not_started"}},
                     state=WorkflowRunState.INITIALIZED.value,
                 )
                 logger.info(
@@ -385,6 +386,7 @@ class CampaignCallDispatcher:
                             "call_status": TelephonyCallStatus.AWAITING_PERMISSION.value,
                             "error": f"Call permission requested; awaiting recipient response. {perm_err}",
                         },
+                        logs={"campaign_dispatch": {"outcome": "not_started"}},
                     )
                 else:
                     disposition = (

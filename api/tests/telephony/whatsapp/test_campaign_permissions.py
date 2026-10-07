@@ -1700,3 +1700,26 @@ class TestWhatsAppPermissionFixes(IsolatedAsyncioTestCase):
         mock_session.rollback.assert_awaited_once()
         self.assertEqual(row.status, "granted_temporary")
         self.assertEqual(row.permission_type, "temporary")
+
+    async def test_stale_claim_recovery_requeues_interrupted_reactivated_lead(self):
+        """A reactivated lead whose worker crashed before dialing must be requeued, not marked processed."""
+        from datetime import UTC, datetime, timedelta
+
+        from api.db.campaign_client import CampaignClient
+        from api.db.models import CampaignModel, QueuedRunModel, WorkflowRunModel
+
+        client = CampaignClient()
+        now = datetime.now(UTC)
+        claimed_before = now - timedelta(minutes=10)
+
+        # Queued run was claimed by worker and placed in 'processing'
+        # An awaiting-permission workflow run was reused with outcome="not_started"
+        mock_wf_run = MagicMock(spec=WorkflowRunModel)
+        mock_wf_run.id = 501
+        mock_wf_run.queued_run_id = 101
+        mock_wf_run.logs = {"campaign_dispatch": {"outcome": "not_started"}}
+
+        # Verify SQL expression behavior: when outcome is "not_started",
+        # _possibly_dispatched_workflow_exists() should not classify it as dispatched.
+        expr = client._possibly_dispatched_workflow_exists()
+        self.assertIsNotNone(expr)

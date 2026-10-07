@@ -73,7 +73,7 @@ describe("workflow model configuration selection", () => {
         expect(previewModelConfiguration).toHaveBeenCalledWith({ body: {} });
         expect(onSave.mock.calls[0][0].model_configuration_override).toEqual({});
         expect(onSave.mock.calls[0][0]).not.toHaveProperty("model_overrides");
-        expect(original.model_overrides?.llm?.temperature).toBe(0.4);
+        expect(original).toHaveProperty("model_overrides.llm.temperature", 0.4);
     });
 
     it.each([

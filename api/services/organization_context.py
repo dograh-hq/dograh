@@ -10,10 +10,7 @@ from api.services.configuration.ai_model_configuration import (
 
 
 class OrganizationModelServicesContext(BaseModel):
-    config_source: Literal[
-        "organization_v3", "organization_v2", "legacy_user_v1", "empty"
-    ]
-    has_model_configuration_v2: bool
+    config_source: Literal["organization_v3", "empty"]
     managed_service_version: Optional[int] = None
     uses_managed_service_v2: bool
 
@@ -42,11 +39,9 @@ async def get_organization_context(user: UserModel) -> OrganizationContextRespon
         organization_provider_id=organization.provider_id if organization else None,
         model_services=OrganizationModelServicesContext(
             config_source=resolved.source,
-            has_model_configuration_v2=resolved.source == "organization_v2",
             managed_service_version=managed_service_version,
             uses_managed_service_v2=(
-                resolved.source in {"organization_v2", "organization_v3"}
-                and managed_service_version == 2
+                resolved.source == "organization_v3" and managed_service_version == 2
             ),
         ),
     )

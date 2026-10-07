@@ -320,7 +320,7 @@ def test_catalog_separates_credentials_connection_and_model_fields():
     entry = service.model_connection_catalog()["services"]["llm"]["google_vertex"]
     assert "credentials" in entry["credential_fields"]
     assert "project_id" in entry["connection_fields"]
-    assert "fallback_model" in entry["settings_schema"]["properties"]
+    assert "fallback_model" not in entry["settings_schema"]["properties"]
     assert "api_key" not in entry["settings_schema"]["properties"]
 
 
@@ -467,3 +467,188 @@ async def test_legacy_routes_reject_v3_shadow_writes(monkeypatch):
         validity_ttl_seconds=0, user=caller
     ) == {"status": [{"model": "all", "message": "ok"}]}
     validator.assert_not_called()
+
+
+def fallback_rule(row, condition=None, **settings):
+    return {
+        "condition": condition or {"type": "error"},
+        "target": selection(row, **settings),
+    }
+
+
+@pytest.mark.asyncio
+async def test_dograh_rejects_fallback_rules_but_allows_disabling_them(catalog):
+    primary = connection()
+    backup = connection("openai")
+    catalog(primary)
+    catalog(backup)
+    config = {**pipeline(primary), "llm_fallback": {"rules": [fallback_rule(backup)]}}
+    with pytest.raises(HTTPException, match="unavailable in Dograh mode") as exc:
+        await service.resolve_inline_model_configuration(1, config)
+    assert exc.value.status_code == 422
+
+    config["llm_fallback"] = {"rules": []}
+    resolved = await service.resolve_inline_model_configuration(1, config)
+    assert resolved.effective.llm_fallback.rules == []
+
+
+@pytest.mark.asyncio
+async def test_dograh_override_must_disable_inherited_fallbacks(catalog):
+    primary = connection("openai")
+    dograh = connection()
+    catalog(dograh)
+    backup = connection("google")
+    catalog(backup)
+    config = {**pipeline(primary), "llm_fallback": {"rules": [fallback_rule(backup)]}}
+    catalog(primary, default=True, configuration=config)
+    override = {"llm": selection(dograh)}
+    with pytest.raises(HTTPException, match="unavailable in Dograh mode"):
+        await service.resolve_model_configuration(1, api_override=override)
+
+    override["llm_fallback"] = {"rules": []}
+    resolved = await service.resolve_model_configuration(1, api_override=override)
+    assert resolved.effective.llm.provider == "dograh"
+    assert resolved.effective.llm_fallback.rules == []
+
+
+@pytest.mark.asyncio
+async def test_fallback_snapshot_pins_settings_and_rotates_only_credentials(catalog):
+    primary = connection("openai")
+    backup = connection("openai", keys=["backup-a", "backup-b"])
+    catalog(backup)
+    config = pipeline(primary)
+    config["llm_fallback"] = {
+        "rules": [fallback_rule(backup, model="gpt-4.1", temperature=0.6)]
+    }
+    catalog(primary, default=True, configuration=config)
+    resolved = await service.resolve_model_configuration(1)
+    rule = resolved.effective.llm_fallback.rules[0]
+    assert rule.target.provider == "openai" and rule.target.temperature == 0.6
+    snapshot = resolved.snapshot
+    target = snapshot["llm_fallback"]["rules"][0]["target"]
+    index = target["api_key_index"]
+    assert rule.target.api_key == backup.credentials["api_key"][index]
+    assert "backup-a" not in str(snapshot) and "backup-b" not in str(snapshot)
+    assert "api_key_index" not in str(service.public_snapshot(snapshot))
+    backup.credentials = {"api_key": ["rotated-a", "rotated-b"]}
+    backup.is_active = False  # Existing run can hydrate its pinned connection.
+    backup.connection_settings = {"base_url": "https://changed.example.com/v1"}
+    hydrated = await service.hydrate_model_configuration_snapshot(1, snapshot)
+    target_config = hydrated.llm_fallback.rules[0].target
+    assert target_config.api_key == backup.credentials["api_key"][index]
+    assert (
+        target_config.model == "gpt-4.1"
+        and target_config.base_url != "https://changed.example.com/v1"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["other_org", "archived", "unsupported_role"])
+async def test_fallback_references_are_active_org_owned_llm_connections(
+    catalog, invalid
+):
+    primary = connection("openai")
+    backup = connection("openai" if invalid != "unsupported_role" else "deepgram")
+    if invalid == "other_org":
+        backup.organization_id = 2
+    if invalid == "archived":
+        backup.is_active = False
+    catalog(backup)
+    config = pipeline(primary)
+    config["llm_fallback"] = {"rules": [fallback_rule(backup)]}
+    catalog(primary, default=True, configuration=config)
+    with pytest.raises(HTTPException) as exc:
+        await service.resolve_model_configuration(1)
+    assert exc.value.status_code in (404, 422)
+    assert "secret" not in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_fallback_policies_inherit_replace_and_disable_atomically(catalog):
+    primary = connection("openai")
+    backup = connection("openai")
+    catalog(backup)
+    config = pipeline(primary)
+    config["llm_fallback"] = {"rules": [fallback_rule(backup)]}
+    catalog(primary, default=True, configuration=config)
+    inherited = await service.resolve_model_configuration(
+        1, workflow_override={"llm": {"settings": {"temperature": 0.2}}}
+    )
+    assert inherited.effective.llm_fallback.rules[0].condition.type == "error"
+    replaced = await service.resolve_model_configuration(
+        1,
+        workflow_override={
+            "llm_fallback": {
+                "rules": [fallback_rule(backup, {"type": "no_output", "after_ms": 900})]
+            }
+        },
+    )
+    assert len(replaced.effective.llm_fallback.rules) == 1
+    assert replaced.effective.llm_fallback.rules[0].condition.after_ms == 900
+    disabled = await service.resolve_model_configuration(
+        1, api_override={"llm_fallback": {"rules": []}}
+    )
+    assert disabled.effective.llm_fallback.rules == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "settings",
+    [{"api_key": "injected"}, {"location": "global"}, {"fallback_model": "nested"}],
+)
+async def test_fallback_settings_cannot_inject_credentials_connections_or_recursion(
+    catalog, settings
+):
+    primary = connection("openai")
+    backup = connection("openai")
+    catalog(backup)
+    config = pipeline(primary)
+    config["llm_fallback"] = {"rules": [fallback_rule(backup, **settings)]}
+    catalog(primary, default=True, configuration=config)
+    with pytest.raises(HTTPException) as exc:
+        await service.resolve_model_configuration(1)
+    assert exc.value.status_code == 422
+    assert "injected" not in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_fallback_cannot_repeat_primary_connection_and_settings(catalog):
+    primary = connection("openai")
+    config = pipeline(primary)
+    config["llm_fallback"] = {"rules": [fallback_rule(primary)]}
+    catalog(primary, default=True, configuration=config)
+    with pytest.raises(HTTPException, match="must differ"):
+        await service.resolve_model_configuration(1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["pipeline", "realtime"])
+@pytest.mark.parametrize(
+    "condition", [{"type": "error"}, {"type": "no_output", "after_ms": 900}]
+)
+async def test_dograh_cannot_be_a_fallback_target(catalog, mode, condition):
+    primary = connection("openai")
+    backup = connection("dograh", keys="managed-key")
+    catalog(backup)
+    config = pipeline(primary)
+    if mode == "realtime":
+        realtime = connection("openai_realtime")
+        catalog(realtime)
+        config = {
+            "version": 3,
+            "mode": mode,
+            "llm": selection(primary),
+            "realtime": selection(realtime),
+        }
+    catalog(primary, default=True, configuration=config)
+    policy = {"rules": [fallback_rule(backup, condition)]}
+    with pytest.raises(HTTPException, match="cannot be a fallback target") as exc:
+        await service.resolve_inline_model_configuration(
+            1, {**config, "llm_fallback": policy}
+        )
+    assert exc.value.status_code == 422
+    with pytest.raises(HTTPException, match="cannot be a fallback target") as exc:
+        await service.resolve_model_configuration(
+            1, api_override={"llm_fallback": policy}
+        )
+    assert exc.value.status_code == 422

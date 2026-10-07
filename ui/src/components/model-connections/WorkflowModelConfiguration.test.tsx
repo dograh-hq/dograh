@@ -39,9 +39,9 @@ describe("workflow model configuration selection", () => {
         vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations: [...configurations, { ...configurations[0], uuid: "archived", name: "Archived", is_active: false }], defaultUuid: "Sales", loading: false, error: null, reload: vi.fn() });
         render(<WorkflowModelConfiguration workflowName="Agent" onSave={vi.fn()} workflowConfigurations={resolveWorkflowConfigurations()} />);
         expect(screen.getAllByRole("combobox")).toHaveLength(1);
-        expect(selectOptions("Model configuration")).toEqual(["Organization default · Sales", "Sales", "Support"]);
+        expect(selectOptions("Model configuration")).toEqual(["Follow organization default", "Sales", "Support"]);
         expect(screen.queryByRole("checkbox")).toBeNull();
-        for (const label of ["Temperature", "Voice", "Mode", "LLM provider connection"]) expect(screen.queryByLabelText(label)).toBeNull();
+        for (const label of ["Temperature", "Voice", "Mode", "Provider connection"]) expect(screen.queryByLabelText(label)).toBeNull();
         expect(screen.getByRole("link", { name: "Models" }).getAttribute("href")).toBe("/model-configurations");
         expect(screen.getByText("Sales · Cascade")).toBeDefined();
     });
@@ -67,7 +67,7 @@ describe("workflow model configuration selection", () => {
         const original = resolveWorkflowConfigurations({ model_overrides: { llm: { temperature: 0.4 } }, model_configuration_override: { model_configuration_uuid: "Support" } });
         render(<WorkflowModelConfiguration workflowName="Agent" onSave={onSave} workflowConfigurations={original} />);
         expect(screen.queryByText(/This workflow has custom/)).toBeNull();
-        selectOption("Model configuration", "Organization default · Sales");
+        selectOption("Model configuration", "Follow organization default");
         fireEvent.click(screen.getByRole("button", { name: "Save Model Configuration" }));
         await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
         expect(previewModelConfiguration).toHaveBeenCalledWith({ body: {} });
@@ -99,7 +99,7 @@ describe("workflow model configuration selection", () => {
 
     it("does not revive retired settings when an explicit empty binding selects inheritance", () => {
         render(<WorkflowModelConfiguration workflowName="Agent" onSave={vi.fn()} workflowConfigurations={resolveWorkflowConfigurations({ model_configuration_override: {}, model_overrides: { llm: { temperature: 0.4 } } })} />);
-        expect(screen.getByLabelText("Model configuration").textContent).toBe("Organization default · Sales");
+        expect(screen.getByLabelText("Model configuration").textContent).toBe("Follow organization default");
         expect(screen.queryByText(/This workflow has custom/)).toBeNull();
     });
 

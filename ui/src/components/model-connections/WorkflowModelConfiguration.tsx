@@ -41,7 +41,6 @@ export function WorkflowModelConfiguration({ workflowConfigurations, workflowNam
     useUnsavedChanges("models", selection !== savedSelection);
 
     const activeConfigurations = configurations.filter(item => item.is_active);
-    const orgDefault = activeConfigurations.find(item => item.uuid === defaultUuid);
     const selected = selection === "existing" ? undefined : activeConfigurations.find(item => item.uuid === (selection === "inherit" ? defaultUuid : selection));
     const configuration = selected?.configuration;
     const mode = configuration ? configurationMode(configuration, connections) : null;
@@ -80,11 +79,14 @@ export function WorkflowModelConfiguration({ workflowConfigurations, workflowNam
                     <ConfigurationSelect id="workflow-model-configuration" value={selection} disabled={saving || loading} onValueChange={value => {
                         setSelection(value); setError(null);
                     }} options={[
-                        { value: "inherit", label: `Organization default${orgDefault ? ` · ${orgDefault.name}` : ""}` },
+                        { value: "inherit", label: "Follow organization default" },
                         ...(hasCustomSettings ? [{ value: "existing", label: "Existing workflow override" }] : []),
                         ...(selection !== "inherit" && selection !== "existing" && !selected ? [{ value: selection, label: "Unavailable configuration" }] : []),
                         ...activeConfigurations.map(item => ({ value: item.uuid, label: item.name })),
                     ]} />
+                    {selection !== "existing" && <p className="text-xs text-muted-foreground">{selection === "inherit"
+                        ? "Follows whichever configuration your organization sets as its default."
+                        : "Keeps this configuration selected even when the organization default changes."}</p>}
                     <p className="text-xs text-muted-foreground">Create and edit configurations in <Link href="/model-configurations" className="underline">Models</Link>. You can override individual fields through the API trigger.</p>
                 </div>
                 {!selected && selection !== "existing" && <p className="rounded-md border p-3 text-sm text-muted-foreground">{selection !== "inherit" ? "The selected configuration is unavailable. Choose another configuration before saving." : "Set an organization default in Models or select a named model configuration."}</p>}

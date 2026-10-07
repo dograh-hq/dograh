@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from api.schemas.llm_fallback import FallbackPolicy
+
 CREDENTIAL_FIELDS = frozenset(
     {"api_key", "credentials", "aws_access_key", "aws_secret_key", "aws_session_token"}
 )
@@ -61,6 +63,7 @@ class ModelConfigurationSpec(CatalogSchema):
     version: Literal[3] = 3
     mode: Literal["pipeline", "realtime"] = "pipeline"
     llm: ServiceSelection
+    llm_fallback: FallbackPolicy[ServiceSelection] | None = None
     stt: ServiceSelection | None = None
     tts: ServiceSelection | None = None
     realtime: ServiceSelection | None = None
@@ -78,6 +81,7 @@ class ModelConfigurationOverride(CatalogSchema):
     model_configuration_uuid: UUID | None = None
     mode: Literal["pipeline", "realtime"] | None = None
     llm: ServiceOverride | None = None
+    llm_fallback: FallbackPolicy[ServiceSelection] | None = None
     stt: ServiceOverride | None = None
     tts: ServiceOverride | None = None
     realtime: ServiceOverride | None = None

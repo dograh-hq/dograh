@@ -8,13 +8,13 @@ beforeEach(() => {
     Element.prototype.releasePointerCapture = vi.fn();
 });
 
-export function selectOption(label: string, option: string | RegExp) {
-    fireEvent.keyDown(screen.getByLabelText(label), { key: "ArrowDown" });
+export function selectOption(label: string | HTMLElement, option: string | RegExp) {
+    fireEvent.keyDown(typeof label === "string" ? screen.getByLabelText(label) : label, { key: "ArrowDown" });
     fireEvent.click(screen.getByRole("option", { name: option }));
 }
 
-export function selectOptions(label: string) {
-    fireEvent.keyDown(screen.getByLabelText(label), { key: "ArrowDown" });
+export function selectOptions(label: string | HTMLElement) {
+    fireEvent.keyDown(typeof label === "string" ? screen.getByLabelText(label) : label, { key: "ArrowDown" });
     const options = screen.queryAllByRole("option").map(option => option.textContent);
     fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
     return options;

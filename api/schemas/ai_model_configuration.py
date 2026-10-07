@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from api.schemas.llm_fallback import FallbackPolicy
 from api.services.configuration.registry import (
     DograhEmbeddingsConfiguration,
     DograhLLMService,
@@ -29,6 +30,7 @@ DOGRAH_DEFAULT_LANGUAGE = "multi"
 
 class EffectiveAIModelConfiguration(BaseModel):
     llm: LLMConfig | None = None
+    llm_fallback: FallbackPolicy[LLMConfig] | None = None
     stt: STTConfig | None = None
     tts: TTSConfig | None = None
     embeddings: EmbeddingsConfig | None = None
@@ -38,6 +40,21 @@ class EffectiveAIModelConfiguration(BaseModel):
     test_phone_number: str | None = None
     timezone: str | None = None
     last_validated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def require_byok_llm_fallback(self):
+        if not self.llm_fallback or not self.llm_fallback.rules:
+            return self
+        if self.llm is None or self.llm.provider == ServiceProviders.DOGRAH:
+            raise ValueError("LLM fallbacks require a non-Dograh primary LLM")
+        if any(
+            rule.target.provider == ServiceProviders.DOGRAH
+            for rule in self.llm_fallback.rules
+        ):
+            raise ValueError(
+                "Dograh manages its own fallbacks and cannot be a fallback target"
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod

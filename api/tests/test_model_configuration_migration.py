@@ -434,8 +434,6 @@ def test_cli_defaults_to_read_only_and_requires_explicit_apply():
             "project_id": "private-project",
             "location": "us-central1",
             "credentials": '{"private_key":"private-service-account"}',
-            "fallback_model": "gemini-2.5-flash",
-            "fallback_location": "global",
         },
         {
             "provider": "google_vertex",

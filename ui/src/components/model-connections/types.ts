@@ -63,10 +63,21 @@ export interface ServiceSelection {
     settings: Record<string, unknown>;
 }
 
+export type FallbackCondition = { type: "no_output"; after_ms: number } | { type: "error" };
+export interface FallbackRule {
+    condition: FallbackCondition;
+    target: ServiceSelection;
+}
+export interface FallbackPolicy {
+    version: 1;
+    rules: FallbackRule[];
+}
+
 export type ConfigurationSpec = {
     version: 3;
     mode: "pipeline" | "realtime";
     llm: ServiceSelection;
+    llm_fallback?: FallbackPolicy | null;
     stt?: ServiceSelection | null;
     tts?: ServiceSelection | null;
     realtime?: ServiceSelection | null;

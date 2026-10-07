@@ -79,7 +79,6 @@ export function ConnectionEditor({ catalog, connection, onSaved }: {
                     configuredFields={connection?.configured_credentials} onChange={(field, value) => setCredentials(previous => changeField(previous, field, value))} />
             </fieldset>}
         </>}
-        <p className="text-xs text-muted-foreground">New credentials and connection settings are checked using the provider’s available validation before saving.</p>
         <div className="flex justify-end"><Button type="submit" disabled={saving || !entry || !name.trim()}>{saving ? "Validating and saving…" : "Save Connection"}</Button></div>
     </form>;
 }

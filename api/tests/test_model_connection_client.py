@@ -293,3 +293,34 @@ async def test_index_metadata_lookup_is_scoped_to_organization_and_documents(
         org, document_uuids=[documents[0].document_uuid, documents[2].document_uuid]
     ) == [{"model": "first-model", "dimension": 1536}]
     assert len(await db_session.get_model_configuration_embedding_spaces(org)) == 2
+
+
+@pytest.mark.asyncio
+async def test_fallback_reference_guard_checks_tenant_and_prevents_archive(db_session):
+    org = await create_org(db_session)
+    other = await create_org(db_session)
+    primary = await create_connection(db_session, org)
+    backup = await create_connection(db_session, org, "backup")
+    foreign = await create_connection(db_session, other)
+    config = pipeline(primary)
+    config["llm_fallback"] = {
+        "version": 1,
+        "rules": [
+            {
+                "condition": {"type": "error"},
+                "target": {"provider_connection_uuid": foreign.uuid, "settings": {}},
+            }
+        ],
+    }
+    with pytest.raises(ModelCatalogNotFound):
+        await db_session.create_named_model_configuration(
+            org, name="Foreign fallback", configuration=config
+        )
+    config["llm_fallback"]["rules"][0]["target"]["provider_connection_uuid"] = (
+        backup.uuid
+    )
+    await db_session.create_named_model_configuration(
+        org, name="Fallback", configuration=config
+    )
+    with pytest.raises(ModelCatalogConflict):
+        await db_session.archive_provider_connection(org, backup.uuid)

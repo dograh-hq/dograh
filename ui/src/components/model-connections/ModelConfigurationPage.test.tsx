@@ -4,13 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createNamedModelConfiguration, getVoicesApiV1UserConfigurationsVoicesProviderGet, updateNamedModelConfiguration } from "@/client/sdk.gen";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 
+import { LLMConfigurationPage } from "./LLMConfigurationPage";
 import { ModelConfigurationPage } from "./ModelConfigurationPage";
 import { selectOption } from "./test-helpers";
 import type { ModelConnectionCatalog, NamedModelConfiguration, ProviderConnection } from "./types";
 import { useModelConnections } from "./useModelConnections";
 
-const { replace } = vi.hoisted(() => ({ replace: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
+const { replace, push } = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, push }) }));
 vi.mock("@/client/sdk.gen", () => ({ createNamedModelConfiguration: vi.fn(), updateNamedModelConfiguration: vi.fn(), getVoicesApiV1UserConfigurationsVoicesProviderGet: vi.fn() }));
 vi.mock("./useModelConnections", () => ({ useModelConnections: vi.fn() }));
 vi.mock("@/context/OrgConfigContext", () => ({ useOrgConfig: vi.fn() }));
@@ -19,10 +20,11 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 
 const provider = { credential_fields: {}, connection_fields: {}, settings_schema: { properties: {} } };
 const catalog: ModelConnectionCatalog = { services: {
-    llm: { dograh: provider }, stt: { dograh: provider }, embeddings: { dograh: provider },
-    tts: { dograh: { ...provider, settings_schema: { properties: { voice: { type: "string", title: "Voice", default: "alice-id", allow_custom_input: true } } } } },
+    llm: { dograh: provider, openai: provider }, stt: { dograh: provider, openai: provider }, embeddings: { dograh: provider },
+    tts: { openai: provider, dograh: { ...provider, settings_schema: { properties: { voice: { type: "string", title: "Voice", default: "alice-id", allow_custom_input: true } } } } },
 } };
 const connections: ProviderConnection[] = ["Primary", "Secondary"].map(name => ({ uuid: name, name, provider: "dograh", is_active: true, revision: 1, connection_settings: {}, configured_credentials: ["api_key"] }));
+const openai: ProviderConnection = { ...connections[0], uuid: "openai", name: "OpenAI", provider: "openai" };
 const service = { provider_connection_uuid: "Primary", settings: {} };
 const configuration: NamedModelConfiguration = { uuid: "sales", name: "Sales", is_active: true, revision: 4, configuration: { version: 3, mode: "pipeline", llm: service, stt: service, tts: { ...service, settings: { voice: "alice-id" } }, embeddings: service } };
 const voices = ["Alice", "Bella"].map(name => ({ voice_id: `${name.toLowerCase()}-id`, name, preview_url: `https://audio.example/${name}.wav`, gender: "female", accent: "us", language: "en" }));
@@ -35,7 +37,7 @@ const audio = vi.fn(function () { return { play, pause }; });
 beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal("Audio", audio);
-    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations: [configuration], defaultUuid: "sales", loading: false, error: null, reload });
+    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [...connections, openai], configurations: [configuration], defaultUuid: "sales", loading: false, error: null, reload });
     vi.mocked(useOrgConfig).mockReturnValue({ refreshConfig } as unknown as ReturnType<typeof useOrgConfig>);
     vi.mocked(createNamedModelConfiguration).mockResolvedValue({ data: { ...configuration, uuid: "new-configuration" } } as never);
     vi.mocked(updateNamedModelConfiguration).mockResolvedValue({ data: configuration } as never);
@@ -72,7 +74,7 @@ describe("model configuration pages", () => {
         expect(screen.queryByRole("dialog")).toBeNull();
         if (duplicateUuid) expect((screen.getByLabelText("Configuration name") as HTMLInputElement).value).toBe("Sales (copy)");
         fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Managed Support" } });
-        selectOption("Dograh provider connection", "Secondary");
+        selectOption("Provider connection", "Secondary");
         fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
         await waitFor(() => expect(replace).toHaveBeenCalledWith("/model-configurations/new-configuration"));
         const body = vi.mocked(createNamedModelConfiguration).mock.calls[0][0]?.body;
@@ -99,4 +101,32 @@ describe("model configuration pages", () => {
         await waitFor(() => expect(updateNamedModelConfiguration).toHaveBeenCalledOnce());
         expect(vi.mocked(updateNamedModelConfiguration).mock.calls[0][0]?.body?.configuration?.tts?.settings?.voice).toBe("custom-voice");
     });
+});
+
+it("saves the current configuration before opening its fallback URL", async () => {
+    render(<ModelConfigurationPage configurationUuid="sales" />);
+    expect(screen.queryByRole("button", { name: "Configure fallbacks" })).toBeNull();
+    selectOption("Mode", "Cascade");
+    fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Updated sales" } });
+    fireEvent.click(screen.getByRole("button", { name: "Configure fallbacks" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/model-configurations/sales/llm"));
+    expect(vi.mocked(updateNamedModelConfiguration).mock.calls[0][0]?.body?.name).toBe("Updated sales");
+});
+
+it.each(["dograh", "cascade", "realtime"] as const)("guards the direct fallback URL in %s mode", mode => {
+    const saved: NamedModelConfiguration = { ...configuration, configuration: {
+        ...configuration.configuration,
+        mode: mode === "realtime" ? "realtime" : "pipeline",
+        llm: mode === "dograh" ? service : { provider_connection_uuid: openai.uuid, settings: {} },
+    } };
+    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [...connections, openai], configurations: [saved], defaultUuid: "sales", loading: false, error: null, reload });
+    render(<LLMConfigurationPage configurationUuid="sales" />);
+    expect(screen.getByRole("link", { name: "Back to model configuration" }).getAttribute("href")).toBe("/model-configurations/sales");
+    if (mode === "dograh") {
+        expect(screen.getByRole("alert").textContent).toContain("unavailable in Dograh mode");
+        expect(screen.queryByRole("button", { name: "Save fallbacks" })).toBeNull();
+    } else {
+        expect(screen.getByRole("button", { name: "Save fallbacks" })).toBeDefined();
+        if (mode === "realtime") expect(screen.getByText(/These rules apply to the separate text LLM/)).toBeDefined();
+    }
 });

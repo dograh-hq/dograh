@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cleanConfiguration, cleanSettings, fieldForModel, selectionForConnection } from "./configuration";
+import { cleanConfiguration, cleanSettings, configurationForMode, fieldForModel, selectionForConnection } from "./configuration";
 import type { ConfigurationSpec, ModelConnectionCatalog, ProviderConnection } from "./types";
 
 const connection = (uuid: string, provider: string): ProviderConnection => ({ uuid, provider, name: uuid, connection_settings: {}, configured_credentials: ["api_key"], revision: 1, is_active: true });
@@ -34,6 +34,19 @@ describe("model connection editor settings", () => {
         expect(result).not.toHaveProperty("stt");
         expect(result).not.toHaveProperty("tts");
         expect(result).toHaveProperty("llm");
+    });
+
+    it("preserves fallback rules between Cascade and Realtime and clears them for Dograh", () => {
+        const available = [...connections, connection("dograh", "dograh")];
+        const configured: ConfigurationSpec = { ...base, llm_fallback: { version: 1, rules: [{ condition: { type: "error" }, target: { provider_connection_uuid: "google", settings: {} } }] } };
+        const realtime = configurationForMode("realtime", configured, catalog, available);
+        expect(cleanConfiguration(realtime, catalog, available).llm_fallback).toEqual(configured.llm_fallback);
+        const cascade = configurationForMode("cascade", realtime, catalog, available);
+        expect(cleanConfiguration(cascade, catalog, available).llm_fallback).toEqual(configured.llm_fallback);
+        const dograh = configurationForMode("dograh", cascade, catalog, available);
+        expect(dograh).not.toHaveProperty("llm_fallback");
+        expect(cleanConfiguration({ ...dograh, llm_fallback: configured.llm_fallback }, catalog, available)).not.toHaveProperty("llm_fallback");
+        expect(configurationForMode("cascade", dograh, catalog, available).llm_fallback).toBeUndefined();
     });
 
     it("removes both numeric maximum declarations for custom endpoints", () => {

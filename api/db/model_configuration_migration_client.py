@@ -165,6 +165,7 @@ class ModelConfigurationMigrationClient(BaseDBClient):
                 {
                     "uuid": row.uuid,
                     "provider": row.provider,
+                    "name": row.name,
                     "credentials": deepcopy(row.credentials),
                     "connection_settings": deepcopy(row.connection_settings),
                     "revision": row.revision,

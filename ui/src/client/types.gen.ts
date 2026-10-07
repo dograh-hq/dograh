@@ -2896,6 +2896,16 @@ export type EndTextChatSessionRequest = {
 };
 
 /**
+ * ErrorCondition
+ */
+export type ErrorCondition = {
+    /**
+     * Type
+     */
+    type?: 'error';
+};
+
+/**
  * ExotelConfigurationRequest
  */
 export type ExotelConfigurationRequest = {
@@ -2947,6 +2957,35 @@ export type ExternalPbxFieldMapping = {
      * Destination Field
      */
     destination_field: string;
+};
+
+/**
+ * FallbackPolicy[ServiceSelection]
+ */
+export type FallbackPolicyServiceSelection = {
+    /**
+     * Version
+     */
+    version?: 1;
+    /**
+     * Rules
+     */
+    rules?: Array<FallbackRuleServiceSelection>;
+};
+
+/**
+ * FallbackRule[ServiceSelection]
+ */
+export type FallbackRuleServiceSelection = {
+    /**
+     * Condition
+     */
+    condition: ({
+        type: 'no_output';
+    } & NoOutputCondition) | ({
+        type: 'error';
+    } & ErrorCondition);
+    target: ServiceSelection;
 };
 
 /**
@@ -3059,18 +3098,6 @@ export type GoogleLlmService = {
      * Sampling temperature. Lower values give more predictable responses. Leave blank to use the provider default.
      */
     temperature?: number | null;
-    /**
-     * Fallback Model
-     *
-     * Optional backup Gemini model on the same platform and credentials. Starts if the primary is slow or fails before output. Leave blank to keep the primary model. Evaluate your workflow on a different model before enabling it.
-     */
-    fallback_model?: string | null;
-    /**
-     * Fallback After Ms
-     *
-     * Milliseconds without model output before starting the backup. The first request to produce output serves the turn. Only active when a different fallback model or Vertex location is configured. Each backup request can incur additional usage charges.
-     */
-    fallback_after_ms?: number;
 };
 
 /**
@@ -3224,18 +3251,6 @@ export type GoogleVertexLlmConfiguration = {
      */
     temperature?: number | null;
     /**
-     * Fallback Model
-     *
-     * Optional backup Gemini model on the same platform and credentials. Starts if the primary is slow or fails before output. Leave blank to keep the primary model. Evaluate your workflow on a different model before enabling it.
-     */
-    fallback_model?: string | null;
-    /**
-     * Fallback After Ms
-     *
-     * Milliseconds without model output before starting the backup. The first request to produce output serves the turn. Only active when a different fallback model or Vertex location is configured. Each backup request can incur additional usage charges.
-     */
-    fallback_after_ms?: number;
-    /**
      * Project Id
      *
      * Google Cloud project ID for Vertex AI.
@@ -3253,12 +3268,6 @@ export type GoogleVertexLlmConfiguration = {
      * Paste the entire service-account JSON file contents. If omitted, falls back to Application Default Credentials (ADC).
      */
     credentials?: string | null;
-    /**
-     * Fallback Location
-     *
-     * Optional backup Vertex location using the same project and credentials. Leave blank to keep the primary location. A backup in 'global' can process requests outside the EU or US even when the primary stays there. Model availability varies by location.
-     */
-    fallback_location?: string | null;
 };
 
 /**
@@ -4382,6 +4391,7 @@ export type ModelConfigurationOverride = {
      */
     mode?: 'pipeline' | 'realtime' | null;
     llm?: ServiceOverride | null;
+    llm_fallback?: FallbackPolicyServiceSelection | null;
     stt?: ServiceOverride | null;
     tts?: ServiceOverride | null;
     realtime?: ServiceOverride | null;
@@ -4429,6 +4439,7 @@ export type ModelConfigurationSpec = {
      */
     mode?: 'pipeline' | 'realtime';
     llm: ServiceSelection;
+    llm_fallback?: FallbackPolicyServiceSelection | null;
     stt?: ServiceSelection | null;
     tts?: ServiceSelection | null;
     realtime?: ServiceSelection | null;
@@ -4494,6 +4505,20 @@ export type NamedModelConfigurationUpdate = {
      * Revision
      */
     revision?: number | null;
+};
+
+/**
+ * NoOutputCondition
+ */
+export type NoOutputCondition = {
+    /**
+     * Type
+     */
+    type?: 'no_output';
+    /**
+     * After Ms
+     */
+    after_ms?: number;
 };
 
 /**

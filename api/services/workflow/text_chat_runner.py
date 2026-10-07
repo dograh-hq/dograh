@@ -564,7 +564,7 @@ async def execute_text_chat_pending_turn(
         else llm
     )
 
-    runtime_configuration = get_llm_runtime_configuration(user_config.llm)
+    runtime_configuration = get_llm_runtime_configuration(user_config)
     initial_context = {
         **base_initial_context,
         "workflow_run_id": workflow_run_id,

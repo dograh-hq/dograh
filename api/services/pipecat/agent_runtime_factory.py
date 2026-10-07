@@ -270,7 +270,7 @@ class AgentRuntimeFactory:
                 ).stt.model,
                 "tts_provider": user_config.tts.provider,
                 "tts_model": user_config.tts.model,
-                **get_llm_runtime_configuration(user_config.llm),
+                **get_llm_runtime_configuration(user_config),
             },
             is_child=True,
             entered_at=None,

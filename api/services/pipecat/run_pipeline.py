@@ -808,7 +808,7 @@ async def _run_pipeline_impl(
             "stt_model": user_config.stt.model,
             "tts_provider": user_config.tts.provider,
             "tts_model": user_config.tts.model,
-            **get_llm_runtime_configuration(user_config.llm),
+            **get_llm_runtime_configuration(user_config),
         }
     merged_call_context_vars = {
         **merged_call_context_vars,

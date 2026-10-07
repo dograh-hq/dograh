@@ -109,10 +109,22 @@ class _CatalogImporter:
         )
         if any(row["uuid"] == connection_uuid for row in self.source.connections):
             raise ModelConfigurationMigrationError("migration_connection_was_edited")
+        provider_name = (
+            service.model_config.get("title") or provider.replace("_", " ").title()
+        )
+        existing_names = {
+            row.get("name")
+            for row in [*self.source.connections, *self.plan.connections]
+        }
+        name = provider_name
+        suffix = 2
+        while name in existing_names:
+            name = f"{provider_name} {suffix}"
+            suffix += 1
         self.plan.connections.append(
             {
                 "uuid": connection_uuid,
-                "name": f"Imported {provider} connection {len(self.source.connections) + len(self.plan.connections) + 1}",
+                "name": name,
                 "provider": provider,
                 "credentials": deepcopy(credentials),
                 "connection_settings": deepcopy(connection_settings),

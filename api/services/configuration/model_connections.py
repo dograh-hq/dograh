@@ -293,6 +293,10 @@ async def resolve_model_configuration(
             provenance.append({"source": source})
         if "mode" in patch:
             config["mode"] = patch.pop("mode")
+        if "llm_fallback" in patch:
+            # Policies replace atomically. An empty rules array disables them;
+            # omitting the policy inherits it from the selected configuration.
+            config["llm_fallback"] = patch.pop("llm_fallback")
         for role, selection in patch.items():
             if selection is None:  # Only embeddings accepts explicit null.
                 config[role] = None
@@ -346,14 +350,30 @@ async def _resolve_spec(
         else {"llm", "embeddings", "stt", "tts"}
     )
     services = {}
-    for role in ROLES:
-        selection = getattr(spec, role)
+    selections = [(role, role, getattr(spec, role)) for role in ROLES]
+    if spec.llm_fallback is not None:
+        selections.extend(
+            (f"fallback_{index}", "llm", rule.target)
+            for index, rule in enumerate(spec.llm_fallback.rules)
+        )
+    for key, role, selection in selections:
         if selection is None:
             continue
         uuid = str(selection.provider_connection_uuid)
         if uuid not in connections:
             connections[uuid] = await _connection(organization_id, uuid)
         row = connections[uuid]
+        if (
+            key == "llm"
+            and spec.llm_fallback
+            and spec.llm_fallback.rules
+            and row.provider == "dograh"
+        ):
+            raise _invalid("LLM fallbacks are unavailable in Dograh mode")
+        if key.startswith("fallback_") and row.provider == "dograh":
+            raise _invalid(
+                "Dograh manages its own fallbacks and cannot be a fallback target"
+            )
         schema = _schema(role, row.provider)
         allowed = (
             schema.model_fields.keys()
@@ -373,7 +393,13 @@ async def _resolve_spec(
             selection.settings,
         )
         if role in active:
-            services[role] = (row, service)
+            services[key] = (row, service)
+    for key, (row, target) in services.items():
+        if not key.startswith("fallback_"):
+            continue
+        primary_row, primary = services["llm"]
+        if row.uuid == primary_row.uuid and target.model_dump() == primary.model_dump():
+            raise _invalid("Fallback target must differ from the primary LLM")
     dograh_keys = []
     for row, service in services.values():
         if row.provider == "dograh":
@@ -393,7 +419,8 @@ async def _resolve_spec(
     selected = {}
     snapshot_services = {}
     effective_services = {}
-    for role, (row, service) in services.items():
+    for key, (row, service) in services.items():
+        role = "llm" if key.startswith("fallback_") else key
         credentials = deepcopy(row.credentials)
         keys = service.get_all_api_keys() if credentials.get("api_key") else []
         index = None
@@ -409,10 +436,10 @@ async def _resolve_spec(
         provider, _, connection_settings, settings = split_service_configuration(
             service
         )
-        effective_services[role] = _build_service(
+        effective_services[key] = _build_service(
             role, provider, credentials, connection_settings, settings
         )
-        snapshot_services[role] = {
+        snapshot_services[key] = {
             "provider_connection_uuid": row.uuid,
             "provider": provider,
             "connection_revision": row.revision,
@@ -420,8 +447,23 @@ async def _resolve_spec(
             "connection_settings": connection_settings,
             "settings": settings,
         }
+    effective_fallback = None
+    snapshot_fallback = None
+    if spec.llm_fallback is not None:
+        effective_fallback = {"version": 1, "rules": []}
+        snapshot_fallback = {"version": 1, "rules": []}
+        for index, rule in enumerate(spec.llm_fallback.rules):
+            key = f"fallback_{index}"
+            condition = rule.condition.model_dump(mode="json")
+            effective_fallback["rules"].append(
+                {"condition": condition, "target": effective_services.pop(key)}
+            )
+            snapshot_fallback["rules"].append(
+                {"condition": condition, "target": snapshot_services.pop(key)}
+            )
     effective = EffectiveAIModelConfiguration(
         **effective_services,
+        llm_fallback=effective_fallback,
         is_realtime=spec.mode == "realtime",
         managed_service_version=2 if dograh_keys else None,
     )
@@ -429,6 +471,7 @@ async def _resolve_spec(
         "version": 3,
         "mode": spec.mode,
         "services": snapshot_services,
+        "llm_fallback": snapshot_fallback,
         "provenance": provenance,
         "managed_service_version": effective.managed_service_version,
     }
@@ -460,7 +503,8 @@ async def hydrate_model_configuration_snapshot(organization_id, snapshot):
         raise _invalid("Invalid prepared model configuration")
     services = {}
     connections = {}
-    for role, selection in snapshot.get("services", {}).items():
+
+    async def hydrate_selection(role, selection):
         if role not in ROLES:
             raise _invalid("Invalid prepared service")
         uuid = selection["provider_connection_uuid"]
@@ -483,15 +527,31 @@ async def hydrate_model_configuration_snapshot(organization_id, snapshot):
             ):
                 raise _invalid("Prepared credential selection is unavailable")
             credentials["api_key"] = keys[index]
-        services[role] = _build_service(
+        return _build_service(
             role,
             selection["provider"],
             credentials,
             selection["connection_settings"],
             selection["settings"],
         )
+
+    for role, selection in snapshot.get("services", {}).items():
+        services[role] = await hydrate_selection(role, selection)
+    fallback = snapshot.get("llm_fallback")
+    if fallback is not None:
+        fallback = {
+            "version": fallback["version"],
+            "rules": [
+                {
+                    "condition": rule["condition"],
+                    "target": await hydrate_selection("llm", rule["target"]),
+                }
+                for rule in fallback["rules"]
+            ],
+        }
     return EffectiveAIModelConfiguration(
         **services,
+        llm_fallback=fallback,
         is_realtime=snapshot["mode"] == "realtime",
         managed_service_version=snapshot.get("managed_service_version"),
     )
@@ -502,6 +562,8 @@ def public_snapshot(snapshot):
     result = deepcopy(snapshot)
     for service in result.get("services", {}).values():
         service.pop("api_key_index", None)
+    for rule in (result.get("llm_fallback") or {}).get("rules", []):
+        rule["target"].pop("api_key_index", None)
     return result
 
 

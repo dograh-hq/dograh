@@ -42,7 +42,8 @@ from pipecat.services.google.llm import GoogleLLMService
 from pipecat.services.settings import LLMSettings
 from pipecat.utils.asyncio.task_manager import TaskManager
 
-from api.services.pipecat.fallback_llm import FallbackLLMProcessor
+from api.schemas.llm_fallback import ErrorCondition, NoOutputCondition
+from api.services.pipecat.fallback_llm import FallbackLLMProcessor, FallbackRoute
 
 PRIMARY = "gemini-3.5-flash"
 BACKUP = "gemini-3.1-flash-lite"
@@ -108,7 +109,12 @@ async def harness():
         for model in (PRIMARY, BACKUP)
     ]
     llm = FallbackLLMProcessor(
-        *services, fallback_after_secs=0.02, first_output_timeout_secs=0.3
+        services[0],
+        routes=[
+            FallbackRoute(NoOutputCondition.model_construct(after_ms=20), services[1]),
+            FallbackRoute(ErrorCondition(), services[1]),
+        ],
+        first_output_timeout_secs=0.3,
     )
     upstream, downstream = Capture(), Capture()
     pipeline = Pipeline([upstream, llm, downstream])
@@ -137,7 +143,7 @@ async def harness():
 
 def install_streams(harness, monkeypatch, primary, backup):
     for service, stream in zip(
-        (harness.llm.primary, harness.llm.fallback), (primary, backup)
+        (harness.llm.primary, harness.llm._services[1]), (primary, backup)
     ):
         monkeypatch.setattr(
             service, "_stream_content", AsyncMock(side_effect=lambda _, s=stream: s())
@@ -299,7 +305,7 @@ async def test_setup_deadline_covers_both_requests(harness, monkeypatch):
     async def stuck(_):
         await asyncio.Event().wait()
 
-    for service in (harness.llm.primary, harness.llm.fallback):
+    for service in (harness.llm.primary, harness.llm._services[1]):
         monkeypatch.setattr(service, "_stream_content", stuck)
     assert await generate(harness) == []
     assert sum(isinstance(f, ErrorFrame) for f in harness.upstream.frames) == 1
@@ -357,8 +363,8 @@ async def test_runtime_instructions_reach_both_and_inference_uses_primary(
         LLMSettings(system_instruction="new instructions")
     )
     assert harness.llm.primary._settings.system_instruction == "new instructions"
-    assert harness.llm.fallback._settings.system_instruction == "new instructions"
-    assert harness.llm.fallback._settings.model == BACKUP
+    assert harness.llm._services[1]._settings.system_instruction == "new instructions"
+    assert harness.llm._services[1]._settings.model == BACKUP
     infer = AsyncMock(return_value="one shot")
     monkeypatch.setattr(harness.llm.primary, "run_inference", infer)
     assert await harness.llm.run_inference(LLMContext()) == "one shot"
@@ -414,7 +420,7 @@ async def test_real_sdk_closes_both_http_responses(harness, simultaneous_output)
 
     clients = []
     try:
-        for service in (harness.llm.primary, harness.llm.fallback):
+        for service in (harness.llm.primary, harness.llm._services[1]):
             await service._close_client()
             client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
             clients.append(client)
@@ -457,7 +463,7 @@ async def test_slow_loser_cleanup_does_not_delay_output(harness, monkeypatch):
     )
     backup = Stream(chunk("backup"))
     monkeypatch.setattr(
-        harness.llm.fallback,
+        harness.llm._services[1],
         "_stream_content",
         AsyncMock(side_effect=lambda _: backup()),
     )
@@ -488,7 +494,7 @@ async def test_metadata_trickle_cannot_extend_first_output_deadline(
             yield GenerateContentResponse()
             await asyncio.sleep(0.005)
 
-    for service in (harness.llm.primary, harness.llm.fallback):
+    for service in (harness.llm.primary, harness.llm._services[1]):
         monkeypatch.setattr(
             service, "_stream_content", AsyncMock(side_effect=lambda _: metadata())
         )
@@ -533,7 +539,13 @@ async def test_worker_flush_waits_for_race_and_upstream_continuation(monkeypatch
         )
         for m in (PRIMARY, BACKUP)
     ]
-    llm = FallbackLLMProcessor(*services, fallback_after_secs=0.02)
+    llm = FallbackLLMProcessor(
+        services[0],
+        routes=[
+            FallbackRoute(NoOutputCondition.model_construct(after_ms=20), services[1]),
+            FallbackRoute(ErrorCondition(), services[1]),
+        ],
+    )
     release = asyncio.Event()
     primary, backup = Stream(asyncio.Event()), Stream(release, chunk("backup"))
     install_streams(SimpleNamespace(llm=llm), monkeypatch, primary, backup)
@@ -607,7 +619,7 @@ async def test_interruption_during_loser_cleanup_waits_before_reusing_services(
         AsyncMock(side_effect=lambda _: primary()),
     )
     monkeypatch.setattr(
-        harness.llm.fallback,
+        harness.llm._services[1],
         "_stream_content",
         AsyncMock(side_effect=lambda _: Stream(chunk("backup"))()),
     )
@@ -643,12 +655,12 @@ async def test_new_context_retires_backup_deferred_transition(harness, monkeypat
     )
     install_streams(harness, monkeypatch, primary, backup)
     assert await generate(harness) == ["Moving you"]
-    assert harness.llm.fallback._pending_node_transition_function_calls
+    assert harness.llm._services[1]._pending_node_transition_function_calls
     primary.steps = (chunk("new turn"),)
     await generate(harness)
     await control(harness, BotStoppedSpeakingFrame())
     transition.assert_not_awaited()
-    assert not harness.llm.fallback._pending_node_transition_function_calls
+    assert not harness.llm._services[1]._pending_node_transition_function_calls
 
 
 @pytest.mark.asyncio

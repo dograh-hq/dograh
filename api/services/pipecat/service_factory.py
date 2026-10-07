@@ -1,5 +1,7 @@
+import hashlib
+import json
 from functools import wraps
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import aiohttp
@@ -26,7 +28,7 @@ from api.services.configuration.registry import (
     ServiceType,
 )
 from api.services.configuration.temperature import resolve_temperature
-from api.services.pipecat.fallback_llm import FallbackLLMProcessor
+from api.services.pipecat.fallback_llm import FallbackLLMProcessor, FallbackRoute
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
@@ -1133,9 +1135,7 @@ def create_llm_service_from_provider(
     project_id: str | None = None,
     location: str | None = None,
     credentials: str | None = None,
-    fallback_model: str | None = None,
-    fallback_location: str | None = None,
-    fallback_after_ms: int = 1500,
+    enable_direct_mode: bool = False,
     temperature: float | None | NotGiven = NOT_GIVEN,
     bill_to: str | None = None,
     provider_order: list[str] | None = None,
@@ -1192,6 +1192,7 @@ def create_llm_service_from_provider(
             kwargs["base_url"] = base_url
         if "gpt-5" in model:
             return OpenAILLMService(
+                enable_direct_mode=enable_direct_mode,
                 api_key=api_key,
                 settings=OpenAILLMSettings(
                     model=model,
@@ -1200,17 +1201,20 @@ def create_llm_service_from_provider(
                 **kwargs,
             )
         return OpenAILLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             settings=OpenAILLMSettings(model=model, **sampling_settings),
             **kwargs,
         )
     elif provider == ServiceProviders.GROQ.value:
         return GroqLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             settings=GroqLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.HOPPER.value:
         return OpenAILLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             base_url=HOPPER_API_BASE_URL,
             settings=OpenAILLMSettings(model=model, **sampling_settings),
@@ -1226,6 +1230,7 @@ def create_llm_service_from_provider(
             # OpenAI client does not know, so they travel in extra_body.
             extra["extra_body"] = {"provider": {"order": provider_order}}
         return OpenRouterLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             settings=OpenRouterLLMSettings(
                 model=model, extra=extra, **sampling_settings
@@ -1237,53 +1242,48 @@ def create_llm_service_from_provider(
         ServiceProviders.GOOGLE_VERTEX.value,
     ):
         is_vertex = provider == ServiceProviders.GOOGLE_VERTEX.value
-        fallback_model = (fallback_model or "").strip() or model
         if not is_vertex:
             model = _migrate_deprecated_google_model(model)
-            fallback_model = _migrate_deprecated_google_model(fallback_model)
-        backup_location = (fallback_location or "").strip() or vertex_location
-        enabled = fallback_model != model or (
-            is_vertex and backup_location != vertex_location
-        )
         service_class = (
             DograhGoogleVertexLLMService if is_vertex else DograhGoogleLLMService
         )
         settings_class = GoogleVertexLLMSettings if is_vertex else GoogleLLMSettings
 
-        def build_service(request_model: str, request_location: str | None):
-            connection = (
-                {
-                    "credentials": credentials,
-                    "project_id": project_id,
-                    "location": request_location,
-                }
-                if is_vertex
-                else {"api_key": api_key}
-            )
-            return service_class(
-                **connection,
-                # The composite owns the request tasks and the ordered queue.
-                **({"enable_direct_mode": True} if enabled else {}),
-                settings=settings_class(
-                    model=request_model,
-                    **sampling_settings,
-                    # Pipecat executes tools; the SDK should return their calls.
-                    extra={"automatic_function_calling": {"disable": True}},
-                ),
-            )
-
-        primary = build_service(model, vertex_location)
-        if not enabled:
-            return primary
-        return FallbackLLMProcessor(
-            primary,
-            build_service(fallback_model, backup_location),
-            fallback_after_secs=fallback_after_ms / 1000,
+        connection: dict[str, Any] = (
+            {
+                "credentials": credentials,
+                "project_id": project_id,
+                "location": vertex_location,
+            }
+            if is_vertex
+            else {"api_key": api_key}
         )
+        # The provider selects a matching service and settings class together.
+        service_options: dict[str, Any] = {
+            **connection,
+            "enable_direct_mode": enable_direct_mode,
+            "settings": settings_class(
+                model=model,
+                temperature=temperature if temperature is not None else NOT_GIVEN,
+                # Pipecat owns tools; the SDK must return calls without executing them.
+                extra={"automatic_function_calling": {"disable": True}},
+            ),
+        }
+        service = service_class(**service_options)
+        # Gemini's opaque signatures may not transfer between platforms,
+        # projects or models. Scope provider-specific context to this target;
+        # standard text and tool history remains available to every adapter.
+        adapter = cast(DograhGeminiJSONSchemaAdapter, service.get_llm_adapter())
+        adapter.signature_scope = hashlib.sha256(
+            json.dumps([provider, connection], sort_keys=True).encode()
+        ).hexdigest()
+        adapter.signature_settings = service._settings
+        return service
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:
             _validate_runtime_service_url(endpoint, "endpoint")
         return AzureLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             endpoint=endpoint,
             settings=AzureLLMSettings(model=model, **sampling_settings),
@@ -1291,6 +1291,7 @@ def create_llm_service_from_provider(
     elif provider == ServiceProviders.DOGRAH.value:
         return DograhLLMService(
             base_url=f"{MPS_API_URL}/api/v1/llm",
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             correlation_id=correlation_id,
             usage_context=usage_context,
@@ -1298,6 +1299,7 @@ def create_llm_service_from_provider(
         )
     elif provider == ServiceProviders.AWS_BEDROCK.value:
         return AWSBedrockLLMService(
+            enable_direct_mode=enable_direct_mode,
             aws_access_key=aws_access_key,
             aws_secret_key=aws_secret_key,
             aws_region=aws_region,
@@ -1308,6 +1310,7 @@ def create_llm_service_from_provider(
         _validate_runtime_service_url(base_url, "base_url")
         return SpeachesLLMService(
             base_url=base_url,
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key or "none",
             settings=SpeachesLLMSettings(model=model, **sampling_settings),
         )
@@ -1315,6 +1318,7 @@ def create_llm_service_from_provider(
         base_url = base_url or "https://router.huggingface.co/v1"
         _validate_runtime_service_url(base_url, "base_url")
         return HuggingFaceLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             base_url=base_url,
             bill_to=bill_to,
@@ -1324,6 +1328,7 @@ def create_llm_service_from_provider(
         base_url = base_url or "https://api.minimax.io/v1"
         _validate_runtime_service_url(base_url, "base_url")
         return MiniMaxLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             base_url=base_url,
             settings=MiniMaxLLMService.Settings(
@@ -1335,6 +1340,7 @@ def create_llm_service_from_provider(
         base_url = base_url or "https://api.sarvam.ai/v1"
         _validate_runtime_service_url(base_url, "base_url")
         return SarvamLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             base_url=base_url,
             settings=SarvamLLMSettings(
@@ -1593,25 +1599,33 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         )
 
 
-def get_llm_runtime_configuration(llm_config) -> dict:
-    """Describe the resolved LLM and its fallback without credentials."""
-    configuration = {
-        "llm_provider": llm_config.provider,
-        "llm_model": llm_config.model,
+def get_llm_runtime_configuration(user_config) -> dict:
+    """Describe the resolved policy without credentials or credential pins."""
+    llm = user_config.llm
+    configuration = {"llm_provider": llm.provider, "llm_model": llm.model}
+    if llm.provider == ServiceProviders.GOOGLE_VERTEX.value:
+        configuration["llm_location"] = llm.location
+    policy = getattr(user_config, "llm_fallback", None)
+    configuration["llm_fallback"] = {
+        "version": 1,
+        "rules": [
+            {
+                "condition": rule.condition.model_dump(mode="json"),
+                "target": {
+                    "provider": rule.target.provider,
+                    "model": rule.target.model,
+                    **(
+                        {"location": rule.target.location}
+                        if hasattr(rule.target, "location")
+                        else {}
+                    ),
+                },
+            }
+            for rule in policy.rules
+        ]
+        if policy
+        else [],
     }
-    if llm_config.provider in (
-        ServiceProviders.GOOGLE.value,
-        ServiceProviders.GOOGLE_VERTEX.value,
-    ):
-        configuration.update(
-            llm_fallback_model=getattr(llm_config, "fallback_model", None),
-            llm_fallback_after_ms=getattr(llm_config, "fallback_after_ms", 1500),
-        )
-        if llm_config.provider == ServiceProviders.GOOGLE_VERTEX.value:
-            configuration.update(
-                llm_location=llm_config.location,
-                llm_fallback_location=getattr(llm_config, "fallback_location", None),
-            )
     return configuration
 
 
@@ -1619,6 +1633,45 @@ def create_llm_service(
     user_config,
     correlation_id: str | None = None,
     usage_context: str | None = None,
+):
+    """Compose independently configured text LLM connections under one policy."""
+    policy = getattr(user_config, "llm_fallback", None)
+    if policy is None:
+        return _create_single_llm_service(user_config, correlation_id, usage_context)
+    primary = _create_single_llm_service(
+        user_config,
+        correlation_id,
+        usage_context,
+        enable_direct_mode=bool(policy.rules),
+    )
+    if not policy.rules:
+        return primary
+    services = {}
+    routes = []
+    for rule in policy.rules:
+        # Reuse the request when both triggers select the same connection/model.
+        # Resolved credentials stay in memory; never log this identity.
+        identity = rule.target.model_dump_json(exclude_computed_fields=True)
+        if identity not in services:
+            target_config = user_config.model_copy(update={"llm": rule.target})
+            services[identity] = _create_single_llm_service(
+                target_config,
+                correlation_id,
+                usage_context,
+                enable_direct_mode=True,
+            )
+        routes.append(
+            FallbackRoute(condition=rule.condition, service=services[identity])
+        )
+    return FallbackLLMProcessor(primary, routes=routes)
+
+
+def _create_single_llm_service(
+    user_config,
+    correlation_id: str | None = None,
+    usage_context: str | None = None,
+    *,
+    enable_direct_mode: bool = False,
 ):
     """Create and return appropriate LLM service based on user configuration."""
     provider = user_config.llm.provider
@@ -1654,19 +1707,6 @@ def create_llm_service(
     elif provider == ServiceProviders.SARVAM.value:
         kwargs["base_url"] = getattr(user_config.llm, "base_url", None)
 
-    if provider in (
-        ServiceProviders.GOOGLE.value,
-        ServiceProviders.GOOGLE_VERTEX.value,
-    ):
-        kwargs["fallback_model"] = getattr(user_config.llm, "fallback_model", None)
-        kwargs["fallback_after_ms"] = getattr(
-            user_config.llm, "fallback_after_ms", 1500
-        )
-        if provider == ServiceProviders.GOOGLE_VERTEX.value:
-            kwargs["fallback_location"] = getattr(
-                user_config.llm, "fallback_location", None
-            )
-
     return create_llm_service_from_provider(
         provider,
         model,
@@ -1674,6 +1714,7 @@ def create_llm_service(
         correlation_id=correlation_id,
         usage_context=usage_context,
         temperature=getattr(user_config.llm, "temperature", NOT_GIVEN),
+        enable_direct_mode=enable_direct_mode,
         **kwargs,
     )
 

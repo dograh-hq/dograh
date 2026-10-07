@@ -1,4 +1,4 @@
-import type { ConfigurationEditorMode, ConfigurationSpec, FieldSchema, ModelConnectionCatalog, ProviderCatalogEntry, ProviderConnection, ServiceRole, ServiceSelection } from "./types";
+import type { ConfigurationEditorMode, ConfigurationSpec, FallbackPolicy, FieldSchema, ModelConnectionCatalog, ProviderCatalogEntry, ProviderConnection, ServiceRole, ServiceSelection } from "./types";
 import { ROLES } from "./types";
 
 export function connectionProviders(catalog: ModelConnectionCatalog): Record<string, ProviderCatalogEntry> {
@@ -106,6 +106,7 @@ export function configurationForMode(mode: ConfigurationEditorMode, configuratio
         return dograhConfiguration(catalog, dograh, configuration, connections);
     }
     const result = emptyConfiguration(catalog, connections, mode);
+    result.llm_fallback = configuration.llm_fallback;
     for (const role of mode === "realtime" ? ["llm", "realtime", "embeddings"] as const : ["llm", "stt", "tts", "embeddings"] as const) {
         const previous = configuration[role];
         if (previous && compatibleConnections(catalog, connections, role).some(connection => connection.uuid === previous.provider_connection_uuid)) result[role] = previous;
@@ -121,11 +122,24 @@ export function cleanSettings(settings: Record<string, unknown>, schema?: FieldS
     }));
 }
 
+export function cleanFallbackPolicy(policy: FallbackPolicy, catalog: ModelConnectionCatalog, connections: ProviderConnection[]): FallbackPolicy {
+    return { ...policy, rules: policy.rules.map(rule => {
+        const connection = connections.find(item => item.uuid === rule.target.provider_connection_uuid);
+        return { ...rule, target: { ...rule.target, settings: cleanSettings(rule.target.settings, connection ? catalog.services.llm?.[connection.provider]?.settings_schema : undefined, connection?.connection_settings) } };
+    }) };
+}
+
 export function cleanConfiguration(configuration: ConfigurationSpec, catalog: ModelConnectionCatalog, connections: ProviderConnection[]): ConfigurationSpec {
-    const normalized = configurationMode(configuration, connections) === "dograh"
+    const mode = configurationMode(configuration, connections);
+    const normalized = mode === "dograh"
         ? dograhConfiguration(catalog, connections.find(connection => connection.uuid === configuration.llm.provider_connection_uuid), configuration, connections)
         : configuration;
     const result = { ...normalized };
+    if (mode === "dograh") {
+        delete result.llm_fallback;
+    } else if (result.llm_fallback) {
+        result.llm_fallback = cleanFallbackPolicy(result.llm_fallback, catalog, connections);
+    }
     // Do not send inactive mode roles; stale settings must never authorize or execute.
     const roles: ServiceRole[] = configuration.mode === "pipeline" ? ["llm", "stt", "tts", "embeddings"] : ["llm", "realtime", "embeddings"];
     for (const role of ROLES) {

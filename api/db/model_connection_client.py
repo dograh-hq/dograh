@@ -170,8 +170,15 @@ class ModelConnectionClient(BaseDBClient):
     async def _check_connection_references(
         self, session, organization_id, configuration
     ):
-        for role in ("llm", "tts", "stt", "realtime", "embeddings"):
-            selection = configuration.get(role)
+        selections = [
+            configuration.get(role)
+            for role in ("llm", "tts", "stt", "realtime", "embeddings")
+        ]
+        selections.extend(
+            rule["target"]
+            for rule in (configuration.get("llm_fallback") or {}).get("rules", [])
+        )
+        for selection in selections:
             if selection:
                 row = await self._catalog_row(
                     session,

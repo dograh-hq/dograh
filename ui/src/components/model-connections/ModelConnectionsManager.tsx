@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ChevronRight, Copy, ExternalLink, Pencil, Plus, RotateCcw } from "lucide-react";
+import { Archive, ChevronRight, ExternalLink, Pencil, Plus, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -14,19 +14,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Skeleton } from "@/components/ui/skeleton";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 import { detailFromError } from "@/lib/apiError";
-import { copyTextToClipboard } from "@/lib/clipboard";
 
 import { configurationMode, connectionProviders } from "./configuration";
 import type { NamedModelConfiguration, ProviderConnection } from "./types";
 import { MODE_LABELS, ROLE_LABELS, ROLES } from "./types";
 import { useModelConnections } from "./useModelConnections";
-
-function CopyUuid({ uuid, label }: { uuid: string; label: string }) {
-    return <Button type="button" size="sm" variant="ghost" title={uuid} aria-label={`Copy UUID for ${label}`} onClick={async () => {
-        try { await copyTextToClipboard(uuid); toast.success("UUID copied"); }
-        catch { toast.error("Unable to copy UUID"); }
-    }}><Copy className="h-3.5 w-3.5" />Copy UUID</Button>;
-}
 
 function ConfigurationSummary({ configuration, connections }: { configuration: NamedModelConfiguration; connections: ProviderConnection[] }) {
     const mode = configurationMode(configuration.configuration, connections);
@@ -89,10 +81,9 @@ export default function ModelConnectionsManager({ view, docsUrl }: { view: "prov
                         const entry = providers[connection.provider];
                         return <div key={connection.uuid} className="flex flex-col justify-between gap-3 rounded-md border p-4 sm:flex-row sm:items-center">
                             <div className="min-w-0 space-y-1"><h3 className="truncate font-medium">{connection.name}</h3>
-                                <p className="text-xs text-muted-foreground">{entry?.title || connection.provider} · {connection.configured_credentials.length ? "Credentials configured" : "No saved credentials"}</p>
+                                <p className="text-xs text-muted-foreground">{entry?.title || connection.provider}</p>
                             </div>
                             <div className="flex flex-wrap gap-1">
-                                <CopyUuid uuid={connection.uuid} label={connection.name} />
                                 <Button asChild variant="ghost" size="sm"><Link href={`/provider-connections/${connection.uuid}`}><Pencil className="h-3.5 w-3.5" />Edit</Link></Button>
                                 <Button type="button" variant="ghost" size="sm" onClick={() => { setActionError(null); setArchive({ type: "connection", uuid: connection.uuid, name: connection.name }); }}>Archive</Button>
                             </div>
@@ -122,7 +113,6 @@ export default function ModelConnectionsManager({ view, docsUrl }: { view: "prov
                                     } catch (cause) { setActionError(cause instanceof Error ? cause.message : "Failed to set organization default"); }
                                     finally { setBusy(false); }
                                 }}>Make org default</Button>}
-                                <CopyUuid uuid={configuration.uuid} label={configuration.name} />
                                 <Button asChild variant="ghost" size="sm"><Link href={`/model-configurations/${configuration.uuid}`}>Edit</Link></Button>
                                 <Button asChild variant="ghost" size="sm"><Link href={`/model-configurations/new?duplicate=${configuration.uuid}`}>Duplicate</Link></Button>
                                 <Button type="button" variant="ghost" size="sm" disabled={defaultUuid === configuration.uuid} onClick={() => { setActionError(null); setArchive({ type: "configuration", uuid: configuration.uuid, name: configuration.name }); }}>Archive</Button>
@@ -156,7 +146,6 @@ export default function ModelConnectionsManager({ view, docsUrl }: { view: "prov
                                 {needsProviders && <p className="text-xs text-muted-foreground">Restore this configuration’s <Link href="/provider-connections" className="underline">provider connections</Link> first.</p>}
                             </div>
                             <div className="flex shrink-0 flex-wrap gap-1">
-                                <CopyUuid uuid={item.uuid} label={item.name} />
                                 <Button type="button" variant="outline" size="sm" disabled={busy || loading || needsProviders} onClick={() => void restore(item.uuid)}>
                                     <RotateCcw className="h-3.5 w-3.5" />{restoringUuid === item.uuid ? "Restoring…" : "Restore"}
                                 </Button>

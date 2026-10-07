@@ -300,6 +300,10 @@ class CampaignCallDispatcher:
                 f"&workflow_run_id={workflow_run.id}"
                 f"&organization_id={campaign.organization_id}"
             )
+            await db_client.update_workflow_run(
+                run_id=workflow_run.id,
+                logs={"campaign_dispatch": {"outcome": "started"}},
+            )
             await self.apply_rate_limit(
                 campaign.organization_id,
                 campaign.rate_limit_per_second,
@@ -307,10 +311,6 @@ class CampaignCallDispatcher:
             )
             # No long wait or DB operation between rate admission and dialing.
             attempted = True
-            await db_client.update_workflow_run(
-                run_id=workflow_run.id,
-                logs={"campaign_dispatch": {"outcome": "started"}},
-            )
             call_result = await provider.initiate_call(
                 to_number=phone_number,
                 webhook_url=webhook_url,

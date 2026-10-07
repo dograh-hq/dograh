@@ -35,7 +35,9 @@ from api.services.configuration.masking import (
 from api.services.configuration.registry import ServiceProviders
 from api.services.configuration.resolve import resolve_effective_config
 
-AIModelConfigurationSource = Literal["organization_v2", "legacy_user_v1", "empty"]
+AIModelConfigurationSource = Literal[
+    "organization_v3", "organization_v2", "legacy_user_v1", "empty"
+]
 WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY = "model_configuration_v2_override"
 
 
@@ -58,6 +60,20 @@ async def get_resolved_ai_model_configuration(
     organization_id: int | None,
 ) -> ResolvedAIModelConfiguration:
     """Resolve the effective model configuration for an organization."""
+    if organization_id is not None:
+        from api.services.configuration.model_connections import (
+            get_default_model_configuration,
+            resolve_model_configuration,
+        )
+
+        default = await get_default_model_configuration(organization_id)
+        if default is not None:
+            resolved = await resolve_model_configuration(
+                organization_id, default_row=default
+            )
+            return ResolvedAIModelConfiguration(
+                effective=resolved.effective, source="organization_v3"
+            )
     organization_configuration_row = (
         await _get_organization_ai_model_configuration_v2_row(organization_id)
     )
@@ -89,32 +105,26 @@ async def get_effective_ai_model_configuration_for_workflow(
     workflow_configurations: dict | None,
 ) -> EffectiveAIModelConfiguration:
     workflow_configurations = workflow_configurations or {}
-    v2_override = workflow_configurations.get(
-        WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
-    )
-    try:
-        if v2_override:
-            return compile_ai_model_configuration_v2(
-                OrganizationAIModelConfigurationV2.model_validate(v2_override)
-            )
+    if workflow_configurations.get("model_configuration_override") is not None:
+        from api.services.configuration.model_connections import (
+            resolve_model_configuration,
+        )
 
-        resolved_config = await get_resolved_ai_model_configuration(
-            organization_id=organization_id,
+        if organization_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Organization is required for model configuration.",
+            )
+        resolved = await resolve_model_configuration(
+            organization_id,
+            workflow_override=workflow_configurations["model_configuration_override"],
         )
-        return resolve_effective_config(
-            resolved_config.effective,
-            workflow_configurations.get("model_overrides"),
-        )
-    except ValidationError as exc:
-        # Stored overrides may become incompatible with updated global settings
-        # or schemas. Do not include Pydantic's input data, which contains secrets.
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Invalid workflow model configuration. "
-                "Review the workflow's model settings and save them again."
-            ),
-        ) from exc
+        return resolved.effective
+    # Retired inline model keys on older rows are audit data, never read.
+    resolved_config = await get_resolved_ai_model_configuration(
+        organization_id=organization_id,
+    )
+    return resolved_config.effective
 
 
 async def get_organization_ai_model_configuration_v2(

@@ -73,6 +73,9 @@ from api.services.configuration.ai_model_configuration import (
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
 from api.services.configuration.masking import is_mask_of, mask_key, mask_user_config
+from api.services.configuration.model_connections import (
+    reject_legacy_model_configuration_write,
+)
 from api.services.configuration.registry import (
     DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES,
     DOGRAH_STT_LANGUAGES,
@@ -466,6 +469,7 @@ async def save_model_configuration_v2(
     user: UserModel = Depends(get_user_with_selected_organization),
 ):
     organization_id = user.selected_organization_id
+    await reject_legacy_model_configuration_write(organization_id)
     existing = await get_organization_ai_model_configuration_v2(organization_id)
     configuration = merge_ai_model_configuration_v2_secrets(request, existing)
     try:
@@ -515,6 +519,7 @@ async def migrate_model_configuration_v2(
     user: UserModel = Depends(get_user_with_selected_organization),
 ):
     organization_id = user.selected_organization_id
+    await reject_legacy_model_configuration_write(organization_id)
     existing = await get_organization_ai_model_configuration_v2(organization_id)
     if existing is not None and not force:
         raise HTTPException(

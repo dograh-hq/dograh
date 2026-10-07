@@ -9,14 +9,18 @@ from api.services.campaign.campaign_event_publisher import (
     notify_campaign_call_completed,
 )
 from api.services.campaign.circuit_breaker import circuit_breaker
+from api.services.configuration.run_model_configuration import (
+    apply_pre_call_model_overrides,
+)
 from api.services.integrations import IntegrationRuntimeSession
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.pipecat.audio_playback import play_audio_loop
+from api.services.pipecat.audio_playback import HoldAudio
 from api.services.pipecat.in_memory_buffers import (
     InMemoryLogsBuffer,
     InMemoryRecordingBuffers,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
+from api.services.pipecat.pre_call_fetch import PreCallFetchResult
 from api.services.pipecat.termination_funnel_processor import (
     TerminationFunnelProcessor,
     is_terminal_error,
@@ -80,7 +84,10 @@ def register_event_handlers(
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
     termination_funnel: TerminationFunnelProcessor,
     audio_config=AudioConfig,
-    pre_call_fetch_task: asyncio.Task | None = None,
+    pre_call_fetch_task: "asyncio.Task[PreCallFetchResult] | None" = None,
+    workflow_run=None,
+    organization_id: int | None = None,
+    run_model_configuration=None,
     user_provider_id: str | None = None,
     integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
     call_events_session=None,
@@ -88,6 +95,13 @@ def register_event_handlers(
     answer_supervisor=None,
 ):
     """Register all event handlers for transport and task events.
+
+    Args:
+        pre_call_fetch_task: The Start node's pre-call fetch, already running.
+        workflow_run: The run row, for applying the fetch's model overrides.
+        run_model_configuration: The call-scoped configuration the run was
+            authorized with; the first agent runs on it unless the fetch
+            patches it.
 
     Returns:
         In-memory recording buffers for use by other handlers.
@@ -113,11 +127,62 @@ def register_event_handlers(
         "initial_response_triggered": False,
     }
 
+    async def await_pre_call_fetch() -> PreCallFetchResult | None:
+        """Wait for the Start node's fetch, ringing while the caller waits."""
+        if pre_call_fetch_task is None:
+            return None
+        if pre_call_fetch_task.done():
+            return pre_call_fetch_task.result()
+        logger.info("Pre-call fetch still in progress, playing ringer while waiting")
+        hold = HoldAudio(
+            sample_rate=engine.hold_audio_sample_rate,
+            queue_frame=transport.output().queue_frame,
+            name=f"pre-call-ringer:{workflow_run_id}",
+        )
+        hold.start()
+        try:
+            return await pre_call_fetch_task
+        finally:
+            await hold.stop()
+
+    async def apply_pre_call_fetch(fetched: PreCallFetchResult):
+        """Fold the fetch into the call: context first, then the visit's models.
+
+        Returns the configuration the first agent runs on.
+        """
+        if fetched.initial_context:
+            engine._call_context_vars = merge_external_initial_context(
+                engine._call_context_vars, fetched.initial_context
+            )
+            logger.info(
+                f"Pre-call fetch complete, merged keys: "
+                f"{list(fetched.initial_context.keys())}"
+            )
+        engine.record_context({"pre_call_fetch_outcome": fetched.outcome})
+        if fetched.model_overrides is None:
+            return run_model_configuration
+        if not engine.active_agent.is_child:
+            # A realtime agent's service is call-owned and already running.
+            logger.warning(
+                "Pre-call model overrides are not supported for realtime runs; "
+                f"ignoring them for run {workflow_run_id}"
+            )
+            return run_model_configuration
+        patched = await apply_pre_call_model_overrides(
+            organization_id=organization_id,
+            workflow_run=workflow_run,
+            run_model_configuration=run_model_configuration,
+            fetched=fetched,
+        )
+        return patched or run_model_configuration
+
     async def maybe_trigger_initial_response():
         """Start the conversation after both pipeline_started and client_connected events.
 
-        If a pre-call fetch is in progress, plays a ringer while waiting for the
-        response, then merges the result into the call context before proceeding.
+        The call-start sequence, the same for every transport and both
+        pipeline shapes: ring until the pre-call fetch settles, fold its
+        result into the call, bind the first agent's services, then attach
+        the agent and open its start node.
         """
         if (
             ready_state["pipeline_started"]
@@ -135,44 +200,26 @@ def register_event_handlers(
                 )
             )
 
-            # Wait for pre-call fetch if in progress, playing ringer meanwhile
-            if pre_call_fetch_task is not None:
-                if not pre_call_fetch_task.done():
-                    logger.info(
-                        "Pre-call fetch still in progress, playing ringer while waiting"
-                    )
-                    stop_ringer = asyncio.Event()
-                    sample_rate = audio_config.pipeline_sample_rate or 16000
-                    ringer_task = asyncio.create_task(
-                        play_audio_loop(
-                            stop_event=stop_ringer,
-                            sample_rate=sample_rate,
-                            queue_frame=transport.output().queue_frame,
-                        )
-                    )
-                    try:
-                        fetch_result = await pre_call_fetch_task
-                    finally:
-                        stop_ringer.set()
-                        await ringer_task
-                else:
-                    fetch_result = pre_call_fetch_task.result()
+            fetched = await await_pre_call_fetch()
+            # A hangup while ringing ends the call; there is nobody to open for.
+            if engine.is_call_disposed():
+                return
 
-                if fetch_result:
-                    engine._call_context_vars = merge_external_initial_context(
-                        engine._call_context_vars, fetch_result
-                    )
-                    try:
-                        await db_client.update_workflow_run(
-                            workflow_run_id,
-                            initial_context={**engine._call_context_vars},
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to persist pre-call fetch context: {e}")
-                    logger.info(
-                        f"Pre-call fetch complete, merged keys: "
-                        f"{list(fetch_result.keys())}"
-                    )
+            visit_configuration = run_model_configuration
+            if fetched is not None:
+                visit_configuration = await apply_pre_call_fetch(fetched)
+
+            # Bind the first agent's services and record what it runs. The
+            # fetch is the last thing that can change them, so this is the
+            # first moment they are known.
+            engine.finalize_initial_agent(visit_configuration)
+            try:
+                await db_client.update_workflow_run(
+                    workflow_run_id,
+                    initial_context={**engine._call_context_vars},
+                )
+            except Exception as e:
+                logger.error(f"Failed to persist call-start context: {e}")
 
             # Attach and activate the agent this call starts on. On a split
             # pipeline nothing can generate until this lands: an agent worker

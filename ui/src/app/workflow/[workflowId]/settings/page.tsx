@@ -10,22 +10,13 @@ import { toast } from "sonner";
 import {
     downloadWorkflowReportApiV1WorkflowWorkflowIdReportGet,
     getAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPost,
-    getModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Get,
-    getModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGet,
     getWorkflowApiV1WorkflowFetchWorkflowIdGet,
 } from "@/client/sdk.gen";
-import type {
-    ModelConfigurationPricingResponse,
-    OrganizationAiModelConfigurationResponse,
-    OrganizationAiModelConfigurationV2,
-    WorkflowResponse,
-} from "@/client/types.gen";
-import {
-    AIModelConfigurationV2Editor,
-    type ModelConfigurationDefaultsV2,
-} from "@/components/AIModelConfigurationV2Editor";
+import type { WorkflowResponse } from "@/client/types.gen";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
+import { PageShell } from "@/components/layout/PageShell";
 import { LLMConfigSelector } from "@/components/LLMConfigSelector";
+import { WorkflowModelConfiguration } from "@/components/model-connections/WorkflowModelConfiguration";
 import SpinLoader from "@/components/SpinLoader";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -41,11 +32,9 @@ import { SETTINGS_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 import { UnsavedChangesProvider, useUnsavedChanges, useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
-import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import logger from "@/lib/logger";
-import { fetchModelConfigurationPricing } from "@/lib/modelConfigurationPricing";
 import {
     type AmbientNoiseConfiguration,
     type CallDispositionOption,
@@ -80,7 +69,7 @@ const PUBLISH_WORKFLOW_REMINDER = "Publish the agent to apply the changes.";
 // Sidebar navigation items
 const NAV_ITEMS = [
     { id: "general", label: "General", icon: Settings },
-    { id: "models", label: "Model Overrides", icon: Brain },
+    { id: "models", label: "Model Configuration", icon: Brain },
     { id: "variables", label: "Template Variables", icon: Variable },
     { id: "dictionary", label: "Dictionary", icon: BookA },
     { id: "voicemail", label: "Voicemail & Screening", icon: PhoneOff },
@@ -1412,162 +1401,6 @@ function AgentUuidSection({ workflowUuid }: { workflowUuid: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Section: Model Overrides
-// ---------------------------------------------------------------------------
-
-function withoutModelConfigurationOverrides(configurations: WorkflowConfigurations): WorkflowConfigurations {
-    const next = { ...configurations };
-    delete next.model_overrides;
-    delete next.model_configuration_v2_override;
-    return next;
-}
-
-function WorkflowModelOverridesSection({
-    workflowConfigurations,
-    workflowName,
-    onSave,
-    modelConfigurationDefaults,
-    organizationModelConfiguration,
-    modelConfigurationPricing,
-    modelConfigurationLoading,
-    modelConfigurationError,
-}: {
-    workflowConfigurations: WorkflowConfigurations;
-    workflowName: string;
-    onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
-    modelConfigurationDefaults: ModelConfigurationDefaultsV2 | null;
-    organizationModelConfiguration: OrganizationAiModelConfigurationResponse | null;
-    modelConfigurationPricing: ModelConfigurationPricingResponse | null;
-    modelConfigurationLoading: boolean;
-    modelConfigurationError: string | null;
-}) {
-    const savedV2Override = workflowConfigurations.model_configuration_v2_override;
-    const hasSavedModelOverride = Boolean(savedV2Override || workflowConfigurations.model_overrides);
-    const [overrideEnabled, setOverrideEnabled] = useState(Boolean(savedV2Override));
-    const [isRemovingOverride, setIsRemovingOverride] = useState(false);
-
-    useEffect(() => {
-        setOverrideEnabled(Boolean(workflowConfigurations.model_configuration_v2_override));
-    }, [workflowConfigurations.model_configuration_v2_override]);
-
-    const hasOrgConfiguration = organizationModelConfiguration?.source === "organization_v2";
-
-    const saveV2Override = async (configuration: OrganizationAiModelConfigurationV2) => {
-        const nextConfigurations = withoutModelConfigurationOverrides(workflowConfigurations);
-        nextConfigurations.model_configuration_v2_override = configuration;
-        await onSave(nextConfigurations, workflowName);
-        toast.success(`Model override saved. ${PUBLISH_WORKFLOW_REMINDER}`);
-    };
-
-    const removeV2Override = async () => {
-        setIsRemovingOverride(true);
-        try {
-            await onSave(withoutModelConfigurationOverrides(workflowConfigurations), workflowName);
-            setOverrideEnabled(false);
-            toast.success(`Organization model configuration saved. ${PUBLISH_WORKFLOW_REMINDER}`);
-        } finally {
-            setIsRemovingOverride(false);
-        }
-    };
-
-    return (
-        <Card id="models">
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                    <Brain className="h-4 w-4" />
-                    Model Overrides
-                </CardTitle>
-                <CardDescription>
-                    Override the full organization model configuration for this workflow.{" "}
-                    <a href={SETTINGS_DOCUMENTATION_URLS.modelOverrides} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">Learn more <ExternalLink className="h-3 w-3" /></a>
-                </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-                {modelConfigurationLoading && (
-                    <div className="flex items-center gap-2 rounded-md border p-4 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Loading model configuration
-                    </div>
-                )}
-
-                {modelConfigurationError && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                        {modelConfigurationError}
-                    </div>
-                )}
-
-                {!modelConfigurationLoading && !modelConfigurationError && !hasOrgConfiguration && (
-                    <div className="flex flex-col gap-3 rounded-md border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-sm text-muted-foreground">
-                            Set up your organization model configuration before overriding it per workflow.
-                        </p>
-                        <Button type="button" variant="outline" size="sm" asChild>
-                            <Link href="/model-configurations">Configure Models</Link>
-                        </Button>
-                    </div>
-                )}
-
-                {!modelConfigurationLoading && !modelConfigurationError && hasOrgConfiguration && modelConfigurationDefaults && organizationModelConfiguration && (
-                    <>
-                        <div className="flex items-center justify-between rounded-md border p-4">
-                            <div className="space-y-0.5">
-                                <Label htmlFor="workflow-model-v2-override" className="text-sm font-medium">
-                                    Override for this workflow
-                                </Label>
-                                <p className="text-xs text-muted-foreground">
-                                    {overrideEnabled
-                                        ? "This workflow uses its own complete model configuration."
-                                        : "This workflow uses the organization model configuration."}
-                                </p>
-                            </div>
-                            <Switch
-                                id="workflow-model-v2-override"
-                                checked={overrideEnabled}
-                                onCheckedChange={setOverrideEnabled}
-                            />
-                        </div>
-
-                        {overrideEnabled ? (
-                            <AIModelConfigurationV2Editor
-                                defaults={modelConfigurationDefaults}
-                                configuration={
-                                    (savedV2Override as OrganizationAiModelConfigurationV2 | undefined)
-                                    || (organizationModelConfiguration.configuration as OrganizationAiModelConfigurationV2 | null)
-                                }
-                                effectiveConfiguration={
-                                    savedV2Override
-                                        ? null
-                                        : organizationModelConfiguration.effective_configuration
-                                }
-                                pricing={modelConfigurationPricing}
-                                submitLabel="Save Model Override"
-                                onSave={saveV2Override}
-                            />
-                        ) : (
-                            <div className="rounded-md border bg-muted/20 p-4">
-                                <p className="text-sm text-muted-foreground">
-                                    Using organization model configuration.
-                                </p>
-                                {hasSavedModelOverride && (
-                                    <Button
-                                        type="button"
-                                        className="mt-3"
-                                        onClick={removeV2Override}
-                                        disabled={isRemovingOverride}
-                                    >
-                                        {isRemovingOverride ? "Saving..." : "Save Organization Configuration"}
-                                    </Button>
-                                )}
-                            </div>
-                        )}
-                    </>
-                )}
-            </CardContent>
-        </Card>
-    );
-}
-
-// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -1654,12 +1487,6 @@ function WorkflowSettingsInner({
 
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
     const [activeSection, setActiveSection] = useState("general");
-    const [modelConfigurationDefaults, setModelConfigurationDefaults] = useState<ModelConfigurationDefaultsV2 | null>(null);
-    const [organizationModelConfiguration, setOrganizationModelConfiguration] = useState<OrganizationAiModelConfigurationResponse | null>(null);
-    const [modelConfigurationPricing, setModelConfigurationPricing] = useState<ModelConfigurationPricingResponse | null>(null);
-    const [modelConfigurationLoading, setModelConfigurationLoading] = useState(true);
-    const [modelConfigurationError, setModelConfigurationError] = useState<string | null>(null);
-    const hasFetchedModelConfiguration = useRef(false);
 
     const workflowId = workflow.id;
 
@@ -1710,39 +1537,6 @@ function WorkflowSettingsInner({
         ? resolveWorkflowConfigurations(workflowConfigurations)
         : null;
 
-    useEffect(() => {
-        if (hasFetchedModelConfiguration.current) return;
-        hasFetchedModelConfiguration.current = true;
-
-        const loadModelConfiguration = async () => {
-            setModelConfigurationLoading(true);
-            setModelConfigurationError(null);
-            const [defaultsResult, configurationResult, pricingResult] = await Promise.all([
-                getModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGet(),
-                getModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Get(),
-                fetchModelConfigurationPricing(),
-            ]);
-
-            if (defaultsResult.error) {
-                setModelConfigurationError(detailFromError(defaultsResult.error, "Failed to load model configuration defaults"));
-                setModelConfigurationLoading(false);
-                return;
-            }
-            if (configurationResult.error) {
-                setModelConfigurationError(detailFromError(configurationResult.error, "Failed to load model configuration"));
-                setModelConfigurationLoading(false);
-                return;
-            }
-
-            setModelConfigurationDefaults(defaultsResult.data as ModelConfigurationDefaultsV2);
-            setOrganizationModelConfiguration(configurationResult.data || null);
-            setModelConfigurationPricing(pricingResult);
-            setModelConfigurationLoading(false);
-        };
-
-        loadModelConfiguration();
-    }, []);
-
     // Intersection observer for active sidebar link
     useEffect(() => {
         const ids = NAV_ITEMS.map((n) => n.id);
@@ -1765,7 +1559,7 @@ function WorkflowSettingsInner({
     }, []);
 
     return (
-        <div className="min-h-screen">
+        <>
             {/* Sticky header */}
             <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <Button
@@ -1782,7 +1576,7 @@ function WorkflowSettingsInner({
             </header>
 
             {/* Main + right nav */}
-            <div className="mx-auto flex max-w-5xl gap-8 px-6 py-8">
+            <PageShell className="flex max-w-5xl gap-8 px-6">
                 {/* Sections */}
                 <div className="min-w-0 flex-1 space-y-8">
                     {resolvedWorkflowConfigurationsForRender && (
@@ -1796,15 +1590,10 @@ function WorkflowSettingsInner({
                                 onSave={saveWorkflowConfigurations}
                             />
 
-                            <WorkflowModelOverridesSection
+                            <WorkflowModelConfiguration
                                 workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName}
                                 onSave={saveWorkflowConfigurations}
-                                modelConfigurationDefaults={modelConfigurationDefaults}
-                                organizationModelConfiguration={organizationModelConfiguration}
-                                modelConfigurationPricing={modelConfigurationPricing}
-                                modelConfigurationLoading={modelConfigurationLoading}
-                                modelConfigurationError={modelConfigurationError}
                             />
 
                             {/* Template Variables */}
@@ -1901,7 +1690,7 @@ function WorkflowSettingsInner({
                         ))}
                     </div>
                 </nav>
-            </div>
+            </PageShell>
 
             {/* Dialogs for complex sections */}
             {resolvedWorkflowConfigurationsForRender && (
@@ -1916,6 +1705,6 @@ function WorkflowSettingsInner({
                     onSaveWorkflowConfigurations={saveWorkflowConfigurations}
                 />
             )}
-        </div>
+        </>
     );
 }

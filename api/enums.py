@@ -171,6 +171,7 @@ class OrganizationConfigurationKey(Enum):
     LANGFUSE_CREDENTIALS = (
         "LANGFUSE_CREDENTIALS"  # Org-level Langfuse tracing credentials
     )
+    MODEL_CONFIGURATION_DEFAULT_UUID = "MODEL_CONFIGURATION_DEFAULT_UUID"
     MODEL_CONFIGURATION_V2 = (
         "MODEL_CONFIGURATION_V2"  # Org-level v2 AI model configuration
     )

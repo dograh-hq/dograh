@@ -2189,6 +2189,26 @@ export type DefaultConfigurationsResponse = {
 };
 
 /**
+ * DefaultModelConfigurationRequest
+ */
+export type DefaultModelConfigurationRequest = {
+    /**
+     * Model Configuration Uuid
+     */
+    model_configuration_uuid: string;
+};
+
+/**
+ * DefaultModelConfigurationResponse
+ */
+export type DefaultModelConfigurationResponse = {
+    /**
+     * Model Configuration Uuid
+     */
+    model_configuration_uuid: string | null;
+};
+
+/**
  * DisplayOptions
  *
  * Conditional visibility rules.
@@ -2876,6 +2896,16 @@ export type EndTextChatSessionRequest = {
 };
 
 /**
+ * ErrorCondition
+ */
+export type ErrorCondition = {
+    /**
+     * Type
+     */
+    type?: 'error';
+};
+
+/**
  * ExotelConfigurationRequest
  */
 export type ExotelConfigurationRequest = {
@@ -2927,6 +2957,35 @@ export type ExternalPbxFieldMapping = {
      * Destination Field
      */
     destination_field: string;
+};
+
+/**
+ * FallbackPolicy[ServiceSelection]
+ */
+export type FallbackPolicyServiceSelection = {
+    /**
+     * Version
+     */
+    version?: 1;
+    /**
+     * Rules
+     */
+    rules?: Array<FallbackRuleServiceSelection>;
+};
+
+/**
+ * FallbackRule[ServiceSelection]
+ */
+export type FallbackRuleServiceSelection = {
+    /**
+     * Condition
+     */
+    condition: ({
+        type: 'no_output';
+    } & NoOutputCondition) | ({
+        type: 'error';
+    } & ErrorCondition);
+    target: ServiceSelection;
 };
 
 /**
@@ -4320,6 +4379,44 @@ export type ModelConfigurationMetricPrice = {
 };
 
 /**
+ * ModelConfigurationOverride
+ */
+export type ModelConfigurationOverride = {
+    /**
+     * Model Configuration Uuid
+     */
+    model_configuration_uuid?: string | null;
+    /**
+     * Mode
+     */
+    mode?: 'pipeline' | 'realtime' | null;
+    llm?: ServiceOverride | null;
+    llm_fallback?: FallbackPolicyServiceSelection | null;
+    stt?: ServiceOverride | null;
+    tts?: ServiceOverride | null;
+    realtime?: ServiceOverride | null;
+    embeddings?: ServiceOverride | null;
+};
+
+/**
+ * ModelConfigurationPreview
+ */
+export type ModelConfigurationPreview = {
+    /**
+     * Configuration
+     */
+    configuration: {
+        [key: string]: unknown;
+    };
+    /**
+     * Provenance
+     */
+    provenance: Array<{
+        [key: string]: unknown;
+    }>;
+};
+
+/**
  * ModelConfigurationPricingResponse
  *
  * MPS-owned effective prices relevant to model configuration choices.
@@ -4327,6 +4424,26 @@ export type ModelConfigurationMetricPrice = {
 export type ModelConfigurationPricingResponse = {
     platform_usage?: ModelConfigurationMetricPrice | null;
     dograh_model?: ModelConfigurationMetricPrice | null;
+};
+
+/**
+ * ModelConfigurationSpec
+ */
+export type ModelConfigurationSpec = {
+    /**
+     * Version
+     */
+    version?: 3;
+    /**
+     * Mode
+     */
+    mode?: 'pipeline' | 'realtime';
+    llm: ServiceSelection;
+    llm_fallback?: FallbackPolicyServiceSelection | null;
+    stt?: ServiceSelection | null;
+    tts?: ServiceSelection | null;
+    realtime?: ServiceSelection | null;
+    embeddings?: ServiceSelection | null;
 };
 
 /**
@@ -4339,6 +4456,69 @@ export type MoveWorkflowToFolderRequest = {
      * Folder Id
      */
     folder_id?: number | null;
+};
+
+/**
+ * NamedModelConfigurationCreate
+ */
+export type NamedModelConfigurationCreate = {
+    /**
+     * Name
+     */
+    name: string;
+    configuration: ModelConfigurationSpec;
+};
+
+/**
+ * NamedModelConfigurationResponse
+ */
+export type NamedModelConfigurationResponse = {
+    /**
+     * Uuid
+     */
+    uuid: string;
+    /**
+     * Name
+     */
+    name: string;
+    configuration: ModelConfigurationSpec;
+    /**
+     * Revision
+     */
+    revision: number;
+    /**
+     * Is Active
+     */
+    is_active: boolean;
+};
+
+/**
+ * NamedModelConfigurationUpdate
+ */
+export type NamedModelConfigurationUpdate = {
+    /**
+     * Name
+     */
+    name?: string | null;
+    configuration?: ModelConfigurationSpec | null;
+    /**
+     * Revision
+     */
+    revision?: number | null;
+};
+
+/**
+ * NoOutputCondition
+ */
+export type NoOutputCondition = {
+    /**
+     * Type
+     */
+    type?: 'no_output';
+    /**
+     * After Ms
+     */
+    after_ms?: number;
 };
 
 /**
@@ -4736,7 +4916,7 @@ export type OrganizationAiModelConfigurationResponse = {
     /**
      * Source
      */
-    source: 'organization_v2' | 'legacy_user_v1' | 'empty';
+    source: 'organization_v3' | 'organization_v2' | 'legacy_user_v1' | 'empty';
 };
 
 /**
@@ -4793,7 +4973,7 @@ export type OrganizationModelServicesContext = {
     /**
      * Config Source
      */
-    config_source: 'organization_v2' | 'legacy_user_v1' | 'empty';
+    config_source: 'organization_v3' | 'organization_v2' | 'legacy_user_v1' | 'empty';
     /**
      * Has Model Configuration V2
      */
@@ -5310,6 +5490,94 @@ export type PropertySpec = {
  * `<PropertyInput>` switch and (where relevant) the SDK codegen template.
  */
 export type PropertyType = 'string' | 'number' | 'boolean' | 'options' | 'multi_options' | 'fixed_collection' | 'json' | 'tool_refs' | 'document_refs' | 'recording_ref' | 'credential_ref' | 'mention_textarea' | 'url';
+
+/**
+ * ProviderConnectionCreate
+ */
+export type ProviderConnectionCreate = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Credentials
+     */
+    credentials?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Connection Settings
+     */
+    connection_settings?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * ProviderConnectionResponse
+ */
+export type ProviderConnectionResponse = {
+    /**
+     * Uuid
+     */
+    uuid: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Connection Settings
+     */
+    connection_settings: {
+        [key: string]: unknown;
+    };
+    /**
+     * Configured Credentials
+     */
+    configured_credentials: Array<string>;
+    /**
+     * Revision
+     */
+    revision: number;
+    /**
+     * Is Active
+     */
+    is_active: boolean;
+};
+
+/**
+ * ProviderConnectionUpdate
+ */
+export type ProviderConnectionUpdate = {
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Credentials
+     */
+    credentials?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Connection Settings
+     */
+    connection_settings?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Revision
+     */
+    revision?: number | null;
+};
 
 /**
  * ProviderSetupChecklist
@@ -6005,6 +6273,38 @@ export type ServiceKeyResponse = {
      * Created By
      */
     created_by?: string | null;
+};
+
+/**
+ * ServiceOverride
+ */
+export type ServiceOverride = {
+    /**
+     * Settings
+     */
+    settings?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Provider Connection Uuid
+     */
+    provider_connection_uuid?: string | null;
+};
+
+/**
+ * ServiceSelection
+ */
+export type ServiceSelection = {
+    /**
+     * Settings
+     */
+    settings?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Provider Connection Uuid
+     */
+    provider_connection_uuid: string;
 };
 
 /**
@@ -7424,6 +7724,7 @@ export type TriggerCallRequest = {
      * From Phone Number Id
      */
     from_phone_number_id?: number | null;
+    model_overrides?: ModelConfigurationOverride | null;
 };
 
 /**
@@ -8258,6 +8559,7 @@ export type WidgetTexts = {
  * WorkflowConfigurationDefaults
  */
 export type WorkflowConfigurationDefaults = {
+    model_configuration_override?: ModelConfigurationOverride | null;
     ambient_noise_configuration?: AmbientNoiseConfigurationDefaults;
     /**
      * Max Call Duration
@@ -14078,6 +14380,644 @@ export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses = 
 };
 
 export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponse = GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses[keyof GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses];
+
+export type GetModelConnectionCatalogData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/model-connections/catalog';
+};
+
+export type GetModelConnectionCatalogErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetModelConnectionCatalogError = GetModelConnectionCatalogErrors[keyof GetModelConnectionCatalogErrors];
+
+export type GetModelConnectionCatalogResponses = {
+    /**
+     * Response Get Model Connection Catalog
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type GetModelConnectionCatalogResponse = GetModelConnectionCatalogResponses[keyof GetModelConnectionCatalogResponses];
+
+export type ListProviderConnectionsData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Include Archived
+         */
+        include_archived?: boolean;
+    };
+    url: '/api/v1/model-connections/provider-connections';
+};
+
+export type ListProviderConnectionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListProviderConnectionsError = ListProviderConnectionsErrors[keyof ListProviderConnectionsErrors];
+
+export type ListProviderConnectionsResponses = {
+    /**
+     * Response List Provider Connections
+     *
+     * Successful Response
+     */
+    200: Array<ProviderConnectionResponse>;
+};
+
+export type ListProviderConnectionsResponse = ListProviderConnectionsResponses[keyof ListProviderConnectionsResponses];
+
+export type CreateProviderConnectionData = {
+    body: ProviderConnectionCreate;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/model-connections/provider-connections';
+};
+
+export type CreateProviderConnectionErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateProviderConnectionError = CreateProviderConnectionErrors[keyof CreateProviderConnectionErrors];
+
+export type CreateProviderConnectionResponses = {
+    /**
+     * Successful Response
+     */
+    201: ProviderConnectionResponse;
+};
+
+export type CreateProviderConnectionResponse = CreateProviderConnectionResponses[keyof CreateProviderConnectionResponses];
+
+export type ArchiveProviderConnectionData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Connection Uuid
+         */
+        connection_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/model-connections/provider-connections/{connection_uuid}';
+};
+
+export type ArchiveProviderConnectionErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ArchiveProviderConnectionError = ArchiveProviderConnectionErrors[keyof ArchiveProviderConnectionErrors];
+
+export type ArchiveProviderConnectionResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type ArchiveProviderConnectionResponse = ArchiveProviderConnectionResponses[keyof ArchiveProviderConnectionResponses];
+
+export type UpdateProviderConnectionData = {
+    body: ProviderConnectionUpdate;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Connection Uuid
+         */
+        connection_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/model-connections/provider-connections/{connection_uuid}';
+};
+
+export type UpdateProviderConnectionErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateProviderConnectionError = UpdateProviderConnectionErrors[keyof UpdateProviderConnectionErrors];
+
+export type UpdateProviderConnectionResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProviderConnectionResponse;
+};
+
+export type UpdateProviderConnectionResponse = UpdateProviderConnectionResponses[keyof UpdateProviderConnectionResponses];
+
+export type RestoreProviderConnectionData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Connection Uuid
+         */
+        connection_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/model-connections/provider-connections/{connection_uuid}/restore';
+};
+
+export type RestoreProviderConnectionErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RestoreProviderConnectionError = RestoreProviderConnectionErrors[keyof RestoreProviderConnectionErrors];
+
+export type RestoreProviderConnectionResponses = {
+    /**
+     * Successful Response
+     */
+    200: ProviderConnectionResponse;
+};
+
+export type RestoreProviderConnectionResponse = RestoreProviderConnectionResponses[keyof RestoreProviderConnectionResponses];
+
+export type ListNamedModelConfigurationsData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Include Archived
+         */
+        include_archived?: boolean;
+    };
+    url: '/api/v1/model-connections/model-configurations';
+};
+
+export type ListNamedModelConfigurationsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListNamedModelConfigurationsError = ListNamedModelConfigurationsErrors[keyof ListNamedModelConfigurationsErrors];
+
+export type ListNamedModelConfigurationsResponses = {
+    /**
+     * Response List Named Model Configurations
+     *
+     * Successful Response
+     */
+    200: Array<NamedModelConfigurationResponse>;
+};
+
+export type ListNamedModelConfigurationsResponse = ListNamedModelConfigurationsResponses[keyof ListNamedModelConfigurationsResponses];
+
+export type CreateNamedModelConfigurationData = {
+    body: NamedModelConfigurationCreate;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/model-connections/model-configurations';
+};
+
+export type CreateNamedModelConfigurationErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateNamedModelConfigurationError = CreateNamedModelConfigurationErrors[keyof CreateNamedModelConfigurationErrors];
+
+export type CreateNamedModelConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    201: NamedModelConfigurationResponse;
+};
+
+export type CreateNamedModelConfigurationResponse = CreateNamedModelConfigurationResponses[keyof CreateNamedModelConfigurationResponses];
+
+export type ArchiveNamedModelConfigurationData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Configuration Uuid
+         */
+        configuration_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/model-connections/model-configurations/{configuration_uuid}';
+};
+
+export type ArchiveNamedModelConfigurationErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ArchiveNamedModelConfigurationError = ArchiveNamedModelConfigurationErrors[keyof ArchiveNamedModelConfigurationErrors];
+
+export type ArchiveNamedModelConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type ArchiveNamedModelConfigurationResponse = ArchiveNamedModelConfigurationResponses[keyof ArchiveNamedModelConfigurationResponses];
+
+export type GetNamedModelConfigurationData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Configuration Uuid
+         */
+        configuration_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/model-connections/model-configurations/{configuration_uuid}';
+};
+
+export type GetNamedModelConfigurationErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetNamedModelConfigurationError = GetNamedModelConfigurationErrors[keyof GetNamedModelConfigurationErrors];
+
+export type GetNamedModelConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    200: NamedModelConfigurationResponse;
+};
+
+export type GetNamedModelConfigurationResponse = GetNamedModelConfigurationResponses[keyof GetNamedModelConfigurationResponses];
+
+export type UpdateNamedModelConfigurationData = {
+    body: NamedModelConfigurationUpdate;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Configuration Uuid
+         */
+        configuration_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/model-connections/model-configurations/{configuration_uuid}';
+};
+
+export type UpdateNamedModelConfigurationErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateNamedModelConfigurationError = UpdateNamedModelConfigurationErrors[keyof UpdateNamedModelConfigurationErrors];
+
+export type UpdateNamedModelConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    200: NamedModelConfigurationResponse;
+};
+
+export type UpdateNamedModelConfigurationResponse = UpdateNamedModelConfigurationResponses[keyof UpdateNamedModelConfigurationResponses];
+
+export type RestoreNamedModelConfigurationData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Configuration Uuid
+         */
+        configuration_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/model-connections/model-configurations/{configuration_uuid}/restore';
+};
+
+export type RestoreNamedModelConfigurationErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RestoreNamedModelConfigurationError = RestoreNamedModelConfigurationErrors[keyof RestoreNamedModelConfigurationErrors];
+
+export type RestoreNamedModelConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    200: NamedModelConfigurationResponse;
+};
+
+export type RestoreNamedModelConfigurationResponse = RestoreNamedModelConfigurationResponses[keyof RestoreNamedModelConfigurationResponses];
+
+export type GetDefaultModelConfigurationData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/model-connections/default';
+};
+
+export type GetDefaultModelConfigurationErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetDefaultModelConfigurationError = GetDefaultModelConfigurationErrors[keyof GetDefaultModelConfigurationErrors];
+
+export type GetDefaultModelConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    200: DefaultModelConfigurationResponse;
+};
+
+export type GetDefaultModelConfigurationResponse = GetDefaultModelConfigurationResponses[keyof GetDefaultModelConfigurationResponses];
+
+export type SetDefaultModelConfigurationData = {
+    body: DefaultModelConfigurationRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/model-connections/default';
+};
+
+export type SetDefaultModelConfigurationErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SetDefaultModelConfigurationError = SetDefaultModelConfigurationErrors[keyof SetDefaultModelConfigurationErrors];
+
+export type SetDefaultModelConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    200: DefaultModelConfigurationResponse;
+};
+
+export type SetDefaultModelConfigurationResponse = SetDefaultModelConfigurationResponses[keyof SetDefaultModelConfigurationResponses];
+
+export type PreviewModelConfigurationData = {
+    body: ModelConfigurationOverride;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/model-connections/resolve';
+};
+
+export type PreviewModelConfigurationErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PreviewModelConfigurationError = PreviewModelConfigurationErrors[keyof PreviewModelConfigurationErrors];
+
+export type PreviewModelConfigurationResponses = {
+    /**
+     * Successful Response
+     */
+    200: ModelConfigurationPreview;
+};
+
+export type PreviewModelConfigurationResponse = PreviewModelConfigurationResponses[keyof PreviewModelConfigurationResponses];
 
 export type GetSignedUrlApiV1S3SignedUrlGetData = {
     body?: never;

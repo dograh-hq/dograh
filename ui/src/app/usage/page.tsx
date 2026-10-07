@@ -11,6 +11,7 @@ import type { DailyUsageBreakdownResponse, OrganizationPreferences, UsageHistory
 import { CallTypeCell } from '@/components/CallTypeCell';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
+import { PageShell } from '@/components/layout/PageShell';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -440,7 +441,7 @@ export default function UsagePage() {
     };
 
     return (
-        <div className="container mx-auto p-6 space-y-6">
+        <PageShell className="space-y-6">
             <div>
                 <div className="flex justify-between items-start">
                     <div>
@@ -715,6 +716,6 @@ export default function UsagePage() {
 
                 {/* Media Preview Dialog */}
                 {mediaPreview.dialog}
-        </div>
+        </PageShell>
     );
 }

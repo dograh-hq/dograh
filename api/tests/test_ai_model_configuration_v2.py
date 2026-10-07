@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
 from pydantic import ValidationError
 
 from api.schemas.ai_model_configuration import (
@@ -43,9 +42,10 @@ from api.services.configuration.registry import (
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("use_v2_override", [False, True])
-async def test_invalid_saved_workflow_temperature_returns_client_error(
+async def test_retired_inline_workflow_model_keys_are_ignored(
     monkeypatch, use_v2_override
 ):
+    """Rows converted by the catalog backfill keep their old payloads as audit data."""
     from api.services.configuration import ai_model_configuration
 
     base = EffectiveAIModelConfiguration(
@@ -56,7 +56,7 @@ async def test_invalid_saved_workflow_temperature_returns_client_error(
         "get_resolved_ai_model_configuration",
         AsyncMock(
             return_value=ResolvedAIModelConfiguration(
-                effective=base, source="organization_v2"
+                effective=base, source="organization_v3"
             )
         ),
     )
@@ -70,15 +70,12 @@ async def test_invalid_saved_workflow_temperature_returns_client_error(
     else:
         config = {"model_overrides": {"llm": {"model": "anthropic/claude-sonnet-4"}}}
 
-    with pytest.raises(HTTPException) as exc:
-        await get_effective_ai_model_configuration_for_workflow(
-            organization_id=42,
-            workflow_configurations=config,
-        )
+    effective = await get_effective_ai_model_configuration_for_workflow(
+        organization_id=42,
+        workflow_configurations=config,
+    )
 
-    assert exc.value.status_code == 400
-    assert "workflow's model settings" in exc.value.detail
-    assert "private-test-key" not in exc.value.detail
+    assert effective is base
     assert base.llm.temperature == 1.5
 
 
@@ -216,7 +213,11 @@ async def test_resolved_org_v2_uses_last_validated_at_as_validation_cache(
     monkeypatch.setattr(
         ai_model_configuration.db_client,
         "get_configuration",
-        AsyncMock(return_value=row),
+        AsyncMock(
+            side_effect=lambda org, key: (
+                row if key == "MODEL_CONFIGURATION_V2" else None
+            )
+        ),
     )
 
     resolved = await get_resolved_ai_model_configuration(organization_id=42)
@@ -647,6 +648,9 @@ async def test_migrate_model_configuration_v2_initializes_hosted_mps_billing(
         async def validate(self, *args, **kwargs):
             return {"status": [{"model": "all", "message": "ok"}]}
 
+    monkeypatch.setattr(
+        organization_routes.db_client, "get_configuration", AsyncMock(return_value=None)
+    )
     ensure_billing = AsyncMock(return_value={"billing_mode": "v2"})
     upsert = AsyncMock()
     migrate_workflows = AsyncMock()

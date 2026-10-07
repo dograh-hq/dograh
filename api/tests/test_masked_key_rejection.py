@@ -66,6 +66,12 @@ def _patch_config_update(existing_config=None):
 
     with (
         patch("api.routes.user.db_client") as mock_db,
+        # These legacy-form cases describe an org that has not adopted V3.
+        # The catalog guard has its own DB dependency outside the route mock.
+        patch(
+            "api.services.configuration.model_connections.db_client.get_configuration",
+            new=AsyncMock(return_value=None),
+        ),
         patch("api.routes.user.UserConfigurationValidator") as mock_validator,
         patch(
             "api.routes.user.get_resolved_ai_model_configuration",

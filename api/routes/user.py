@@ -33,6 +33,9 @@ from api.services.configuration.check_validity import (
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
 from api.services.configuration.masking import check_for_masked_keys, mask_user_config
 from api.services.configuration.merge import merge_user_configurations
+from api.services.configuration.model_connections import (
+    reject_legacy_model_configuration_write,
+)
 from api.services.configuration.registry import REGISTRY, ServiceType
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.organization_preferences import (
@@ -205,6 +208,7 @@ async def update_user_configurations(
     }
 
     if incoming_dict:
+        await reject_legacy_model_configuration_write(user.selected_organization_id)
         if not user.selected_organization_id:
             raise HTTPException(status_code=400, detail="No organization selected")
 

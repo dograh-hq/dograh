@@ -169,4 +169,72 @@ describe("conversationItemsFromTextChatTurns", () => {
             },
         ]);
     });
+
+    it("preserves middle replies when multiple transition announcements occur", () => {
+        const turns = [
+            {
+                id: "turn-1",
+                created_at: "2026-01-01T00:00:00.000Z",
+                user_message: {
+                    text: "Process everything",
+                    created_at: "2026-01-01T00:00:00.000Z",
+                },
+                events: [
+                    {
+                        type: "bot_speech",
+                        created_at: "2026-01-01T00:00:01.000Z",
+                        payload: {
+                            text: "Wait one.",
+                        },
+                    },
+                    {
+                        type: "bot_speech",
+                        created_at: "2026-01-01T00:00:03.000Z",
+                        payload: {
+                            text: "Wait two.",
+                        },
+                    },
+                ],
+                assistant_message: {
+                    text: "First reply.\n\nWait one.\n\nMiddle reply.\n\nWait two.\n\nLast reply.",
+                    created_at: "2026-01-01T00:00:06.000Z",
+                },
+            },
+        ];
+
+        const items = conversationItemsFromTextChatTurns(turns);
+
+        expect(items.map((item) => ({ kind: item.kind, role: "role" in item ? item.role : undefined, text: "text" in item ? item.text : undefined }))).toEqual([
+            {
+                kind: "message",
+                role: "user",
+                text: "Process everything",
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "First reply.",
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Wait one.",
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Middle reply.",
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Wait two.",
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Last reply.",
+            },
+        ]);
+    });
 });

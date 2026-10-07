@@ -166,34 +166,27 @@ export function conversationItemsFromTextChatTurns(turns: TextChatTurnLike[]) {
 
         if (turn.assistant_message?.text) {
             let remainingText = turn.assistant_message.text.trim();
-            let prefixText: string | undefined;
 
-            for (const item of eventItems) {
-                if (item.kind === "message" && item.role === "assistant" && item.text) {
-                    const idx = remainingText.indexOf(item.text);
+            eventItems.forEach((eventItem, index) => {
+                if (eventItem.kind === "message" && eventItem.role === "assistant" && eventItem.text) {
+                    const idx = remainingText.indexOf(eventItem.text);
                     if (idx !== -1) {
                         const before = remainingText.slice(0, idx).trim();
-                        const after = remainingText.slice(idx + item.text.length).trim();
-                        if (before && !prefixText) {
-                            prefixText = before;
+                        remainingText = remainingText.slice(idx + eventItem.text.length).trim();
+                        if (before) {
+                            items.push({
+                                kind: "message",
+                                id: `${turn.id}-assistant-segment-${index}`,
+                                turnId: turn.id,
+                                timestamp: turn.assistant_message!.created_at ?? turn.created_at,
+                                role: "assistant",
+                                text: before,
+                            });
                         }
-                        remainingText = [prefixText ? "" : before, after].filter(Boolean).join("\n\n");
                     }
                 }
-            }
-
-            if (prefixText) {
-                items.push({
-                    kind: "message",
-                    id: `${turn.id}-assistant-prefix`,
-                    turnId: turn.id,
-                    timestamp: turn.assistant_message.created_at ?? turn.created_at,
-                    role: "assistant",
-                    text: prefixText,
-                });
-            }
-
-            items.push(...eventItems);
+                items.push(eventItem);
+            });
 
             if (remainingText) {
                 items.push({

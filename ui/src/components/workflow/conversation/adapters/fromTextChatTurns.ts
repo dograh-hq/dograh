@@ -166,6 +166,7 @@ export function conversationItemsFromTextChatTurns(turns: TextChatTurnLike[]) {
 
         if (turn.assistant_message?.text) {
             let remainingText = turn.assistant_message.text.trim();
+            const segmentsBeforeEventIndex = new Map<number, string>();
 
             eventItems.forEach((eventItem, index) => {
                 if (eventItem.kind === "message" && eventItem.role === "assistant" && eventItem.text) {
@@ -174,16 +175,42 @@ export function conversationItemsFromTextChatTurns(turns: TextChatTurnLike[]) {
                         const before = remainingText.slice(0, idx).trim();
                         remainingText = remainingText.slice(idx + eventItem.text.length).trim();
                         if (before) {
-                            items.push({
-                                kind: "message",
-                                id: `${turn.id}-assistant-segment-${index}`,
-                                turnId: turn.id,
-                                timestamp: turn.assistant_message!.created_at ?? turn.created_at,
-                                role: "assistant",
-                                text: before,
-                            });
+                            segmentsBeforeEventIndex.set(index, before);
                         }
                     }
+                }
+            });
+
+            // Find the first event that matched speech (if any)
+            const firstSpeechEventIndex = eventItems.findIndex((_, idx) => segmentsBeforeEventIndex.has(idx));
+
+            // If there was text before the first speech announcement, it was uttered before any transition events
+            if (firstSpeechEventIndex !== -1) {
+                const initialText = segmentsBeforeEventIndex.get(firstSpeechEventIndex);
+                if (initialText) {
+                    items.push({
+                        kind: "message",
+                        id: `${turn.id}-assistant-initial`,
+                        turnId: turn.id,
+                        timestamp: turn.assistant_message.created_at ?? turn.created_at,
+                        role: "assistant",
+                        text: initialText,
+                    });
+                    segmentsBeforeEventIndex.delete(firstSpeechEventIndex);
+                }
+            }
+
+            eventItems.forEach((eventItem, index) => {
+                const segmentBefore = segmentsBeforeEventIndex.get(index);
+                if (segmentBefore) {
+                    items.push({
+                        kind: "message",
+                        id: `${turn.id}-assistant-segment-${index}`,
+                        turnId: turn.id,
+                        timestamp: turn.assistant_message!.created_at ?? turn.created_at,
+                        role: "assistant",
+                        text: segmentBefore,
+                    });
                 }
                 items.push(eventItem);
             });

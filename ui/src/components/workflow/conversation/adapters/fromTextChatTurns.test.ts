@@ -237,4 +237,70 @@ describe("conversationItemsFromTextChatTurns", () => {
             },
         ]);
     });
+
+    it("preserves reply position before node transition when transition announcement follows", () => {
+        const turns = [
+            {
+                id: "turn-1",
+                created_at: "2026-01-01T00:00:00.000Z",
+                user_message: {
+                    text: "Transfer me",
+                    created_at: "2026-01-01T00:00:00.000Z",
+                },
+                events: [
+                    {
+                        type: "node_transition",
+                        created_at: "2026-01-01T00:00:01.000Z",
+                        payload: {
+                            node_id: "agent_node",
+                            node_name: "Agent One",
+                            previous_node_id: "start_node",
+                            previous_node_name: "Start",
+                        },
+                    },
+                    {
+                        type: "bot_speech",
+                        created_at: "2026-01-01T00:00:02.000Z",
+                        payload: {
+                            text: "Please wait.",
+                        },
+                    },
+                ],
+                assistant_message: {
+                    text: "Let me transfer you.\n\nPlease wait.\n\nHello from agent one!",
+                    created_at: "2026-01-01T00:00:06.000Z",
+                },
+            },
+        ];
+
+        const items = conversationItemsFromTextChatTurns(turns);
+
+        expect(items.map((item) => ({ kind: item.kind, role: "role" in item ? item.role : undefined, text: "text" in item ? item.text : undefined }))).toEqual([
+            {
+                kind: "message",
+                role: "user",
+                text: "Transfer me",
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Let me transfer you.",
+            },
+            {
+                kind: "node-transition",
+                role: undefined,
+                text: undefined,
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Please wait.",
+            },
+            {
+                kind: "message",
+                role: "assistant",
+                text: "Hello from agent one!",
+            },
+        ]);
+    });
 });

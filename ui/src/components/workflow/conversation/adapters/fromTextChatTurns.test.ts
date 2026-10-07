@@ -238,7 +238,7 @@ describe("conversationItemsFromTextChatTurns", () => {
         ]);
     });
 
-    it("preserves reply position before node transition when transition announcement follows", () => {
+    it("preserves reply position before transition tool call and node transition when announcement follows", () => {
         const turns = [
             {
                 id: "turn-1",
@@ -249,8 +249,16 @@ describe("conversationItemsFromTextChatTurns", () => {
                 },
                 events: [
                     {
-                        type: "node_transition",
+                        type: "tool_call_started",
                         created_at: "2026-01-01T00:00:01.000Z",
+                        payload: {
+                            function_name: "go_to_agent_one",
+                            tool_call_id: "call-transfer",
+                        },
+                    },
+                    {
+                        type: "node_transition",
+                        created_at: "2026-01-01T00:00:01.500Z",
                         payload: {
                             node_id: "agent_node",
                             node_name: "Agent One",
@@ -263,6 +271,15 @@ describe("conversationItemsFromTextChatTurns", () => {
                         created_at: "2026-01-01T00:00:02.000Z",
                         payload: {
                             text: "Please wait.",
+                        },
+                    },
+                    {
+                        type: "tool_call_result",
+                        created_at: "2026-01-01T00:00:02.500Z",
+                        payload: {
+                            function_name: "go_to_agent_one",
+                            tool_call_id: "call-transfer",
+                            result: { status: "done" },
                         },
                     },
                 ],
@@ -285,6 +302,11 @@ describe("conversationItemsFromTextChatTurns", () => {
                 kind: "message",
                 role: "assistant",
                 text: "Let me transfer you.",
+            },
+            {
+                kind: "tool-call",
+                role: undefined,
+                text: undefined,
             },
             {
                 kind: "node-transition",

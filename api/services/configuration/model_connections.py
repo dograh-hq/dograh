@@ -679,17 +679,6 @@ def public_snapshot(snapshot):
     return result
 
 
-async def reject_legacy_model_configuration_write(organization_id):
-    """Prevent old clients from updating a shadow V2 source after cutover."""
-    if organization_id is not None:
-        pointer = await db_client.get_configuration(organization_id, DEFAULT_KEY)
-        if pointer is not None and pointer.value:
-            raise HTTPException(
-                status_code=409,
-                detail="This organization uses provider connections and named model configurations. Update model settings through /api/v1/model-connections instead.",
-            )
-
-
 async def validate_embedding_compatibility(
     organization_id, effective, document_uuids=None
 ):

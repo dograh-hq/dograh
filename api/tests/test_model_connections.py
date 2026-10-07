@@ -1,7 +1,7 @@
 """Behavioral tests for catalog precedence, tenant isolation and credential pins."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -407,19 +407,6 @@ async def test_embedding_index_compatibility_checks_only_selected_documents(
 
 
 @pytest.mark.asyncio
-async def test_old_write_guard_does_not_resolve_or_probe_credentials(monkeypatch):
-    monkeypatch.setattr(
-        service.db_client,
-        "get_configuration",
-        AsyncMock(return_value=SimpleNamespace(value=str(uuid4()))),
-    )
-    with pytest.raises(HTTPException) as caught:
-        await service.reject_legacy_model_configuration_write(1)
-    assert caught.value.status_code == 409
-    assert "/api/v1/model-connections" in caught.value.detail
-
-
-@pytest.mark.asyncio
 async def test_http_connection_responses_and_errors_never_return_credentials(
     monkeypatch,
 ):
@@ -452,62 +439,6 @@ async def test_http_connection_responses_and_errors_never_return_credentials(
         )
         assert response.status_code == 422
         assert "private-secret" not in response.text
-
-
-@pytest.mark.asyncio
-async def test_legacy_routes_reject_v3_shadow_writes(monkeypatch):
-    from api.routes import organization, user
-    from api.schemas.ai_model_configuration import (
-        EffectiveAIModelConfiguration,
-        OrganizationAIModelConfigurationV2,
-    )
-    from api.services.configuration.ai_model_configuration import (
-        ResolvedAIModelConfiguration,
-    )
-
-    monkeypatch.setattr(
-        service.db_client,
-        "get_configuration",
-        AsyncMock(return_value=SimpleNamespace(value=str(uuid4()))),
-    )
-    resolved = ResolvedAIModelConfiguration(
-        effective=EffectiveAIModelConfiguration(), source="organization_v3"
-    )
-    monkeypatch.setattr(
-        user, "get_resolved_ai_model_configuration", AsyncMock(return_value=resolved)
-    )
-    caller = SimpleNamespace(selected_organization_id=1, id=1, provider_id="test")
-    config = OrganizationAIModelConfigurationV2.model_validate(
-        {"mode": "dograh", "dograh": {"api_key": "secret"}}
-    )
-    for action in (
-        lambda: organization.save_model_configuration_v2(config, caller),
-        lambda: organization.migrate_model_configuration_v2(force=True, user=caller),
-        lambda: user.update_user_configurations(
-            user.UserConfigurationRequestResponseSchema(llm={"temperature": 0.3}),
-            caller,
-        ),
-    ):
-        with pytest.raises(HTTPException) as caught:
-            await action()
-        assert caught.value.status_code == 409
-    status = {"status": [{"model": "all", "message": "ok"}]}
-    validator = SimpleNamespace(validate=AsyncMock(return_value=status))
-    monkeypatch.setattr(
-        user, "UserConfigurationValidator", Mock(return_value=validator)
-    )
-    assert await user.validate_user_configurations(
-        validity_ttl_seconds=0, user=caller
-    ) == {"status": [{"model": "all", "message": "ok"}]}
-    validator.validate.assert_awaited_once_with(
-        resolved.effective, organization_id=1, created_by="test"
-    )
-    validator.validate.side_effect = ValueError(
-        [{"model": "llm", "message": "Invalid key"}]
-    )
-    with pytest.raises(HTTPException) as caught:
-        await user.validate_user_configurations(validity_ttl_seconds=0, user=caller)
-    assert caught.value.status_code == 422
 
 
 def fallback_rule(row, condition=None, **settings):

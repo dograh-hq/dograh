@@ -98,10 +98,7 @@ class MockWorkflowRun:
 
 @dataclass
 class MockUserConfig:
-    """Mock user configuration for testing.
-
-    Use this when mocking db_client.get_user_configurations() responses.
-    """
+    """Mock effective model configuration for testing."""
 
     stt: Optional[Any] = None
     tts: Optional[Any] = None

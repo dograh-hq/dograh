@@ -29,34 +29,6 @@ SERVICE_SECRET_FIELDS = (
 MODEL_OVERRIDE_FIELDS = ("llm", "tts", "stt", "realtime")
 
 
-def contains_masked_key(value: str | list[str] | None) -> bool:
-    """Return True if *value* looks like a masked placeholder."""
-    if value is None:
-        return False
-    keys = value if isinstance(value, list) else [value]
-    return any(MASK_MARKER in k for k in keys)
-
-
-def check_for_masked_keys(config: "EffectiveAIModelConfiguration") -> None:
-    """Raise ValueError if any service in *config* still has a masked secret."""
-    for field in ("llm", "tts", "stt", "embeddings", "realtime"):
-        service = getattr(config, field, None)
-        if service is None:
-            continue
-        for secret_field in SERVICE_SECRET_FIELDS:
-            if not hasattr(service, secret_field):
-                continue
-            if secret_field == "api_key" and hasattr(service, "get_all_api_keys"):
-                secret_value = service.get_all_api_keys()
-            else:
-                secret_value = getattr(service, secret_field, None)
-            if contains_masked_key(secret_value):
-                raise ValueError(
-                    f"The {field} {secret_field} appears to be masked. "
-                    "Please provide the actual value, not the masked value."
-                )
-
-
 def mask_key(real_key: str, visible: int = VISIBLE_CHARS) -> str:
     """Return a masked representation of *real_key*.
 
@@ -84,36 +56,6 @@ def _mask_secret_value(value: str | list[str]) -> str | list[str]:
 def is_mask_of(masked: str, real_key: str) -> bool:
     """Return *True* if *masked* equals the mask of *real_key* under the current rules."""
     return mask_key(real_key) == masked
-
-
-def resolve_masked_api_keys(
-    incoming: str | list[str], existing: str | list[str]
-) -> str | list[str]:
-    """Resolve masked API keys against existing real keys.
-
-    For each incoming key, if it matches the mask of an existing key, the real
-    key is restored.  New (unmasked) keys are kept as-is.  This handles adds,
-    removes, reorders, and partial replacements correctly.
-    """
-    if isinstance(incoming, str) and isinstance(existing, str):
-        return existing if is_mask_of(incoming, existing) else incoming
-
-    existing_list = existing if isinstance(existing, list) else [existing]
-    incoming_list = incoming if isinstance(incoming, list) else [incoming]
-
-    resolved: list[str] = []
-    used: set[int] = set()
-    for key in incoming_list:
-        matched = False
-        for i, real in enumerate(existing_list):
-            if i not in used and is_mask_of(key, real):
-                resolved.append(real)
-                used.add(i)
-                matched = True
-                break
-        if not matched:
-            resolved.append(key)
-    return resolved
 
 
 # ---------------------------------------------------------------------------

@@ -73,5 +73,11 @@ export function useModelConnections({ includeArchived = false }: { includeArchiv
         return () => { request.current += 1; };
     }, [reload]);
 
-    return { catalog, connections, configurations, defaultUuid, loading, error, reload };
+    // A connection just created on the page, usable at once. Refetching
+    // everything instead could fail and take an unsaved editor down with it.
+    const addConnection = useCallback((connection: ProviderConnection) => {
+        setConnections(previous => [...previous.filter(item => item.uuid !== connection.uuid), connection]);
+    }, []);
+
+    return { catalog, connections, configurations, defaultUuid, loading, error, reload, addConnection };
 }

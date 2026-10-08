@@ -1,5 +1,6 @@
 """Exercise Dograh's race through unchanged Gemini services and frame queues."""
 
+import ast
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -17,6 +18,7 @@ from google.genai.types import (
     HttpOptions,
     Part,
 )
+from loguru import logger
 from pipecat.clocks.system_clock import SystemClock
 from pipecat.frames.frames import (
     ErrorFrame,
@@ -150,6 +152,32 @@ def install_streams(harness, monkeypatch, primary, backup):
         )
 
 
+@pytest.fixture
+def fallback_logs():
+    messages = []
+
+    def capture(message):
+        text = message.record["message"]
+        if text.startswith("LLM fallback:"):
+            messages.append(text)
+
+    sink = logger.add(capture, level="INFO")
+    try:
+        yield messages
+    finally:
+        logger.remove(sink)
+
+
+def assert_fallback_log(messages, *, winner, interrupted, outcomes):
+    (message,) = messages
+    prefix = f"LLM fallback: winner={winner}, interrupted={interrupted}, attempts="
+    assert message.startswith(prefix)
+    attempts = ast.literal_eval(message.removeprefix(prefix))
+    assert [(a["index"], a["failed"], a["cancelled"]) for a in attempts] == [
+        (index, failed, cancelled) for index, (failed, cancelled) in enumerate(outcomes)
+    ]
+
+
 async def generate(harness, *, context=None, speculation=False):
     done = asyncio.Event()
 
@@ -179,12 +207,20 @@ async def test_fast_primary_never_starts_backup(harness, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_backup_wins_and_next_generation_restarts_primary(harness, monkeypatch):
+async def test_backup_wins_and_next_generation_restarts_primary(
+    harness, monkeypatch, fallback_logs
+):
     primary, backup = Stream(asyncio.Event()), Stream(chunk("backup"))
     install_streams(harness, monkeypatch, primary, backup)
     assert await generate(harness) == ["backup"]
     assert primary.closed.is_set() and backup.closed.is_set()
     assert harness.llm.fallback_metrics == {"started": 1, "won": 1}
+    assert_fallback_log(
+        fallback_logs,
+        winner=1,
+        interrupted=False,
+        outcomes=[(False, True), (False, False)],
+    )
     primary.steps = (chunk("primary"),)
     assert await generate(harness) == ["backup", "primary"]
     frames = harness.downstream.frames
@@ -193,7 +229,7 @@ async def test_backup_wins_and_next_generation_restarts_primary(harness, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_primary_wins_after_backup_starts(harness, monkeypatch):
+async def test_primary_wins_after_backup_starts(harness, monkeypatch, fallback_logs):
     release = asyncio.Event()
     primary, backup = Stream(release, chunk("primary")), Stream(asyncio.Event())
     install_streams(harness, monkeypatch, primary, backup)
@@ -203,6 +239,12 @@ async def test_primary_wins_after_backup_starts(harness, monkeypatch):
     assert await task == ["primary"]
     assert backup.closed.is_set()
     assert harness.llm.fallback_metrics == {"started": 1, "won": 0}
+    assert_fallback_log(
+        fallback_logs,
+        winner=0,
+        interrupted=False,
+        outcomes=[(False, False), (False, True)],
+    )
 
 
 @pytest.mark.asyncio
@@ -234,7 +276,9 @@ async def test_backup_error_does_not_abandon_primary(harness, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_both_fail_emit_one_error_and_one_response(harness, monkeypatch):
+async def test_both_fail_emit_one_error_and_one_response(
+    harness, monkeypatch, fallback_logs
+):
     install_streams(
         harness,
         monkeypatch,
@@ -243,6 +287,12 @@ async def test_both_fail_emit_one_error_and_one_response(harness, monkeypatch):
     )
     assert await generate(harness) == []
     assert sum(isinstance(f, ErrorFrame) for f in harness.upstream.frames) == 1
+    assert_fallback_log(
+        fallback_logs,
+        winner=None,
+        interrupted=False,
+        outcomes=[(True, False), (True, False)],
+    )
     assert (
         sum(isinstance(f, LLMFullResponseStartFrame) for f in harness.downstream.frames)
         == 1
@@ -291,15 +341,21 @@ async def test_interruption_closes_requests_and_next_turn_works(
 
 
 @pytest.mark.asyncio
-async def test_empty_stream_fails_over(harness, monkeypatch):
+async def test_empty_stream_fails_over(harness, monkeypatch, fallback_logs):
     install_streams(
         harness, monkeypatch, Stream(GenerateContentResponse()), Stream(chunk("backup"))
     )
     assert await generate(harness) == ["backup"]
+    assert_fallback_log(
+        fallback_logs,
+        winner=1,
+        interrupted=False,
+        outcomes=[(True, False), (False, False)],
+    )
 
 
 @pytest.mark.asyncio
-async def test_setup_deadline_covers_both_requests(harness, monkeypatch):
+async def test_setup_deadline_covers_both_requests(harness, monkeypatch, fallback_logs):
     harness.llm._first_output_timeout_secs = 0.04
 
     async def stuck(_):
@@ -309,6 +365,64 @@ async def test_setup_deadline_covers_both_requests(harness, monkeypatch):
         monkeypatch.setattr(service, "_stream_content", stuck)
     assert await generate(harness) == []
     assert sum(isinstance(f, ErrorFrame) for f in harness.upstream.frames) == 1
+    assert_fallback_log(
+        fallback_logs,
+        winner=None,
+        interrupted=False,
+        outcomes=[(True, False), (True, False)],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("primary_errors", [False, True])
+async def test_interrupted_race_logs_cancellation_without_hiding_errors(
+    harness, monkeypatch, fallback_logs, primary_errors
+):
+    primary = Stream(
+        ConnectionError("429 RESOURCE_EXHAUSTED") if primary_errors else asyncio.Event()
+    )
+    backup = Stream(asyncio.Event())
+    install_streams(harness, monkeypatch, primary, backup)
+    await harness.llm.queue_frame(LLMContextFrame(LLMContext()))
+    await asyncio.wait_for(backup.started.wait(), 1)
+    await control(harness, InterruptionFrame())
+
+    assert primary.closed.is_set() and backup.closed.is_set()
+    assert not any(isinstance(f, ErrorFrame) for f in harness.upstream.frames)
+    assert harness.llm.fallback_metrics == {"started": 1, "won": 0}
+    assert_fallback_log(
+        fallback_logs,
+        winner=None,
+        interrupted=True,
+        outcomes=[(primary_errors, not primary_errors), (False, True)],
+    )
+
+
+@pytest.mark.asyncio
+async def test_interrupted_streaming_winner_logs_cancellation(
+    harness, monkeypatch, fallback_logs
+):
+    streaming = asyncio.Event()
+
+    async def backup_stream():
+        yield chunk("partial")
+        streaming.set()
+        await asyncio.Event().wait()
+
+    primary = Stream(asyncio.Event())
+    install_streams(harness, monkeypatch, primary, backup_stream)
+    await harness.llm.queue_frame(LLMContextFrame(LLMContext()))
+    await asyncio.wait_for(streaming.wait(), 1)
+    await control(harness, InterruptionFrame())
+
+    assert not any(isinstance(f, ErrorFrame) for f in harness.upstream.frames)
+    assert harness.llm.fallback_metrics == {"started": 1, "won": 1}
+    assert_fallback_log(
+        fallback_logs,
+        winner=1,
+        interrupted=True,
+        outcomes=[(False, True), (False, True)],
+    )
 
 
 @pytest.mark.asyncio
@@ -601,7 +715,7 @@ async def control(harness, frame):
 
 @pytest.mark.asyncio
 async def test_interruption_during_loser_cleanup_waits_before_reusing_services(
-    harness, monkeypatch
+    harness, monkeypatch, fallback_logs
 ):
     closing, release = asyncio.Event(), asyncio.Event()
 
@@ -632,6 +746,12 @@ async def test_interruption_during_loser_cleanup_waits_before_reusing_services(
     finally:
         release.set()
     await interrupt
+    assert_fallback_log(
+        fallback_logs,
+        winner=1,
+        interrupted=True,
+        outcomes=[(False, True), (False, False)],
+    )
     install_streams(
         harness, monkeypatch, Stream(chunk("next")), Stream(chunk("unused"))
     )

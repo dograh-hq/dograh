@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
 const methods = ["scrollIntoView", "hasPointerCapture", "releasePointerCapture"] as const;
@@ -31,4 +31,23 @@ export function selectOptions(label: string | HTMLElement) {
     const options = screen.queryAllByRole("option").map(option => option.textContent);
     fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
     return options;
+}
+
+export function chooseMode(name: string) {
+    fireEvent.click(screen.getByRole("radio", { name }));
+}
+
+export function selectedMode() {
+    const radio = screen.getByRole("radio", { checked: true });
+    return document.getElementById(radio.getAttribute("aria-labelledby") || "")?.textContent;
+}
+
+/** Open a service's tab and return its panel. */
+export function servicePanel(name: string) {
+    fireEvent.mouseDown(screen.getByRole("tab", { name }));
+    return screen.getByRole("tabpanel", { name: new RegExp(`^${name}\\b`) });
+}
+
+export function providerSelect(service: string) {
+    return within(servicePanel(service)).getByLabelText("Provider");
 }

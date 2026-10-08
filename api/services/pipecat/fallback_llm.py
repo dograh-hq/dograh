@@ -62,6 +62,7 @@ class _Attempt:
     task: asyncio.Task | None = None
     deadline: asyncio.Timeout | None = None
     error: ErrorFrame | None = None
+    cancelled: bool = False
     done: bool = False
     first_output: float | None = None
     buffered: list[tuple[Frame, FrameDirection]] = field(default_factory=list)
@@ -394,6 +395,10 @@ class FallbackLLMProcessor(LLMService):
             async with asyncio.timeout(self._first_output_timeout_secs) as deadline:
                 attempt.deadline = deadline
                 await self._services[attempt.index].queue_frame(frame)
+        except asyncio.CancelledError:
+            # Preserve real failures recorded before cancellation during cleanup.
+            attempt.cancelled = attempt.error is None
+            raise
         except Exception as exc:  # noqa: BLE001 - managed tasks otherwise swallow failures
             attempt.error = ErrorFrame(
                 error="LLM completion timeout"
@@ -520,13 +525,15 @@ class FallbackLLMProcessor(LLMService):
                     cancelled = True
             if len(race.attempts) > 1:
                 logger.info(
-                    "LLM fallback: winner={}, attempts={}",
+                    "LLM fallback: winner={}, interrupted={}, attempts={}",
                     race.winner.index if race.winner else None,
+                    race.interrupted,
                     [
                         {
                             "index": a.index,
                             "first_output": a.first_output,
-                            "failed": a.error is not None,
+                            "failed": a.error is not None and not a.cancelled,
+                            "cancelled": a.cancelled,
                         }
                         for a in race.attempts
                     ],

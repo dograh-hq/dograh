@@ -35,7 +35,7 @@ import { WorkflowEditorHeader } from "./components/WorkflowEditorHeader";
 import { WorkflowTesterPanel } from './components/WorkflowTesterPanel';
 import { WorkflowVersionDiffDialog } from './components/WorkflowVersionDiffDialog';
 import { WorkflowProvider } from "./contexts/WorkflowContext";
-import { useWorkflowState } from "./hooks/useWorkflowState";
+import { type SavedVersion, useWorkflowState } from "./hooks/useWorkflowState";
 import { layoutNodes } from './utils/layoutNodes';
 
 const edgeTypes = {
@@ -128,6 +128,13 @@ function WorkflowEditor({
         router.replace(`/workflow/${workflowId}${suffix ? `?${suffix}` : ''}`, { scroll: false });
     }, [router, searchParams, workflowId]);
     const versionsFetched = useRef(false);
+    // The version bookkeeping for settings saves lives below, after the
+    // version fetcher it needs; the state hook reaches it through this ref.
+    const applySavedVersionRef = useRef<(version: SavedVersion) => void>(() => undefined);
+    const onVersionSaved = useCallback((version: SavedVersion) => applySavedVersionRef.current(version), []);
+    // A model edit waiting to save or still saving: publishing or testing now
+    // would use the previous settings.
+    const [settingsSaving, setSettingsSaving] = useState(false);
     const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
     const [tools, setTools] = useState<ToolResponse[] | undefined>(undefined);
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
@@ -168,6 +175,7 @@ function WorkflowEditor({
         initialTemplateContextVariables,
         initialWorkflowConfigurations,
         user,
+        onVersionSaved,
     });
 
     // Single generic component for every node type. Seed with core node types
@@ -398,6 +406,21 @@ function WorkflowEditor({
         fetchVersions(true);
     }, [fetchVersions]);
 
+    // A save can turn a published workflow into a draft. If the versions list
+    // has been fetched (user interacted with versioning or published), refresh
+    // it so that activeVersionId points to the correct version: otherwise it
+    // would still point to the old published version, making
+    // isViewingHistoricalVersion true and locking the editor read-only.
+    const applySavedVersion = useCallback(async (version: SavedVersion) => {
+        if (versionsFetched.current) {
+            await fetchVersions(true);
+            return;
+        }
+        if (version.versionNumber != null) setCurrentVersionNumber(version.versionNumber);
+        if (version.versionStatus) setCurrentVersionStatus(version.versionStatus);
+    }, [fetchVersions]);
+    applySavedVersionRef.current = (version) => { void applySavedVersion(version); };
+
     // Compute version label for the header.
     // Uses currentVersionNumber/Status which update immediately from save responses,
     // falling back to the versions list for history navigation.
@@ -426,11 +449,14 @@ function WorkflowEditor({
         if (isDirty) {
             return "Save the latest draft before testing so the session uses the workflow you are looking at.";
         }
+        if (settingsSaving) {
+            return "Wait for the model settings to finish saving so the session uses them.";
+        }
         if (workflowValidationErrors.length > 0) {
             return "Resolve the current validation errors before starting another test.";
         }
         return null;
-    }, [isDirty, isViewingHistoricalVersion, workflowValidationErrors.length]);
+    }, [isDirty, isViewingHistoricalVersion, settingsSaving, workflowValidationErrors.length]);
 
     const handleOpenTester = useCallback(() => {
         if (window.innerWidth >= 1280) {
@@ -553,21 +579,8 @@ function WorkflowEditor({
     const guardedSaveWorkflow = useCallback(async (updateWorkflowDefinition?: boolean) => {
         if (isViewingHistoricalVersion) return;
         const result = await saveWorkflow(updateWorkflowDefinition);
-        if (result) {
-            // If the versions list has been fetched (user interacted with versioning
-            // or published), refresh it so that activeVersionId points to the correct
-            // version.  This is critical when a save creates a new draft from a
-            // published version: without refreshing, activeVersionId would still
-            // point to the old published version, causing isViewingHistoricalVersion
-            // to incorrectly return true and lock the editor into read-only mode.
-            if (versionsFetched.current) {
-                await fetchVersions(true);
-            } else {
-                if (result.versionNumber != null) setCurrentVersionNumber(result.versionNumber);
-                if (result.versionStatus) setCurrentVersionStatus(result.versionStatus);
-            }
-        }
-    }, [saveWorkflow, isViewingHistoricalVersion, fetchVersions]);
+        if (result) await applySavedVersion(result);
+    }, [saveWorkflow, isViewingHistoricalVersion, applySavedVersion]);
 
     const renameWorkflow = useCallback(async (newName: string) => {
         // The header doesn't render the pencil until the page has mounted with
@@ -629,6 +642,7 @@ function WorkflowEditor({
                     isViewingHistoricalVersion={isViewingHistoricalVersion}
                     onBackToDraft={handleBackToDraft}
                     hasDraft={hasDraft}
+                    savingSettings={settingsSaving}
                     onPublished={handlePublished}
                     renameWorkflow={renameWorkflow}
                 />
@@ -775,6 +789,7 @@ function WorkflowEditor({
                                 <EditorSetup
                                     view={editorView}
                                     onViewChange={setEditorView}
+                                    onSavingChange={setSettingsSaving}
                                     workflowId={workflowId}
                                     workflowName={workflowName}
                                     workflowUuid={workflowUuid}

@@ -7,7 +7,7 @@ import { resolveWorkflowConfigurations } from "@/types/workflow-configurations";
 
 import { describeVariables, EditorSetup, type EditorView, isEditorView, referencedVariables } from "./EditorSetup";
 
-const model = { summary: "model-a / Alice", dirty: false };
+const model = { summary: "model-a / Alice", dirty: false, pendingSave: false };
 const sections = { dirty: false };
 vi.mock("@/components/model-connections/useWorkflowModelOverride", () => ({ useWorkflowModelOverride: () => model }));
 vi.mock("@/components/model-connections/WorkflowModelPicker", () => ({ WorkflowModelPicker: () => <div>Model picker</div> }));
@@ -26,20 +26,22 @@ const nodes = [{ id: "start", type: "start", position: { x: 0, y: 0 }, data: { p
 
 function renderSetup(view: EditorView, overrides: Partial<Parameters<typeof EditorSetup>[0]> = {}) {
     const onViewChange = vi.fn();
+    const onSavingChange = vi.fn();
     render(<UnsavedChangesProvider><EditorSetup
-        view={view} onViewChange={onViewChange} workflowId={12} workflowName="Agent" workflowUuid="agent-uuid" nodes={nodes}
+        view={view} onViewChange={onViewChange} onSavingChange={onSavingChange} workflowId={12} workflowName="Agent" workflowUuid="agent-uuid" nodes={nodes}
         workflowConfigurations={resolveWorkflowConfigurations(null)} templateContextVariables={{ customer_name: "Ada" }} dictionary=""
         defaultCallDispositions={[]} defaultAnswerClassifierPrompt="" textChatInactivityTimeoutConstraints={null} widgetTextDefaults={null}
         saveWorkflowConfigurations={vi.fn(async () => undefined)} saveTemplateContextVariables={vi.fn(async () => undefined)} saveDictionary={vi.fn(async () => undefined)}
         {...overrides}
     /></UnsavedChangesProvider>);
-    return { onViewChange };
+    return { onViewChange, onSavingChange };
 }
 
 const tab = (name: RegExp) => within(screen.getByRole("toolbar", { name: "Editor" })).getByRole("tab", { name });
 
 beforeEach(() => {
     model.dirty = false;
+    model.pendingSave = false;
     sections.dirty = false;
 });
 
@@ -102,6 +104,12 @@ describe("editor setup", () => {
         expect(onViewChange).not.toHaveBeenCalled();
         fireEvent.click(within(dialog).getByRole("button", { name: "Discard changes" }));
         expect(onViewChange).toHaveBeenCalledWith("canvas");
+    });
+
+    it("tells the editor while a model edit is still saving", () => {
+        model.pendingSave = true;
+        const { onSavingChange } = renderSetup("model");
+        expect(onSavingChange).toHaveBeenLastCalledWith(true);
     });
 
     it("switches views freely while only the model editor has unsaved edits, since it stays mounted", () => {

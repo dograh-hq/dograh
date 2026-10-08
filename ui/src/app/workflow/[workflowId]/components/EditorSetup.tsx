@@ -2,7 +2,7 @@
 
 import { Braces, Brain, Settings, Workflow } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import type { FlowNode } from "@/components/flow/types";
 import { useWorkflowModelOverride } from "@/components/model-connections/useWorkflowModelOverride";
@@ -62,13 +62,15 @@ const MODEL_SECTION = "models";
 type EditorSetupProps = WorkflowSettingsState & {
     view: EditorView;
     onViewChange: (view: EditorView) => void;
+    /** A model edit is waiting to save or saving; the editor holds publishing and test calls until it lands. */
+    onSavingChange?: (saving: boolean) => void;
     workflowId: number;
     workflowName: string;
     workflowUuid?: string | null;
     nodes: FlowNode[];
 };
 
-export function EditorSetup({ view, onViewChange, workflowId, workflowName, workflowUuid, nodes, ...state }: EditorSetupProps) {
+export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, workflowName, workflowUuid, nodes, ...state }: EditorSetupProps) {
     const { confirmNavigate, dirtySections } = useUnsavedChangesContext();
     const { workflowConfigurations, templateContextVariables, saveWorkflowConfigurations, saveTemplateContextVariables } = state;
     // The configurations and variables arrive together; until then the
@@ -80,6 +82,11 @@ export function EditorSetup({ view, onViewChange, workflowId, workflowName, work
     const model = useWorkflowModelOverride({ workflowName, workflowConfigurations: workflowConfigurations ?? placeholder, onSave: saveWorkflowConfigurations });
     // Model edits the autosave cannot finish on its own would be lost on leaving the editor.
     useUnsavedChanges(MODEL_SECTION, model.dirty);
+    const { pendingSave } = model;
+    useEffect(() => {
+        onSavingChange?.(pendingSave);
+        return () => onSavingChange?.(false);
+    }, [pendingSave, onSavingChange]);
     const variables = useMemo(() => describeVariables(templateContextVariables, nodes), [templateContextVariables, nodes]);
 
     const switchView = (next: EditorView) => {

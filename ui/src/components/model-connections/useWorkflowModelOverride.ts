@@ -159,6 +159,8 @@ export function useWorkflowModelOverride({ workflowName, workflowConfigurations,
         edited: pending !== null,
         /** An edit the autosave cannot finish by itself: a service still needs an account, or the last save failed. */
         dirty: pending !== null && (incomplete || error !== null),
+        /** An edit is about to save or saving; what runs now would still use the previous settings. */
+        pendingSave: saving || (pending !== null && !incomplete && error === null),
         summary: summarizeConfiguration(shown, connections.connections),
         shared: configurations.filter(item => item.is_active),
         edit,

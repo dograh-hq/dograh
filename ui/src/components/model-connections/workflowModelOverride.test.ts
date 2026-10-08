@@ -96,6 +96,7 @@ describe("custom overrides", () => {
         expect(isComplete(cascade)).toBe(true);
         expect(isComplete({ ...cascade, embeddings: null })).toBe(true);
         expect(isComplete({ ...cascade, tts: { provider_connection_uuid: "", settings: {} } })).toBe(false);
+        expect(isComplete({ ...cascade, embeddings: { provider_connection_uuid: "", settings: {} } })).toBe(false);
         expect(isComplete(specFromPatch({ mode: "realtime", llm: { provider_connection_uuid: "openai-a" } }))).toBe(false);
     });
 

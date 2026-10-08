@@ -26,6 +26,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { useSidebar } from "@/components/ui/sidebar";
+import { useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
 import { PublishWorkflowPopover } from "./PublishWorkflowPopover";
@@ -46,6 +47,8 @@ interface WorkflowEditorHeaderProps {
     isViewingHistoricalVersion: boolean;
     onBackToDraft: () => void;
     hasDraft: boolean;
+    /** A settings edit is still saving; publishing or calling now would use the previous settings. */
+    savingSettings?: boolean;
     onPublished: () => void;
     renameWorkflow: (newName: string) => Promise<void>;
 }
@@ -63,12 +66,15 @@ export const WorkflowEditorHeader = ({
     isViewingHistoricalVersion,
     onBackToDraft,
     hasDraft,
+    savingSettings = false,
     onPublished,
     workflowId,
     workflowUuid,
     renameWorkflow,
 }: WorkflowEditorHeaderProps) => {
     const router = useRouter();
+    // Leaving the editor with unsaved settings asks first.
+    const { confirmNavigate } = useUnsavedChangesContext();
     const { toggleSidebar } = useSidebar();
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [duplicating, setDuplicating] = useState(false);
@@ -86,7 +92,7 @@ export const WorkflowEditorHeader = ({
     const renameButtonRef = useRef<HTMLButtonElement>(null);
 
     const hasValidationErrors = workflowValidationErrors.length > 0;
-    const isCallDisabled = isDirty || hasValidationErrors;
+    const isCallDisabled = isDirty || hasValidationErrors || savingSettings;
 
     const handleSave = async () => {
         setSavingWorkflow(true);
@@ -95,7 +101,7 @@ export const WorkflowEditorHeader = ({
     };
 
     const handleBack = () => {
-        router.push("/workflow");
+        confirmNavigate(() => router.push("/workflow"));
     };
 
     const handleDuplicate = async () => {
@@ -112,7 +118,7 @@ export const WorkflowEditorHeader = ({
         try {
             const { data } = await promise;
             if (data?.id) {
-                router.push(`/workflow/${data.id}`);
+                confirmNavigate(() => router.push(`/workflow/${data.id}`));
             }
         } finally {
             setDuplicating(false);
@@ -372,7 +378,7 @@ export const WorkflowEditorHeader = ({
                     <PublishWorkflowPopover
                         key={workflowId}
                         workflowId={workflowId}
-                        canPublish={!isDirty && !hasValidationErrors}
+                        canPublish={!isDirty && !hasValidationErrors && !savingSettings}
                         onPublished={onPublished}
                     />
                 )}
@@ -429,7 +435,7 @@ export const WorkflowEditorHeader = ({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="bg-[#1a1a1a] border-[#3a3a3a]">
                         <DropdownMenuItem
-                            onClick={() => router.push(`/workflow/${workflowId}/runs`)}
+                            onClick={() => confirmNavigate(() => router.push(`/workflow/${workflowId}/runs`))}
                             className="text-white hover:bg-[#2a2a2a] cursor-pointer"
                         >
                             <History className="w-4 h-4 mr-2" />

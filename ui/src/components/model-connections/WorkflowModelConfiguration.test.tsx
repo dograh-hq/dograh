@@ -62,9 +62,15 @@ describe("workflow model configuration", () => {
         renderCard();
         expect(tab("Preset configuration").getAttribute("aria-selected")).toBe("true");
         expect(screen.getByRole("status").textContent).toBe("Following Sales, the organization default.");
-        expect(selectOptions("Configuration")).toEqual(["Organization default (Sales)", "Support"]);
+        expect(selectOptions("Configuration")).toEqual(["Organization default (Sales)", "Sales", "Support"]);
         expect(screen.getByRole("link", { name: "Open Sales in Models" }).getAttribute("href")).toBe("/model-configurations/Sales");
         expect(screen.queryByLabelText("Mode")).toBeNull();
+    });
+
+    it("pins the organization default by name, so the agent stays on it when the default changes", () => {
+        renderCard({ model_configuration_override: { model_configuration_uuid: "Sales" } });
+        expect(screen.getByLabelText("Configuration").textContent).toBe("Sales");
+        expect(screen.getByRole("status").textContent).toBe("Following Sales.");
     });
 
     it("switches to a chosen configuration and drops retired keys", async () => {

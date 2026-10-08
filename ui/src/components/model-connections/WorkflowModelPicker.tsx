@@ -74,8 +74,9 @@ export function WorkflowModelPicker({ model, density = "full", fields }: {
                 if (next === LEGACY || next === UNAVAILABLE) return;
                 void model.useExisting(next === INHERIT ? null : next);
             }} options={[
+                // Following the default moves with it; naming a configuration, the default included, pins it.
                 { value: INHERIT, label: defaultName ? `Organization default (${defaultName})` : "Organization default" },
-                ...shared.filter(item => item.uuid !== defaultUuid).map(item => ({ value: item.uuid, label: item.name })),
+                ...shared.map(item => ({ value: item.uuid, label: item.name })),
                 ...(binding.kind === "legacy" ? [{ value: LEGACY, label: "Existing workflow override" }] : []),
                 ...(binding.kind === "unavailable" ? [{ value: UNAVAILABLE, label: "Unavailable configuration" }] : []),
             ]} />

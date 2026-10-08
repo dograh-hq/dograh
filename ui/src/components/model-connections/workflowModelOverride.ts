@@ -108,9 +108,13 @@ export function specFromPatch(patch: ModelPatch): ConfigurationSpec {
     return spec as unknown as ConfigurationSpec;
 }
 
-/** Every service the mode needs has an account chosen. */
+/** Every service the mode needs has an account chosen; embeddings may be off, but not half chosen. */
 export function isComplete(spec: ConfigurationSpec): boolean {
-    return activeRoles(spec.mode).every(role => role === "embeddings" || Boolean(spec[role]?.provider_connection_uuid));
+    return activeRoles(spec.mode).every(role => {
+        const selection = spec[role];
+        if (role === "embeddings" && selection == null) return true;
+        return Boolean(selection?.provider_connection_uuid);
+    });
 }
 
 /**

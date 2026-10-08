@@ -12,13 +12,13 @@ import { customOverride, describeWorkflowModel, followOverride, isComplete, summ
 const SAVE_DELAY_MS = 400;
 
 /**
- * Edit a workflow's model settings: follow an existing configuration, or
- * build custom settings from scratch.
+ * Edit a workflow's model settings: follow a preset configuration, or build
+ * custom settings from scratch.
  *
- * Custom edits save to the workflow draft a moment after they stop, once
- * every service has an account, so the next test call uses them. Saves run
- * one at a time, in order. Publishing carries the override into the published
- * version unchanged.
+ * Custom settings start as an unsaved draft and save to the workflow draft a
+ * moment after the first change, once every service has an account, so the
+ * next test call uses them. Saves run one at a time, in order. Publishing
+ * carries the override into the published version unchanged.
  */
 export function useWorkflowModelOverride({ workflowName, workflowConfigurations, onSave }: {
     workflowName: string;
@@ -32,6 +32,7 @@ export function useWorkflowModelOverride({ workflowName, workflowConfigurations,
         [workflowConfigurations, configurations, defaultUuid, connections.connections],
     );
     const [customizing, setCustomizing] = useState(false);
+    // An edit the saved configurations do not reflect yet.
     const [pending, setPending] = useState<ConfigurationSpec | null>(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -41,12 +42,18 @@ export function useWorkflowModelOverride({ workflowName, workflowConfigurations,
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const queue = useRef<Promise<unknown>>(Promise.resolve());
     const mounted = useRef(true);
+    // The preset the agent followed before custom settings were started, so
+    // leaving them returns there.
+    const origin = useRef<string | null>(null);
     latest.current.configurations = workflowConfigurations;
     latest.current.workflowName = workflowName;
 
     const view: "existing" | "custom" = customizing || binding.kind === "custom" ? "custom" : "existing";
     const saved = binding.kind === "custom" ? binding.spec : null;
-    const configuration = view === "custom" ? pending ?? saved : null;
+    // Custom settings start from scratch: the first compatible account for
+    // each service. Nothing is saved until the user changes something.
+    const seed = useMemo(() => (catalog ? emptyConfiguration(catalog, connections.connections) : null), [catalog, connections.connections]);
+    const configuration = view === "custom" ? pending ?? saved ?? seed : null;
 
     // Saves are serialized so a later edit can never be overtaken by an
     // earlier request's response. Resolves to whether the save succeeded.
@@ -74,12 +81,19 @@ export function useWorkflowModelOverride({ workflowName, workflowConfigurations,
         // An incomplete spec waits for the user; it is never sent.
         if (!spec || !catalog || !isComplete(spec)) return;
         latest.current.spec = null;
-        // On failure the edited settings stay on screen with the error, so the
-        // user can correct them; the store keeps the last saved override.
-        await persist(withOverride(latest.current.configurations, customOverride(cleanConfiguration(spec, catalog, connections.connections))));
+        const ok = await persist(withOverride(latest.current.configurations, customOverride(cleanConfiguration(spec, catalog, connections.connections))));
+        // A failed edit stays waiting: it is shown with the error, counts as
+        // unsaved, and is retried on the next change or on leaving.
+        if (!ok && latest.current.spec === null) latest.current.spec = spec;
     }, [catalog, connections.connections, persist]);
     const flushRef = useRef(flush);
     flushRef.current = flush;
+
+    const clearWaiting = useCallback(() => {
+        latest.current.spec = null;
+        if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+        setPending(null);
+    }, []);
 
     const edit = useCallback((next: ConfigurationSpec) => {
         setPending(next);
@@ -87,6 +101,9 @@ export function useWorkflowModelOverride({ workflowName, workflowConfigurations,
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => { void flushRef.current(); }, SAVE_DELAY_MS);
     }, []);
+
+    /** Send a waiting edit now, for retrying after a failed save. */
+    const retry = useCallback(() => { void flushRef.current(); }, []);
 
     // Leaving the editor must not lose an edit that is still waiting to save.
     useEffect(() => {
@@ -105,19 +122,31 @@ export function useWorkflowModelOverride({ workflowName, workflowConfigurations,
 
     /** Switch to custom settings, starting from scratch. */
     const startCustom = useCallback(() => {
-        if (!catalog) return;
+        origin.current = binding.kind === "existing" && !binding.isDefault ? binding.base.uuid : null;
         setCustomizing(true);
-        edit(emptyConfiguration(catalog, connections.connections));
-    }, [catalog, connections.connections, edit]);
+    }, [binding]);
 
-    /** Follow a configuration (null for the organization default), dropping custom settings. */
-    const useExisting = useCallback(async (uuid: string | null) => {
-        latest.current.spec = null;
-        if (timer.current) { clearTimeout(timer.current); timer.current = null; }
-        setPending(null);
+    /**
+     * Back to the preset tab. Saved custom settings are dropped in favour of
+     * the preset they started from; a draft that was never saved is just
+     * discarded, so the agent's settings are untouched.
+     */
+    const leaveCustom = useCallback(async () => {
+        clearWaiting();
         setCustomizing(false);
+        setError(null);
+        if (binding.kind !== "custom") return;
+        await persist(withOverride(latest.current.configurations, followOverride(origin.current ?? binding.baseUuid)));
+    }, [binding, clearWaiting, persist]);
+
+    /** Follow a preset (null for the organization default), dropping custom settings. */
+    const useExisting = useCallback(async (uuid: string | null) => {
+        clearWaiting();
+        setCustomizing(false);
+        const followed = binding.kind === "existing" ? (binding.isDefault ? null : binding.base.uuid) : undefined;
+        if (followed === uuid) return;
         await persist(withOverride(latest.current.configurations, followOverride(uuid)));
-    }, [persist]);
+    }, [binding, clearWaiting, persist]);
 
     const incomplete = configuration !== null && !isComplete(configuration);
     const shown = view === "custom" ? (incomplete ? null : configuration) : binding.kind === "existing" ? binding.base.configuration : null;
@@ -126,11 +155,16 @@ export function useWorkflowModelOverride({ workflowName, workflowConfigurations,
         view,
         configuration,
         incomplete,
+        /** A change has been made to the custom settings since they were last saved. */
+        edited: pending !== null,
+        /** An edit the autosave cannot finish by itself: a service still needs an account, or the last save failed. */
+        dirty: pending !== null && (incomplete || error !== null),
         summary: summarizeConfiguration(shown, connections.connections),
         shared: configurations.filter(item => item.is_active),
-        dirty: view === "custom",
         edit,
+        retry,
         startCustom,
+        leaveCustom,
         useExisting,
         saving,
         error,

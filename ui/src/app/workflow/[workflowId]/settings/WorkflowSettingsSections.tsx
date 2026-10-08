@@ -1440,15 +1440,22 @@ export function WorkflowSettingsSections({
     const { dirtySections } = useUnsavedChangesContext();
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
     const hidden = hide.join(",");
-    const navItems = useMemo(() => NAV_ITEMS.filter((item) => !hidden.split(",").includes(item.id)), [hidden]);
+    const hasUuid = Boolean(workflowUuid);
+    const navItems = useMemo(
+        () => NAV_ITEMS.filter((item) => !hidden.split(",").includes(item.id) && (item.id !== "identity" || hasUuid)),
+        [hidden, hasUuid],
+    );
     const [activeSection, setActiveSection] = useState(navItems[0]?.id ?? "general");
     const show = (id: string) => !hide.includes(id);
     const resolved = workflowConfigurations
         ? resolveWorkflowConfigurations(workflowConfigurations)
         : null;
+    const ready = resolved !== null;
 
-    // Intersection observer for the active nav link
+    // Intersection observer for the active nav link. The sections only exist
+    // once the configurations have resolved, so observe from then.
     useEffect(() => {
+        if (!ready) return;
         const observer = new IntersectionObserver(
             (entries) => {
                 for (const entry of entries) {
@@ -1465,7 +1472,7 @@ export function WorkflowSettingsSections({
             if (el) observer.observe(el);
         });
         return () => observer.disconnect();
-    }, [navItems]);
+    }, [navItems, ready]);
 
     return (
         <>

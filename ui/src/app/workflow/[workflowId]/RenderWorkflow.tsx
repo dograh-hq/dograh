@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useOnboarding } from '@/context/OnboardingContext';
+import { UnsavedChangesProvider, useUnsavedChangesContext } from '@/context/UnsavedChangesContext';
 import { detailFromError } from '@/lib/apiError';
 import { WorkflowConfigurations } from '@/types/workflow-configurations';
 
@@ -66,7 +67,18 @@ interface RenderWorkflowProps {
     user: { id: string; email?: string };
 }
 
-function RenderWorkflow({
+// The settings views register unsaved edits with this provider, so leaving
+// them, whether by switching view, picking a version from History, or
+// navigating away, asks first.
+function RenderWorkflow(props: RenderWorkflowProps) {
+    return (
+        <UnsavedChangesProvider>
+            <WorkflowEditor {...props} />
+        </UnsavedChangesProvider>
+    );
+}
+
+function WorkflowEditor({
     initialWorkflowName,
     workflowId,
     workflowUuid,
@@ -82,6 +94,7 @@ function RenderWorkflow({
 }: RenderWorkflowProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { confirmNavigate } = useUnsavedChangesContext();
     const { specs } = useNodeSpecs();
     const { hasCompletedAction } = useOnboarding();
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
@@ -322,8 +335,9 @@ function RenderWorkflow({
     const handleSelectVersion = useCallback((version: WorkflowVersionResponse) => {
         const isCurrentVersion = version.status === 'draft'
             || (version.status === 'published' && !hasDraft);
-        navigateToVersion(isCurrentVersion ? null : version.version_number);
-    }, [hasDraft, navigateToVersion]);
+        // Opening a version remounts the editor, so unsaved settings would be lost.
+        confirmNavigate(() => navigateToVersion(isCurrentVersion ? null : version.version_number));
+    }, [confirmNavigate, hasDraft, navigateToVersion]);
 
     // Determine if we are viewing a historical (non-current) version.
     // The "current" version is the draft if one exists, otherwise the published version.

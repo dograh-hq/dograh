@@ -14,14 +14,12 @@ const INHERIT = "__inherit__";
 const LEGACY = "__legacy__";
 const UNAVAILABLE = "__unavailable__";
 
-/** Settings the compact canvas picker shows for each service. */
-export const QUICK_FIELDS = ["model", "voice"];
-
 function status(model: WorkflowModelOverride): { text: string; tone: "muted" | "changed" | "warn" } {
-    const { binding, view, incomplete } = model;
+    const { binding, view, incomplete, edited } = model;
     if (view === "custom") {
         if (incomplete) return { text: "Choose an account for each service. The settings save once every service has one.", tone: "warn" };
-        return { text: "Custom settings for this agent. Test calls use them now; publish to apply them to live calls. Switching to a configuration drops them.", tone: "changed" };
+        if (binding.kind !== "custom" && !edited) return { text: "Custom settings for this agent save with your first change. Test calls use them at once; publish to apply them to live calls.", tone: "warn" };
+        return { text: "Custom settings for this agent. Test calls use them now; publish to apply them to live calls. Switching back to a preset drops them.", tone: "changed" };
     }
     switch (binding.kind) {
         case "none": return { text: "No configuration chosen yet. Pick one below, or set an organization default in Models.", tone: "warn" };
@@ -39,14 +37,15 @@ const TONE_CLASS = {
 };
 
 /**
- * The workflow's model settings: follow an existing configuration, or build
+ * The workflow's model settings: follow a preset configuration, or build
  * custom settings from scratch with the configuration fields at the given
- * density. The canvas shows it compact with the quick fields; the settings
- * page shows it in full.
+ * density. The editor's Model view shows it compact (one tab per service);
+ * the settings page shows it in full.
  */
 export function WorkflowModelPicker({ model, density = "full", fields }: {
     model: WorkflowModelOverride;
     density?: ConfigurationFieldsDensity;
+    /** Setting names to show for each service; all of them when omitted. */
     fields?: string[];
 }) {
     const { binding, view, configuration, shared, catalog, connections, defaultUuid, loading, loadError, reload, error, saving } = model;
@@ -60,10 +59,8 @@ export function WorkflowModelPicker({ model, density = "full", fields }: {
     const defaultName = shared.find(item => item.uuid === defaultUuid)?.name;
     const selected = binding.kind === "existing" ? (binding.isDefault ? INHERIT : binding.base.uuid)
         : binding.kind === "legacy" ? LEGACY : binding.kind === "unavailable" ? UNAVAILABLE : INHERIT;
-    // Leaving custom returns to the configuration the override was layered on, when it named one.
-    const currentUuid = binding.kind === "existing" ? (binding.isDefault ? null : binding.base.uuid) : binding.kind === "custom" ? binding.baseUuid : null;
     return <div className={compact ? "space-y-3" : "space-y-4"}>
-        <Tabs value={view} onValueChange={next => { if (next === "custom") model.startCustom(); else void model.useExisting(currentUuid); }}>
+        <Tabs value={view} onValueChange={next => { if (next === "custom") model.startCustom(); else void model.leaveCustom(); }}>
             <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="existing" disabled={saving}>Preset configuration</TabsTrigger>
                 <TabsTrigger value="custom" disabled={saving}>Custom</TabsTrigger>
@@ -87,7 +84,10 @@ export function WorkflowModelPicker({ model, density = "full", fields }: {
             </Link>}
         </div>}
         {view === "custom" && configuration && <ConfigurationFields configuration={configuration} catalog={catalog} connections={connections} onChange={model.edit} density={density} fields={fields} />}
-        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+        {error && <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+            <span>{error}</span>
+            {model.dirty && <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={saving} onClick={model.retry}>Retry</Button>}
+        </div>}
         {(saving || !compact) && <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">
             {saving ? <><Loader2 className="h-3 w-3 animate-spin" />Saving to draft…</>
                 : <span>Manage configurations in <Link href="/model-configurations" className="inline-flex items-center gap-0.5 underline">Models<ExternalLink className="h-3 w-3" /></Link>.</span>}

@@ -17,7 +17,7 @@ import {
 
 export default function SettingsPage() {
   return (
-    <PageLayout title="Platform Settings" description="Manage your platform configuration and integrations.">
+    <PageLayout title="Platform Settings" description="Manage your platform configuration and integrations." width="narrow">
 
       <Card>
         <CardHeader>

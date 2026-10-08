@@ -57,7 +57,7 @@ export function ConnectionEditor({ catalog, connection, onSaved }: {
     }}>
         <div className="space-y-2">
             <h1 className="text-2xl font-bold">{connection ? "Edit Provider Connection" : "Add Provider"}</h1>
-            <p className="text-sm text-muted-foreground">Connect provider accounts, like OpenAI, Google Gemini, Elevenlabs using API Keys, then reuse it in your model configurations.</p>
+            <p className="text-sm text-muted-foreground">Connect provider accounts, like OpenAI, Google Gemini, ElevenLabs using API Keys, then reuse it in your model configurations.</p>
         </div>
         {error && <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{error}</p>}
         <div className="space-y-1.5">

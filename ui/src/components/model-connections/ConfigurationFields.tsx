@@ -31,10 +31,11 @@ function hasFields(schema: FieldSchema | undefined): schema is FieldSchema {
  * The one editor for a model configuration spec, at two densities.
  *
  * "full" is the Models page: every service as a section, every setting,
- * fallbacks and embeddings. "compact" is the agent canvas: the same mode
- * switch and account selects, one tab per service laid out horizontally, only
- * the settings named in `fields`, plain-language labels, and no embeddings or
- * fallback actions. Both produce the same ConfigurationSpec.
+ * fallbacks and embeddings. "compact" is the agent editor's Model view: the
+ * same mode switch and account selects, one tab per service laid out
+ * horizontally, the settings named in `fields` (all of them when omitted),
+ * and no embeddings or fallback actions. Both produce the same
+ * ConfigurationSpec.
  */
 export function ConfigurationFields({ configuration, catalog, connections, onChange, llmActions, density = "full", fields }: {
     configuration: ConfigurationSpec;

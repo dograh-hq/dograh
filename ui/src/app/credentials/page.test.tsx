@@ -80,12 +80,12 @@ describe("credentials page", () => {
         expect(screen.queryByText("secret-token")).toBeNull();
     });
 
-    it.each(["click", "Enter", " "])("opens a credential row with %j and edits metadata without replacing stored authentication", async activation => {
+    it("opens a credential from its name, which does not wrap the row's actions, and edits metadata without replacing stored authentication", async () => {
         vi.mocked(updateCredentialApiV1CredentialsCredentialUuidPut).mockResolvedValue({ data: { ...credential, name: "Sales CRM", description: "" } } as never);
         render(<CredentialsPage />);
-        const row = await screen.findByRole("button", { name: "Edit credential CRM" });
-        if (activation === "click") fireEvent.click(screen.getByRole("heading", { name: "CRM" }));
-        else fireEvent.keyDown(row, { key: activation });
+        const name = await screen.findByRole("button", { name: "CRM" });
+        expect(name.contains(screen.getByRole("button", { name: "Delete CRM" }))).toBe(false);
+        fireEvent.click(name);
         expect(screen.queryByLabelText("API Key")).toBeNull();
         fireEvent.change(screen.getByLabelText("Name *"), { target: { value: "Sales CRM" } });
         fireEvent.change(screen.getByLabelText("Description"), { target: { value: "" } });
@@ -120,10 +120,8 @@ describe("credentials page", () => {
     it("requires delete confirmation and preserves the credential when deletion fails", async () => {
         vi.mocked(deleteCredentialApiV1CredentialsCredentialUuidDelete).mockResolvedValueOnce({ error: { detail: "Deletion failed" } } as never);
         render(<CredentialsPage />);
-        const deleteButton = await screen.findByRole("button", { name: "Delete CRM" });
-        fireEvent.keyDown(deleteButton, { key: "Enter" });
-        expect(screen.queryByRole("dialog")).toBeNull();
-        fireEvent.click(deleteButton);
+        fireEvent.click(await screen.findByRole("button", { name: "Delete CRM" }));
+        // The edit dialog stays closed; only the confirmation opens.
         expect(screen.queryByRole("dialog", { hidden: true })).toBeNull();
         expect(deleteCredentialApiV1CredentialsCredentialUuidDelete).not.toHaveBeenCalled();
         fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }));

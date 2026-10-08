@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { UnsavedChangesProvider } from "@/context/UnsavedChangesContext";
 import { resolveWorkflowConfigurations, type WorkflowConfigurations } from "@/types/workflow-configurations";
 
 import { selectOption, selectOptions } from "./test-helpers";
@@ -32,14 +33,24 @@ type SaveHandler = (configurations: WorkflowConfigurations, workflowName: string
 
 function renderCard(overrides: Parameters<typeof resolveWorkflowConfigurations>[0] = {}) {
     const onSave = vi.fn<SaveHandler>(async () => undefined);
+    const card = (workflowConfigurations: WorkflowConfigurations) =>
+        <UnsavedChangesProvider><WorkflowModelConfiguration workflowName="Agent" onSave={onSave} workflowConfigurations={workflowConfigurations} /></UnsavedChangesProvider>;
     const workflowConfigurations = resolveWorkflowConfigurations({ dictionary: "customer name", ...overrides });
-    render(<WorkflowModelConfiguration workflowName="Agent" onSave={onSave} workflowConfigurations={workflowConfigurations} />);
+    const { rerender } = render(card(workflowConfigurations));
     const saveAt = (index: number) => onSave.mock.calls[index] as [WorkflowConfigurations, string];
-    return { onSave, workflowConfigurations, saveAt };
+    return { onSave, workflowConfigurations, saveAt, rerender: (next: WorkflowConfigurations) => rerender(card(next)) };
 }
 
 const tab = (name: string) => screen.getByRole("tab", { name });
 const llmModel = () => within(screen.getByRole("region", { name: "LLM" })).getByLabelText("Model") as HTMLInputElement;
+const customFromScratch = {
+    mode: "pipeline",
+    llm: { provider_connection_uuid: "connection", settings: { model: "model-z", temperature: 0.1 } },
+    stt: { provider_connection_uuid: "connection", settings: {} },
+    tts: { provider_connection_uuid: "connection", settings: {} },
+    embeddings: null,
+    llm_fallback: { rules: [] },
+};
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -67,24 +78,35 @@ describe("workflow model configuration", () => {
         expect(saved).not.toHaveProperty("model_overrides");
     });
 
-    it("starts custom settings from scratch and saves the whole configuration", async () => {
+    it("starts custom settings from scratch and saves the whole configuration on the first change", async () => {
         const { onSave, saveAt } = renderCard();
         fireEvent.mouseDown(tab("Custom"));
-        expect(screen.getByRole("status").textContent).toContain("Custom settings for this agent");
+        expect(screen.getByRole("status").textContent).toContain("save with your first change");
         expect(screen.getByLabelText("Mode").textContent).toBe("Cascade");
         expect(llmModel().value).toBe("model-a");
-        await waitFor(() => expect(onSave).toHaveBeenCalledOnce(), { timeout: 2000 });
-        expect(saveAt(0)[0].model_configuration_override).toEqual({
-            mode: "pipeline",
-            llm: { provider_connection_uuid: "connection", settings: { model: "model-a", temperature: 0.1 } },
-            stt: { provider_connection_uuid: "connection", settings: {} },
-            tts: { provider_connection_uuid: "connection", settings: {} },
-            embeddings: null,
-            llm_fallback: { rules: [] },
-        });
         fireEvent.change(llmModel(), { target: { value: "model-z" } });
-        await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2), { timeout: 2000 });
-        expect(saveAt(1)[0].model_configuration_override).toMatchObject({ llm: { settings: { model: "model-z", temperature: 0.1 } } });
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce(), { timeout: 2000 });
+        expect(saveAt(0)[0].model_configuration_override).toEqual(customFromScratch);
+        expect(screen.getByRole("status").textContent).toContain("Custom settings for this agent.");
+    });
+
+    it("discards an unsaved custom draft without touching the agent", () => {
+        const { onSave } = renderCard();
+        fireEvent.mouseDown(tab("Custom"));
+        fireEvent.mouseDown(tab("Preset configuration"));
+        expect(onSave).not.toHaveBeenCalled();
+        expect(screen.getByRole("status").textContent).toBe("Following Sales, the organization default.");
+    });
+
+    it("returns to the preset the custom settings started from", async () => {
+        const { onSave, saveAt, rerender } = renderCard({ model_configuration_override: { model_configuration_uuid: "Support" } });
+        fireEvent.mouseDown(tab("Custom"));
+        fireEvent.change(llmModel(), { target: { value: "model-z" } });
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce(), { timeout: 2000 });
+        rerender(saveAt(0)[0]);
+        fireEvent.mouseDown(tab("Preset configuration"));
+        await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+        expect(saveAt(1)[0].model_configuration_override).toEqual({ model_configuration_uuid: "Support" });
     });
 
     it("shows a saved patch as custom settings and re-saves them in full", async () => {
@@ -119,21 +141,28 @@ describe("workflow model configuration", () => {
         expect(saveAt(0)[0].model_configuration_override).toEqual({ model_configuration_uuid: "Support" });
     });
 
-    it("keeps the edited settings on screen when a save fails", async () => {
-        const { onSave } = renderCard();
+    it("keeps a failed edit on screen and retries it", async () => {
+        const { onSave, saveAt } = renderCard();
         onSave.mockRejectedValueOnce(new Error("Provider connection not found"));
         fireEvent.mouseDown(tab("Custom"));
-        await waitFor(() => expect(onSave).toHaveBeenCalledOnce(), { timeout: 2000 });
-        await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Provider connection not found"));
-        expect(llmModel().value).toBe("model-a");
         fireEvent.change(llmModel(), { target: { value: "model-z" } });
-        await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2), { timeout: 2000 });
-        expect(screen.queryByRole("alert")).toBeNull();
+        await waitFor(() => expect(onSave).toHaveBeenCalledOnce(), { timeout: 2000 });
+        await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Provider connection not found"));
+        expect(llmModel().value).toBe("model-z");
+        fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Retry" }));
+        await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+        expect(saveAt(1)[0].model_configuration_override).toEqual(customFromScratch);
+        await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     });
 
     it("keeps legacy inline settings until a configuration is chosen", async () => {
         const { onSave, saveAt } = renderCard({ model_overrides: { llm: { temperature: 0.4 } } });
         expect(screen.getByRole("status").textContent).toContain("custom model settings");
+        expect(screen.getByLabelText("Configuration").textContent).toBe("Existing workflow override");
+        // Looking at Custom and coming back leaves them alone.
+        fireEvent.mouseDown(tab("Custom"));
+        fireEvent.mouseDown(tab("Preset configuration"));
+        expect(onSave).not.toHaveBeenCalled();
         expect(screen.getByLabelText("Configuration").textContent).toBe("Existing workflow override");
         selectOption("Configuration", "Organization default (Sales)");
         await waitFor(() => expect(onSave).toHaveBeenCalledOnce());

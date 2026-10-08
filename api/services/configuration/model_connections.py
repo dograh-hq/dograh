@@ -492,11 +492,7 @@ async def _resolve_spec(
         )
     except ValidationError as exc:
         raise _validation_failure("model", exc) from None
-    active = (
-        {"llm", "embeddings", "realtime"}
-        if spec.mode == "realtime"
-        else {"llm", "embeddings", "stt", "tts"}
-    )
+    active = _active_roles(spec.mode)
     services = {}
     selections = [(role, role, getattr(spec, role)) for role in ROLES]
     if spec.llm_fallback is not None:

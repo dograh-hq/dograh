@@ -2,16 +2,18 @@ import type { ReactNode } from "react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-import { PageShell } from "./PageShell";
+import { PageShell, type PageShellWidth } from "./PageShell";
 
 /** Shared layout for top-level pages; editors can use PageShell directly. */
-export function PageLayout({ title, description, actions, children }: {
+export function PageLayout({ title, description, actions, width, children }: {
     title: ReactNode;
     description?: ReactNode;
     actions?: ReactNode;
+    /** Content measure; single-column forms read better narrow. */
+    width?: PageShellWidth;
     children: ReactNode;
 }) {
-    return <PageShell>
+    return <PageShell width={width}>
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 flex-1 basis-full sm:basis-64">
                 <h1 className="mb-2 text-3xl font-bold">{title}</h1>

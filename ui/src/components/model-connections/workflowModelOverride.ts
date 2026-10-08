@@ -64,11 +64,20 @@ export function activeRoles(mode: ConfigurationSpec["mode"]): ServiceRole[] {
  * fallback policy replace, each service keeps the base settings when the
  * account stays with the same provider and starts clean otherwise, then the
  * patch settings apply on top. Only embeddings may be removed (null).
+ *
+ * A patch that sets the mode describes a configuration rather than a tweak:
+ * services the mode does not use are dropped, and a service it names with an
+ * account starts from clean settings instead of the base's.
  */
 export function applyModelPatch(base: ConfigurationSpec, patch: ModelPatch, connections: ProviderConnection[]): ConfigurationSpec {
     const result = clone(base) as unknown as EditableSpec;
     const provider = (uuid?: string | null) => connections.find(item => item.uuid === uuid)?.provider;
-    if (patch.mode) result.mode = patch.mode;
+    const describesConfiguration = Boolean(patch.mode);
+    if (patch.mode) {
+        result.mode = patch.mode;
+        const active = activeRoles(patch.mode);
+        for (const role of ROLES) if (!active.includes(role)) delete result[role];
+    }
     if (patch.llm_fallback !== undefined) result.llm_fallback = (patch.llm_fallback ?? null) as ConfigurationSpec["llm_fallback"];
     for (const role of ROLES) {
         const selection = patch[role];
@@ -79,6 +88,7 @@ export function applyModelPatch(base: ConfigurationSpec, patch: ModelPatch, conn
         const newUuid = selection.provider_connection_uuid ?? oldUuid ?? "";
         let settings: Record<string, unknown> = { ...(previous?.settings ?? {}) };
         if (newUuid && newUuid !== oldUuid && (!oldUuid || provider(oldUuid) !== provider(newUuid))) settings = {};
+        if (describesConfiguration && selection.provider_connection_uuid != null) settings = {};
         result[role] = { provider_connection_uuid: newUuid, settings: { ...settings, ...(selection.settings ?? {}) } };
     }
     return result as unknown as ConfigurationSpec;

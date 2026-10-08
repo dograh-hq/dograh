@@ -1,34 +1,47 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FlowNode } from "@/components/flow/types";
+import { UnsavedChangesProvider } from "@/context/UnsavedChangesContext";
 import { resolveWorkflowConfigurations } from "@/types/workflow-configurations";
 
 import { describeVariables, EditorSetup, type EditorView, isEditorView, referencedVariables } from "./EditorSetup";
 
-const model = { summary: "model-a / Alice" };
+const model = { summary: "model-a / Alice", dirty: false };
+const sections = { dirty: false };
 vi.mock("@/components/model-connections/useWorkflowModelOverride", () => ({ useWorkflowModelOverride: () => model }));
 vi.mock("@/components/model-connections/WorkflowModelPicker", () => ({ WorkflowModelPicker: () => <div>Model picker</div> }));
-vi.mock("../settings/WorkflowSettingsSections", () => ({
-    TemplateVariablesSection: () => <div>Variables form</div>,
-    WorkflowSettingsSections: ({ hide }: { hide: string[] }) => <div>Sections without {hide.join(", ")}</div>,
-}));
+vi.mock("../settings/WorkflowSettingsSections", async () => {
+    const { useUnsavedChanges } = await import("@/context/UnsavedChangesContext");
+    return {
+        TemplateVariablesSection: () => <div>Variables form</div>,
+        WorkflowSettingsSections: ({ hide }: { hide: string[] }) => {
+            useUnsavedChanges("general", sections.dirty);
+            return <div>Sections without {hide.join(", ")}</div>;
+        },
+    };
+});
 
 const nodes = [{ id: "start", type: "start", position: { x: 0, y: 0 }, data: { prompt: "Greet {{ customer_name }} about {{order_id}}" } }] as FlowNode[];
 
 function renderSetup(view: EditorView, overrides: Partial<Parameters<typeof EditorSetup>[0]> = {}) {
     const onViewChange = vi.fn();
-    render(<EditorSetup
+    render(<UnsavedChangesProvider><EditorSetup
         view={view} onViewChange={onViewChange} workflowId={12} workflowName="Agent" workflowUuid="agent-uuid" nodes={nodes}
         workflowConfigurations={resolveWorkflowConfigurations(null)} templateContextVariables={{ customer_name: "Ada" }} dictionary=""
         defaultCallDispositions={[]} defaultAnswerClassifierPrompt="" textChatInactivityTimeoutConstraints={null} widgetTextDefaults={null}
         saveWorkflowConfigurations={vi.fn(async () => undefined)} saveTemplateContextVariables={vi.fn(async () => undefined)} saveDictionary={vi.fn(async () => undefined)}
         {...overrides}
-    />);
+    /></UnsavedChangesProvider>);
     return { onViewChange };
 }
 
 const tab = (name: RegExp) => within(screen.getByRole("toolbar", { name: "Editor" })).getByRole("tab", { name });
+
+beforeEach(() => {
+    model.dirty = false;
+    sections.dirty = false;
+});
 
 describe("editor setup", () => {
     it("recognises the views a URL may name", () => {
@@ -41,6 +54,8 @@ describe("editor setup", () => {
         expect(referencedVariables(nodes)).toEqual(["customer_name", "order_id"]);
         expect(describeVariables({ customer_name: "Ada", order_id: " " }, nodes)).toEqual({ text: "1 set, 1 missing", missing: ["order_id"] });
         expect(describeVariables({}, [])).toEqual({ text: "No variables", missing: [] });
+        // Only the agent's own variables count, not what every object inherits.
+        expect(describeVariables({}, [{ ...nodes[0], data: { prompt: "{{toString}}" } }] as FlowNode[])).toEqual({ text: "0 set, 1 missing", missing: ["toString"] });
     });
 
     it("offers the four views and switches on click", () => {
@@ -71,10 +86,29 @@ describe("editor setup", () => {
         expect(screen.getByRole("region", { name: "Settings" }).textContent).toBe("Sections without models, variables");
     });
 
-    it("waits for the configurations before offering the model and settings views", () => {
-        renderSetup("canvas", { workflowConfigurations: null });
+    it("waits for the configurations before offering the views that edit them", () => {
+        renderSetup("variables", { workflowConfigurations: null });
         expect(tab(/^Model/).hasAttribute("disabled")).toBe(true);
+        expect(tab(/^Variables/).hasAttribute("disabled")).toBe(true);
         expect(tab(/^Settings/).hasAttribute("disabled")).toBe(true);
-        expect(tab(/^Variables/).hasAttribute("disabled")).toBe(false);
+        expect(screen.queryByRole("region")).toBeNull();
+    });
+
+    it("asks before leaving a view with unsaved settings", async () => {
+        sections.dirty = true;
+        const { onViewChange } = renderSetup("settings");
+        fireEvent.mouseDown(tab(/^Canvas/));
+        const dialog = await screen.findByRole("alertdialog");
+        expect(onViewChange).not.toHaveBeenCalled();
+        fireEvent.click(within(dialog).getByRole("button", { name: "Discard changes" }));
+        expect(onViewChange).toHaveBeenCalledWith("canvas");
+    });
+
+    it("switches views freely while only the model editor has unsaved edits, since it stays mounted", () => {
+        model.dirty = true;
+        const { onViewChange } = renderSetup("model");
+        fireEvent.mouseDown(tab(/^Settings/));
+        expect(onViewChange).toHaveBeenCalledWith("settings");
+        expect(screen.queryByRole("alertdialog")).toBeNull();
     });
 });

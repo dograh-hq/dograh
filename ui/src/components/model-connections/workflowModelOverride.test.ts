@@ -66,6 +66,16 @@ describe("applyModelPatch", () => {
         expect(result.mode).toBe("realtime");
         expect(result.realtime).toEqual({ provider_connection_uuid: "openai-a", settings: { model: "gpt-realtime" } });
         expect(result.embeddings).toBeNull();
+        expect(result).not.toHaveProperty("stt");
+        expect(result).not.toHaveProperty("tts");
+    });
+
+    it("takes the services a mode-setting patch names as given, like the server", () => {
+        const patch = { mode: "pipeline" as const, llm: { provider_connection_uuid: "openai-a", settings: { model: "gpt-4.1-mini" } }, tts: { settings: { voice: "Rachel" } } };
+        const result = applyModelPatch(cascade, patch, connections);
+        expect(result.llm).toEqual({ provider_connection_uuid: "openai-a", settings: { model: "gpt-4.1-mini" } });
+        expect(result.tts).toEqual({ provider_connection_uuid: "openai-a", settings: { voice: "Rachel" } });
+        expect(result.stt).toEqual(cascade.stt);
     });
 });
 

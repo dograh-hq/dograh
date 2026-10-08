@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { deleteCredentialApiV1CredentialsCredentialUuidDelete, listCredentialsApiV1CredentialsGet } from "@/client";
 import type { CredentialResponse, WebhookCredentialType } from "@/client/types.gen";
 import { CreateCredentialDialog } from "@/components/http/create-credential-dialog";
+import { LIST_ROW_ACTIONS_CLASS, LIST_ROW_CLASS, LIST_ROW_TARGET_CLASS } from "@/components/layout/ListRow";
 import { PageLayout, PageSection } from "@/components/layout/PageLayout";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -127,25 +128,18 @@ export default function CredentialsPage() {
                     ) : (
                         <div className="space-y-4">
                             {filtered.map((item) => (
-                                <div key={item.uuid} role="button" tabIndex={0} aria-label={`Edit credential ${item.name}`}
-                                    className="flex cursor-pointer flex-col justify-between gap-3 rounded-lg border p-4 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:flex-row sm:items-center"
-                                    onClick={() => setEditTarget(item)}
-                                    onKeyDown={event => {
-                                        if (event.target !== event.currentTarget) return;
-                                        if (event.key === "Enter" || event.key === " ") {
-                                            event.preventDefault();
-                                            setEditTarget(item);
-                                        }
-                                    }}>
+                                <div key={item.uuid} className={LIST_ROW_CLASS}>
                                     <div className="min-w-0 space-y-1">
                                         <div className="flex flex-wrap items-center gap-2">
-                                            <h3 className="break-words font-medium">{item.name}</h3>
+                                            <h3 className="break-words font-medium">
+                                                <button type="button" className={LIST_ROW_TARGET_CLASS} onClick={() => setEditTarget(item)}>{item.name}</button>
+                                            </h3>
                                             <Badge variant="secondary">{typeLabel(item.credential_type)}</Badge>
                                         </div>
                                         {item.description && <p className="break-words text-sm text-muted-foreground">{item.description}</p>}
                                         <p className="text-xs text-muted-foreground">Created {new Date(item.created_at).toLocaleDateString()}</p>
                                     </div>
-                                    <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto" onClick={event => event.stopPropagation()}>
+                                    <div className={`${LIST_ROW_ACTIONS_CLASS} shrink-0 self-end sm:self-auto`}>
                                         <Button variant="ghost" size="sm" aria-label={`Edit ${item.name}`} onClick={() => setEditTarget(item)}>
                                             <Pencil className="h-4 w-4" />Edit
                                         </Button>

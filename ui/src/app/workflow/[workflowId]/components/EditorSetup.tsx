@@ -8,7 +8,7 @@ import type { FlowNode } from "@/components/flow/types";
 import { useWorkflowModelOverride } from "@/components/model-connections/useWorkflowModelOverride";
 import { WorkflowModelPicker } from "@/components/model-connections/WorkflowModelPicker";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { UnsavedChangesProvider, useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
+import { useUnsavedChanges, useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
 import { resolveWorkflowConfigurations } from "@/types/workflow-configurations";
 
 import { TemplateVariablesSection, WorkflowSettingsSections, type WorkflowSettingsState } from "../settings/WorkflowSettingsSections";
@@ -38,12 +38,13 @@ export function describeVariables(variables: Record<string, string>, nodes: Flow
     // Values written through the API may not be strings.
     const hasValue = (value: unknown) => String(value ?? "").trim() !== "";
     const set = Object.values(variables).filter(hasValue).length;
-    const missing = referencedVariables(nodes).filter(name => !(name in variables) || !hasValue(variables[name]));
+    const missing = referencedVariables(nodes).filter(name => !Object.hasOwn(variables, name) || !hasValue(variables[name]));
     if (set === 0 && missing.length === 0) return { text: "No variables", missing };
     return { text: missing.length ? `${set} set, ${missing.length} missing` : `${set} set`, missing };
 }
 
 const TAB = "h-7 gap-1.5 px-2.5 text-sm";
+const MODEL_SECTION = "models";
 
 /**
  * The editor's view switcher and the views it switches between.
@@ -53,6 +54,10 @@ const TAB = "h-7 gap-1.5 px-2.5 text-sm";
  * template variables, or the rest of its settings. The tester rail is
  * outside this area, so a voice can be changed and heard without leaving
  * the Model view. The active view is part of the URL, so a refresh keeps it.
+ *
+ * Must render inside an UnsavedChangesProvider: the settings sections
+ * register their unsaved edits there, so leaving a view with a half-edited
+ * form asks first, and so does leaving the editor altogether.
  */
 type EditorSetupProps = WorkflowSettingsState & {
     view: EditorView;
@@ -63,32 +68,38 @@ type EditorSetupProps = WorkflowSettingsState & {
     nodes: FlowNode[];
 };
 
-export function EditorSetup(props: EditorSetupProps) {
-    // The settings sections register their unsaved edits here, so leaving a
-    // view with a half-edited form asks first.
-    return <UnsavedChangesProvider><EditorSetupViews {...props} /></UnsavedChangesProvider>;
-}
-
-function EditorSetupViews({ view, onViewChange, workflowId, workflowName, workflowUuid, nodes, ...state }: EditorSetupProps) {
-    const { confirmNavigate } = useUnsavedChangesContext();
+export function EditorSetup({ view, onViewChange, workflowId, workflowName, workflowUuid, nodes, ...state }: EditorSetupProps) {
+    const { confirmNavigate, dirtySections } = useUnsavedChangesContext();
     const { workflowConfigurations, templateContextVariables, saveWorkflowConfigurations, saveTemplateContextVariables } = state;
+    // The configurations and variables arrive together; until then the
+    // views that edit them would start from empty forms.
     const ready = workflowConfigurations != null;
     // Hooks cannot be conditional; until the real configurations arrive the
     // views that need them are disabled, so this placeholder is never saved.
     const placeholder = useMemo(() => resolveWorkflowConfigurations(null), []);
     const model = useWorkflowModelOverride({ workflowName, workflowConfigurations: workflowConfigurations ?? placeholder, onSave: saveWorkflowConfigurations });
+    // Model edits the autosave cannot finish on its own would be lost on leaving the editor.
+    useUnsavedChanges(MODEL_SECTION, model.dirty);
     const variables = useMemo(() => describeVariables(templateContextVariables, nodes), [templateContextVariables, nodes]);
+
+    const switchView = (next: EditorView) => {
+        // The model editor stays mounted across views, so only the other
+        // sections' edits are at stake when switching.
+        const othersDirty = [...dirtySections].some(id => id !== MODEL_SECTION);
+        if (othersDirty) confirmNavigate(() => onViewChange(next));
+        else onViewChange(next);
+    };
 
     return <>
         <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center">
             <div role="toolbar" aria-label="Editor" className="nodrag nopan pointer-events-auto rounded-xl border bg-card p-1 shadow-md">
-                <Tabs value={view} onValueChange={next => confirmNavigate(() => onViewChange(next as EditorView))}>
+                <Tabs value={view} onValueChange={next => switchView(next as EditorView)}>
                     <TabsList className="h-8" aria-label="Editor view">
                         <TabsTrigger value="canvas" className={TAB}><Workflow className="h-4 w-4" aria-hidden />Canvas</TabsTrigger>
                         <TabsTrigger value="model" className={TAB} disabled={!ready} title={ready ? model.summary : "Loading…"}>
                             <Brain className="h-4 w-4" aria-hidden />Model
                         </TabsTrigger>
-                        <TabsTrigger value="variables" className={TAB} title={variables.text}>
+                        <TabsTrigger value="variables" className={TAB} disabled={!ready} title={ready ? variables.text : "Loading…"}>
                             <Braces className="h-4 w-4" aria-hidden />Variables
                         </TabsTrigger>
                         <TabsTrigger value="settings" className={TAB} disabled={!ready}><Settings className="h-4 w-4" aria-hidden />Settings</TabsTrigger>
@@ -107,7 +118,7 @@ function EditorSetupViews({ view, onViewChange, workflowId, workflowName, workfl
             </div>
         </section>}
 
-        {view === "variables" && <section aria-label="Template variables" className="absolute inset-0 z-20 overflow-y-auto bg-background">
+        {view === "variables" && ready && <section aria-label="Template variables" className="absolute inset-0 z-20 overflow-y-auto bg-background">
             <div className="mx-auto w-full max-w-3xl px-6 pb-16 pt-20">
                 {variables.missing.length > 0 && <p className="mb-4 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300" role="status">
                     Prompts reference {variables.missing.map(name => `{{${name}}}`).join(", ")} but no value is set. Set them here to use during test calls.

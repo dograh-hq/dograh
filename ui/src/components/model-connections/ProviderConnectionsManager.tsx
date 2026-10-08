@@ -2,11 +2,11 @@
 
 import { Archive, ChevronRight, ExternalLink, Pencil, Plus, RotateCcw } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { archiveProviderConnection, restoreProviderConnection } from "@/client/sdk.gen";
+import { LIST_ROW_ACTIONS_CLASS, LIST_ROW_CLASS, LIST_ROW_TARGET_CLASS } from "@/components/layout/ListRow";
 import { PageLayout, PageSection } from "@/components/layout/PageLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,6 @@ import { connectionProviders } from "./configuration";
 import { useModelConnections } from "./useModelConnections";
 
 export default function ProviderConnectionsManager({ docsUrl }: { docsUrl?: string }) {
-    const router = useRouter();
     const { catalog, connections, loading, error, reload } = useModelConnections({ includeArchived: true });
     const { refreshConfig } = useOrgConfig();
     const [archive, setArchive] = useState<{ uuid: string; name: string } | null>(null);
@@ -45,7 +44,7 @@ export default function ProviderConnectionsManager({ docsUrl }: { docsUrl?: stri
     };
 
     return <PageLayout title="Providers"
-        description={<>Connect provider accounts, like OpenAI, Google Gemini, Elevenlabs using API Keys, then use them in your <Link href="/model-configurations" className="underline">named model configurations</Link>.
+        description={<>Connect provider accounts, like OpenAI, Google Gemini, ElevenLabs using API Keys, then use them in your <Link href="/model-configurations" className="underline">named model configurations</Link>.
             {docsUrl && <> <a href={docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline">Learn more<ExternalLink className="h-3 w-3" /></a></>}</>}
     >
         <PageSection title="Provider Connections" description="Add multiple accounts from any provider, including Dograh."
@@ -59,20 +58,12 @@ export default function ProviderConnectionsManager({ docsUrl }: { docsUrl?: stri
                 <div className="space-y-4">
                     {activeConnections.map(connection => {
                         const entry = providers[connection.provider];
-                        return <div key={connection.uuid} role="link" tabIndex={0} aria-label={`Edit ${connection.name}`}
-                            className="flex cursor-pointer flex-col justify-between gap-3 rounded-lg border p-4 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:flex-row sm:items-center"
-                            onClick={() => router.push(`/provider-connections/${connection.uuid}`)}
-                            onKeyDown={event => {
-                                if (event.target !== event.currentTarget) return;
-                                if (event.key === "Enter" || event.key === " ") {
-                                    event.preventDefault();
-                                    router.push(`/provider-connections/${connection.uuid}`);
-                                }
-                            }}>
-                            <div className="min-w-0 flex-1 space-y-1"><h3 className="truncate font-medium">{connection.name}</h3>
+                        return <div key={connection.uuid} className={LIST_ROW_CLASS}>
+                            <div className="min-w-0 flex-1 space-y-1">
+                                <h3 className="truncate font-medium"><Link href={`/provider-connections/${connection.uuid}`} className={LIST_ROW_TARGET_CLASS}>{connection.name}</Link></h3>
                                 <p className="text-sm text-muted-foreground">{entry?.title || connection.provider}</p>
                             </div>
-                            <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto" onClick={event => event.stopPropagation()}>
+                            <div className={LIST_ROW_ACTIONS_CLASS}>
                                 <Button asChild variant="ghost" size="sm"><Link href={`/provider-connections/${connection.uuid}`}><Pencil className="h-3.5 w-3.5" />Edit</Link></Button>
                                 <Button type="button" variant="ghost" size="sm" onClick={() => { setActionError(null); setArchive({ uuid: connection.uuid, name: connection.name }); }}>Archive</Button>
                             </div>

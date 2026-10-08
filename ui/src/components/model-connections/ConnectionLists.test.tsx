@@ -57,35 +57,32 @@ describe("provider connection and model configuration lists", () => {
         expect(screen.getByText("Org default").parentElement?.textContent).toContain("Sales");
     });
 
-    it("opens configuration rows by mouse or keyboard and links to create, edit, and duplicate pages", () => {
+    it("links each configuration's name to its edit page, with the row actions outside the link", () => {
         render(<ModelConfigurationsManager />);
         expect(screen.getByRole("link", { name: "Add Configuration" }).getAttribute("href")).toBe("/model-configurations/new");
         expect(screen.getAllByRole("link", { name: "Edit" })[0].getAttribute("href")).toBe("/model-configurations/Sales");
         expect(screen.getAllByRole("link", { name: "Duplicate" })[0].getAttribute("href")).toBe("/model-configurations/new?duplicate=Sales");
         expect(screen.queryByRole("dialog")).toBeNull();
-        const row = screen.getByRole("link", { name: "Edit Sales" });
-        fireEvent.click(screen.getByRole("heading", { name: /^Sales/ }));
-        fireEvent.keyDown(row, { key: "Enter" });
-        fireEvent.keyDown(row, { key: " " });
-        expect(push).toHaveBeenCalledTimes(3);
-        expect(push).toHaveBeenLastCalledWith("/model-configurations/Sales");
-        fireEvent.keyDown(screen.getAllByRole("link", { name: "Duplicate" })[0], { key: "Enter" });
-        expect(push).toHaveBeenCalledTimes(3);
+        const name = screen.getByRole("link", { name: "Sales" });
+        expect(name.getAttribute("href")).toBe("/model-configurations/Sales");
+        expect(screen.getByRole("heading", { name: /^Sales/ }).contains(name)).toBe(true);
+        for (const control of [...screen.getAllByRole("button", { name: "Archive" }), ...screen.getAllByRole("link", { name: "Duplicate" })]) {
+            expect(name.contains(control)).toBe(false);
+        }
+        expect(screen.queryByRole("link", { name: "Edit Sales" })).toBeNull();
+        expect(push).not.toHaveBeenCalled();
     });
 
-    it("opens provider rows by mouse or keyboard and links to add and edit pages", () => {
+    it("links each provider's name to its edit page, with the row actions outside the link", () => {
         render(<ProviderConnectionsManager />);
         expect(screen.getByRole("link", { name: "Add Provider" }).getAttribute("href")).toBe("/provider-connections/new");
         expect(screen.getAllByRole("link", { name: "Edit" })[0].getAttribute("href")).toBe("/provider-connections/Primary");
         expect(screen.queryByRole("dialog")).toBeNull();
-        const row = screen.getByRole("link", { name: "Edit Primary" });
-        fireEvent.click(screen.getByRole("heading", { name: "Primary" }));
-        fireEvent.keyDown(row, { key: "Enter" });
-        fireEvent.keyDown(row, { key: " " });
-        expect(push).toHaveBeenCalledTimes(3);
-        expect(push).toHaveBeenLastCalledWith("/provider-connections/Primary");
-        fireEvent.keyDown(screen.getAllByRole("button", { name: "Archive" })[0], { key: "Enter" });
-        expect(push).toHaveBeenCalledTimes(3);
+        const name = screen.getByRole("link", { name: "Primary" });
+        expect(name.getAttribute("href")).toBe("/provider-connections/Primary");
+        expect(name.contains(screen.getAllByRole("button", { name: "Archive" })[0])).toBe(false);
+        expect(screen.queryByRole("link", { name: "Edit Primary" })).toBeNull();
+        expect(push).not.toHaveBeenCalled();
     });
 
     it("hides the archive section when there are no archived items", () => {

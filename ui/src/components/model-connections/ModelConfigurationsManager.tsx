@@ -2,11 +2,11 @@
 
 import { Archive, ChevronRight, ExternalLink, Plus, RotateCcw } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { archiveNamedModelConfiguration, restoreNamedModelConfiguration, setDefaultModelConfiguration } from "@/client/sdk.gen";
+import { LIST_ROW_ACTIONS_CLASS, LIST_ROW_CLASS, LIST_ROW_TARGET_CLASS } from "@/components/layout/ListRow";
 import { PageLayout, PageSection } from "@/components/layout/PageLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,6 @@ function ConfigurationSummary({ configuration, connections }: { configuration: N
 }
 
 export default function ModelConfigurationsManager({ docsUrl }: { docsUrl?: string }) {
-    const router = useRouter();
     const { catalog, connections, configurations, defaultUuid, loading, error, reload } = useModelConnections({ includeArchived: true });
     const { refreshConfig } = useOrgConfig();
     const [archive, setArchive] = useState<{ uuid: string; name: string } | null>(null);
@@ -67,20 +66,15 @@ export default function ModelConfigurationsManager({ docsUrl }: { docsUrl?: stri
                 {activeConfigurations.length === 0 && <p className="rounded-md border border-dashed p-6 text-sm text-muted-foreground"><Link href="/provider-connections" className="underline">Add provider connections</Link>, then save your first named model configuration.</p>}
                 <div className="space-y-4">
                     {activeConfigurations.map(configuration => {
-                        return <div key={configuration.uuid} role="link" tabIndex={0} aria-label={`Edit ${configuration.name}`}
-                            className="flex cursor-pointer flex-col justify-between gap-3 rounded-lg border p-4 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:flex-row sm:items-center"
-                            onClick={() => router.push(`/model-configurations/${configuration.uuid}`)}
-                            onKeyDown={event => {
-                                if (event.target !== event.currentTarget) return;
-                                if (event.key === "Enter" || event.key === " ") {
-                                    event.preventDefault();
-                                    router.push(`/model-configurations/${configuration.uuid}`);
-                                }
-                            }}>
-                            <div className="min-w-0 flex-1 space-y-1"><h3 className="flex flex-wrap items-center gap-2 font-medium">{configuration.name}{defaultUuid === configuration.uuid && <Badge>Org default</Badge>}</h3>
+                        return <div key={configuration.uuid} className={LIST_ROW_CLASS}>
+                            <div className="min-w-0 flex-1 space-y-1">
+                                <h3 className="flex flex-wrap items-center gap-2 font-medium">
+                                    <Link href={`/model-configurations/${configuration.uuid}`} className={LIST_ROW_TARGET_CLASS}>{configuration.name}</Link>
+                                    {defaultUuid === configuration.uuid && <Badge>Org default</Badge>}
+                                </h3>
                                 <ConfigurationSummary configuration={configuration} connections={connections} />
                             </div>
-                            <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto" onClick={event => event.stopPropagation()}>
+                            <div className={LIST_ROW_ACTIONS_CLASS}>
                                 {defaultUuid !== configuration.uuid && <Button type="button" variant="outline" size="sm" disabled={busy || loading} onClick={async () => {
                                     setBusy(true); setActionError(null);
                                     try {

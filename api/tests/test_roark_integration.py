@@ -2,8 +2,7 @@
 
 The integration has no live-call collector, so everything it does is a pure
 transform of a persisted run plus one POST. These tests exercise the transform
-directly and stub the POST; `test_roark_e2e.py` runs the same handler against a
-real Roark API.
+directly and stub the POST: nothing here contacts Roark.
 """
 
 import json

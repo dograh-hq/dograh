@@ -33,7 +33,7 @@ In the workflow editor choose **Add node**, scroll to **Integrations**, and sele
 |---|---|---|
 | **Roark API Key** | Yes | The project key from step 1. |
 | **Roark Agent Name** | One of these two | The agent's name in Roark. Roark reuses an agent with this exact name in the project, or creates it on the first call. |
-| **Roark Agent ID** | One of these two | The UUID of an agent that already exists in Roark, as shown in the Roark dashboard. Takes precedence over the name, and is rejected on save if it is not a UUID. |
+| **Roark Agent ID** | One of these two | The UUID of an agent that already exists in Roark, as shown in the Roark dashboard. Takes precedence over the name. An **enabled** node is rejected on save if this is not a UUID; a disabled one keeps whatever it holds, so a wrong ID there surfaces on the save that re-enables the node. |
 | **Send Dograh transcript** | No, on by default | Send the turns and tool calls Dograh captured. Roark grades the transcript you send in preference to its own. Off means it grades its own transcription and gets no tool calls. |
 | **Send gathered context** | No, off by default | Also send the variables the agent gathered as Roark call properties. |
 | **Enabled** | No, on by default | Turn the export off without deleting the node. |
@@ -58,7 +58,7 @@ If nothing arrives, open the Dograh run and look at its annotations: every attem
 
 ## What Dograh sends
 
-One `POST /v1/call` per completed run. A workflow holds at most one Roark node, so a run is exported at most once.
+One `POST /v1/call` per exported run. A workflow holds at most one Roark node, so a run reaches Roark at most once. Not every completed run is exported: a text chat, a run with no recording, and a run whose recording URL is private or not HTTPS are all skipped, each recorded in the run's annotations with its reason (see [Limits](#limits)).
 
 | Roark field | Where it comes from |
 |---|---|

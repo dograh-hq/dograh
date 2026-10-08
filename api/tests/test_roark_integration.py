@@ -1258,6 +1258,37 @@ async def test_a_json_error_body_without_a_code_is_not_echoed():
     assert "+14155550123" not in excinfo.value.detail
 
 
+async def test_a_nested_error_message_without_issues_is_not_echoed():
+    """`{"error": {"message": ...}}` with no issue list is not a shape Roark
+    produces: its own refusals carry a `code` and its schema rejections carry
+    `issues`. So this is an intermediary's prose about a request holding the
+    transcript and the caller's number, and quoting it put both in the logs and
+    in the run's annotations."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "rejected transcript: my name is Ada, +14155550123"
+                }
+            },
+        )
+
+    with _roark_http(handler):
+        with pytest.raises(RoarkDeliveryError) as excinfo:
+            await create_call(
+                RoarkDeliveryConfig(
+                    base_url="https://api.roark.ai", api_key="rk_live_x"
+                ),
+                {"externalId": "dograh-run-1"},
+            )
+
+    assert "Ada" not in excinfo.value.detail
+    assert "+14155550123" not in excinfo.value.detail
+    assert "400" in excinfo.value.detail
+
+
 async def test_a_schema_rejection_names_the_fields_roark_refused():
     """The most common 400 does not go through Roark's own error handler: the
     request schema rejects the payload and its validator answers with the

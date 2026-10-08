@@ -158,6 +158,10 @@ def _rejected_fields(body: dict[str, Any]) -> str | None:
     misconfigured or out-of-date export gets, and reporting it as an unreadable
     response threw away the only thing that said what to change.
 
+    An `error` with no readable issue list yields None rather than its
+    `message`: nothing has identified the body as Roark's at that point, and
+    `_error_detail` reports an unidentified body by status alone.
+
     Only `path` and `message` are read. A path is field names and array
     indices, never content, and these messages are the schema's own. The one
     that can name a value is an enum rejection, and every enum in this payload
@@ -175,8 +179,13 @@ def _rejected_fields(body: dict[str, Any]) -> str | None:
         nested = _loads(error.get("message"))
         issues = nested if isinstance(nested, list) else None
     if not isinstance(issues, list):
-        message = error.get("message")
-        return message[:_MAX_DETAIL_CHARS] if isinstance(message, str) else None
+        # A bare `error.message` that is not a serialised issue list is not a
+        # shape Roark produces: its own refusals carry a `code`, and its schema
+        # rejections carry `issues`. So this is an intermediary's prose, of
+        # unknown provenance, about a request holding the transcript and the
+        # caller's number. Reported by status alone, like any other body with
+        # no `code`.
+        return None
 
     reported = []
     for issue in issues[:_MAX_REPORTED_ISSUES]:

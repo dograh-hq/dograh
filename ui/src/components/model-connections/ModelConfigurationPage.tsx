@@ -14,7 +14,7 @@ import { NamedConfigurationEditor } from "./NamedConfigurationEditor";
 import { useModelConnections } from "./useModelConnections";
 
 export function ModelConfigurationPage({ configurationUuid, duplicateUuid }: { configurationUuid?: string; duplicateUuid?: string }) {
-    const { catalog, connections, configurations, loading, error, reload } = useModelConnections();
+    const { catalog, connections, configurations, loading, error, reload, addConnection } = useModelConnections();
     const { refreshConfig } = useOrgConfig();
     const router = useRouter();
     const sourceUuid = configurationUuid || duplicateUuid;
@@ -26,7 +26,7 @@ export function ModelConfigurationPage({ configurationUuid, duplicateUuid }: { c
             <p>{error}</p><Button variant="outline" onClick={() => void reload()}>Retry</Button>
         </div> : sourceUuid && !saved ? <p role="alert">This model configuration is unavailable.</p>
             : catalog && <div className="rounded-lg border bg-card p-6">
-                <NamedConfigurationEditor key={`${sourceUuid || "new"}-${saved?.revision || 0}`} catalog={catalog} connections={connections} saved={saved} duplicate={Boolean(duplicateUuid)} onConnectionsChange={reload}
+                <NamedConfigurationEditor key={`${sourceUuid || "new"}-${saved?.revision || 0}`} catalog={catalog} connections={connections} saved={saved} duplicate={Boolean(duplicateUuid)} onConnectionAdded={addConnection}
                     onSaved={async (uuid, editFallbacks) => {
                         await reload();
                         await refreshConfig();

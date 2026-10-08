@@ -54,7 +54,7 @@ const customFromScratch = {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations, defaultUuid: "Sales", loading: false, error: null, reload: vi.fn() });
+    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations, defaultUuid: "Sales", loading: false, error: null, reload: vi.fn(), addConnection: vi.fn() });
 });
 
 describe("workflow model configuration", () => {
@@ -178,7 +178,7 @@ describe("workflow model configuration", () => {
     });
 
     it("explains when nothing is configured yet", () => {
-        vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations: [], defaultUuid: null, loading: false, error: null, reload: vi.fn() });
+        vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations: [], defaultUuid: null, loading: false, error: null, reload: vi.fn(), addConnection: vi.fn() });
         renderCard();
         expect(screen.getByRole("status").textContent).toContain("No configuration chosen yet");
         expect(screen.getByLabelText("Configuration").textContent).toBe("Organization default");

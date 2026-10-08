@@ -32,7 +32,7 @@ function Editor({ available = connections }: { available?: ProviderConnection[] 
     const [configuration, setConfiguration] = useState(() => emptyConfiguration(catalog, available));
     return <form onSubmit={event => { event.preventDefault(); onSubmit(configuration); }}>
         <ConfigurationFields catalog={catalog} connections={current} configuration={configuration} onChange={setConfiguration}
-            onConnectionsChange={async () => setCurrent(previous => [...previous, created])} llmActions={<button type="button">Configure fallbacks</button>} />
+            onConnectionAdded={connection => setCurrent(previous => [...previous, connection])} llmActions={<button type="button">Configure fallbacks</button>} />
         <button type="submit">Save</button>
     </form>;
 }
@@ -102,6 +102,21 @@ describe("configuration modes", () => {
         expect(screen.queryByRole("button", { name: "Configure fallbacks" })).toBeNull();
         expect(screen.queryByLabelText("Enable embeddings")).toBeNull();
         expect(screen.getByLabelText("Dograh account")).toBeDefined();
+    });
+
+    it("opens a saved Realtime configuration on its realtime model", () => {
+        render(<ConfigurationFields catalog={catalog} connections={connections} onChange={vi.fn()} configuration={{ version: 3, mode: "realtime", llm: { provider_connection_uuid: "OpenAI", settings: {} }, realtime: { provider_connection_uuid: "OpenAI", settings: {} }, embeddings: null }} />);
+        expect(screen.getByRole("tab", { name: "Realtime" }).getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("names a provider in a tab only when its picker can offer it", () => {
+        // This account lacks the key the LLM service needs, so the picker cannot show it.
+        const strict: ModelConnectionCatalog = { services: { ...catalog.services, llm: { ...catalog.services.llm, google: { ...provider, credential_required: ["api_key"] } } } };
+        const keyless = { ...connection("Keyless Google", "google"), configured_credentials: [] };
+        render(<ConfigurationFields catalog={strict} connections={[...connections, keyless]} onChange={vi.fn()} configuration={{ ...emptyConfiguration(strict, connections, "cascade"), llm: { provider_connection_uuid: keyless.uuid, settings: {} } }} />);
+        expect(screen.getByRole("tab", { name: "LLM" }).textContent).toBe("LLM Choose a provider");
+        expect(providerSelect("LLM").textContent).toBe("Choose a provider");
+        expect(screen.getByRole("tab", { name: "STT" }).textContent).toBe("STT openai");
     });
 
     it("marks services without a provider when switching a Dograh configuration to BYOK", () => {

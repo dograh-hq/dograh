@@ -84,7 +84,7 @@ export function WorkflowModelPicker({ model, density = "full", fields }: {
                 Open {binding.base.name} in Models<ExternalLink className="h-3 w-3" />
             </Link>}
         </div>}
-        {view === "custom" && configuration && <ConfigurationFields configuration={configuration} catalog={catalog} connections={connections} onChange={model.edit} onConnectionsChange={reload} density={density} fields={fields} />}
+        {view === "custom" && configuration && <ConfigurationFields configuration={configuration} catalog={catalog} connections={connections} onChange={model.edit} onConnectionAdded={model.addConnection} density={density} fields={fields} />}
         {error && <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
             <span>{error}</span>
             {model.dirty && <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={saving} onClick={model.retry}>Retry</Button>}

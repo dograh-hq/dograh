@@ -37,7 +37,7 @@ const audio = vi.fn(function () { return { play, pause }; });
 beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal("Audio", audio);
-    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [...connections, openai], configurations: [configuration], defaultUuid: "sales", loading: false, error: null, reload });
+    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [...connections, openai], configurations: [configuration], defaultUuid: "sales", loading: false, error: null, reload, addConnection: vi.fn() });
     vi.mocked(useOrgConfig).mockReturnValue({ refreshConfig } as unknown as ReturnType<typeof useOrgConfig>);
     vi.mocked(createNamedModelConfiguration).mockResolvedValue({ data: { ...configuration, uuid: "new-configuration" } } as never);
     vi.mocked(updateNamedModelConfiguration).mockResolvedValue({ data: configuration } as never);
@@ -154,7 +154,7 @@ it.each(["dograh", "cascade", "realtime"] as const)("guards the direct fallback 
         mode: mode === "realtime" ? "realtime" : "pipeline",
         llm: mode === "dograh" ? service : { provider_connection_uuid: openai.uuid, settings: {} },
     } };
-    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [...connections, openai], configurations: [saved], defaultUuid: "sales", loading: false, error: null, reload });
+    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [...connections, openai], configurations: [saved], defaultUuid: "sales", loading: false, error: null, reload, addConnection: vi.fn() });
     render(<LLMConfigurationPage configurationUuid="sales" />);
     expect(screen.getByRole("link", { name: "Back to model configuration" }).getAttribute("href")).toBe("/model-configurations/sales");
     if (mode === "dograh") {

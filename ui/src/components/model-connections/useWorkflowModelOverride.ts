@@ -176,6 +176,7 @@ export function useWorkflowModelOverride({ workflowName, workflowConfigurations,
         loading: connections.loading,
         loadError: connections.error,
         reload: connections.reload,
+        addConnection: connections.addConnection,
     };
 }
 

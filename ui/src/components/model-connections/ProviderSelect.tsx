@@ -75,7 +75,7 @@ export function AddProviderDialog({ open, onOpenChange, title, catalog, provider
     catalog: ModelConnectionCatalog;
     providerKeys: string[];
     role?: ServiceRole;
-    onSaved: (connection: ProviderConnection) => Promise<void>;
+    onSaved: (connection: ProviderConnection) => void;
 }) {
     return <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
@@ -83,7 +83,7 @@ export function AddProviderDialog({ open, onOpenChange, title, catalog, provider
                 <DialogTitle>{title}</DialogTitle>
                 <DialogDescription>Connect an account with its API key. It is saved to Providers, so every model configuration can use it.</DialogDescription>
             </DialogHeader>
-            <ConnectionEditor embedded catalog={catalog} providerKeys={providerKeys} role={role} onSaved={(_, connection) => onSaved(connection)} />
+            <ConnectionEditor embedded catalog={catalog} providerKeys={providerKeys} role={role} onSaved={async (_, connection) => onSaved(connection)} />
         </DialogContent>
     </Dialog>;
 }

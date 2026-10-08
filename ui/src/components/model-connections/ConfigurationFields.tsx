@@ -75,13 +75,13 @@ function ModeChoice({ value, onChange }: { value: ConfigurationEditorMode; onCha
  * `fields` (all of them when omitted), and no embeddings or fallback
  * actions. Both produce the same ConfigurationSpec.
  */
-export function ConfigurationFields({ configuration, catalog, connections, onChange, onConnectionsChange, llmActions, density = "full", fields }: {
+export function ConfigurationFields({ configuration, catalog, connections, onChange, onConnectionAdded, llmActions, density = "full", fields }: {
     configuration: ConfigurationSpec;
     catalog: ModelConnectionCatalog;
     connections: ProviderConnection[];
     onChange: (configuration: ConfigurationSpec) => void;
-    /** Reload the connections, after one is added from a provider list. */
-    onConnectionsChange?: () => Promise<void>;
+    /** Add a connection created from a provider list to `connections`. */
+    onConnectionAdded?: (connection: ProviderConnection) => void;
     llmActions?: ReactNode;
     density?: ConfigurationFieldsDensity;
     /** Setting names to show for each service; everything else stays as it is. */
@@ -89,7 +89,8 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
 }) {
     const compact = density === "compact";
     const [unconfiguredMode, setUnconfiguredMode] = useState<ConfigurationEditorMode>("cascade");
-    const [activeRole, setActiveRole] = useState<ServiceRole>("llm");
+    // The tab the user opened; until then, the mode's first service.
+    const [activeRole, setActiveRole] = useState<ServiceRole | null>(null);
     const [adding, setAdding] = useState<AddTarget | null>(null);
     const root = useRef<HTMLDivElement>(null);
     const id = useId();
@@ -98,7 +99,7 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
     const dograhConnections = connections.filter(connection => connection.is_active && connection.provider === "dograh");
     const roles = (mode === "realtime" ? ["realtime", "llm", "embeddings"] as ServiceRole[] : ["llm", "stt", "tts", "embeddings"] as ServiceRole[])
         .filter(role => !compact || role !== "embeddings");
-    const currentRole = roles.includes(activeRole) ? activeRole : roles[0];
+    const currentRole = activeRole && roles.includes(activeRole) ? activeRole : roles[0];
 
     // Every service tab stays mounted so the form still validates the hidden
     // ones. When a hidden service is missing its provider, open its tab.
@@ -140,8 +141,7 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
     const changeMode = (value: string) => {
         const nextMode = value as ConfigurationEditorMode;
         setUnconfiguredMode(nextMode);
-        // Open on the service the mode is named after.
-        setActiveRole(nextMode === "realtime" ? "realtime" : "llm");
+        setActiveRole(null);
         onChange(configurationForMode(nextMode, configuration, catalog, connections));
     };
     const changeDograhConnection = (value: string) => {
@@ -156,15 +156,24 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
             .sort((a, b) => Number(connected.has(a)) - Number(connected.has(b)));
     // Named under the add entry, so the list shows what else is available.
     const addHint = (role: ServiceRole) => listNames(addProviderKeys(role).filter(provider => !connected.has(provider)).map(provider => providerTitle(role, provider)));
-    const connectionAdded = async (connection: ProviderConnection) => {
+    const connectionAdded = (connection: ProviderConnection) => {
         const target = adding;
-        // The new connection must be known before it is chosen, or the mode
-        // would be read without it.
-        await onConnectionsChange?.();
+        // Added to the list in the same update that chooses it, so the mode
+        // is never read without it.
+        onConnectionAdded?.(connection);
         setAdding(null);
         toast.success("Provider connection saved");
         if (target === "dograh") onChange(dograhConfiguration(catalog, connection, configuration, connections));
         else if (target) changeSelection(target, selectionForConnection(catalog, target, connection, configuration[target], connections));
+    };
+    // The connections a service's picker offers, which its tab summary also reads.
+    const serviceOptions = (role: ServiceRole) => {
+        const options = compatibleConnections(catalog, connections, role);
+        // Existing mixed configurations may include a managed service.
+        // Keep that selection visible without replacing it during edits.
+        const managed = connections.find(item => item.is_active && item.uuid === configuration[role]?.provider_connection_uuid && item.provider === "dograh");
+        if (managed) options.push(managed);
+        return options;
     };
 
     const dograhValue = dograhConnections.some(item => item.uuid === configuration.llm.provider_connection_uuid) ? configuration.llm.provider_connection_uuid : "";
@@ -185,11 +194,7 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
 
     const servicePanel = (role: ServiceRole) => {
         const selection = configuration[role];
-        const options = compatibleConnections(catalog, connections, role);
-        // Existing mixed configurations may include a managed service.
-        // Keep that selection visible without replacing it during edits.
-        const managed = connections.find(item => item.is_active && item.uuid === selection?.provider_connection_uuid && item.provider === "dograh");
-        if (managed) options.push(managed);
+        const options = serviceOptions(role);
         const connection = options.find(item => item.uuid === selection?.provider_connection_uuid);
         const schema = restrictSchema(connection ? catalog.services[role]?.[connection.provider]?.settings_schema : undefined, fields);
         const isEmbedding = role === "embeddings";
@@ -218,11 +223,11 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
         </div>;
     };
 
-    // Each tab names the provider it uses, or what it is missing.
+    // Each tab names the provider its picker shows, or that it needs one.
     const tabSummary = (role: ServiceRole): { text: string; missing: boolean } => {
         const selection = configuration[role];
         if (role === "embeddings" && !selection) return { text: "Off", missing: false };
-        const connection = connections.find(item => item.uuid === selection?.provider_connection_uuid);
+        const connection = serviceOptions(role).find(item => item.uuid === selection?.provider_connection_uuid);
         return connection ? { text: providerTitle(role, connection.provider), missing: false } : { text: "Choose a provider", missing: true };
     };
 

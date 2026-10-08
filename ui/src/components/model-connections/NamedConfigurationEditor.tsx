@@ -12,13 +12,13 @@ import { cleanConfiguration, emptyConfiguration } from "./configuration";
 import { ConfigurationFields } from "./ConfigurationFields";
 import type { ModelConnectionCatalog, NamedModelConfiguration, ProviderConnection } from "./types";
 
-export function NamedConfigurationEditor({ catalog, connections, saved, duplicate = false, onSaved, onConnectionsChange }: {
+export function NamedConfigurationEditor({ catalog, connections, saved, duplicate = false, onSaved, onConnectionAdded }: {
     catalog: ModelConnectionCatalog;
     connections: ProviderConnection[];
     saved?: NamedModelConfiguration;
     duplicate?: boolean;
     onSaved: (uuid: string, editFallbacks?: boolean) => Promise<void>;
-    onConnectionsChange?: () => Promise<void>;
+    onConnectionAdded?: (connection: ProviderConnection) => void;
 }) {
     const [name, setName] = useState(saved ? `${saved.name}${duplicate ? " (copy)" : ""}` : "");
     const [configuration, setConfiguration] = useState(saved?.configuration || emptyConfiguration(catalog, connections));
@@ -51,7 +51,7 @@ export function NamedConfigurationEditor({ catalog, connections, saved, duplicat
         {error && <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{error}</p>}
         <div className="space-y-1.5"><Label htmlFor="configuration-name">Configuration name</Label>
             <Input id="configuration-name" required maxLength={128} placeholder="Sales assistant" value={name} onChange={event => setName(event.target.value)} /></div>
-        <ConfigurationFields catalog={catalog} connections={connections} configuration={configuration} onChange={setConfiguration} onConnectionsChange={onConnectionsChange}
+        <ConfigurationFields catalog={catalog} connections={connections} configuration={configuration} onChange={setConfiguration} onConnectionAdded={onConnectionAdded}
             llmActions={<Button type="button" name="intent" value="fallbacks" variant="outline" size="sm" disabled={saving || !name.trim()} onClick={event => {
                 if (event.currentTarget.form?.reportValidity()) void save(true);
             }}>Configure fallbacks</Button>} />

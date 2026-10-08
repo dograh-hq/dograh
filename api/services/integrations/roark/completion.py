@@ -151,7 +151,10 @@ async def run_completion(
             continue
 
         if not recording_url:
-            logger.warning(
+            # Info, not a warning: a call that never connected (no answer,
+            # busy) reaches here on every attempt and there is nothing wrong
+            # with the configuration to act on.
+            logger.info(
                 f"Roark node '{roark_data.name}' (#{node_id}) has no recording to export"
             )
             results[result_key] = {"error": "missing_recording"}
@@ -174,6 +177,8 @@ async def run_completion(
             workflow_run=context.workflow_run,
             definition_id=context.definition_id,
             recording_url=recording_url,
+            # Present whenever `recording_url` is: both come from it.
+            public_token=context.public_token or "",
             agent_id=roark_data.roark_agent_id,
             agent_name=roark_data.roark_agent_name,
             send_transcript=roark_data.roark_send_transcript,
@@ -198,7 +203,10 @@ async def run_completion(
                 "status_code": exc.status_code,
             }
         except Exception as exc:
-            logger.error(f"Roark export failed for node '{roark_data.name}': {exc}")
-            results[result_key] = {"error": str(exc)}
+            # `str(exc)` is empty on an httpx timeout, which would otherwise
+            # annotate the run with `{"error": ""}` and say nothing at all.
+            detail = str(exc) or type(exc).__name__
+            logger.error(f"Roark export failed for node '{roark_data.name}': {detail}")
+            results[result_key] = {"error": detail}
 
     return results

@@ -6,6 +6,7 @@ directly and stub the POST; `test_roark_e2e.py` runs the same handler against a
 real Roark API.
 """
 
+import json
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -41,6 +42,7 @@ from api.services.integrations.roark.payload import (
     CUSTOMER_LABEL,
     build_call_payload,
     build_customer,
+    build_external_id,
     build_tool_invocations,
     build_transcript,
     call_type_to_direction,
@@ -430,6 +432,26 @@ def test_ended_status_is_none_for_a_run_with_neither_field():
     assert ended_status_from_context({}) is None
 
 
+def test_the_external_id_is_stable_for_the_same_run():
+    """It is the only thing making a redelivered post-call job a 409 rather
+    than a second Roark call, so it cannot vary between attempts."""
+    assert build_external_id(4242, "tok-123") == build_external_id(4242, "tok-123")
+
+
+def test_the_external_id_differs_between_installs():
+    """Dograh is self-hosted: a staging install, a second deployment or a reset
+    database all restart at low run ids, and two of them pointed at one Roark
+    project would otherwise answer each other's run #42 as a duplicate."""
+    assert build_external_id(42, "tok-123") != build_external_id(42, "tok-abc")
+
+
+def test_the_external_id_does_not_contain_the_token():
+    """The public token is the bearer of the recording's download URL."""
+    external_id = build_external_id(42, "tok-123")
+    assert "tok-123" not in external_id
+    assert external_id.startswith("dograh-run-42-")
+
+
 def test_build_customer_reads_the_caller_on_an_inbound_call():
     customer = build_customer(
         {"caller_number": "+15550001111", "called_number": "+15552223333"},
@@ -720,6 +742,7 @@ def test_build_call_payload_happy_path():
         workflow_run=_workflow_run(),
         definition_id=9,
         recording_url="https://dograh.example/rec?filename=recording.wav",
+        public_token="tok-123",
         agent_id=None,
         agent_name="Support Bot",
         send_transcript=True,
@@ -736,7 +759,7 @@ def test_build_call_payload_happy_path():
     assert payload["endedStatus"] == "CUSTOMER_ENDED_CALL"
     assert payload["agent"] == {"name": "Support Bot"}
     assert payload["customer"]["phoneNumberE164"] == "+14155551234"
-    assert payload["externalId"] == "dograh-run-4242"
+    assert payload["externalId"] == "dograh-run-4242-c8963414"
     assert len(payload["transcript"]) == 3
     assert len(payload["toolInvocations"]) == 1
 
@@ -746,6 +769,7 @@ def test_build_call_payload_prefers_an_agent_id():
         workflow_run=_workflow_run(),
         definition_id=None,
         recording_url="https://dograh.example/rec",
+        public_token="tok-123",
         agent_id="6d1e0d6e-0f7a-4f77-9b3f-3a1b2c3d4e5f",
         agent_name="Ignored",
         send_transcript=False,
@@ -759,6 +783,7 @@ def test_build_call_payload_omits_the_transcript_when_opted_out():
         workflow_run=_workflow_run(),
         definition_id=None,
         recording_url="https://dograh.example/rec",
+        public_token="tok-123",
         agent_id=None,
         agent_name="Support Bot",
         send_transcript=False,
@@ -773,6 +798,7 @@ def test_build_call_payload_properties_identify_the_dograh_run():
         workflow_run=_workflow_run(campaign_id=11),
         definition_id=9,
         recording_url="https://dograh.example/rec",
+        public_token="tok-123",
         agent_id=None,
         agent_name="Support Bot",
         send_transcript=True,
@@ -803,6 +829,7 @@ def test_properties_omit_what_the_run_does_not_have():
         workflow_run=run,
         definition_id=None,
         recording_url="https://dograh.example/rec",
+        public_token="tok-123",
         agent_id=None,
         agent_name="Support Bot",
         send_transcript=False,
@@ -823,6 +850,7 @@ def test_gathered_context_does_not_duplicate_the_dispositions():
         workflow_run=_workflow_run(),
         definition_id=None,
         recording_url="https://dograh.example/rec",
+        public_token="tok-123",
         agent_id=None,
         agent_name="Support Bot",
         send_transcript=False,
@@ -841,6 +869,7 @@ def test_build_call_payload_includes_gathered_context_when_opted_in():
         workflow_run=_workflow_run(),
         definition_id=None,
         recording_url="https://dograh.example/rec",
+        public_token="tok-123",
         agent_id=None,
         agent_name="Support Bot",
         send_transcript=False,
@@ -855,6 +884,7 @@ def test_build_call_payload_falls_back_to_created_at_without_events():
         workflow_run=run,
         definition_id=None,
         recording_url="https://dograh.example/rec",
+        public_token="tok-123",
         agent_id=None,
         agent_name="Support Bot",
         send_transcript=True,
@@ -942,7 +972,7 @@ async def test_completion_posts_the_call_and_reports_the_roark_id():
 
     assert results["roark_roark-1"]["status"] == "delivered"
     assert results["roark_roark-1"]["roark_call_id"] == "cll-1"
-    assert results["roark_roark-1"]["external_id"] == "dograh-run-4242"
+    assert results["roark_roark-1"]["external_id"] == "dograh-run-4242-c8963414"
 
     _config, payload = delivery.await_args.args
     assert payload["agent"] == {"name": "Support Bot"}
@@ -1072,6 +1102,18 @@ async def test_completion_surfaces_a_roark_refusal():
 
     assert results["roark_roark-1"]["status_code"] == 400
     assert "not accessible" in results["roark_roark-1"]["error"]
+
+
+async def test_an_exception_with_no_message_is_still_named():
+    """`str(exc)` is empty on an httpx timeout, which would otherwise annotate
+    the run with `{"error": ""}` and say nothing at all."""
+    with patch(
+        "api.services.integrations.roark.completion.create_call",
+        AsyncMock(side_effect=httpx.ReadTimeout("")),
+    ):
+        results = await run_completion([_roark_node()], _completion_context())
+
+    assert results["roark_roark-1"] == {"error": "ReadTimeout"}
 
 
 async def test_completion_handles_two_nodes_independently():
@@ -1213,6 +1255,127 @@ async def test_a_json_error_body_without_a_code_is_not_echoed():
             )
 
     assert "Ada" not in excinfo.value.detail
+    assert "+14155550123" not in excinfo.value.detail
+
+
+async def test_a_schema_rejection_names_the_fields_roark_refused():
+    """The most common 400 does not go through Roark's own error handler: the
+    request schema rejects the payload and its validator answers with the
+    schema error and no `code` of its own. Reporting that as unreadable threw
+    away the only thing that said what to change, and this is the shape the
+    unreachable-recording error arrives in, which is the one a Dograh user is
+    most likely to hit."""
+    message = (
+        "The provided recording URL is not accessible (HTTP 403). Please ensure "
+        "the URL is publicly reachable or that any presigned URL has not expired."
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "success": False,
+                "error": {
+                    "name": "ZodError",
+                    "issues": [
+                        {
+                            "code": "custom",
+                            "path": ["recordingUrl"],
+                            "message": message,
+                        }
+                    ],
+                },
+            },
+        )
+
+    with _roark_http(handler):
+        with pytest.raises(RoarkDeliveryError) as excinfo:
+            await create_call(
+                RoarkDeliveryConfig(
+                    base_url="https://api.roark.ai", api_key="rk_live_x"
+                ),
+                {"externalId": "dograh-run-1"},
+            )
+
+    assert excinfo.value.detail == f"validation: recordingUrl: {message}"
+
+
+async def test_a_schema_rejection_is_read_when_the_issues_arrive_in_the_message():
+    """Newer zod serialises the issue list as JSON inside `message` rather than
+    alongside it, so the same information arrives one level in."""
+    issues = [{"code": "invalid_type", "path": ["recordingUrl"], "message": "Required"}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "success": False,
+                "error": {"name": "ZodError", "message": json.dumps(issues)},
+            },
+        )
+
+    with _roark_http(handler):
+        with pytest.raises(RoarkDeliveryError) as excinfo:
+            await create_call(
+                RoarkDeliveryConfig(
+                    base_url="https://api.roark.ai", api_key="rk_live_x"
+                ),
+                {"externalId": "dograh-run-1"},
+            )
+
+    assert excinfo.value.detail == "validation: recordingUrl: Required"
+
+
+async def test_a_schema_rejection_reports_only_the_first_few_fields():
+    """One bad payload usually repeats its reason per turn."""
+    issues = [
+        {
+            "code": "invalid_type",
+            "path": ["transcript", n, "endOffsetMs"],
+            "message": "Required",
+        }
+        for n in range(9)
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"success": False, "error": {"issues": issues}})
+
+    with _roark_http(handler):
+        with pytest.raises(RoarkDeliveryError) as excinfo:
+            await create_call(
+                RoarkDeliveryConfig(
+                    base_url="https://api.roark.ai", api_key="rk_live_x"
+                ),
+                {"externalId": "dograh-run-1"},
+            )
+
+    assert excinfo.value.detail.endswith("and 6 more")
+    assert excinfo.value.detail.count("endOffsetMs") == 3
+
+
+async def test_a_schema_rejection_does_not_quote_what_was_sent():
+    """A path is field names and indices, never content."""
+    issues = [
+        {
+            "code": "invalid_type",
+            "path": ["customer", "phoneNumberE164"],
+            "message": "Invalid",
+            "received": "+14155550123",
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"success": False, "error": {"issues": issues}})
+
+    with _roark_http(handler):
+        with pytest.raises(RoarkDeliveryError) as excinfo:
+            await create_call(
+                RoarkDeliveryConfig(
+                    base_url="https://api.roark.ai", api_key="rk_live_x"
+                ),
+                {"externalId": "dograh-run-1"},
+            )
+
     assert "+14155550123" not in excinfo.value.detail
 
 

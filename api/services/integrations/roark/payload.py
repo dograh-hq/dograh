@@ -15,6 +15,7 @@ POST in ``client.py``.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Any, Iterable
 
 from pipecat.utils.enums import EndTaskReason, RealtimeFeedbackType
@@ -137,10 +138,12 @@ def _event_logged_at(event: dict[str, Any]) -> datetime | None:
 def _event_start(event: dict[str, Any]) -> datetime | None:
     """When the speaking in this event actually began.
 
-    `payload.timestamp` is the provider's own onset for the utterance and is
-    what a player has to align to. The top-level stamp is only a fallback,
-    because reading it as a start places the turn at its end instead: on a
-    measured call the bot's greeting was logged 5.6s after it began speaking.
+    `payload.timestamp` is Dograh's own clock read at the moment the turn
+    started speaking, which is what a player has to align to. (Not the speech
+    provider's onset: the aggregator stamps it with `time_now_iso8601()` when
+    it opens the turn.) The top-level stamp is only a fallback, because reading
+    it as a start places the turn at its end instead: on a measured call the
+    bot's greeting was logged 5.6s after it began speaking.
     """
     payload = event.get("payload") or {}
     return parse_event_timestamp(payload.get("timestamp")) or parse_event_timestamp(
@@ -267,8 +270,8 @@ def _fill_missing_turn_ends(
 ) -> list[dict[str, Any]]:
     """Give a zero-length turn an end at the next turn's start.
 
-    Dograh only records an utterance's end when the provider reported one, and
-    Roark requires an end on every turn. Roark would repair this itself on
+    Dograh only records an utterance's end when the turn message carried one,
+    and Roark requires an end on every turn. Roark would repair this itself on
     ingest, but doing it here keeps what we send and what a player draws the
     same thing, and the last turn (which Roark cannot repair, having nothing
     after it) is left alone rather than guessed at.
@@ -427,11 +430,39 @@ def build_properties(
     return properties
 
 
+# How much of the install fingerprint ships in `externalId`. A collision needs
+# two installs to agree on BOTH the run id and these hex digits, so 32 bits is
+# far more than the handful of installs that could share one Roark project.
+_INSTALL_FINGERPRINT_CHARS = 8
+
+
+def build_external_id(run_id: Any, public_token: str) -> str:
+    """The `externalId` Roark stores for this run.
+
+    `externalId` is unique within a Roark project, which is what makes a
+    redelivered post-call job a 409 instead of a second call. A row id alone
+    cannot carry that: Dograh is self-hosted, so a staging install, a second
+    deployment or a reset database all restart at low ids, and two of them
+    pointed at one Roark project would have their run #42 answered as a
+    duplicate of the other's. The second call would never arrive, and the run
+    would record it as an export that had already happened.
+
+    The run's public access token disambiguates them: it is a UUID4 generated
+    once per run and persisted (`ensure_public_access_token`), so it is stable
+    across redeliveries of the same run and different in every install. It is
+    hashed rather than included, because it is also the bearer of the
+    recording's download URL.
+    """
+    fingerprint = sha256(public_token.encode()).hexdigest()[:_INSTALL_FINGERPRINT_CHARS]
+    return f"dograh-run-{run_id}-{fingerprint}"
+
+
 def build_call_payload(
     *,
     workflow_run: Any,
     definition_id: int | None,
     recording_url: str,
+    public_token: str,
     agent_id: str | None,
     agent_name: str | None,
     send_transcript: bool,
@@ -463,8 +494,8 @@ def build_call_payload(
         ),
         # Lets a Roark user jump from a call back to the Dograh run, and makes
         # a redelivery of the same run collide instead of creating a second
-        # call: `externalId` is unique within a Roark project.
-        "externalId": f"dograh-run-{workflow_run.id}",
+        # call. See `build_external_id` for why the install is in it too.
+        "externalId": build_external_id(workflow_run.id, public_token),
     }
 
     ended_status = ended_status_from_context(gathered_context)

@@ -20,7 +20,7 @@ TOPIC = VoicePromptingTopic(
             lens=(
                 "Decide the agent's scope boundaries: what's in scope, what to "
                 "deflect, and when a call should end (sustained abuse, out-of-scope "
-                "insistence). These become global guardrails."
+                "insistence). Record the customer's actual boundaries."
             ),
         ),
         Stage.create: StageLens(

@@ -1,225 +1,137 @@
 'use client';
 
+import { ArrowUp, Loader2, Plus } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import { createWorkflowFromTemplateApiV1WorkflowCreateTemplatePost } from '@/client/sdk.gen';
+import { getBuilderSessionApiV1WorkflowBuilderSessionIdGet, saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost, sendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPost } from '@/client/sdk.gen';
+import type { BuilderSession, BuilderTurnRequest } from '@/client/types.gen';
 import { PageShell } from '@/components/layout/PageShell';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { PlanApprovalCard } from '@/components/workflow-builder/PlanApprovalCard';
+import { QuestionCards } from '@/components/workflow-builder/QuestionCards';
+import { WorkflowPreview } from '@/components/workflow-builder/WorkflowPreview';
+import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
-import logger from '@/lib/logger';
 
 export default function CreateWorkflowPage() {
     const router = useRouter();
-    const { user, getAccessToken } = useAuth();
-    const [isLoading, setIsLoading] = useState(false);
+    const { user, loading: authLoading, getAccessToken } = useAuth();
+    const organization = user && ('selectedTeam' in user ? user.selectedTeam?.id : 'organizationId' in user ? user.organizationId : '');
+    const [session, setSession] = useState<BuilderSession | null>(null);
+    const [sessionId, setSessionId] = useState('');
+    const [input, setInput] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [restoring, setRestoring] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [status, setStatus] = useState('');
     const [error, setError] = useState<string | null>(null);
-    const [showSuccessModal, setShowSuccessModal] = useState(false);
-    const [workflowId, setWorkflowId] = useState<string | null>(null);
+    const [optimisticMessage, setOptimisticMessage] = useState('');
+    const abort = useRef<AbortController | null>(null);
+    const bottom = useRef<HTMLDivElement>(null);
+    const composer = useRef<HTMLTextAreaElement>(null);
 
-    const [callType, setCallType] = useState<'inbound' | 'outbound'>('inbound');
-    const [useCase, setUseCase] = useState('');
-    const [activityDescription, setActivityDescription] = useState('');
-
-    const handleCreateWorkflow = async () => {
-        if (!useCase || !activityDescription) {
-            setError('Please fill in all fields');
-            return;
+    useEffect(() => {
+        if (authLoading || !user) return;
+        const controller = new AbortController();
+        setSession(null); setError(null); setRestoring(true);
+        const id = new URL(window.location.href).searchParams.get('session');
+        if (!id) { setSessionId(crypto.randomUUID()); setRestoring(false); }
+        else {
+            setSessionId(id);
+            void (async () => {
+                try {
+                    const token = await getAccessToken();
+                    const result = await getBuilderSessionApiV1WorkflowBuilderSessionIdGet({ path: { session_id: id }, signal: controller.signal, headers: { Authorization: `Bearer ${token}` } });
+                    if (result.error) throw new Error(detailFromError(result.error, 'Could not restore this conversation.'));
+                    if (!controller.signal.aborted && result.data) setSession(result.data);
+                } catch (err) { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Could not restore this conversation.'); }
+                finally { if (!controller.signal.aborted) setRestoring(false); }
+            })();
         }
+        return () => { controller.abort(); abort.current?.abort(); };
+    // The authenticated user and organization identify this conversation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [authLoading, user?.id, organization]);
 
-        if (!user) {
-            setError('You must be logged in to create a workflow');
-            return;
-        }
-
-        setIsLoading(true);
-        setError(null);
-
+    useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [session?.messages?.length, session?.pending?.length, status]);
+    const pendingQuestions = session?.pending?.filter(item => item.kind === 'questions') ?? [];
+    const pendingApproval = session?.pending?.find(item => item.kind === 'plan_approval');
+    const awaitingUser = !!pendingQuestions.length || !!pendingApproval;
+    const isStarting = !restoring && !session?.messages?.length && !awaitingUser && !session?.proposal && !busy && !optimisticMessage && !session?.can_continue;
+    useEffect(() => { if (isStarting) composer.current?.focus(); }, [isStarting]);
+    const newConversation = () => {
+        abort.current?.abort(); setSession(null); setInput(''); setError(null); setOptimisticMessage(''); setStatus('');
+        setSessionId(crypto.randomUUID());
+        const url = new URL(window.location.href); url.searchParams.delete('session');
+        window.history.replaceState(window.history.state, '', url);
+    };
+    const send = async (content: Pick<BuilderTurnRequest, 'message' | 'answers' | 'approval'> = {}) => {
+        if (!user || busy || restoring) return;
+        const controller = new AbortController(); abort.current = controller;
+        setBusy(true); setError(null); setStatus('Thinking about your agent…'); setOptimisticMessage(content.message ?? '');
+        const url = new URL(window.location.href); url.searchParams.set('session', sessionId);
+        window.history.replaceState(window.history.state, '', url);
+        let completed = false;
         try {
-            const accessToken = await getAccessToken();
-
-            // Call the API to create workflow from template
-            const response = await createWorkflowFromTemplateApiV1WorkflowCreateTemplatePost({
-                body: {
-                    call_type: callType,
-                    use_case: useCase,
-                    activity_description: activityDescription,
-                },
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                },
+            const token = await getAccessToken();
+            const result = await sendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPost({ path: { session_id: sessionId },
+                body: { request_id: crypto.randomUUID(), checkpoint: session?.checkpoint ?? null, ...content },
+                sseMaxRetryAttempts: 1, signal: controller.signal, headers: { Authorization: `Bearer ${token}` },
             });
-
-            if (response.data?.id) {
-                setWorkflowId(String(response.data.id));
-                setShowSuccessModal(true);
+            for await (const raw of result.stream) {
+                if (!raw || typeof raw !== 'object') continue;
+                const event = raw as { type: string; message?: string; session?: BuilderSession };
+                if (event.type === 'session' && event.session) { setSession(event.session); setOptimisticMessage(''); setInput(''); }
+                if (event.type === 'status') setStatus(event.message ?? 'Working…');
+                if (event.type === 'error') throw new Error(event.message ?? 'Builder failed.');
+                if (event.type === 'done') completed = true;
             }
-        } catch (err) {
-            setError('Failed to create workflow. Please try again.');
-            logger.error(`Error creating workflow: ${err}`);
-        } finally {
-            setIsLoading(false);
-        }
+            if (!completed) throw new Error('Connection interrupted. Reload to restore your conversation.');
+        } catch (err) { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Could not complete the request.'); }
+        finally { if (abort.current === controller) { setBusy(false); setStatus(''); setOptimisticMessage(''); } }
     };
-
-    const handleModalContinue = () => {
-        if (!workflowId) return;
-        router.push(`/workflow/${workflowId}?onboarding=web_call`);
+    const save = async () => {
+        if (!session?.checkpoint || busy || saving) return;
+        setSaving(true); setError(null);
+        try {
+            const token = await getAccessToken();
+            const result = await saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost({ path: { session_id: sessionId }, body: { checkpoint: session.checkpoint }, headers: { Authorization: `Bearer ${token}` } });
+            if (result.error) throw new Error(detailFromError(result.error, 'Could not save the draft.'));
+            if (!result.data) throw new Error('The server did not return a workflow.');
+            router.push(`/workflow/${result.data.workflow_id}`);
+        } catch (err) { setError(err instanceof Error ? err.message : 'Could not save the draft.'); }
+        finally { setSaving(false); }
     };
-
-    return (
-        <>
-            <PageShell width="narrow">
-                <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Create Voice Agent</h1>
-                    <p className="text-muted-foreground">
-                        Tell us about your use case and we&apos;ll create a customized voice agent for you
-                    </p>
+    return <PageShell className="flex min-h-[calc(100vh-80px)] max-w-[1500px] flex-col py-6 md:px-8">
+        <header className="mb-6 flex items-center justify-between gap-3"><div><h1 className="text-xl font-semibold tracking-tight">Create an agent</h1><p className="mt-1 text-sm text-muted-foreground">Describe what you need. Build and refine it together.</p></div>{!isStarting && <Button variant="outline" size="sm" onClick={newConversation} disabled={busy || saving || restoring}><Plus className="mr-2 h-4 w-4" />New conversation</Button>}</header>
+        <div className={`grid flex-1 gap-6 ${session?.proposal ? 'lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]' : `mx-auto w-full max-w-3xl ${isStarting ? 'content-center' : ''}`}`}>
+            <section className={`flex min-w-0 flex-col ${isStarting ? '' : 'min-h-[650px] rounded-2xl border bg-muted/20'}`}>
+                <div className={isStarting ? 'space-y-5 px-4 pb-6 text-center' : 'max-h-[65vh] min-h-[380px] flex-1 space-y-5 overflow-y-auto p-5 md:p-7'} aria-live="polite">
+                    {restoring ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Restoring conversation…</div> : isStarting && <div>
+                        <h2 className="text-2xl font-medium tracking-tight">What should your agent do?</h2>
+                        <p className="mt-3 text-sm leading-6 text-muted-foreground">Describe who it should speak with and what it needs to do.</p>
+                    </div>}
+                    {session?.messages?.map(message => <div key={message.id} className={message.role === 'user' ? 'ml-8 rounded-2xl bg-muted px-4 py-3' : 'pr-5'}><div className="mb-1.5 text-xs font-medium text-muted-foreground">{message.role === 'user' ? 'You' : 'Dograh'}</div><div className="whitespace-pre-wrap text-sm leading-6">{message.content}</div></div>)}
+                    {optimisticMessage && <div className="ml-8 rounded-2xl bg-muted px-4 py-3 text-sm">{optimisticMessage}</div>}
+                    {!!pendingQuestions.length && <QuestionCards key={pendingQuestions.map(item => item.id).join(':')} pending={pendingQuestions} disabled={busy} onSubmit={answers => void send({ answers })} />}
+                    {pendingApproval?.brief && pendingApproval.brief_revision != null && <PlanApprovalCard key={pendingApproval.id} interruptId={pendingApproval.id} revision={pendingApproval.brief_revision} brief={pendingApproval.brief} disabled={busy || restoring} onSubmit={approval => void send({ approval })} />}
+                    {busy && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{status}</div>}
+                    {error && <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}
+                        {error.includes('/model-configurations') && <Link href="/model-configurations" className="mt-2 block font-medium underline">Open Model Configurations</Link>}
+                    </div>}
+                    {!busy && !awaitingUser && session?.can_continue && <Button variant="outline" onClick={() => void send()}>Resume building</Button>}
+                    <div ref={bottom} />
                 </div>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Agent Details</CardTitle>
-                        <CardDescription>
-                            Configure your voice agent settings
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                        <div className="space-y-2">
-                            <Label htmlFor="call-type">Call Type</Label>
-                            <Select value={callType} onValueChange={(value) => setCallType(value as 'inbound' | 'outbound')}>
-                                <SelectTrigger id="call-type">
-                                    <SelectValue placeholder="Select type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="inbound">
-                                        Inbound (Users call AI)
-                                    </SelectItem>
-                                    <SelectItem value="outbound">
-                                        Outbound (AI calls users)
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <p className="text-sm text-muted-foreground">
-                                Choose whether users will call your AI or your AI will call users
-                            </p>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label htmlFor="use-case">Use Case</Label>
-                            <Input
-                                id="use-case"
-                                placeholder="e.g., Lead Qualification, HR Screening, Customer Support"
-                                value={useCase}
-                                onChange={(e) => setUseCase(e.target.value)}
-                            />
-                            <p className="text-sm text-muted-foreground">
-                                Describe the primary purpose of your voice agent
-                            </p>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label htmlFor="activity-description">Activity Description</Label>
-                            <Textarea
-                                id="activity-description"
-                                placeholder="Describe briefly what your voice agent will do (e.g., Qualify leads for real estate, Screen candidates for roles, Handle customer support). This will be a prompt to an LLM."
-                                value={activityDescription}
-                                onChange={(e) => setActivityDescription(e.target.value)}
-                                className="min-h-[100px]"
-                            />
-                            <p className="text-sm text-muted-foreground">
-                                This description will be used to generate the AI prompt for your voice agent
-                            </p>
-                        </div>
-
-                        {error && (
-                            <p className="text-sm text-red-500">{error}</p>
-                        )}
-
-                        <div className="pt-4">
-                            <Button
-                                onClick={handleCreateWorkflow}
-                                disabled={isLoading || !useCase || !activityDescription}
-                                className="w-full"
-                            >
-                                {isLoading ? 'Creating...' : 'Create Agent'}
-                            </Button>
-                        </div>
-                    </CardContent>
-                </Card>
-            </PageShell>
-
-            {/* Loading Overlay */}
-            {isLoading && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                    <Card className="w-full max-w-md p-8">
-                        <div className="flex flex-col items-center space-y-6">
-                            {/* Animated spinner */}
-                            <div className="relative">
-                                <div className="w-16 h-16 border-4 border-muted rounded-full"></div>
-                                <div className="absolute top-0 left-0 w-16 h-16 border-4 border-transparent border-t-primary rounded-full animate-spin"></div>
-                            </div>
-
-                            <div className="text-center space-y-2">
-                                <h3 className="text-lg font-semibold">
-                                    Creating Your Workflow
-                                </h3>
-                                <p className="text-sm text-muted-foreground max-w-xs">
-                                    We&apos;re setting up your voice agent with your specifications. This will just take a moment...
-                                </p>
-                            </div>
-                        </div>
-                    </Card>
-                </div>
-            )}
-
-            {/* Success Modal */}
-            <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
-                <DialogContent className="sm:max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Workflow Created Successfully!
-                        </DialogTitle>
-                        <DialogDescription asChild>
-                            <div className="mt-4 space-y-3">
-                                <p>
-                                    A voice agent workflow has been generated for your use case, with some artificial data and sample actions.
-                                </p>
-                                <p>
-                                    The voice bot is pre-set to communicate in English with an American accent.
-                                </p>
-                                <p>
-                                    Next steps would be to test the voice bot in the editor, and then modify it to suit your use case.
-                                </p>
-                            </div>
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter className="mt-6">
-                        <Button
-                            onClick={handleModalContinue}
-                            className="w-full"
-                        >
-                            Open and Test Agent
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </>
-    );
+                <form className={`rounded-xl border bg-background p-3 ${isStarting ? 'shadow-sm' : 'm-4'}`} onSubmit={event => { event.preventDefault(); if (input.trim()) void send({ message: input.trim() }); }}>
+                    <Textarea ref={composer} aria-label="Describe your agent or request a change" placeholder={pendingApproval ? 'Review the plan above to continue…' : pendingQuestions.length ? 'Answer the questions above to continue…' : session?.proposal ? 'Ask for a change to your agent…' : 'Build me an agent that…'} className="min-h-[80px] resize-none border-0 shadow-none focus-visible:ring-0" value={input} maxLength={12000} disabled={busy || restoring || awaitingUser}
+                        onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (input.trim()) void send({ message: input.trim() }); } }} />
+                    <div className="flex items-center justify-between"><span className="pl-3 text-xs text-muted-foreground">Shift + Enter for a new line</span><Button type="submit" size="icon" aria-label="Send message" disabled={!input.trim() || busy || restoring || authLoading || !user || awaitingUser}><ArrowUp className="h-4 w-4" /></Button></div>
+                </form>
+            </section>
+            {session?.proposal && <section className="min-w-0"><WorkflowPreview proposal={session.proposal} onSave={() => void save()} disabled={busy || !!session.can_continue} saving={saving} /><p className="mt-3 text-xs text-muted-foreground">Click a node to read its prompt.</p></section>}
+        </div>
+    </PageShell>;
 }

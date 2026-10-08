@@ -142,7 +142,9 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
 
         if workflow_run.campaign_id:
             await circuit_breaker.record_and_evaluate(
-                workflow_run.campaign_id, is_failure=False
+                workflow_run.campaign_id,
+                is_failure=False,
+                workflow_run_id=workflow_run_id,
             )
 
         if workflow_run.state != WorkflowRunState.COMPLETED.value:
@@ -164,7 +166,7 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             await circuit_breaker.record_and_evaluate(
                 workflow_run.campaign_id,
                 is_failure=is_failure,
-                workflow_run_id=workflow_run_id if is_failure else None,
+                workflow_run_id=workflow_run_id,
                 reason=normalized_status.value if is_failure else None,
             )
 

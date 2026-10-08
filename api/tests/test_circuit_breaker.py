@@ -354,6 +354,185 @@ class TestRecordAndEvaluate:
             # Should NOT raise
             await cb.record_and_evaluate(campaign_id=42, is_failure=True)
 
+    @pytest.mark.asyncio
+    async def test_first_outcome_claims_the_run_and_records(self):
+        """The first report for a run claims it via SET NX and is recorded."""
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_campaign = MagicMock()
+        mock_campaign.id = 42
+        mock_campaign.state = "running"
+        mock_campaign.orchestrator_metadata = {}
+
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(return_value=True)
+        cb.redis_client = mock_redis
+
+        with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
+            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            cb.record_call_outcome = AsyncMock(return_value=(False, None))
+
+            await cb.record_and_evaluate(
+                campaign_id=42, is_failure=True, workflow_run_id=100
+            )
+
+            mock_redis.set.assert_awaited_once_with(
+                "cb_run_outcome:100", "1", ex=180, nx=True
+            )
+            cb.record_call_outcome.assert_awaited_once_with(
+                campaign_id=42, is_failure=True, config={}
+            )
+
+    @pytest.mark.asyncio
+    async def test_duplicate_outcome_for_run_is_ignored(self):
+        """Reports after the first one for a run must not touch the window."""
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_campaign = MagicMock()
+        mock_campaign.id = 42
+        mock_campaign.state = "running"
+        mock_campaign.orchestrator_metadata = {}
+
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(return_value=False)  # already claimed
+        cb.redis_client = mock_redis
+
+        with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
+            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            cb.record_call_outcome = AsyncMock(return_value=(False, None))
+            cb._push_recent_failure = AsyncMock()
+
+            await cb.record_and_evaluate(
+                campaign_id=42,
+                is_failure=True,
+                workflow_run_id=100,
+                reason="failed",
+            )
+
+            mock_redis.set.assert_awaited_once_with(
+                "cb_run_outcome:100", "1", ex=180, nx=True
+            )
+            cb.record_call_outcome.assert_not_called()
+            cb._push_recent_failure.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_claim_ttl_tracks_campaign_window(self):
+        """The claim must outlive the campaign's own sliding window."""
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_campaign = MagicMock()
+        mock_campaign.id = 42
+        mock_campaign.state = "running"
+        mock_campaign.orchestrator_metadata = {
+            "circuit_breaker": {"window_seconds": 300}
+        }
+
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(return_value=True)
+        cb.redis_client = mock_redis
+
+        with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
+            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            cb.record_call_outcome = AsyncMock(return_value=(False, None))
+
+            await cb.record_and_evaluate(
+                campaign_id=42, is_failure=True, workflow_run_id=100
+            )
+
+            mock_redis.set.assert_awaited_once_with(
+                "cb_run_outcome:100", "1", ex=360, nx=True
+            )
+
+    @pytest.mark.asyncio
+    async def test_null_breaker_config_falls_back_to_defaults(self):
+        """A stored null config must not drop the outcome or skip the claim."""
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_campaign = MagicMock()
+        mock_campaign.id = 42
+        mock_campaign.state = "running"
+        mock_campaign.orchestrator_metadata = {"circuit_breaker": None}
+
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(return_value=True)
+        cb.redis_client = mock_redis
+
+        with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
+            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            cb.record_call_outcome = AsyncMock(return_value=(False, None))
+
+            await cb.record_and_evaluate(
+                campaign_id=42, is_failure=True, workflow_run_id=100
+            )
+
+            mock_redis.set.assert_awaited_once_with(
+                "cb_run_outcome:100", "1", ex=180, nx=True
+            )
+            cb.record_call_outcome.assert_awaited_once_with(
+                campaign_id=42, is_failure=True, config=None
+            )
+
+    @pytest.mark.asyncio
+    async def test_claim_redis_error_fails_open(self):
+        """A Redis error while claiming must not drop the outcome."""
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_campaign = MagicMock()
+        mock_campaign.id = 42
+        mock_campaign.state = "running"
+        mock_campaign.orchestrator_metadata = {}
+
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(side_effect=Exception("Redis down"))
+        cb.redis_client = mock_redis
+
+        with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
+            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            cb.record_call_outcome = AsyncMock(return_value=(False, None))
+
+            await cb.record_and_evaluate(
+                campaign_id=42, is_failure=True, workflow_run_id=100
+            )
+
+            cb.record_call_outcome.assert_awaited_once_with(
+                campaign_id=42, is_failure=True, config={}
+            )
+
+    @pytest.mark.asyncio
+    async def test_outcome_without_run_id_is_not_claimed(self):
+        """Legacy callers that cannot identify a run keep the old behaviour."""
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_campaign = MagicMock()
+        mock_campaign.id = 42
+        mock_campaign.state = "running"
+        mock_campaign.orchestrator_metadata = {}
+
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(return_value=False)
+        cb.redis_client = mock_redis
+
+        with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
+            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            cb.record_call_outcome = AsyncMock(return_value=(False, None))
+
+            await cb.record_and_evaluate(campaign_id=42, is_failure=True)
+
+            mock_redis.set.assert_not_awaited()
+            cb.record_call_outcome.assert_awaited_once()
+
 
 # =============================================================================
 # Tests for recent-failures tracking (workflow_run_id + reason)
@@ -376,6 +555,10 @@ class TestCircuitBreakerRecentFailures:
         mock_campaign.id = 42
         mock_campaign.state = "running"
         mock_campaign.orchestrator_metadata = {}
+
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(return_value=True)
+        cb.redis_client = mock_redis
 
         with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
             mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
@@ -406,6 +589,10 @@ class TestCircuitBreakerRecentFailures:
         mock_campaign.id = 42
         mock_campaign.state = "running"
         mock_campaign.orchestrator_metadata = {}
+
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(return_value=True)
+        cb.redis_client = mock_redis
 
         with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
             mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
@@ -447,6 +634,10 @@ class TestCircuitBreakerRecentFailures:
             {"workflow_run_id": 100, "reason": "failed", "ts": 1700000010.0},
             {"workflow_run_id": 99, "reason": "error", "ts": 1700000000.0},
         ]
+
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(return_value=True)
+        cb.redis_client = mock_redis
 
         with (
             patch("api.services.campaign.circuit_breaker.db_client") as mock_db,
@@ -657,7 +848,9 @@ class TestProcessStatusUpdateCircuitBreaker:
 
             await _process_status_update(100, status)
 
-            mock_cb.record_and_evaluate.assert_called_once_with(42, is_failure=False)
+            mock_cb.record_and_evaluate.assert_called_once_with(
+                42, is_failure=False, workflow_run_id=100
+            )
             mock_notify_completed.assert_awaited_once_with(42, 100)
 
     @pytest.mark.asyncio

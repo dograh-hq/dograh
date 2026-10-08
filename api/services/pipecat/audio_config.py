@@ -97,9 +97,21 @@ def create_audio_config(transport_type: str) -> AudioConfig:
         )
         rate = 16000
 
+    # For telephony transports that use a sub-16kHz wire rate (e.g. Plivo/Twilio
+    # at 8kHz), keep the transport wire rates as-is but run the internal pipeline
+    # at 16kHz.  The SOXR serializer automatically upsamples 8→16kHz on inbound
+    # audio so that Gemini Live receives "audio/pcm;rate=16000" instead of the
+    # narrowband "audio/pcm;rate=8000" it was getting before.  Gemini is trained
+    # on 16kHz+ audio; sending 8kHz caused spectral mismatch, poor transcription
+    # accuracy, and significantly longer processing times (5–40 s STT spans).
+    # Outbound audio (Gemini outputs 24kHz) is already downsampled to the wire
+    # rate by the serializer, so Plivo still receives standard 8kHz μ-law.
+    REALTIME_PIPELINE_RATE = 16000
+    pipeline_rate = REALTIME_PIPELINE_RATE if rate < REALTIME_PIPELINE_RATE else rate
+
     return AudioConfig(
-        transport_in_sample_rate=rate,
-        transport_out_sample_rate=rate,
-        vad_sample_rate=rate,
-        pipeline_sample_rate=rate,
+        transport_in_sample_rate=rate,          # wire rate unchanged (e.g. 8000 for Plivo)
+        transport_out_sample_rate=rate,         # wire rate unchanged (e.g. 8000 for Plivo)
+        vad_sample_rate=rate,                   # VAD operates on wire-rate audio
+        pipeline_sample_rate=pipeline_rate,     # internal pipeline & Gemini input: 16kHz
     )

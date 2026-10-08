@@ -34,7 +34,7 @@ In the workflow editor choose **Add node**, scroll to **Integrations**, and sele
 | **Roark API Key** | Yes | The project key from step 1. |
 | **Roark Agent Name** | One of these two | The agent's name in Roark. Roark reuses an agent with this exact name in the project, or creates it on the first call. |
 | **Roark Agent ID** | One of these two | The UUID of an agent that already exists in Roark, as shown in the Roark dashboard. Takes precedence over the name, and is rejected on save if it is not a UUID. |
-| **Send Dograh transcript** | No, on by default | Send the turns and tool calls Dograh captured. Off means Roark transcribes the recording itself and receives neither. |
+| **Send Dograh transcript** | No, on by default | Send the turns and tool calls Dograh captured. Roark grades the transcript you send in preference to its own. Off means it grades its own transcription and gets no tool calls. |
 | **Send gathered context** | No, off by default | Also send the variables the agent gathered as Roark call properties. |
 | **Enabled** | No, on by default | Turn the export off without deleting the node. |
 
@@ -86,9 +86,16 @@ Two things to know if you turn it on. Roark fixes a property's type the first ti
 
 ### Transcripts
 
-With **Send Dograh transcript** on, Roark grades the transcript Dograh captured during the call: what your speech-to-text actually heard and what your agent actually said. That is usually what you want, because it is what the agent reasoned over.
+Roark transcribes the recording with its own speech-to-text either way, unless your project has been set up to skip that when you send a transcript. So this setting does not decide whether Roark transcribes. It decides which transcript Roark **uses**: one you send takes precedence over Roark's own, and becomes the transcript the call view shows and the one your metrics are graded on.
 
-Turn it off to have Roark transcribe the recording with its own speech-to-text instead. The useful reason to do that is to compare the two, for example to measure your provider's accuracy against Roark's. Note that this also stops Dograh sending the call's tool invocations, which are read from the same event stream: Roark then has the audio and the call properties only.
+Leave it on to be graded on what your own speech-to-text heard and what your agent actually said, which is what the agent reasoned over. Turn it off to be graded on Roark's transcription of the same audio instead, for example if your provider's transcript is lossy. Turning it off also stops Dograh sending the call's tool invocations, which are read from the same event stream, so Roark is left with the audio and the call properties.
+
+<Note>
+  Comparing your transcript against Roark's is a Roark-side metric rather than
+  something this setting produces, and it needs both transcripts on the call.
+  Leave this on and ask Roark to enable transcription accuracy for your
+  project.
+</Note>
 
 <Note>
   Each turn is timed from when the speaking started, not from when Dograh

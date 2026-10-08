@@ -107,9 +107,10 @@ class RoarkNodeData(BaseNodeData):
         display_name="Send Dograh transcript",
         description=(
             "Send the transcript and tool calls Dograh captured during the "
-            "call. Turn this off to have Roark transcribe the recording "
-            "itself, for example to measure your own speech-to-text against "
-            "Roark's. Roark then has no record of the tool calls either."
+            "call. Roark grades the transcript you send in preference to its "
+            "own. Turn this off to have Roark grade its own transcription of "
+            "the recording instead; it then has no record of the tool calls "
+            "either."
         ),
     )
     roark_send_gathered_context: bool = spec_field(

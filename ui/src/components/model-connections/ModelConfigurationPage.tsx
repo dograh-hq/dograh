@@ -26,7 +26,7 @@ export function ModelConfigurationPage({ configurationUuid, duplicateUuid }: { c
             <p>{error}</p><Button variant="outline" onClick={() => void reload()}>Retry</Button>
         </div> : sourceUuid && !saved ? <p role="alert">This model configuration is unavailable.</p>
             : catalog && <div className="rounded-lg border bg-card p-6">
-                <NamedConfigurationEditor key={`${sourceUuid || "new"}-${saved?.revision || 0}`} catalog={catalog} connections={connections} saved={saved} duplicate={Boolean(duplicateUuid)}
+                <NamedConfigurationEditor key={`${sourceUuid || "new"}-${saved?.revision || 0}`} catalog={catalog} connections={connections} saved={saved} duplicate={Boolean(duplicateUuid)} onConnectionsChange={reload}
                     onSaved={async (uuid, editFallbacks) => {
                         await reload();
                         await refreshConfig();

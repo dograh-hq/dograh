@@ -38,17 +38,17 @@ A provider's realtime and standard services may require separate connection type
 ## Create a named configuration
 
 1. Open **Models** in the sidebar, click **Add Configuration**, and give it a name.
-2. Choose **Dograh**, **Cascade**, or **Realtime** mode and select from your existing provider connections.
+2. Choose **Realtime**, **Dograh**, or **BYOK** mode. In BYOK and Realtime, each service has its own tab where you select a provider connection. To connect a new account without leaving the page, choose **Add a provider** at the end of a provider list.
 3. Adjust the available settings, then save.
 4. Click **Make org default** on its row in **Named Model Configurations** if agents should inherit it. The current default has an **Org default** badge.
 
 | Mode | Provider selection |
 |------|-------------------|
 | **Dograh** | One Dograh connection manages LLM, STT, TTS, and embeddings. You can adjust temperature, voice, speed, and language. |
-| **Cascade** | Separate compatible external connections for LLM, STT/transcriber, and TTS/voice. |
+| **BYOK** | Separate compatible external connections for LLM, STT/transcriber, and TTS/voice. |
 | **Realtime** | An external realtime speech-to-speech connection and a separate external LLM for tasks such as extraction and QA. |
 
-In Cascade and Realtime modes, you can also select an external embedding connection. Its model must match the indexes of the knowledge-base documents you use. Changing the configuration does not rebuild existing indexes. Dograh mode manages embeddings automatically and has no separate embedding controls. Dograh connections are selected only through Dograh mode in the editor.
+In BYOK and Realtime modes, you can also select an external embedding connection on the **Embedding** tab. Its model must match the indexes of the knowledge-base documents you use. Changing the configuration does not rebuild existing indexes. Dograh mode manages embeddings automatically and has no separate embedding controls. Dograh connections are selected only through Dograh mode in the editor.
 
 Use **Duplicate** to create a variation, or **Copy UUID** to reference a saved configuration or connection from your API integration. Names are labels; UUIDs identify references.
 

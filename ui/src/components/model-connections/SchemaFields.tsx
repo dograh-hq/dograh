@@ -126,15 +126,17 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
         onChange={event => onChange(event.target.value || (nullable ? null : ""))} />;
 }
 
-export function SchemaFields({ schema, values, onChange, secret = false, configuredFields = [], context = {}, provider, role }: {
+export function SchemaFields({ schema, values, onChange, secret = false, configuredFields = [], context = {}, provider, role, className = "grid grid-cols-1 gap-4 sm:grid-cols-2" }: {
     schema: FieldSchema; values: Record<string, unknown>; onChange: (name: string, value: unknown) => void;
     secret?: boolean; configuredFields?: string[];
     context?: Record<string, unknown>; provider?: string; role?: ServiceRole;
+    /** "contents" lays the fields into the parent's two-column grid. */
+    className?: string;
 }) {
     const prefix = useId();
     const [replacing, setReplacing] = useState<string[]>([]);
     const resolvedValues = { ...schemaDefaults(schema), ...values };
-    return <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    return <div className={className}>
         {Object.entries(schema.properties || {}).map(([name, raw]) => {
             const field = fieldForModel(resolveFieldSchema(raw, schema), { ...context, ...resolvedValues });
             if (!isFieldVisible(field, resolvedValues.model)) return null;

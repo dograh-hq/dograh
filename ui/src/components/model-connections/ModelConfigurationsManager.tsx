@@ -53,7 +53,7 @@ export default function ModelConfigurationsManager({ docsUrl }: { docsUrl?: stri
     };
 
     return <PageLayout title="Models"
-        description={<>Create named model configurations using your <Link href="/provider-connections" className="underline">provider connections</Link> in Dograh, Cascade, or Realtime mode.
+        description={<>Create named model configurations using your <Link href="/provider-connections" className="underline">provider connections</Link> in Realtime, Dograh, or BYOK mode.
             {docsUrl && <> <a href={docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline">Learn more<ExternalLink className="h-3 w-3" /></a></>}</>}
     >
         <PageSection title="Named Model Configurations" description="Choose a setup for each workflow or make one your org default. Workflows inherit the default unless overridden."

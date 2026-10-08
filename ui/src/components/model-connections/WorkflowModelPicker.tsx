@@ -17,7 +17,7 @@ const UNAVAILABLE = "__unavailable__";
 function status(model: WorkflowModelOverride): { text: string; tone: "muted" | "changed" | "warn" } {
     const { binding, view, incomplete, edited } = model;
     if (view === "custom") {
-        if (incomplete) return { text: "Choose an account for each service. The settings save once every service has one.", tone: "warn" };
+        if (incomplete) return { text: "Choose a provider for each service. The settings save once every service has one.", tone: "warn" };
         if (binding.kind !== "custom" && !edited) return { text: "Custom settings for this agent save with your first change. Test calls use them at once; publish to apply them to live calls.", tone: "warn" };
         return { text: "Custom settings for this agent. Test calls use them now; publish to apply them to live calls. Switching back to a preset drops them.", tone: "changed" };
     }
@@ -84,7 +84,7 @@ export function WorkflowModelPicker({ model, density = "full", fields }: {
                 Open {binding.base.name} in Models<ExternalLink className="h-3 w-3" />
             </Link>}
         </div>}
-        {view === "custom" && configuration && <ConfigurationFields configuration={configuration} catalog={catalog} connections={connections} onChange={model.edit} density={density} fields={fields} />}
+        {view === "custom" && configuration && <ConfigurationFields configuration={configuration} catalog={catalog} connections={connections} onChange={model.edit} onConnectionsChange={reload} density={density} fields={fields} />}
         {error && <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
             <span>{error}</span>
             {model.dirty && <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={saving} onClick={model.retry}>Retry</Button>}

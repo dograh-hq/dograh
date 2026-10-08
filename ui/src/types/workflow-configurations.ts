@@ -1,7 +1,7 @@
 import type {
     AmbientNoiseConfigurationDefaults,
     CallDispositionOption as GeneratedCallDispositionOption,
-    OrganizationAiModelConfigurationV2,
+    ModelConfigurationOverride,
     WorkflowConfigurationDefaults as GeneratedWorkflowConfigurationDefaults,
 } from "@/client/types.gen";
 
@@ -97,36 +97,6 @@ export const DEFAULT_TRANSCRIPT_CONFIGURATION: TranscriptConfiguration = {
     include_end_timestamps: false,
 };
 
-export interface ModelOverrides {
-    llm?: {
-        provider?: string;
-        model?: string;
-        api_key?: string;
-        [key: string]: unknown;
-    };
-    tts?: {
-        provider?: string;
-        model?: string;
-        voice?: string;
-        api_key?: string;
-        [key: string]: unknown;
-    };
-    stt?: {
-        provider?: string;
-        model?: string;
-        api_key?: string;
-        [key: string]: unknown;
-    };
-    realtime?: {
-        provider?: string;
-        model?: string;
-        voice?: string;
-        api_key?: string;
-        [key: string]: unknown;
-    };
-    is_realtime?: boolean;
-}
-
 type WorkflowConfigurationBase = Omit<
     GeneratedWorkflowConfigurationDefaults,
     | "ambient_noise_configuration"
@@ -162,8 +132,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     text_chat_inactivity_timeout_seconds?: number;  // End inactive text chats after this many seconds
     external_pbx_field_mappings: ExternalPBXFieldMapping[];
     external_pbx_lead_headers: string[];  // Extra lead fields to capture from the inbound INVITE
-    model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
-    model_configuration_v2_override?: OrganizationAiModelConfigurationV2;  // Full v2 model configuration override
+    model_configuration_override?: ModelConfigurationOverride | null;  // Catalog binding; absent means inherit the organization default
     [key: string]: unknown;  // Allow additional properties for future configurations
 };
 

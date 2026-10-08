@@ -28,6 +28,7 @@ import type {
   PhoneNumberResponse,
   TelephonyConfigurationDetail,
 } from "@/client/types.gen";
+import { PageShell } from "@/components/layout/PageShell";
 import { ConfigFormDialog } from "@/components/telephony/ConfigFormDialog";
 import { PhoneNumberDialog } from "@/components/telephony/PhoneNumberDialog";
 import { SetupChecklistCard } from "@/components/telephony/SetupChecklistCard";
@@ -224,27 +225,27 @@ export default function TelephonyConfigurationDetailPage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto px-4 py-8 space-y-3">
+      <PageShell className="space-y-3">
         <Skeleton className="h-10 w-1/3" />
         <Skeleton className="h-32 w-full" />
         <Skeleton className="h-64 w-full" />
-      </div>
+      </PageShell>
     );
   }
 
   if (!config) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <PageShell>
         <Button variant="ghost" onClick={() => router.push("/telephony-configurations")}>
           <ArrowLeft className="h-4 w-4 mr-2" /> Back
         </Button>
         <p className="mt-4 text-muted-foreground">Configuration not found.</p>
-      </div>
+      </PageShell>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-6">
+    <PageShell className="space-y-6">
       <div>
         <Link
           href="/telephony-configurations"
@@ -608,6 +609,6 @@ export default function TelephonyConfigurationDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </PageShell>
   );
 }

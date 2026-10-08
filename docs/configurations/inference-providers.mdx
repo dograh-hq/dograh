@@ -1,99 +1,89 @@
 ---
 title: "Model Configurations"
-description: "Configure the speech-to-speech, Dograh-managed, or bring-your-own-key models your Dograh agents use."
+description: "Connect provider accounts, save reusable model setups, and choose defaults or overrides for your agents."
 ---
 
-## How model configurations work
+## Provider connections and model configurations
 
-Model Configurations define the default AI model setup for your organization. Agents use this configuration unless you set agent-level model overrides in the agent settings.
+Use **Providers** in the sidebar to connect provider accounts, and **Models** to create named model configurations. Providers lists each added connection in its own row. You can connect multiple accounts for the same provider and reuse them across configurations.
 
-To configure models, open **Models** in your Dograh dashboard:
+| Item | What it contains |
+|------|------------------|
+| **Provider Connection** | A provider account's credentials and connection settings, such as an endpoint, cloud project, or region. |
+| **Named Model Configuration** | A reusable choice of connections and model settings, such as the LLM model, temperature, and TTS voice. |
+| **Organization Default** | The named setup agents inherit when they have no model override. |
 
-- **Hosted:** `https://app.dograh.com/model-configurations`
-- **Self-hosted:** `http://localhost:3010/model-configurations`
-- **Local development:** `http://localhost:3000/model-configurations`
+Connections and configurations belong to your organization. Dograh provisions an initial Dograh connection and default setup during signup. You can add more Dograh connections with different Service Keys, or connect external providers.
 
-The Models page has three top-level sections:
+When you upgrade an existing deployment, the database migration converts your organization's saved model settings into connections and an **Organization default** configuration, and gives each agent that had its own model settings a named configuration of its own. Agents without their own settings keep inheriting the default.
 
-| Section | When to use it |
-|---------|----------------|
-| **Speech to Speech** | Use a realtime speech-to-speech model for the live conversation. You still configure an LLM alongside it for variable extraction and QA. |
-| **Dograh** | Use Dograh-managed LLM, voice, and transcriber models behind one Dograh Service Key. |
-| **BYOK** | Bring your own provider keys and configure LLM, Voice, Transcriber, and Embedding models separately. |
+## Add a provider connection
+
+You need the credentials and any connection settings required by your provider. To create a Dograh Service Key, see [API Keys and Service Keys](api-keys#service-keys).
+
+1. Open **Providers** in the sidebar and click **Add Provider** to open the connection editor page.
+2. Choose the provider and name the connection so you can distinguish its account or environment.
+3. Enter its credentials and any required connection settings, then save. Where key pools are supported, use **Add API Key** to enter each key in its own row.
+
+Click **Edit** on a provider row to open its editor page. Use **All provider connections** to return to the list.
+
+You choose which services use the connection when editing a named model configuration in **Models**.
+
+You can repeat these steps for multiple accounts at the same provider. Editing a connection lets you keep or replace configured credentials; saved secrets are not returned to the browser. Model settings reference the connection instead of copying its key.
+
+Saving a new connection, replacing credentials, or changing connection settings runs the provider's available credential checks before saving. Every API key in a pool is checked. A rejected key leaves the existing connection unchanged. Renaming a connection does not repeat provider checks. The checks vary by provider; some validate field structure or token format rather than making a live request.
+
+A provider's realtime and standard services may require separate connection types, even when they accept the same key. The available roles come from the provider definitions.
+
+## Create a named configuration
+
+1. Open **Models** in the sidebar, click **Add Configuration**, and give it a name.
+2. Choose **Realtime**, **Dograh**, or **BYOK** mode. In BYOK and Realtime, each service has its own tab where you select a provider connection. To connect a new account without leaving the page, choose **Add a provider** at the end of a provider list.
+3. Adjust the available settings, then save.
+4. Click **Make org default** on its row in **Named Model Configurations** if agents should inherit it. The current default has an **Org default** badge.
+
+| Mode | Provider selection |
+|------|-------------------|
+| **Dograh** | One Dograh connection manages LLM, STT, TTS, and embeddings. You can adjust temperature, voice, speed, and language. |
+| **BYOK** | Separate compatible external connections for LLM, STT/transcriber, and TTS/voice. |
+| **Realtime** | An external realtime speech-to-speech connection and a separate external LLM for tasks such as extraction and QA. |
+
+In BYOK and Realtime modes, you can also select an external embedding connection on the **Embedding** tab. Its model must match the indexes of the knowledge-base documents you use. Changing the configuration does not rebuild existing indexes. Dograh mode manages embeddings automatically and has no separate embedding controls. Dograh connections are selected only through Dograh mode in the editor.
+
+Use **Duplicate** to create a variation, or **Copy UUID** to reference a saved configuration or connection from your API integration. Names are labels; UUIDs identify references.
+
+Creating, editing, and duplicating model configurations opens a dedicated page. Use **All model configurations** to return to the list. In Dograh mode, click **Voice** to browse, filter, and play voice samples before selecting **Use this voice**. For Deepgram Flux multilingual, select **Language hints** with the language checkboxes. Model and language dropdowns offer **Enter Custom Value** where the provider supports it.
+
+Saving a named model configuration checks its structure and supported settings without repeating provider credential checks. A run's final configuration is validated before billing and quota authorization.
+
+For one run, all selected Dograh services must share a service key. You can keep multiple Dograh connections in the catalog and use them in different configurations.
+
+## Configure an individual agent
+
+1. Open the agent's **Settings** and its model configuration section.
+2. Inherit the organization default or select a named configuration.
+3. Save and publish the agent.
+
+Create and edit configurations in **Models**. For a variation, duplicate a named configuration there and select it in your workflow. Override individual fields such as temperature or voice through the API trigger for a single run.
+
+If an existing workflow has custom model settings, they remain in use until you explicitly select and save a named configuration or the organization default. Workflow settings show that existing override without offering individual field editing.
+
+A named selection follows edits to that configuration for future runs. A run that has already started keeps its saved settings and credential selection.
+
+## Override a single run
+
+The effective order is organization default, published workflow override (or draft for test calls), API trigger override, then pre-call data fetch override. The pre-call data fetch runs once the call is connected, so it can only change the services the agent owns: `llm`, `llm_fallback`, and `tts`. The mode, `stt`, `realtime`, and `embeddings` are fixed by the first three layers.
+
+An override can select a named configuration by UUID, select a provider connection for a service, or change a field such as temperature or voice. Selecting a different named configuration replaces earlier model-setting patches; that override's own explicit fields then apply. Changing to a connection for the same provider preserves model settings. Changing provider starts that service from the new provider's defaults plus your explicit settings.
+
+See [API Trigger](/voice-agent/api-trigger) for request examples and [Pre-call Data Fetch](/voice-agent/pre-call-data-fetch) for response examples. Overrides do not edit your saved configurations.
+
+## Archive unused setups
+
+Archive a named configuration or connection when you no longer need it. Dograh rejects archiving references still needed by a default, active configuration, workflow, or pending campaign. Change those references first. Started runs keep their resolved model settings and load the connection's current credentials. Credential updates replace the stored values; previous credentials are not retained.
+
+Expand **Archived** at the bottom of Models or Providers to see archived items and select **Restore** to use them again. Restoring preserves the item's UUID and settings without changing your org default. If a model configuration uses archived provider connections, restore those providers first. Archived items do not appear in configuration selectors.
 
 <Note>
-Model settings are organization-scoped. If no agent-level override is set, every agent in the organization uses the saved global configuration.
+When you use external providers, Dograh sends the data required for the selected service, which can include prompts, conversation history, transcripts, audio, tool definitions and results, and request metadata. Provider data handling, retention, training, and regional hosting policies vary.
 </Note>
-
-## Speech to Speech
-
-Use **Speech to Speech** when you want a realtime model to handle the live spoken conversation directly. In this mode, the realtime model handles speech input and speech output, so you do not configure separate Voice and Transcriber services.
-
-![Speech to Speech model configuration](../images/model-configuration-speech-to-speech.png)
-
-The Speech to Speech section has nested tabs:
-
-| Tab | What to configure |
-|-----|-------------------|
-| **Realtime Model** | The speech-to-speech provider, model, voice, and API key. |
-| **LLM** | A standard LLM used for non-realtime tasks such as variable extraction and QA analysis. |
-| **Embedding** | An embedding model used by features that need embeddings, such as retrieval from knowledge base content. |
-
-<Warning>
-An LLM is still required when you use Speech to Speech. The realtime model handles the live voice conversation, but Dograh uses the LLM for analysis tasks that happen outside the live audio stream.
-</Warning>
-
-## Dograh
-
-Use **Dograh** when you want Dograh to manage the model providers for you. This path uses one Dograh Service Key for Dograh-managed models instead of separate provider keys for LLM, Voice, and Transcriber.
-
-![Dograh model configuration](../images/model-configuration-dograh.png)
-
-Configure:
-
-| Field | What it controls |
-|-------|------------------|
-| **Voice** | The Dograh-managed voice to use. |
-| **Speed** | The voice playback speed. |
-| **Language** | The language behavior, including multilingual auto-detect when available. |
-| **API Key** | Your Dograh Service Key. Create Service Keys from **Developers**. |
-
-For details on creating and using Service Keys, see [API Keys and Service Keys](api-keys#service-keys).
-
-## BYOK
-
-Use **BYOK** when you want to bring your own provider accounts and API keys. This gives you separate control over each model category.
-
-<Warning>
-When you use BYOK or external model providers, Dograh sends only the data required for the selected service to operate. Depending on the provider and service type, this may include prompts, conversation history, transcripts, audio, generated text, tool/function definitions, tool inputs or results, and request metadata.
-
-Provider data handling varies. Review each provider's data processing, retention, model training, and regional hosting policies before using sensitive data.
-</Warning>
-
-![BYOK model configuration](../images/model-configuration-byok.png)
-
-The BYOK section has nested tabs:
-
-| Tab | What to configure |
-|-----|-------------------|
-| **LLM** | The chat or reasoning model provider, model, optional base URL, and API key. |
-| **Voice** | The text-to-speech provider, voice, model, speed, optional base URL, and API key. |
-| **Transcriber** | The speech-to-text provider, model, language, and API key. |
-| **Embedding** | The embedding provider, model, and API key. |
-
-Provider-specific fields appear only when they apply. For example, OpenAI-compatible LLM providers can expose a **Base URL** field, ElevenLabs voices can expose a voice ID, and transcribers can expose language options.
-
-## Agent-level model overrides
-
-You can override the organization model configuration for an individual agent. This is useful when different agents need different models, voices, transcribers, or providers.
-
-To configure an override:
-
-1. Open the agent.
-2. Go to **Settings**.
-3. Open **Model Overrides**.
-4. Enable the override for the service you want to customize.
-5. Configure the provider, model, and keys for that service.
-6. Save the agent settings.
-
-Agent-level overrides are selective. For example, you can override only the Voice service for one agent while it continues to use the organization-level LLM and Transcriber configuration.

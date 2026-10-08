@@ -47,7 +47,7 @@ from api.services.pipecat.pipeline_builder import (
     create_pipeline_task,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
-from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
+from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch_result
 from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
 from api.services.pipecat.realtime_feedback_events import (
     build_node_transition_event,
@@ -60,13 +60,12 @@ from api.services.pipecat.recording_audio_cache import (
     create_recording_audio_fetcher,
     warm_recording_cache,
 )
-from api.services.pipecat.recording_router_processor import RecordingRouterProcessor
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_llm_service_from_provider,
     create_realtime_llm_service,
     create_stt_service,
-    create_tts_service,
+    get_llm_runtime_configuration,
     stt_uses_external_turns,
 )
 from api.services.pipecat.termination_funnel_processor import (
@@ -410,14 +409,15 @@ async def _run_pipeline_telephony_impl(
     # Resolve effective org config here so the transport can tune its
     # bot-stopped-speaking fallback based on is_realtime; pass the resolved
     # values into _run_pipeline so it doesn't fetch them again.
-    from api.services.configuration.ai_model_configuration import (
-        get_effective_ai_model_configuration_for_workflow,
+    from api.services.configuration.run_model_configuration import (
+        get_effective_ai_model_configuration_for_run,
     )
 
     run_configs = workflow_run.definition.workflow_configurations or {}
-    user_config = await get_effective_ai_model_configuration_for_workflow(
+    user_config = await get_effective_ai_model_configuration_for_run(
         organization_id=workflow.organization_id,
         workflow_configurations=run_configs,
+        workflow_run=workflow_run,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -530,8 +530,8 @@ async def _run_pipeline_smallwebrtc_impl(
     # Resolve workflow_run + effective org config here so the transport can
     # tune its bot-stopped-speaking fallback based on is_realtime. _run_pipeline
     # reuses these via kwargs so we don't fetch twice.
-    from api.services.configuration.ai_model_configuration import (
-        get_effective_ai_model_configuration_for_workflow,
+    from api.services.configuration.run_model_configuration import (
+        get_effective_ai_model_configuration_for_run,
     )
 
     workflow_run = await db_client.get_workflow_run(workflow_run_id, **workflow_scope)
@@ -546,9 +546,10 @@ async def _run_pipeline_smallwebrtc_impl(
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
-    user_config = await get_effective_ai_model_configuration_for_workflow(
+    user_config = await get_effective_ai_model_configuration_for_run(
         organization_id=workflow.organization_id if workflow else None,
         workflow_configurations=run_configs,
+        workflow_run=workflow_run,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -654,13 +655,12 @@ async def _run_pipeline_impl(
     if workflow_run.is_completed:
         raise HTTPException(status_code=400, detail="Workflow run already completed")
 
-    merged_call_context_vars = dict(workflow_run.initial_context or {})
-    # If there is some extra call_context_vars, fold them in. Persistence
-    # happens once below, after runtime_configuration is also resolved.
-    if call_context_vars:
-        merged_call_context_vars = merge_external_initial_context(
-            merged_call_context_vars, call_context_vars
-        )
+    # The start request's variables win over what the run was created with;
+    # the pre-call fetch, applied once the caller is connected, wins over both.
+    merged_call_context_vars = {
+        **(workflow_run.initial_context or {}),
+        **merge_external_initial_context({}, call_context_vars),
+    }
 
     # Use the actual run ID even if persisted context contains a stale value.
     merged_call_context_vars["workflow_run_id"] = workflow_run_id
@@ -707,13 +707,14 @@ async def _run_pipeline_impl(
     # Resolve model overrides from the version onto global org config (skip
     # when the caller already resolved it).
     if resolved_user_config is None:
-        from api.services.configuration.ai_model_configuration import (
-            get_effective_ai_model_configuration_for_workflow,
+        from api.services.configuration.run_model_configuration import (
+            get_effective_ai_model_configuration_for_run,
         )
 
-        user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_config = await get_effective_ai_model_configuration_for_run(
             organization_id=workflow.organization_id,
             workflow_configurations=run_configs,
+            workflow_run=workflow_run,
         )
     else:
         user_config = resolved_user_config
@@ -729,96 +730,9 @@ async def _run_pipeline_impl(
         call_dispositions
     )
 
-    from api.services.managed_model_services import (
-        MPS_CORRELATION_ID_CONTEXT_KEY,
-        ensure_mps_correlation_id,
-    )
-
-    mps_correlation_id = await ensure_mps_correlation_id(
-        ai_model_config=user_config,
-        workflow_run_id=workflow_run_id,
-        initial_context=merged_call_context_vars,
-    )
-    if mps_correlation_id:
-        merged_call_context_vars[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id
-
-    # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
-    is_realtime = user_config.is_realtime and user_config.realtime is not None
-
-    # Create services based on user configuration
-    if is_realtime:
-        llm = create_realtime_llm_service(user_config, audio_config)
-        stt = None
-        tts = None
-        # Realtime services don't implement run_inference, so create a
-        # separate text LLM for variable extraction and other out-of-band
-        # inference calls.
-        inference_llm = create_llm_service(
-            user_config,
-            correlation_id=mps_correlation_id,
-        )
-    else:
-        stt = create_stt_service(
-            user_config,
-            audio_config,
-            keyterms=keyterms,
-            correlation_id=mps_correlation_id,
-        )
-        tts = create_tts_service(
-            user_config,
-            audio_config,
-            correlation_id=mps_correlation_id,
-            organization_id=workflow.organization_id,
-            tts_cache_enabled=run_configs.get("tts_cache_enabled") is True,
-        )
-        llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
-        inference_llm = None
-
-    # Variable and disposition extraction may share this out-of-band LLM. A
-    # shared conversation LLM cannot carry an extraction usage_context without
-    # also tagging normal conversation or context-summarization requests.
-    variable_extraction_llm = (
-        create_llm_service(
-            user_config,
-            correlation_id=mps_correlation_id,
-            usage_context="variable_extraction",
-        )
-        if needs_extraction_llm
-        and user_config.llm.provider == ServiceProviders.DOGRAH.value
-        else inference_llm or llm
-    )
-
-    # Stamp the providers/models actually resolved for this run onto
-    # initial_context so they're available for post-call analytics
-    # (model_overrides may have shifted them away from the org-level
-    # user_config).
-    if is_realtime:
-        # llm_* refers to the side-channel text LLM (variable extraction,
-        # voicemail detection); realtime_* is the speech-to-speech service.
-        runtime_configuration = {
-            "realtime_provider": user_config.realtime.provider,
-            "realtime_model": user_config.realtime.model,
-            "llm_provider": user_config.llm.provider,
-            "llm_model": user_config.llm.model,
-        }
-    else:
-        runtime_configuration = {
-            "stt_provider": user_config.stt.provider,
-            "stt_model": user_config.stt.model,
-            "tts_provider": user_config.tts.provider,
-            "tts_model": user_config.tts.model,
-            "llm_provider": user_config.llm.provider,
-            "llm_model": user_config.llm.model,
-        }
-    merged_call_context_vars = {
-        **merged_call_context_vars,
-        "runtime_configuration": runtime_configuration,
-    }
-    await db_client.update_workflow_run(
-        workflow_run_id, initial_context=merged_call_context_vars
-    )
-
-    # Pre-call fetch: fire early so it runs concurrently with remaining setup
+    # Pre-call fetch: started before anything else is built so it overlaps the
+    # rest of setup. The caller hears a ringer if it is still pending once the
+    # pipeline is up, and the first agent is built from its result.
     pre_call_fetch_task = None
     start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
     call_direction = getattr(workflow_run, "call_type", None)
@@ -836,14 +750,80 @@ async def _run_pipeline_impl(
             f"firing request to {start_node.pre_call_fetch_url}"
         )
         pre_call_fetch_task = asyncio.create_task(
-            execute_pre_call_fetch(
+            execute_pre_call_fetch_result(
                 url=start_node.pre_call_fetch_url,
                 credential_uuid=start_node.pre_call_fetch_credential_uuid,
                 call_context_vars=merged_call_context_vars,
                 workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
                 organization_id=workflow.organization_id,
             )
         )
+
+    from api.services.managed_model_services import (
+        MPS_CORRELATION_ID_CONTEXT_KEY,
+        ensure_mps_correlation_id,
+    )
+
+    mps_correlation_id = await ensure_mps_correlation_id(
+        ai_model_config=user_config,
+        workflow_run_id=workflow_run_id,
+        initial_context=merged_call_context_vars,
+    )
+    if mps_correlation_id:
+        merged_call_context_vars[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id
+
+    # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
+    is_realtime = user_config.is_realtime and user_config.realtime is not None
+
+    # Only call-scoped services are built here. A cascade call's first agent
+    # (its LLM and TTS) is a visit-scoped stage, built once the pre-call fetch
+    # has settled in `PipecatEngine.finalize_initial_agent`, so the fetch can
+    # still choose those models. A realtime call's one service is call-owned.
+    if is_realtime:
+        llm = create_realtime_llm_service(user_config, audio_config)
+        stt = None
+        # Realtime services don't implement run_inference, so create a
+        # separate text LLM for variable extraction and other out-of-band
+        # inference calls.
+        inference_llm = create_llm_service(
+            user_config,
+            correlation_id=mps_correlation_id,
+        )
+        # Extraction gets a separately tagged client only where it would be
+        # billed separately from the conversation.
+        variable_extraction_llm = (
+            create_llm_service(
+                user_config,
+                correlation_id=mps_correlation_id,
+                usage_context="variable_extraction",
+            )
+            if needs_extraction_llm
+            and user_config.llm.provider == ServiceProviders.DOGRAH.value
+            else inference_llm
+        )
+        # llm_* refers to the side-channel text LLM (variable extraction,
+        # voicemail detection); realtime_* is the speech-to-speech service.
+        runtime_configuration = {
+            "realtime_provider": user_config.realtime.provider,
+            "realtime_model": user_config.realtime.model,
+            **get_llm_runtime_configuration(user_config),
+        }
+    else:
+        stt = create_stt_service(
+            user_config,
+            audio_config,
+            keyterms=keyterms,
+            correlation_id=mps_correlation_id,
+        )
+        llm = None
+        inference_llm = None
+        variable_extraction_llm = None
+        runtime_configuration = None
+
+    await db_client.update_workflow_run(
+        workflow_run_id, initial_context=merged_call_context_vars
+    )
 
     # Create in-memory logs buffer early so it can be used by engine callbacks
     in_memory_logs_buffer = InMemoryLogsBuffer(workflow_run_id)
@@ -962,9 +942,7 @@ async def _run_pipeline_impl(
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
 
-    voicemail_config = (workflow.workflow_configurations or {}).get(
-        "voicemail_detection", {}
-    )
+    voicemail_config = run_configs.get("voicemail_detection", {})
     answer_supervisor = _create_answer_supervisor(
         voicemail_config,
         is_realtime=is_realtime,
@@ -1079,8 +1057,6 @@ async def _run_pipeline_impl(
             answer_supervisor, user_context_aggregator, max_user_idle_timeout
         )
 
-    recording_router = None
-
     # Create recording audio fetcher (used by recording router, audio greetings,
     # and audio transition speech)
     fetch_audio = create_recording_audio_fetcher(
@@ -1093,15 +1069,10 @@ async def _run_pipeline_impl(
         logger.info(
             f"Disabling voicemail detection for realtime workflow run {workflow_run_id}"
         )
-    # Recording router is only meaningful in non-realtime mode (it routes between
-    # pre-recorded audio playback and dynamic TTS; realtime LLMs produce audio
-    # directly). It starts as a passthrough; node preparation enables it using
-    # the same formatted-prompt check that adds recording mode instructions.
+    # Recordings are only meaningful in non-realtime mode (the router switches
+    # between pre-recorded audio and dynamic TTS; realtime LLMs produce audio
+    # directly). Each agent visit gets its own router from the runtime factory.
     if not is_realtime and has_recordings:
-        recording_router = RecordingRouterProcessor(
-            audio_sample_rate=audio_config.pipeline_sample_rate,
-            fetch_recording_audio=fetch_audio,
-        )
         # Warm the recording cache in the background so audio is ready
         # before the first playback request.
         asyncio.create_task(
@@ -1197,9 +1168,9 @@ async def _run_pipeline_impl(
         ws_sender=ws_sender,
         logs_buffer=in_memory_logs_buffer,
         selected_visit=lambda: engine.selected_visit_id,
-        call_event_recorder=call_events_session.recorder
-        if call_events_session
-        else None,
+        call_event_recorder=(
+            call_events_session.recorder if call_events_session else None
+        ),
     )
     task.add_observer(feedback_observer)
     engine.greeting.log_generated_speech = feedback_observer.log_speech
@@ -1227,22 +1198,29 @@ async def _run_pipeline_impl(
             on_agent_error=engine.handle_agent_error,
             use_draft=bool(workflow_run.extra.get("use_draft")),
             observers=[feedback_observer],
+            run_definition=run_definition,
+            run_model_configuration=user_config,
         )
         engine.set_agent_factory(agent_factory)
-        # The agent this call starts on. Its services were resolved above from
-        # the run's own pinned definition; a later visit resolves its own the
-        # same way. The worker is attached once the call pipeline is running,
-        # in `PipecatEngine.start_initial_agent`.
+        # The agent this call starts on. Its services are populated by the
+        # factory once the pre-call fetch has settled, and its worker is
+        # attached once the call pipeline is running, both in the call-start
+        # sequence that `register_event_handlers` runs.
         agent = engine.active_agent
         agent.workflow_id = workflow_id
         agent.definition_id = run_definition.id
         agent.workflow_name = workflow.name
-        agent.tts = tts
-        agent.recording_router = recording_router
-        agent.user_config = user_config
-        agent.runtime_configuration = runtime_configuration
         agent.is_child = True
         agent.worker = None
+    else:
+        # The realtime agent is call-owned: its one service is already in the
+        # pipeline, so only its identity and what it runs are recorded here.
+        agent = engine.active_agent
+        agent.workflow_id = workflow_id
+        agent.definition_id = run_definition.id
+        agent.workflow_name = workflow.name
+        agent.user_config = user_config
+        agent.runtime_configuration = runtime_configuration
 
     # Initialize the engine to set the initial context with
     # System Prompt and Tools
@@ -1299,6 +1277,9 @@ async def _run_pipeline_impl(
         termination_funnel=termination_funnel,
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,
+        workflow_run=workflow_run,
+        organization_id=workflow.organization_id,
+        run_model_configuration=user_config,
         answer_supervisor=answer_supervisor,
         user_provider_id=user_provider_id,
         integration_runtime_sessions=integration_runtime_sessions,

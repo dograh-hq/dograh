@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { getBuilderSessionApiV1WorkflowBuilderSessionIdGet, saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost, sendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPost } from '@/client/sdk.gen';
 import type { BuilderSession, BuilderTurnRequest } from '@/client/types.gen';
+import { PageShell } from '@/components/layout/PageShell';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { PlanApprovalCard } from '@/components/workflow-builder/PlanApprovalCard';
@@ -104,7 +105,7 @@ export default function CreateWorkflowPage() {
         } catch (err) { setError(err instanceof Error ? err.message : 'Could not save the draft.'); }
         finally { setSaving(false); }
     };
-    return <main className="mx-auto flex min-h-[calc(100vh-80px)] max-w-[1500px] flex-col px-4 py-6 md:px-8">
+    return <PageShell className="flex min-h-[calc(100vh-80px)] max-w-[1500px] flex-col py-6 md:px-8">
         <header className="mb-6 flex items-center justify-between gap-3"><div><h1 className="text-xl font-semibold tracking-tight">Create an agent</h1><p className="mt-1 text-sm text-muted-foreground">Describe what you need. Build and refine it together.</p></div>{!isStarting && <Button variant="outline" size="sm" onClick={newConversation} disabled={busy || saving || restoring}><Plus className="mr-2 h-4 w-4" />New conversation</Button>}</header>
         <div className={`grid flex-1 gap-6 ${session?.proposal ? 'lg:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)]' : `mx-auto w-full max-w-3xl ${isStarting ? 'content-center' : ''}`}`}>
             <section className={`flex min-w-0 flex-col ${isStarting ? '' : 'min-h-[650px] rounded-2xl border bg-muted/20'}`}>
@@ -132,5 +133,5 @@ export default function CreateWorkflowPage() {
             </section>
             {session?.proposal && <section className="min-w-0"><WorkflowPreview proposal={session.proposal} onSave={() => void save()} disabled={busy || !!session.can_continue} saving={saving} /><p className="mt-3 text-xs text-muted-foreground">Click a node to read its prompt.</p></section>}
         </div>
-    </main>;
+    </PageShell>;
 }

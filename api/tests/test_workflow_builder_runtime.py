@@ -1,6 +1,6 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import ANY, AsyncMock, call, patch
 from uuid import uuid4
 
 import httpx
@@ -11,7 +11,6 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import Field
 
-from api.enums import OrganizationConfigurationKey
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services import mps_service_key_client as mps_client_module
 from api.services.configuration.ai_model_configuration import (
@@ -343,17 +342,23 @@ def test_multiselect_and_custom_answers():
 
 @pytest.fixture
 def managed_builder_config(monkeypatch):
-    from api.services.configuration import ai_model_configuration
+    from api.services.configuration import model_connections
     from api.services.workflow.builder_runtime import model as adapter
 
     config = AsyncMock(
         return_value=SimpleNamespace(
-            value={"mode": "dograh", "dograh": {"api_key": "org-service-key"}},
-            last_validated_at=None,
+            effective=EffectiveAIModelConfiguration(
+                llm=DograhLLMService(api_key="org-service-key")
+            ),
         )
     )
     minted = AsyncMock(return_value={"correlation_id": "builder-correlation"})
-    monkeypatch.setattr(ai_model_configuration.db_client, "get_configuration", config)
+    monkeypatch.setattr(
+        model_connections,
+        "get_default_model_configuration",
+        AsyncMock(return_value=SimpleNamespace(uuid="default-configuration")),
+    )
+    monkeypatch.setattr(model_connections, "resolve_model_configuration", config)
     monkeypatch.setattr(adapter.mps_service_key_client, "create_correlation_id", minted)
     return config, minted
 
@@ -409,10 +414,7 @@ async def test_model_adapter_preserves_reasoning_and_provider_tool_metadata(
     assert "correlation_id" not in payload["metadata"]
     assert "mps_billing_version" not in payload["metadata"]
     config, minted = managed_builder_config
-    assert (
-        config.await_args_list
-        == [call(2, OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value)] * 2
-    )
+    assert config.await_args_list == [call(2, default_row=ANY)] * 2
     minted.assert_not_awaited()
     assert "org-service-key" not in model.model_dump_json()
     assert "org-service-key" not in str(payload["messages"])
@@ -443,7 +445,7 @@ async def test_model_adapter_requires_configured_dograh_key(
         AsyncMock(
             return_value=ResolvedAIModelConfiguration(
                 effective=EffectiveAIModelConfiguration(llm=llm),
-                source="organization_v2",
+                source="organization_v3",
             )
         ),
     )
@@ -512,12 +514,13 @@ async def test_model_adapter_isolates_org_keys_and_refreshes_configuration(
     config, minted = managed_builder_config
     keys = {2: "org-two-key", 4: "org-four-key"}
 
-    async def lookup(org_id, config_key):
+    async def lookup(org_id, *, default_row):
         await asyncio.sleep(0)
-        assert config_key == OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value
+        assert default_row.uuid == "default-configuration"
         return SimpleNamespace(
-            value={"mode": "dograh", "dograh": {"api_key": keys[org_id]}},
-            last_validated_at=None,
+            effective=EffectiveAIModelConfiguration(
+                llm=DograhLLMService(api_key=keys[org_id])
+            ),
         )
 
     async def mint(*, service_key):

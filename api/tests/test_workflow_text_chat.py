@@ -3,17 +3,15 @@ import copy
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 import pytest
 from pipecat.processors.aggregators.llm_context import LLMSpecificMessage
 from pipecat.utils.enums import EndTaskReason
 
 from api.db.models import OrganizationModel, UserModel, organization_users_association
-from api.enums import OrganizationConfigurationKey
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
-from api.services.configuration.ai_model_configuration import (
-    convert_legacy_ai_model_configuration_to_v2,
-)
+from api.services.pipecat.pre_call_fetch import PreCallFetchResult
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.text_chat_runner import (
     _deserialize_text_chat_checkpoint_messages,
@@ -27,6 +25,7 @@ from api.services.workflow.text_chat_session_service import (
 )
 from api.tasks.function_names import FunctionNames
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
+from api.tests.support.model_catalog import seed_default_model_configuration
 from pipecat.tests import MockLLMService
 
 
@@ -63,6 +62,7 @@ def test_text_chat_checkpoint_messages_round_trip_google_thought_signature():
     assert encoded[-1] == {
         "__specific__": True,
         "llm": "google",
+        "is_metadata": False,
         "message": {
             "type": "thought_signature",
             "signature": {
@@ -109,14 +109,7 @@ async def _create_user_and_workflow(
     user_configuration = EffectiveAIModelConfiguration.model_validate(
         USER_CONFIGURATION
     )
-    await db_session.upsert_configuration(
-        org.id,
-        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
-        convert_legacy_ai_model_configuration_to_v2(user_configuration).model_dump(
-            mode="json",
-            exclude_none=True,
-        ),
-    )
+    await seed_default_model_configuration(db_session, org.id, user_configuration)
 
     workflow = await db_session.create_workflow(
         name=f"Text Chat Workflow {suffix}",
@@ -129,7 +122,10 @@ async def _create_user_and_workflow(
 
 
 @pytest.mark.asyncio
-async def test_text_chat_session_creation_requires_selected_organization():
+@pytest.mark.parametrize("endpoint_suffix", ["", "/stream"])
+async def test_text_chat_session_creation_requires_selected_organization(
+    endpoint_suffix,
+):
     from httpx import ASGITransport, AsyncClient
 
     from api.app import app
@@ -148,7 +144,7 @@ async def test_text_chat_session_creation_requires_selected_organization():
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/api/v1/workflow/123/text-chat/sessions", json={}
+                f"/api/v1/workflow/123/text-chat/sessions{endpoint_suffix}", json={}
             )
     finally:
         if original_override:
@@ -230,10 +226,12 @@ async def test_user_can_end_text_chat_session(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint_suffix", ["", "/stream"])
 async def test_text_chat_session_creation_executes_initial_assistant_turn(
     db_session,
     async_session,
     test_client_factory,
+    endpoint_suffix,
 ):
     workflow_definition = {
         "nodes": [
@@ -307,11 +305,25 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
             ),
         ):
             create_response = await client.post(
-                f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions{endpoint_suffix}",
                 json={"initial_context": {"name": "explicit"}},
             )
             assert create_response.status_code == 200
-            created = create_response.json()
+            if endpoint_suffix:
+                updates = [
+                    json.loads(line[6:])
+                    for line in create_response.text.splitlines()
+                    if line.startswith("data: ")
+                ]
+                assert updates[0]["type"] == "session"
+                assert updates[-1]["type"] == "complete"
+                assert any(
+                    item.get("event", {}).get("type") == "bot_speech"
+                    for item in updates
+                )
+                created = updates[-1]["session"]
+            else:
+                created = create_response.json()
             run_response = await client.get(
                 f"/api/v1/workflow/{workflow.id}/runs/{created['workflow_run_id']}"
             )
@@ -339,6 +351,7 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
         "runtime_configuration": {
             "llm_provider": "openai",
             "llm_model": "gpt-4.1",
+            "llm_fallback": {"version": 1, "rules": []},
         },
     }
     assert "call_duration_seconds" in workflow_run.usage_info
@@ -402,16 +415,19 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
         suffix="pre-call-fetch",
     )
     pre_call_fetch = AsyncMock(
-        return_value={
-            "workflow_run_id": "fetched-run-id",
-            "customer_name": "Fetched",
-            "account_tier": "gold",
-            "runtime_configuration": {
-                "llm_provider": "fetched-provider",
-                "llm_model": "fetched-model",
+        return_value=PreCallFetchResult(
+            initial_context={
+                "workflow_run_id": "fetched-run-id",
+                "customer_name": "Fetched",
+                "account_tier": "gold",
+                "runtime_configuration": {
+                    "llm_provider": "fetched-provider",
+                    "llm_model": "fetched-model",
+                },
+                "mps_correlation_id": "fetched-correlation-id",
             },
-            "mps_correlation_id": "fetched-correlation-id",
-        }
+            outcome="completed",
+        )
     )
     llm_responses = [
         MockLLMService(mock_steps=[], chunk_delay=0.001),
@@ -428,7 +444,7 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
                 side_effect=llm_responses,
             ),
             patch(
-                "api.services.workflow.text_chat_runner.execute_pre_call_fetch",
+                "api.services.workflow.text_chat_runner.execute_pre_call_fetch_result",
                 new=pre_call_fetch,
             ),
             patch(
@@ -483,10 +499,8 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
     )
     assert fetch_kwargs["call_context_vars"]["customer_name"] == "Explicit"
     assert fetch_kwargs["call_context_vars"]["page_url"] == "https://dograh.com/pricing"
-    assert fetch_kwargs["call_context_vars"]["runtime_configuration"] == {
-        "llm_provider": "openai",
-        "llm_model": "gpt-4.1",
-    }
+    # The models are only final after the fetch, so they are not in the request.
+    assert "runtime_configuration" not in fetch_kwargs["call_context_vars"]
     assert (
         fetch_kwargs["call_context_vars"]["mps_correlation_id"] == "run-correlation-id"
     )
@@ -501,6 +515,7 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
         "runtime_configuration": {
             "llm_provider": "openai",
             "llm_model": "gpt-4.1",
+            "llm_fallback": {"version": 1, "rules": []},
         },
         "mps_correlation_id": "run-correlation-id",
     }
@@ -2254,7 +2269,14 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
         suffix="other",
     )
 
+    request_id = str(uuid4())
+    recovery_path = (
+        f"/api/v1/workflow/{workflow.id}/text-chat/sessions/recovery/{request_id}"
+    )
     async with test_client_factory(owner_user) as owner_client:
+        missing = await owner_client.get(recovery_path)
+        assert missing.status_code == 200
+        assert missing.json() is None
         llm = MockLLMService(
             mock_steps=[
                 MockLLMService.create_text_chunks("Hello from the workflow tester.")
@@ -2273,12 +2295,23 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
         ):
             create_response = await owner_client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
-                json={},
+                json={"request_id": request_id},
             )
             assert create_response.status_code == 200
             created = create_response.json()
+        recovered = await owner_client.get(recovery_path)
+        assert recovered.status_code == 200
+        assert recovered.json()["workflow_run_id"] == created["workflow_run_id"]
+
+        wrong_workflow = await owner_client.get(
+            f"/api/v1/workflow/{workflow.id + 1}/text-chat/sessions/recovery/{request_id}"
+        )
+        assert wrong_workflow.json() is None
 
     async with test_client_factory(other_user) as other_client:
+        recovery_response = await other_client.get(recovery_path)
+        assert recovery_response.status_code == 200
+        assert recovery_response.json() is None
         get_response = await other_client.get(
             f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{created['workflow_run_id']}"
         )
@@ -2290,6 +2323,24 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
             json={"expected_revision": created["revision"]},
         )
         assert end_response.status_code == 404
+        for path, body in [
+            (f"/api/v1/workflow/{workflow.id}/text-chat/sessions/stream", {}),
+            (
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{created['workflow_run_id']}/messages/stream",
+                {"text": "Unauthorized"},
+            ),
+        ]:
+            response = await other_client.post(path, json=body)
+            assert response.status_code == 404
+
+    assert (
+        await db_session.get_workflow_run_text_session_by_request_id(
+            workflow_id=workflow.id,
+            request_id=str(uuid4()),
+            organization_id=owner_user.selected_organization_id,
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -2337,14 +2388,7 @@ async def test_text_chat_session_creation_requires_selected_org_scope(
     user_configuration = EffectiveAIModelConfiguration.model_validate(
         USER_CONFIGURATION
     )
-    await db_session.upsert_configuration(
-        org_a.id,
-        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
-        convert_legacy_ai_model_configuration_to_v2(user_configuration).model_dump(
-            mode="json",
-            exclude_none=True,
-        ),
-    )
+    await seed_default_model_configuration(db_session, org_a.id, user_configuration)
 
     workflow = await db_session.create_workflow(
         name="Cross-org workflow",
@@ -2531,3 +2575,219 @@ async def test_text_chat_append_rejects_quota_without_mutating_session(
     assert (
         session_payload["session_data"]["status"] == created["session_data"]["status"]
     )
+
+
+@pytest.mark.asyncio
+async def test_text_chat_stream_sends_announcement_while_http_tool_is_pending(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    from uuid import uuid4
+
+    from api.app import app
+    from api.db.models import ToolModel
+
+    tool_uuid = str(uuid4())
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "Help the user.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "greeting_type": "text",
+                    "greeting": "Welcome.",
+                },
+            },
+            {
+                "id": "lookup",
+                "type": "agentNode",
+                "position": {"x": 0, "y": 200},
+                "data": {
+                    "name": "Lookup",
+                    "prompt": "Look up their details.",
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "tool_uuids": [tool_uuid],
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-lookup",
+                "source": "start",
+                "target": "lookup",
+                "data": {
+                    "label": "Go To Lookup",
+                    "condition": "Look up the details.",
+                    "transition_speech": "Please wait.",
+                    "transition_speech_type": "text",
+                },
+            }
+        ],
+    }
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="stream-tool",
+    )
+    tool = ToolModel(
+        tool_uuid=tool_uuid,
+        organization_id=user.selected_organization_id,
+        created_by=user.id,
+        name="lookup_details",
+        description="Look up details",
+        category="http_api",
+        definition={
+            "schema_version": 1,
+            "type": "http_api",
+            "config": {"parameters": []},
+        },
+    )
+    async_session.add(tool)
+    await async_session.flush()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    delivered = asyncio.Queue()
+
+    async def execute_http(**kwargs):
+        entered.set()
+        await asyncio.wait_for(release.wait(), timeout=15)
+        return {"balance": 100}
+
+    llms = [
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+        MockLLMService(
+            mock_steps=[
+                MockLLMService.create_mixed_chunks(
+                    "Let me check.", "go_to_lookup", {}, tool_call_id="transition-1"
+                ),
+                MockLLMService.create_mixed_chunks(
+                    "", "lookup_details", {}, tool_call_id="lookup-1"
+                ),
+                MockLLMService.create_text_chunks("Your balance is 100."),
+            ],
+            chunk_delay=0.001,
+        ),
+    ]
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llms,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+                new=execute_http,
+            ),
+        ):
+            response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions", json={}
+            )
+            assert response.status_code == 200
+            initial = response.json()
+            run_id = initial["workflow_run_id"]
+            path = f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{run_id}/messages/stream"
+            request_body = json.dumps(
+                {"text": "Check my balance", "expected_revision": initial["revision"]}
+            ).encode()
+            sent_request = False
+            disconnect = asyncio.Event()
+            status_codes = []
+
+            async def receive():
+                nonlocal sent_request
+                if not sent_request:
+                    sent_request = True
+                    return {
+                        "type": "http.request",
+                        "body": request_body,
+                        "more_body": False,
+                    }
+                await asyncio.wait_for(disconnect.wait(), timeout=20)
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                if message["type"] == "http.response.start":
+                    status_codes.append(message["status"])
+                elif message["type"] == "http.response.body":
+                    for line in message.get("body", b"").decode().splitlines():
+                        if line.startswith("data: "):
+                            delivered.put_nowait(json.loads(line[6:]))
+
+            # ASGITransport buffers the entire body. Observe actual ASGI sends
+            # instead, proving bytes are delivered while the HTTP tool is blocked.
+            scope = {
+                "type": "http",
+                "asgi": {"version": "3.0", "spec_version": "2.4"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": path,
+                "raw_path": path.encode(),
+                "query_string": b"",
+                "headers": [(b"content-type", b"application/json")],
+                "client": ("127.0.0.1", 1234),
+                "server": ("test", 80),
+                "root_path": "",
+            }
+            request_task = asyncio.create_task(app(scope, receive, send))
+            observed = []
+            try:
+                await asyncio.wait_for(entered.wait(), timeout=10)
+                while True:
+                    update = await asyncio.wait_for(delivered.get(), timeout=5)
+                    observed.append(update)
+                    if (
+                        update.get("event", {}).get("payload", {}).get("text")
+                        == "Please wait."
+                    ):
+                        break
+                assert status_codes == [200]
+                assert not request_task.done()
+                assert not release.is_set()
+                # A second POST cannot replace the pending turn, even if the
+                # caller obtains its fresh revision from the initial SSE event.
+                accepted = observed[0]["session"]
+                duplicate = await client.post(
+                    path,
+                    json={
+                        "text": "Check again",
+                        "expected_revision": accepted["revision"],
+                    },
+                )
+                assert duplicate.status_code == 409
+                release.set()
+                await asyncio.wait_for(request_task, timeout=10)
+                while not delivered.empty():
+                    observed.append(delivered.get_nowait())
+            finally:
+                release.set()
+                disconnect.set()
+                await asyncio.wait_for(request_task, timeout=10)
+
+    assert observed[-1]["type"] == "complete"
+    final = observed[-1]["session"]
+    turn = final["session_data"]["turns"][-1]
+    speech = [
+        item["payload"]["text"]
+        for item in turn["events"]
+        if item["type"] == "bot_speech"
+    ]
+    assert speech == ["Let me check.", "Please wait.", "Your balance is 100."]
+    assert turn["assistant_message"]["text"] == "\n\n".join(speech)
+    assert turn["message_events_version"] == 1
+    assert [item["event"] for item in observed if item["type"] == "turn_event"] == turn[
+        "events"
+    ]

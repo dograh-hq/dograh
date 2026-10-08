@@ -11,17 +11,12 @@ from pydantic import ValidationError
 
 from api.schemas.ai_model_configuration import (
     EffectiveAIModelConfiguration,
-    compile_ai_model_configuration_v2,
-)
-from api.services.configuration.ai_model_configuration import (
-    convert_legacy_ai_model_configuration_to_v2,
 )
 from api.services.configuration.registry import (
     AWS_BEDROCK_MODELS,
     REGISTRY,
     ServiceType,
 )
-from api.services.configuration.resolve import resolve_effective_config
 from api.services.pipecat.service_factory import (
     DograhGoogleVertexLLMService,
     create_llm_service,
@@ -134,32 +129,6 @@ def test_registered_bedrock_models_preserve_selected_temperature(model, temperat
     )
 
 
-def test_workflow_model_override_rejects_incompatible_inherited_temperature():
-    config = EffectiveAIModelConfiguration(llm=_config("openrouter", temperature=1.5))
-    with pytest.raises(ValidationError, match="between 0 and 1.0"):
-        resolve_effective_config(
-            config, {"llm": {"model": "anthropic/claude-sonnet-4"}}
-        )
-    assert config.llm.model == "openai/gpt-4.1"
-    assert config.llm.temperature == 1.5
-
-
-@pytest.mark.parametrize("temperature", [0, None])
-def test_workflow_model_and_temperature_can_be_overridden_together(temperature):
-    config = EffectiveAIModelConfiguration(llm=_config("openrouter", temperature=1.5))
-    effective = resolve_effective_config(
-        config,
-        {
-            "llm": {
-                "model": "anthropic/claude-sonnet-4",
-                "temperature": temperature,
-            }
-        },
-    )
-    assert effective.llm.model == "anthropic/claude-sonnet-4"
-    assert _request_temperature(create_llm_service(effective)) == temperature
-
-
 def test_temperature_serialization_respects_explicit_field_filters():
     config = _config("openai", temperature=None)
     assert "temperature" not in config.model_dump(
@@ -211,12 +180,10 @@ def test_unsupported_models_omit_temperature_even_after_model_override(provider,
     assert _request_temperature(service) is None
 
 
-def test_workflow_override_preserves_zero_and_enforces_model_range():
+def test_model_override_enforces_the_new_model_temperature_range():
     user_config = EffectiveAIModelConfiguration(
         llm=_config("openrouter", temperature=1.5)
     )
-    overridden = resolve_effective_config(user_config, {"llm": {"temperature": 0}})
-    assert _request_temperature(create_llm_service(overridden)) == 0
     with pytest.raises(HTTPException) as exc:
         create_llm_service_with_model_override(user_config, "anthropic/claude-sonnet-4")
     assert exc.value.status_code == 400
@@ -262,18 +229,6 @@ def test_standard_openai_endpoint_enforces_upper_bound(base_url):
 def test_incomplete_openai_endpoint_does_not_relax_temperature_limit(base_url):
     with pytest.raises(ValidationError, match="between 0 and 2.0"):
         _config("openai", base_url=base_url, temperature=3)
-
-
-def test_dograh_managed_conversion_keeps_temperature():
-    legacy = EffectiveAIModelConfiguration(llm=_config("dograh", temperature=0))
-    config = convert_legacy_ai_model_configuration_to_v2(legacy)
-    assert config.dograh.temperature == 0
-    assert (
-        _request_temperature(
-            create_llm_service(compile_ai_model_configuration_v2(config))
-        )
-        == 0
-    )
 
 
 @pytest.mark.parametrize("temperature", [0.0, 0.73, 1.0])

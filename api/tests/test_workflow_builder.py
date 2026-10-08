@@ -293,9 +293,11 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     from langgraph.checkpoint.memory import InMemorySaver
 
     from api.routes.workflow_builder import router
+    from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
     from api.services import mps_service_key_client as mps_client_module
     from api.services.auth.depends import get_user
-    from api.services.configuration import ai_model_configuration
+    from api.services.configuration import model_connections
+    from api.services.configuration.registry import DograhLLMService
     from api.services.workflow.builder_runtime import service as runtime
     from api.services.workflow.builder_runtime.agent import builder_instructions
 
@@ -308,11 +310,17 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     monkeypatch.setattr(runtime.db_client, "builder_checkpointer", checkpoints)
     config = AsyncMock(
         return_value=SimpleNamespace(
-            value={"mode": "dograh", "dograh": {"api_key": "org-service-key"}},
-            last_validated_at=None,
+            effective=EffectiveAIModelConfiguration(
+                llm=DograhLLMService(api_key="org-service-key")
+            ),
         )
     )
-    monkeypatch.setattr(ai_model_configuration.db_client, "get_configuration", config)
+    monkeypatch.setattr(
+        model_connections,
+        "get_default_model_configuration",
+        AsyncMock(return_value=SimpleNamespace(uuid="default-configuration")),
+    )
+    monkeypatch.setattr(model_connections, "resolve_model_configuration", config)
     monkeypatch.setattr(
         "api.services.workflow.builder_validation.validate_workflow_tool_name_collisions",
         AsyncMock(return_value=[]),
@@ -578,6 +586,6 @@ async def test_builder_stream_directs_unconfigured_org_to_model_configurations(
         "message": "Agent builder is currently only supported with a Dograh Service Key. Set it in /model-configurations.",
     }
     config.assert_awaited_once_with(
-        27, OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value
+        27, OrganizationConfigurationKey.MODEL_CONFIGURATION_DEFAULT_UUID.value
     )
     minted.assert_not_awaited()

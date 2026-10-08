@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import WorkflowDetailPage from './page';
@@ -22,7 +21,6 @@ vi.mock('@/client/sdk.gen', () => ({
     getWorkflowApiV1WorkflowFetchWorkflowIdGet: mocks.workflow,
     getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet: mocks.versions,
 }));
-vi.mock('../WorkflowLayout', () => ({ default: ({ children }: { children: ReactNode }) => children }));
 vi.mock('./RenderWorkflow', () => ({
     default: (props: Record<string, unknown>) => <pre data-testid="workflow">{JSON.stringify(props)}</pre>,
 }));

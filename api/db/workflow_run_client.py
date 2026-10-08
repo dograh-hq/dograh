@@ -50,6 +50,7 @@ class WorkflowRunClient(BaseDBClient):
         definition_id: int | None = None,
         use_draft: bool = False,
         campaign_traffic_split: dict | None = None,
+        model_configuration_overrides: dict | None = None,
     ) -> WorkflowRunModel:
         """Create a run."""
         async with self.async_session() as session:
@@ -92,6 +93,7 @@ class WorkflowRunClient(BaseDBClient):
                 mode=mode,
                 definition_id=definition_id,
                 initial_context=initial_context or {},
+                model_configuration_overrides=model_configuration_overrides,
                 gathered_context=gathered_context or {},
                 logs=logs or {},
                 campaign_id=campaign_id,
@@ -115,6 +117,34 @@ class WorkflowRunClient(BaseDBClient):
                 raise e
             await session.refresh(new_run)
         return new_run
+
+    async def store_model_configuration_snapshot_if_absent(
+        self, run_id: int, organization_id: int, snapshot: dict
+    ) -> dict:
+        """Pin a run's resolved model configuration once; return what is pinned.
+
+        Two workers authorizing the same run resolve the same inputs, but the
+        resolve picks among pooled credentials, so the first write wins and the
+        other caller executes the stored choice rather than its own.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.id == run_id,
+                    WorkflowModel.organization_id == organization_id,
+                )
+                .with_for_update(of=WorkflowRunModel)
+            )
+            run = result.scalar_one_or_none()
+            if run is None:
+                raise ValueError("Workflow run not found")
+            if run.model_configuration_snapshot:
+                return run.model_configuration_snapshot
+            run.model_configuration_snapshot = snapshot
+            await session.commit()
+            return snapshot
 
     async def get_all_workflow_runs(self) -> list[WorkflowRunModel]:
         async with self.async_session() as session:
@@ -375,6 +405,7 @@ class WorkflowRunClient(BaseDBClient):
         state: str | None = None,
         annotations: dict | None = None,
         extra: dict | None = None,
+        model_configuration_snapshot: dict | None = None,
     ) -> WorkflowRunModel:
         async with self.async_session() as session:
             # Use SELECT FOR UPDATE to lock the row during the update
@@ -386,6 +417,10 @@ class WorkflowRunClient(BaseDBClient):
             run = result.scalars().first()
             if not run:
                 raise ValueError(f"Workflow run with ID {run_id} not found")
+            if model_configuration_snapshot:
+                # Replaced wholesale: the pre-call fetch re-resolves the run's
+                # whole setup, so a merge would mix two credential selections.
+                run.model_configuration_snapshot = model_configuration_snapshot
             if recording_url:
                 run.recording_url = recording_url
             if transcript_url:

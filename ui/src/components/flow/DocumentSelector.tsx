@@ -128,6 +128,16 @@ export const DocumentSelector = ({
                                     </div>
                                 </label>
                             </div>
+                            <Link
+                                href={`/files?document=${doc.document_uuid}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label={`Open ${doc.filename} details`}
+                                title="Open document details"
+                                className="shrink-0 self-center p-1 rounded text-muted-foreground hover:text-foreground"
+                            >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                            </Link>
                         </div>
                     ))}
                 </div>

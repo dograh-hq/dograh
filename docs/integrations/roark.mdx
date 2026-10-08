@@ -119,7 +119,7 @@ With neither a public address nor a tunnel, the export is refused before it is s
 
 The download URL is unauthenticated but unguessable: it carries the run's public access token, the same token QA and webhook exports use, and re-signs storage access on each request so it does not expire.
 
-Because that token is the whole of the access control, the address has to be HTTPS as well as public. A plain-HTTP one is refused as `recording_url_not_https`: Roark's fetch would put the token and the audio on the wire in the clear, and the token does not expire, so anyone who saw it could replay it for as long as the run exists. A Cloudflare tunnel is HTTPS already; a `BACKEND_API_ENDPOINT` you serve yourself needs a certificate.
+Because that token is the whole of the access control, the address has to be HTTPS as well as public. A plain-HTTP one is refused as `recording_url_not_https`: Roark's fetch would put the token and the audio on the wire in the clear, and the token does not expire, so anyone who saw it could replay it for as long as the run exists. A Cloudflare tunnel is HTTPS already, but it is not a way out of this: the tunnel is only used when `BACKEND_API_ENDPOINT` is unset or not publicly reachable, so standing one up next to a public `http://` endpoint changes nothing. Either serve that endpoint over HTTPS, or unset it and let the tunnel provide the address.
 
 ## Re-running an export
 

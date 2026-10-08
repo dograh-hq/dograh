@@ -32,6 +32,11 @@ async def resolve_public_base_url() -> str:
     Its own failure mode is to raise, so a deployment with neither still gets
     the configured address rather than a crash.
 
+    The tunnel is consulted only when `BACKEND_API_ENDPOINT` is unset or not
+    publicly reachable: a public one is returned as configured, scheme and all.
+    So a tunnel is a remedy for an unreachable address and not for an insecure
+    one, which is why the two refusals below suggest different things.
+
     Neither path guarantees an address Roark can safely fetch from: with no
     tunnel running, the resolver returns the configured private one and so does
     this fallback, and nothing here requires it to be HTTPS.
@@ -204,7 +209,9 @@ async def run_completion(
                 f"Roark node '{roark_data.name}' (#{node_id}) skipped: the recording "
                 f"would be served over '{insecure_scheme}', which puts the run's "
                 f"public access token and its audio on the wire in the clear. Serve "
-                f"BACKEND_API_ENDPOINT over HTTPS, or run a cloudflared tunnel."
+                f"BACKEND_API_ENDPOINT over HTTPS. A cloudflared tunnel does not "
+                f"help here: it is only consulted when BACKEND_API_ENDPOINT is "
+                f"unset or not publicly reachable."
             )
             results[result_key] = {
                 "error": "recording_url_not_https",

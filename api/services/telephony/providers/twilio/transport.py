@@ -47,6 +47,10 @@ async def create_transport(
         auth_token=auth_token,
         transfer_strategy=TwilioConferenceStrategy(),
         hangup_strategy=TwilioHangupStrategy(),
+        params=TwilioFrameSerializer.InputParams(
+            twilio_sample_rate=audio_config.transport_in_sample_rate,
+            sample_rate=audio_config.pipeline_sample_rate,
+        ),
     )
 
     mixer = await build_audio_out_mixer(

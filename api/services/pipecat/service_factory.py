@@ -1503,12 +1503,18 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         from api.services.pipecat.realtime.gemini_live import (
             DograhGeminiLiveLLMService,
         )
+        from pipecat.services.google.gemini_live.llm import GeminiVADParams
 
         # Gemini Live enables input/output audio transcription by default
         # in its _connect() method — no need to configure it explicitly.
         settings_kwargs = {
             "model": model,
             "voice": voice or "Puck",
+            # Gemini Live turn-detection tuning: reduce silence wait
+            # before Gemini considers the user's turn finished.
+            "vad": GeminiVADParams(
+                silence_duration_ms=600,
+            ),
         }
         if language:
             settings_kwargs["language"] = language
@@ -1520,6 +1526,7 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         from api.services.pipecat.realtime.gemini_live_vertex import (
             DograhGeminiLiveVertexLLMService,
         )
+        from pipecat.services.google.gemini_live.llm import GeminiVADParams
 
         project_id = getattr(realtime_config, "project_id", None)
         credentials = getattr(realtime_config, "credentials", None)
@@ -1527,6 +1534,10 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         settings_kwargs = {
             "model": model,
             "voice": voice or "Charon",
+            # Gemini Live turn-detection tuning (same as non-Vertex branch)
+            "vad": GeminiVADParams(
+                silence_duration_ms=600,
+            ),
         }
         if language:
             settings_kwargs["language"] = language

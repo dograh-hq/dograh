@@ -32,10 +32,11 @@ async def resolve_public_base_url() -> str:
     Its own failure mode is to raise, so a deployment with neither still gets
     the configured address rather than a crash.
 
-    Neither path guarantees a public address: with no tunnel running, the
-    resolver returns the configured private one and so does this fallback.
-    `unreachable_recording_host` is what decides whether the result is
-    exportable.
+    Neither path guarantees an address Roark can safely fetch from: with no
+    tunnel running, the resolver returns the configured private one and so does
+    this fallback, and nothing here requires it to be HTTPS.
+    `unreachable_recording_host` and `insecure_recording_scheme` are what
+    decide whether the result is exportable.
     """
     try:
         backend_endpoint, _ws = await get_backend_endpoints()
@@ -82,6 +83,30 @@ def unreachable_recording_host(recording_url: str) -> str | None:
     if not is_local_or_private_url(recording_url):
         return None
     return urlsplit(recording_url).netloc or recording_url
+
+
+def insecure_recording_scheme(recording_url: str) -> str | None:
+    """The scheme that would expose the recording in transit, or None for HTTPS.
+
+    The URL carries the run's public access token in its path, and that token
+    is the whole of what stands between the internet and the run's recording
+    and transcript. It does not expire by design: the download route re-signs
+    storage access on every request, which is why it can be handed to a
+    service that fetches hours later. Over plain HTTP, Roark's fetch puts that
+    token and the audio on the wire in the clear, and whoever saw it can
+    replay it for as long as the run exists.
+
+    Refused rather than exported anyway, for the same reason a private host is:
+    the alternative is a disclosure the deployment did not choose and cannot
+    take back, in exchange for an export it can have by serving HTTPS.
+    """
+    scheme = urlsplit(recording_url).scheme.lower()
+    if scheme == "https":
+        return None
+    # A `BACKEND_API_ENDPOINT` configured without a scheme resolves to a URL
+    # Roark could not fetch at all. Named rather than reported as an empty
+    # string, so the run's annotation still says what was wrong with it.
+    return scheme or "(none)"
 
 
 def describe_validation_failure(exc: Exception) -> str:
@@ -170,6 +195,20 @@ async def run_completion(
             results[result_key] = {
                 "error": "recording_url_not_public",
                 "recording_host": unreachable_host,
+            }
+            continue
+
+        insecure_scheme = insecure_recording_scheme(recording_url)
+        if insecure_scheme:
+            logger.warning(
+                f"Roark node '{roark_data.name}' (#{node_id}) skipped: the recording "
+                f"would be served over '{insecure_scheme}', which puts the run's "
+                f"public access token and its audio on the wire in the clear. Serve "
+                f"BACKEND_API_ENDPOINT over HTTPS, or run a cloudflared tunnel."
+            )
+            results[result_key] = {
+                "error": "recording_url_not_https",
+                "recording_scheme": insecure_scheme,
             }
             continue
 

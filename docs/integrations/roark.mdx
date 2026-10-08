@@ -119,6 +119,8 @@ With neither a public address nor a tunnel, the export is refused before it is s
 
 The download URL is unauthenticated but unguessable: it carries the run's public access token, the same token QA and webhook exports use, and re-signs storage access on each request so it does not expire.
 
+Because that token is the whole of the access control, the address has to be HTTPS as well as public. A plain-HTTP one is refused as `recording_url_not_https`: Roark's fetch would put the token and the audio on the wire in the clear, and the token does not expire, so anyone who saw it could replay it for as long as the run exists. A Cloudflare tunnel is HTTPS already; a `BACKEND_API_ENDPOINT` you serve yourself needs a certificate.
+
 ## Re-running an export
 
 `externalId` is unique within a Roark project, so a run can only ever produce one Roark call. If the post-call job runs twice for the same run, Roark answers the second attempt with a 409 and Dograh records it as `duplicate` rather than as an error. Nothing is double-counted.
@@ -128,6 +130,7 @@ The ID carries a fingerprint of the install as well as the run id, so two Dograh
 ## Limits
 
 - **A call with no recording is not exported.** Roark ingests a call around its audio, so a run that produced none is skipped and recorded as `missing_recording`. A recording URL whose host is local or private is refused the same way, as `recording_url_not_public`; that is a reachability check on the address, not a fetch, so a public host that happens to be unroutable is not caught.
+- **The recording address must be HTTPS.** The download URL carries the run's non-expiring access token, so a plain-HTTP address is refused as `recording_url_not_https` rather than exported under it. See [Reachability](#reachability).
 - **Text chat runs are not exported.** They have no audio, and Roark models a chat as a separate resource.
 - **The export is not retried.** A refusal is recorded in the run's annotations with Roark's message; publish the fix and the next call exports normally.
 - **Mono only.** Dograh keeps separate agent and caller tracks, but sends the mixed recording, so Roark separates speakers itself rather than reading them off channels.

@@ -34,6 +34,7 @@ from api.services.integrations.roark.client import (
 from api.services.integrations.roark.completion import (
     build_recording_url,
     describe_validation_failure,
+    insecure_recording_scheme,
     run_completion,
     unreachable_recording_host,
 )
@@ -175,11 +176,13 @@ def _completion_context(workflow_run=None, public_token="tok-123"):
 
 @pytest.fixture(autouse=True)
 def _public_backend_endpoint():
-    """Resolve a publicly reachable backend for every test in this file.
+    """Resolve a public HTTPS backend for every test in this file.
 
-    The test environment sets `BACKEND_API_ENDPOINT` to localhost, which Roark
-    cannot fetch a recording from, so the export now refuses it. The tests
-    about reachability patch this themselves and those patches win.
+    The test environment sets `BACKEND_API_ENDPOINT` to localhost over plain
+    HTTP, which the export refuses twice over: Roark cannot fetch a recording
+    from a private address, and it will not be handed the run's access token
+    without TLS. The tests about reachability patch this themselves and those
+    patches win.
     """
     with patch(
         "api.services.integrations.roark.completion.get_backend_endpoints",
@@ -965,6 +968,19 @@ def test_unreachable_recording_host(url, expected):
     assert unreachable_recording_host(url) == expected
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://dograh.example/api/v1/public/download/x", None),
+        ("HTTPS://dograh.example/api/v1/public/download/x", None),
+        ("http://dograh.example/api/v1/public/download/x", "http"),
+        ("dograh.example/api/v1/public/download/x", "(none)"),
+    ],
+)
+def test_insecure_recording_scheme(url, expected):
+    assert insecure_recording_scheme(url) == expected
+
+
 # ───────────────────────────── completion handler ─────────────────────────
 
 
@@ -1081,6 +1097,28 @@ async def test_completion_refuses_a_recording_roark_could_not_fetch():
     assert results["roark_roark-1"] == {
         "error": "recording_url_not_public",
         "recording_host": "localhost:8000",
+    }
+    delivery.assert_not_awaited()
+
+
+async def test_completion_refuses_to_hand_roark_a_plaintext_recording_url():
+    """The URL carries the run's public access token in its path, and that
+    token does not expire. Over plain HTTP, Roark's fetch puts it and the audio
+    on the wire in the clear and anyone who saw it can replay it, so a public
+    but non-HTTPS deployment is refused rather than exported."""
+    delivery = AsyncMock()
+    with (
+        patch(
+            "api.services.integrations.roark.completion.get_backend_endpoints",
+            AsyncMock(return_value=("http://dograh.example", "ws://dograh.example")),
+        ),
+        patch("api.services.integrations.roark.completion.create_call", delivery),
+    ):
+        results = await run_completion([_roark_node()], _completion_context())
+
+    assert results["roark_roark-1"] == {
+        "error": "recording_url_not_https",
+        "recording_scheme": "http",
     }
     delivery.assert_not_awaited()
 

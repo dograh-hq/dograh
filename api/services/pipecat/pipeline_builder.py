@@ -101,14 +101,18 @@ def build_agent_generation_pipeline(
     tts,
     generation_callback_processor,
     recording_router=None,
+    context_processor=None,
 ):
     """Build the generation stage that runs in one agent visit's own worker.
 
     Slots into the gap :func:`build_pipeline` leaves between the user
     aggregator and the output transport, so the frames arriving at the call
-    pipeline's transport are the same as if this ran inline.
+    pipeline's transport are the same as if this ran inline. The optional
+    ``context_processor`` sits ahead of the LLM and sees each user turn first.
     """
     processors = [llm, generation_callback_processor]
+    if context_processor:
+        processors.insert(0, context_processor)
     if recording_router:
         processors.append(recording_router)
     processors.append(tts)

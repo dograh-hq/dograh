@@ -16,6 +16,7 @@ api/services/integrations/<name>/
 ├── node.py
 ├── runtime.py        # optional
 ├── completion.py     # optional
+├── tools.py          # optional
 ├── routes.py         # optional
 └── client.py         # optional
 ```
@@ -39,6 +40,7 @@ PACKAGE = register_package(
         nodes=(NODE,),
         create_runtime_sessions=create_runtime_sessions,  # optional
         run_completion=run_completion,  # optional
+        create_tools=create_tools,  # optional
         routers=(router,),  # optional
     )
 )
@@ -145,6 +147,50 @@ Typical runtime pattern:
 - build one collector/session per workflow run, not per node, unless the
   integration truly needs multiple independent collectors
 
+## LLM Tool Path
+
+If the integration gives the agent something to call during the conversation,
+implement `create_tools(workflow_graph, *, realtime)` in `tools.py` and return
+`IntegrationTool` objects (name, description, JSON schema properties, required
+parameters, and an async handler that receives pipecat `FunctionCallParams`).
+
+`PipecatEngine._prepare_node` calls it through `create_integration_tools(...)`
+for every Start Call and Agent node, with the graph of the agent that owns the
+node, registers each handler with the LLM, and adds each schema to the node's
+tools. This covers voice calls, realtime calls, and text chat. A tool whose name
+the node already uses (a transition, custom tool or knowledge base tool) is
+skipped with a warning, so an integration can never replace a workflow function.
+
+Rules for tool factories:
+
+- Return `[]` when the workflow has no enabled node of your type.
+- Keep the factory cheap and synchronous. It runs on every node transition.
+- Start slow setup (downloads, warm-up) in the background and cache it, so the
+  first tool call does not pay for it and later calls reuse it.
+- Handlers report errors through `params.result_callback(...)` rather than
+  raising. A factory that raises loses its tools for that node; the call goes on.
+
+## Turn Context Path
+
+If the integration can answer from the caller's words without the LLM deciding
+to ask, implement `create_context_providers(workflow_graph)` and return async
+callables that take the latest user message and return text, or `None`.
+
+Before the LLM answers each user turn, `IntegrationContextProcessor` (voice) and
+the text chat runner call every provider of the active agent and add their text
+as one `developer` message after the user message. The next turn replaces it, the
+system prompt never changes (so providers can reuse their cached prompt prefix),
+and `without_integration_context` keeps it out of saved and exported
+conversations. This saves the LLM round trip a tool call costs. Realtime calls
+get no providers, so offer a tool there.
+
+Rules for context providers:
+
+- Answer in milliseconds. A provider has `PROVIDER_TIMEOUT_SECONDS` (0.25 s) and
+  is skipped for the turn when it runs over or raises.
+- Return `None` instead of waiting when your data is not ready yet.
+- Keep the text short and relevant: it is part of the prompt of every turn.
+
 ## Call-Finish Snapshot Path
 
 `api/services/pipecat/event_handlers.py` finalizes runtime sessions before the
@@ -234,6 +280,7 @@ At minimum, new integrations should add coverage for:
 - secret masking + masked round-trip preservation if secrets exist
 - runtime snapshot creation if live collectors exist
 - completion handler happy path and disabled-node skip path
+- tool factory output and handler results if the package adds LLM tools
 
 If you change shared integration machinery, test the framework in the generic
 code path, not only the concrete integration.

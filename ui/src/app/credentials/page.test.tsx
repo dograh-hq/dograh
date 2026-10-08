@@ -80,10 +80,12 @@ describe("credentials page", () => {
         expect(screen.queryByText("secret-token")).toBeNull();
     });
 
-    it("edits metadata without replacing stored authentication", async () => {
+    it("opens a credential from its name, which does not wrap the row's actions, and edits metadata without replacing stored authentication", async () => {
         vi.mocked(updateCredentialApiV1CredentialsCredentialUuidPut).mockResolvedValue({ data: { ...credential, name: "Sales CRM", description: "" } } as never);
         render(<CredentialsPage />);
-        fireEvent.click(await screen.findByRole("button", { name: "Edit CRM" }));
+        const name = await screen.findByRole("button", { name: "CRM" });
+        expect(name.contains(screen.getByRole("button", { name: "Delete CRM" }))).toBe(false);
+        fireEvent.click(name);
         expect(screen.queryByLabelText("API Key")).toBeNull();
         fireEvent.change(screen.getByLabelText("Name *"), { target: { value: "Sales CRM" } });
         fireEvent.change(screen.getByLabelText("Description"), { target: { value: "" } });
@@ -119,6 +121,8 @@ describe("credentials page", () => {
         vi.mocked(deleteCredentialApiV1CredentialsCredentialUuidDelete).mockResolvedValueOnce({ error: { detail: "Deletion failed" } } as never);
         render(<CredentialsPage />);
         fireEvent.click(await screen.findByRole("button", { name: "Delete CRM" }));
+        // The edit dialog stays closed; only the confirmation opens.
+        expect(screen.queryByRole("dialog", { hidden: true })).toBeNull();
         expect(deleteCredentialApiV1CredentialsCredentialUuidDelete).not.toHaveBeenCalled();
         fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }));
         expect((await screen.findByRole("alert")).textContent).toBe("Deletion failed");

@@ -104,3 +104,26 @@ describe("configuration modes", () => {
     });
 
 });
+
+describe("compact density", () => {
+    function CompactEditor() {
+        const [configuration, setConfiguration] = useState(emptyConfiguration(catalog, connections));
+        return <ConfigurationFields catalog={catalog} connections={connections} configuration={configuration} onChange={setConfiguration} density="compact" fields={["model", "voice"]} />;
+    }
+
+    it("lays services out as tabs and shows only the quick fields", () => {
+        render(<CompactEditor />);
+        expect(screen.getByLabelText("Mode").textContent).toBe("Dograh");
+        expect(screen.getAllByRole("tab").map(item => item.textContent)).toEqual(["LLM", "TTS", "STT"]);
+        expect(screen.getByText("Managed by Dograh.")).toBeDefined();
+        fireEvent.mouseDown(screen.getByRole("tab", { name: "TTS" }));
+        expect(within(screen.getByRole("tabpanel")).getByLabelText("Voice")).toBeDefined();
+        expect(screen.queryByLabelText("Speed")).toBeNull();
+        selectOption("Mode", "Cascade");
+        expect(screen.getAllByRole("tab").map(item => item.textContent)).toEqual(["LLM", "STT", "TTS"]);
+        expect(screen.queryByLabelText("Enable embeddings")).toBeNull();
+        expect(screen.queryByRole("region", { name: "LLM" })).toBeNull();
+        expect(selectOptions("Account")).toEqual(["OpenAI · openai", "Google · google"]);
+        expect(screen.getByLabelText("Model")).toBeDefined();
+    });
+});

@@ -22,9 +22,7 @@ from api.schemas.model_connections import (
 )
 from api.services.auth.depends import get_user_with_selected_organization
 from api.services.configuration.model_connections import (
-    get_default_model_configuration as get_default,
-)
-from api.services.configuration.model_connections import (
+    connection_provider,
     model_connection_catalog,
     public_snapshot,
     resolve_inline_model_configuration,
@@ -32,6 +30,9 @@ from api.services.configuration.model_connections import (
     validate_embedding_compatibility,
     validate_provider_connection,
     validate_provider_connection_credentials,
+)
+from api.services.configuration.model_connections import (
+    get_default_model_configuration as get_default,
 )
 
 
@@ -66,7 +67,7 @@ def _connection_response(row):
     return ProviderConnectionResponse(
         uuid=row.uuid,
         name=row.name,
-        provider=row.provider,
+        provider=connection_provider(row.provider),
         connection_settings=row.connection_settings,
         configured_credentials=sorted(
             key for key, value in row.credentials.items() if value
@@ -130,7 +131,11 @@ async def create_connection(request: ProviderConnectionCreate, user: UserModel =
     )
     row = await _write(
         db_client.create_provider_connection(
-            user.selected_organization_id, **request.model_dump()
+            user.selected_organization_id,
+            **{
+                **request.model_dump(),
+                "provider": connection_provider(request.provider),
+            },
         )
     )
     return _connection_response(row)

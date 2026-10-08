@@ -1,14 +1,17 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { archiveNamedModelConfiguration, restoreNamedModelConfiguration, restoreProviderConnection, setDefaultModelConfiguration } from "@/client/sdk.gen";
+import { archiveNamedModelConfiguration, archiveProviderConnection, restoreNamedModelConfiguration, restoreProviderConnection, setDefaultModelConfiguration } from "@/client/sdk.gen";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 
-import ModelConnectionsManager from "./ModelConnectionsManager";
+import ModelConfigurationsManager from "./ModelConfigurationsManager";
+import ProviderConnectionsManager from "./ProviderConnectionsManager";
 import type { ModelConnectionCatalog, NamedModelConfiguration, ProviderConnection } from "./types";
 import { useModelConnections } from "./useModelConnections";
 
-vi.mock("@/client/sdk.gen", () => ({ archiveNamedModelConfiguration: vi.fn(), restoreNamedModelConfiguration: vi.fn(), restoreProviderConnection: vi.fn(), setDefaultModelConfiguration: vi.fn() }));
+const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+vi.mock("@/client/sdk.gen", () => ({ archiveNamedModelConfiguration: vi.fn(), archiveProviderConnection: vi.fn(), restoreNamedModelConfiguration: vi.fn(), restoreProviderConnection: vi.fn(), setDefaultModelConfiguration: vi.fn() }));
 vi.mock("./useModelConnections", () => ({ useModelConnections: vi.fn() }));
 vi.mock("@/context/OrgConfigContext", () => ({ useOrgConfig: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -31,9 +34,9 @@ beforeEach(() => {
     reload.mockReset();
 });
 
-describe("named model configuration list", () => {
+describe("provider connection and model configuration lists", () => {
     it("sets the organization default directly from the configuration row", async () => {
-        render(<ModelConnectionsManager view="models" />);
+        render(<ModelConfigurationsManager />);
         expect(screen.getByText("Named Model Configurations")).toBeDefined();
         expect(screen.queryByText("Organization Default")).toBeNull();
         expect(screen.queryByRole("combobox")).toBeNull();
@@ -42,34 +45,48 @@ describe("named model configuration list", () => {
         await waitFor(() => expect(refreshConfig).toHaveBeenCalledOnce());
         expect(setDefaultModelConfiguration).toHaveBeenCalledWith({ body: { model_configuration_uuid: "Support" } });
         expect(reload).toHaveBeenCalledOnce();
+        expect(push).not.toHaveBeenCalled();
     });
 
     it("shows default selection errors without reporting a successful change", async () => {
         vi.mocked(setDefaultModelConfiguration).mockResolvedValue({ error: { detail: "Configuration is unavailable" } } as never);
-        render(<ModelConnectionsManager view="models" />);
+        render(<ModelConfigurationsManager />);
         fireEvent.click(screen.getByRole("button", { name: "Make org default" }));
         expect((await screen.findByRole("alert")).textContent).toContain("Configuration is unavailable");
         expect(reload).not.toHaveBeenCalled();
         expect(screen.getByText("Org default").parentElement?.textContent).toContain("Sales");
     });
 
-    it("links to dedicated pages for creating, editing, and duplicating configurations", () => {
-        render(<ModelConnectionsManager view="models" />);
+    it("links each configuration's name to its edit page, with the row actions outside the link", () => {
+        render(<ModelConfigurationsManager />);
         expect(screen.getByRole("link", { name: "Add Configuration" }).getAttribute("href")).toBe("/model-configurations/new");
         expect(screen.getAllByRole("link", { name: "Edit" })[0].getAttribute("href")).toBe("/model-configurations/Sales");
         expect(screen.getAllByRole("link", { name: "Duplicate" })[0].getAttribute("href")).toBe("/model-configurations/new?duplicate=Sales");
         expect(screen.queryByRole("dialog")).toBeNull();
+        const name = screen.getByRole("link", { name: "Sales" });
+        expect(name.getAttribute("href")).toBe("/model-configurations/Sales");
+        expect(screen.getByRole("heading", { name: /^Sales/ }).contains(name)).toBe(true);
+        for (const control of [...screen.getAllByRole("button", { name: "Archive" }), ...screen.getAllByRole("link", { name: "Duplicate" })]) {
+            expect(name.contains(control)).toBe(false);
+        }
+        expect(screen.queryByRole("link", { name: "Edit Sales" })).toBeNull();
+        expect(push).not.toHaveBeenCalled();
     });
 
-    it("links to dedicated pages for adding and editing providers", () => {
-        render(<ModelConnectionsManager view="providers" />);
+    it("links each provider's name to its edit page, with the row actions outside the link", () => {
+        render(<ProviderConnectionsManager />);
         expect(screen.getByRole("link", { name: "Add Provider" }).getAttribute("href")).toBe("/provider-connections/new");
         expect(screen.getAllByRole("link", { name: "Edit" })[0].getAttribute("href")).toBe("/provider-connections/Primary");
         expect(screen.queryByRole("dialog")).toBeNull();
+        const name = screen.getByRole("link", { name: "Primary" });
+        expect(name.getAttribute("href")).toBe("/provider-connections/Primary");
+        expect(name.contains(screen.getAllByRole("button", { name: "Archive" })[0])).toBe(false);
+        expect(screen.queryByRole("link", { name: "Edit Primary" })).toBeNull();
+        expect(push).not.toHaveBeenCalled();
     });
 
     it("hides the archive section when there are no archived items", () => {
-        render(<ModelConnectionsManager view="models" />);
+        render(<ModelConfigurationsManager />);
         expect(screen.queryByRole("button", { name: "Toggle Archived" })).toBeNull();
         expect(useModelConnections).toHaveBeenCalledWith({ includeArchived: true });
     });
@@ -85,7 +102,7 @@ describe("named model configuration list", () => {
         reload.mockImplementation(async () => {
             vi.mocked(useModelConnections).mockReturnValue({ ...activeState, [key]: [...activeState[key], { ...archived, is_active: true }] });
         });
-        render(<ModelConnectionsManager view={view} />);
+        render(view === "models" ? <ModelConfigurationsManager /> : <ProviderConnectionsManager />);
         expect(screen.queryByText("Archived item")).toBeNull();
         const toggle = screen.getByRole("button", { name: "Toggle Archived" });
         expect(toggle.textContent).toContain("1");
@@ -106,7 +123,7 @@ describe("named model configuration list", () => {
         const state = vi.mocked(useModelConnections).getMockImplementation()!();
         vi.mocked(useModelConnections).mockReturnValue({ ...state, configurations: [{ ...configurations[1], is_active: false }] });
         vi.mocked(restoreNamedModelConfiguration).mockResolvedValue({ error: { detail: "Provider connection not found" } } as never);
-        render(<ModelConnectionsManager view="models" />);
+        render(<ModelConfigurationsManager />);
         fireEvent.click(screen.getByRole("button", { name: "Toggle Archived" }));
         fireEvent.click(screen.getByRole("button", { name: "Restore" }));
         expect((await screen.findByRole("alert")).textContent).toContain("Provider connection not found");
@@ -117,26 +134,30 @@ describe("named model configuration list", () => {
     it("asks users to restore archived provider dependencies before restoring a model", () => {
         const state = vi.mocked(useModelConnections).getMockImplementation()!();
         vi.mocked(useModelConnections).mockReturnValue({ ...state, connections: connections.map(connection => ({ ...connection, is_active: false })), configurations: [{ ...configurations[1], is_active: false }] });
-        render(<ModelConnectionsManager view="models" />);
+        render(<ModelConfigurationsManager />);
         fireEvent.click(screen.getByRole("button", { name: "Toggle Archived" }));
         expect((screen.getByRole("button", { name: "Restore" }) as HTMLButtonElement).disabled).toBe(true);
         expect(screen.getByText(/Restore this configuration/).textContent).toContain("provider connections");
         expect(screen.getByText("Dograh · Primary")).toBeDefined();
     });
 
-    it("shows a newly archived configuration in the archive section", async () => {
+    it.each(["models", "providers"] as const)("shows newly archived %s in the archive section", async view => {
         const state = vi.mocked(useModelConnections).getMockImplementation()!();
-        vi.mocked(archiveNamedModelConfiguration).mockResolvedValue({ data: undefined } as never);
+        const key = view === "models" ? "configurations" : "connections";
+        const item = state[key][1];
+        const archiveItem = view === "models" ? archiveNamedModelConfiguration : archiveProviderConnection;
+        vi.mocked(archiveItem).mockResolvedValue({ data: undefined } as never);
         reload.mockImplementation(async () => {
-            vi.mocked(useModelConnections).mockReturnValue({ ...state, configurations: configurations.map(item => ({ ...item, is_active: item.uuid === "Sales" })) });
+            vi.mocked(useModelConnections).mockReturnValue({ ...state, [key]: state[key].map(current => ({ ...current, is_active: current.uuid !== item.uuid })) });
         });
-        render(<ModelConnectionsManager view="models" />);
+        render(view === "models" ? <ModelConfigurationsManager /> : <ProviderConnectionsManager />);
         fireEvent.click(screen.getAllByRole("button", { name: "Archive" })[1]);
+        expect(push).not.toHaveBeenCalled();
         fireEvent.click(screen.getAllByRole("button", { name: "Archive" }).at(-1)!);
         await waitFor(() => expect(refreshConfig).toHaveBeenCalledOnce());
-        expect(archiveNamedModelConfiguration).toHaveBeenCalledWith({ path: { configuration_uuid: "Support" } });
-        expect(screen.queryByText("Support")).toBeNull();
+        expect(archiveItem).toHaveBeenCalledWith({ path: { [view === "models" ? "configuration_uuid" : "connection_uuid"]: item.uuid } });
+        expect(screen.queryByText(item.name)).toBeNull();
         fireEvent.click(screen.getByRole("button", { name: "Toggle Archived" }));
-        expect(screen.getByText("Support")).toBeDefined();
+        expect(screen.getByText(item.name)).toBeDefined();
     });
 });

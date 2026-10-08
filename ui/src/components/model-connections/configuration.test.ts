@@ -15,6 +15,23 @@ const catalog: ModelConnectionCatalog = { services: { llm: {
 const base: ConfigurationSpec = { version: 3, mode: "pipeline", llm: { provider_connection_uuid: "openai-primary", settings: { model: "gpt-4.1", temperature: 0.2 } }, stt: { provider_connection_uuid: "stt", settings: { model: "transcriber" } }, tts: { provider_connection_uuid: "tts", settings: { voice: "Alice" } }, embeddings: { provider_connection_uuid: "embedding", settings: {} } };
 
 describe("model connection editor settings", () => {
+    it.each(["openai", "google"])("reuses a %s account with role-specific model defaults", provider => {
+        const account = connection("shared-account", provider);
+        const realtimeModel = provider === "openai" ? "gpt-realtime-2" : "gemini-3.8-live";
+        const shared: ModelConnectionCatalog = { services: {
+            ...catalog.services,
+            realtime: { [provider]: { ...catalog.services.llm![provider], settings_schema: { properties: {
+                model: { default: realtimeModel },
+            } } } },
+        } };
+        const cascade = configurationForMode("cascade", base, shared, [account]);
+        const realtime = configurationForMode("realtime", cascade, shared, [account]);
+        expect(realtime.llm).toEqual(cascade.llm);
+        expect(realtime.realtime).toEqual({ provider_connection_uuid: account.uuid, settings: { model: realtimeModel } });
+        expect(realtime.llm.settings.model).toBe(catalog.services.llm![provider].settings_schema.properties!.model.default);
+        expect(cleanConfiguration(realtime, shared, [account]).realtime).toEqual(realtime.realtime);
+    });
+
     it("preserves mixed managed and external providers on a rename-only save", () => {
         const available = [...connections, connection("managed", "dograh")];
         const mixed: ConfigurationSpec = { ...base, llm: { provider_connection_uuid: "managed", settings: {} }, embeddings: null };

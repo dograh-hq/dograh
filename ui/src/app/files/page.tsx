@@ -3,9 +3,8 @@
 import { ExternalLink, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { PageShell } from "@/components/layout/PageShell";
+import { PageLayout, PageSection } from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Dialog,
     DialogContent,
@@ -38,46 +37,29 @@ export default function FilesPage() {
 
     if (loading || !user) {
         return (
-            <PageShell>
+            <PageLayout title="Knowledge Base Files">
                 <div className="space-y-4">
                     <Skeleton className="h-12 w-64" />
                     <Skeleton className="h-64 w-full" />
                 </div>
-            </PageShell>
+            </PageLayout>
         );
     }
 
     return (
-        <PageShell>
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold mb-2">Knowledge Base Files</h1>
-                <p className="text-muted-foreground">
-                    Upload and manage documents for your voice agents to reference.{" "}
-                    <a href="https://docs.dograh.com/voice-agent/knowledge-base" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
-                        Learn more <ExternalLink className="h-3 w-3" />
-                    </a>
-                </p>
-            </div>
+        <PageLayout title="Knowledge Base Files" description={<>Upload and manage documents for your voice agents to reference.{" "}
+            <a href="https://docs.dograh.com/voice-agent/knowledge-base" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
+                Learn more <ExternalLink className="h-3 w-3" />
+            </a></>}>
 
-            <Card>
-                <CardHeader>
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <CardTitle>Your Documents</CardTitle>
-                            <CardDescription>
-                                Documents shared across all agents in your organization
-                            </CardDescription>
-                        </div>
-                        <Button onClick={() => setIsUploadOpen(true)}>
-                            <Upload className="w-4 h-4 mr-2" />
-                            Upload Document
-                        </Button>
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    <DocumentList refreshTrigger={refreshKey} />
-                </CardContent>
-            </Card>
+            <PageSection title="Your Documents"
+                description="Documents shared across all agents in your organization"
+                actions={<Button onClick={() => setIsUploadOpen(true)}>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload Document
+                </Button>}>
+                <DocumentList refreshTrigger={refreshKey} />
+            </PageSection>
 
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
                 <DialogContent>
@@ -90,6 +72,6 @@ export default function FilesPage() {
                     <DocumentUpload onUploadSuccess={handleUploadSuccess} />
                 </DialogContent>
             </Dialog>
-        </PageShell>
+        </PageLayout>
     );
 }

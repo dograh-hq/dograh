@@ -11,11 +11,10 @@ import type { DailyUsageBreakdownResponse, OrganizationPreferences, UsageHistory
 import { CallTypeCell } from '@/components/CallTypeCell';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
-import { PageShell } from '@/components/layout/PageShell';
+import { PageLayout, PageSection } from '@/components/layout/PageLayout';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
     Table,
     TableBody,
@@ -441,101 +440,94 @@ export default function UsagePage() {
     };
 
     return (
-        <PageShell className="space-y-6">
-            <div>
-                <div className="flex justify-between items-start">
-                    <div>
-                        <h1 className="text-3xl font-bold mb-2">Agent Runs</h1>
-                        <p className="text-muted-foreground">See all your Agent Runs across all Voice Agents. You can use filters to filter out required Agent Runs.</p>
-                    </div>
-                        <div className="flex items-center gap-2">
-                            <Globe className="h-4 w-4 text-muted-foreground" />
-                            <div className="w-[300px]">
-                                <TimezoneSelect
-                                    instanceId={timezoneSelectId}
-                                    value={selectedTimezone}
-                                    onChange={handleTimezoneChange}
-                                    isDisabled={savingTimezone || preferencesLoading}
-                                    placeholder={preferencesLoading ? "Loading..." : "Select timezone"}
-                                    styles={{
-                                        control: (base, state) => ({
-                                            ...base,
-                                            minHeight: '36px',
-                                            fontSize: '14px',
-                                            backgroundColor: 'var(--background)',
-                                            borderColor: state.isFocused ? 'var(--ring)' : 'var(--border)',
-                                            boxShadow: state.isFocused ? '0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent)' : 'none',
-                                            '&:hover': {
-                                                borderColor: 'var(--border)',
-                                            },
-                                        }),
-                                        menu: (base) => ({
-                                            ...base,
-                                            zIndex: 9999,
-                                            backgroundColor: 'var(--popover)',
-                                            border: '1px solid var(--border)',
-                                            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
-                                        }),
-                                        menuList: (base) => ({
-                                            ...base,
-                                            backgroundColor: 'var(--popover)',
-                                            padding: 0,
-                                        }),
-                                        option: (base, state) => ({
-                                            ...base,
-                                            backgroundColor: state.isSelected
-                                                ? 'var(--accent)'
-                                                : state.isFocused
-                                                ? 'var(--accent)'
-                                                : 'var(--popover)',
-                                            color: 'var(--foreground)',
-                                            cursor: 'pointer',
-                                            '&:active': {
-                                                backgroundColor: 'var(--accent)',
-                                            },
-                                        }),
-                                        singleValue: (base) => ({
-                                            ...base,
-                                            color: 'var(--foreground)',
-                                        }),
-                                        input: (base) => ({
-                                            ...base,
-                                            color: 'var(--foreground)',
-                                        }),
-                                        placeholder: (base) => ({
-                                            ...base,
-                                            color: 'var(--muted-foreground)',
-                                        }),
-                                        indicatorSeparator: (base) => ({
-                                            ...base,
-                                            backgroundColor: 'var(--border)',
-                                        }),
-                                        dropdownIndicator: (base) => ({
-                                            ...base,
-                                            color: 'var(--muted-foreground)',
-                                            '&:hover': {
-                                                color: 'var(--foreground)',
-                                            },
-                                        }),
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    </div>
+        <PageLayout title="Agent Runs"
+            description="See all your Agent Runs across all Voice Agents. You can use filters to filter out required Agent Runs."
+            actions={<div className="flex items-center gap-2">
+                <Globe className="h-4 w-4 text-muted-foreground" />
+                <div className="w-[260px] sm:w-[300px]">
+                    <TimezoneSelect
+                        instanceId={timezoneSelectId}
+                        value={selectedTimezone}
+                        onChange={handleTimezoneChange}
+                        isDisabled={savingTimezone || preferencesLoading}
+                        placeholder={preferencesLoading ? "Loading..." : "Select timezone"}
+                        styles={{
+                            control: (base, state) => ({
+                                ...base,
+                                minHeight: '36px',
+                                fontSize: '14px',
+                                backgroundColor: 'var(--background)',
+                                borderColor: state.isFocused ? 'var(--ring)' : 'var(--border)',
+                                boxShadow: state.isFocused ? '0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent)' : 'none',
+                                '&:hover': {
+                                    borderColor: 'var(--border)',
+                                },
+                            }),
+                            menu: (base) => ({
+                                ...base,
+                                zIndex: 9999,
+                                backgroundColor: 'var(--popover)',
+                                border: '1px solid var(--border)',
+                                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+                            }),
+                            menuList: (base) => ({
+                                ...base,
+                                backgroundColor: 'var(--popover)',
+                                padding: 0,
+                            }),
+                            option: (base, state) => ({
+                                ...base,
+                                backgroundColor: state.isSelected
+                                    ? 'var(--accent)'
+                                    : state.isFocused
+                                        ? 'var(--accent)'
+                                        : 'var(--popover)',
+                                color: 'var(--foreground)',
+                                cursor: 'pointer',
+                                '&:active': {
+                                    backgroundColor: 'var(--accent)',
+                                },
+                            }),
+                            singleValue: (base) => ({
+                                ...base,
+                                color: 'var(--foreground)',
+                            }),
+                            input: (base) => ({
+                                ...base,
+                                color: 'var(--foreground)',
+                            }),
+                            placeholder: (base) => ({
+                                ...base,
+                                color: 'var(--muted-foreground)',
+                            }),
+                            indicatorSeparator: (base) => ({
+                                ...base,
+                                backgroundColor: 'var(--border)',
+                            }),
+                            dropdownIndicator: (base) => ({
+                                ...base,
+                                color: 'var(--muted-foreground)',
+                                '&:hover': {
+                                    color: 'var(--foreground)',
+                                },
+                            }),
+                        }}
+                    />
                 </div>
+            </div>}>
+            {/* Daily Usage Table - Only for paid organizations */}
+            {organizationPricing?.price_per_second_usd && (
+                <div>
+                    <DailyUsageTable
+                        data={dailyUsage}
+                        isLoading={isLoadingDaily}
+                    />
+                </div>
+            )}
 
-                {/* Daily Usage Table - Only for paid organizations */}
-                {organizationPricing?.price_per_second_usd && (
-                    <div className="mb-6">
-                        <DailyUsageTable
-                            data={dailyUsage}
-                            isLoading={isLoadingDaily}
-                        />
-                    </div>
-                )}
-
-                {/* Filter Builder */}
-                <div className="mb-6 space-y-3">
+            {/* Usage History */}
+            <PageSection title="All Runs" description="Every agent run across your organization, with usage details"
+                toolbar={<div className="space-y-3">
                     <FilterBuilder
                         availableAttributes={availableUsageFilterAttributes}
                         activeFilters={activeFilters}
@@ -557,165 +549,151 @@ export default function UsagePage() {
                             </Button>
                         </div>
                     )}
-                </div>
+                </div>}>
 
-                {/* Usage History */}
-                <Card>
-                    <CardHeader>
-                        <div className="flex justify-between items-start">
-                            <div className="space-y-1.5">
-                                <CardTitle>All Runs</CardTitle>
-                                <CardDescription>
-                                    Every agent run across your organization, with usage details
-                                </CardDescription>
-                            </div>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        {isLoadingHistory ? (
-                            <div className="animate-pulse space-y-3">
-                                {[...Array(5)].map((_, i) => (
-                                    <div key={i} className="h-12 bg-muted rounded"></div>
-                                ))}
-                            </div>
-                        ) : usageHistory && usageHistory.runs.length > 0 ? (
-                            <>
-                                <div className="bg-card border rounded-lg overflow-hidden shadow-sm">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow className="bg-muted/50">
-                                                <TableHead className="font-semibold">Run ID</TableHead>
-                                                <TableHead className="font-semibold">Agent Name</TableHead>
-                                                <TableHead className="font-semibold">Call Type</TableHead>
-                                                <TableHead className="font-semibold">Phone Number</TableHead>
-                                                <TableHead className="font-semibold">Disposition</TableHead>
-                                                <TableHead className="font-semibold">Date</TableHead>
-                                                <TableHead
-                                                    className="font-semibold text-right cursor-pointer hover:bg-muted/50 select-none"
-                                                    onClick={() => handleSort('duration')}
-                                                >
-                                                    <div className="flex items-center justify-end gap-1">
-                                                        Duration
-                                                        {sortBy === 'duration' ? (
-                                                            sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
-                                                        ) : (
-                                                            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-                                                        )}
-                                                    </div>
-                                                </TableHead>
-                                                {organizationPricing?.price_per_second_usd && (
-                                                    <TableHead className="font-semibold text-right">Cost (USD)</TableHead>
+                {isLoadingHistory ? (
+                    <div className="animate-pulse space-y-3">
+                        {[...Array(5)].map((_, i) => (
+                            <div key={i} className="h-12 bg-muted rounded"></div>
+                        ))}
+                    </div>
+                ) : usageHistory && usageHistory.runs.length > 0 ? (
+                    <>
+                        <div className="bg-card border rounded-lg overflow-hidden shadow-sm">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="bg-muted/50">
+                                        <TableHead className="font-semibold">Run ID</TableHead>
+                                        <TableHead className="font-semibold">Agent Name</TableHead>
+                                        <TableHead className="font-semibold">Call Type</TableHead>
+                                        <TableHead className="font-semibold">Phone Number</TableHead>
+                                        <TableHead className="font-semibold">Disposition</TableHead>
+                                        <TableHead className="font-semibold">Date</TableHead>
+                                        <TableHead
+                                            className="font-semibold text-right cursor-pointer hover:bg-muted/50 select-none"
+                                            onClick={() => handleSort('duration')}
+                                        >
+                                            <div className="flex items-center justify-end gap-1">
+                                                Duration
+                                                {sortBy === 'duration' ? (
+                                                    sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                                                ) : (
+                                                    <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
                                                 )}
-                                                <TableHead className="font-semibold">Actions</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {usageHistory.runs.map((run) => (
-                                                <TableRow
-                                                    key={run.id}
-                                                >
-                                                    <TableCell
-                                                        className="font-mono text-sm cursor-pointer hover:underline"
-                                                        onClick={() => handleRowClick(run)}
-                                                    >
-                                                        #{run.id}
-                                                    </TableCell>
-                                                    <TableCell>{run.workflow_name || 'Unknown'}</TableCell>
-                                                    <TableCell>
-                                                        <CallTypeCell mode={run.mode} callType={run.call_type} />
-                                                    </TableCell>
-                                                    <TableCell className="text-sm">
-                                                        {(run.call_type === 'inbound'
-                                                            ? run.caller_number
-                                                            : run.called_number) || '-'}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {run.disposition ? (
-                                                            <Badge variant="default">
-                                                                {run.disposition}
-                                                            </Badge>
-                                                        ) : (
-                                                            <span className="text-sm text-muted-foreground">-</span>
-                                                        )}
-                                                    </TableCell>
-                                                    <TableCell>{formatDateTime(run.created_at, effectiveTimezone)}</TableCell>
-                                                    <TableCell className="text-right">
-                                                        {formatDuration(run.call_duration_seconds)}
-                                                    </TableCell>
-                                                    {organizationPricing?.price_per_second_usd && (
-                                                        <TableCell className="text-right font-medium">
-                                                            {run.charge_usd !== undefined && run.charge_usd !== null
-                                                                ? `$${run.charge_usd.toFixed(2)}`
-                                                                : '-'
-                                                            }
-                                                        </TableCell>
-                                                    )}
-                                                    <TableCell>
-                                                        <MediaPreviewButton
-                                                            recordingUrl={run.recording_url}
-                                                            transcriptUrl={run.transcript_url}
-                                                            runId={run.id}
-                                                            onOpenPreview={mediaPreview.openPreview}
-                                                        />
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </div>
-
-                                {/* Summary */}
-                                {appliedFilters.length > 0 && (
-                                    <div className="mt-4 p-3 bg-muted rounded-md">
-                                        <p className="text-sm text-muted-foreground">
-                                            Total for filtered period: <span className="font-semibold text-foreground">
-                                                {usageHistory.total_dograh_tokens.toLocaleString()} Dograh Tokens
-                                            </span>
-                                            {' • '}
-                                            <span className="font-semibold text-foreground">
-                                                {formatDuration(usageHistory.total_duration_seconds)}
-                                            </span>
-                                        </p>
-                                    </div>
-                                )}
-
-                                {/* Pagination */}
-                                {usageHistory.total_pages > 1 && (
-                                    <div className="flex items-center justify-between mt-6">
-                                        <p className="text-sm text-muted-foreground">
-                                            Page {usageHistory.page} of {usageHistory.total_pages} ({usageHistory.total_count} total runs)
-                                        </p>
-                                        <div className="flex gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => handlePageChange(currentPage - 1)}
-                                                disabled={currentPage === 1}
+                                            </div>
+                                        </TableHead>
+                                        {organizationPricing?.price_per_second_usd && (
+                                            <TableHead className="font-semibold text-right">Cost (USD)</TableHead>
+                                        )}
+                                        <TableHead className="font-semibold">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {usageHistory.runs.map((run) => (
+                                        <TableRow
+                                            key={run.id}
+                                        >
+                                            <TableCell
+                                                className="font-mono text-sm cursor-pointer hover:underline"
+                                                onClick={() => handleRowClick(run)}
                                             >
-                                                <ChevronLeft className="h-4 w-4" />
-                                                Previous
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => handlePageChange(currentPage + 1)}
-                                                disabled={currentPage === usageHistory.total_pages}
-                                            >
-                                                Next
-                                                <ChevronRight className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                    </div>
-                                )}
-                            </>
-                        ) : (
-                            <p className="text-center py-8 text-muted-foreground">No runs found</p>
+                                                #{run.id}
+                                            </TableCell>
+                                            <TableCell>{run.workflow_name || 'Unknown'}</TableCell>
+                                            <TableCell>
+                                                <CallTypeCell mode={run.mode} callType={run.call_type} />
+                                            </TableCell>
+                                            <TableCell className="text-sm">
+                                                {(run.call_type === 'inbound'
+                                                    ? run.caller_number
+                                                    : run.called_number) || '-'}
+                                            </TableCell>
+                                            <TableCell>
+                                                {run.disposition ? (
+                                                    <Badge variant="default">
+                                                        {run.disposition}
+                                                    </Badge>
+                                                ) : (
+                                                    <span className="text-sm text-muted-foreground">-</span>
+                                                )}
+                                            </TableCell>
+                                            <TableCell>{formatDateTime(run.created_at, effectiveTimezone)}</TableCell>
+                                            <TableCell className="text-right">
+                                                {formatDuration(run.call_duration_seconds)}
+                                            </TableCell>
+                                            {organizationPricing?.price_per_second_usd && (
+                                                <TableCell className="text-right font-medium">
+                                                    {run.charge_usd !== undefined && run.charge_usd !== null
+                                                        ? `$${run.charge_usd.toFixed(2)}`
+                                                        : '-'
+                                                    }
+                                                </TableCell>
+                                            )}
+                                            <TableCell>
+                                                <MediaPreviewButton
+                                                    recordingUrl={run.recording_url}
+                                                    transcriptUrl={run.transcript_url}
+                                                    runId={run.id}
+                                                    onOpenPreview={mediaPreview.openPreview}
+                                                />
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+
+                        {/* Summary */}
+                        {appliedFilters.length > 0 && (
+                            <div className="mt-4 p-3 bg-muted rounded-md">
+                                <p className="text-sm text-muted-foreground">
+                                    Total for filtered period: <span className="font-semibold text-foreground">
+                                        {usageHistory.total_dograh_tokens.toLocaleString()} Dograh Tokens
+                                    </span>
+                                    {' • '}
+                                    <span className="font-semibold text-foreground">
+                                        {formatDuration(usageHistory.total_duration_seconds)}
+                                    </span>
+                                </p>
+                            </div>
                         )}
-                    </CardContent>
-                </Card>
 
-                {/* Media Preview Dialog */}
-                {mediaPreview.dialog}
-        </PageShell>
+                        {/* Pagination */}
+                        {usageHistory.total_pages > 1 && (
+                            <div className="flex items-center justify-between mt-6">
+                                <p className="text-sm text-muted-foreground">
+                                    Page {usageHistory.page} of {usageHistory.total_pages} ({usageHistory.total_count} total runs)
+                                </p>
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handlePageChange(currentPage - 1)}
+                                        disabled={currentPage === 1}
+                                    >
+                                        <ChevronLeft className="h-4 w-4" />
+                                        Previous
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handlePageChange(currentPage + 1)}
+                                        disabled={currentPage === usageHistory.total_pages}
+                                    >
+                                        Next
+                                        <ChevronRight className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <p className="text-center py-8 text-muted-foreground">No runs found</p>
+                )}
+            </PageSection>
+
+            {/* Media Preview Dialog */}
+            {mediaPreview.dialog}
+        </PageLayout>
     );
 }

@@ -27,7 +27,7 @@ import type {
   TelephonyConfigurationDetail,
   TelephonyConfigurationListItem,
 } from "@/client/types.gen";
-import { PageShell } from "@/components/layout/PageShell";
+import { PageLayout, PageSection } from "@/components/layout/PageLayout";
 import { ConfigFormDialog } from "@/components/telephony/ConfigFormDialog";
 import {
   AlertDialog,
@@ -41,13 +41,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
 import { detailFromError } from "@/lib/apiError";
@@ -181,30 +174,18 @@ export default function TelephonyConfigurationsPage() {
 
   return (
     <>
-      <PageShell>
-        <div className="flex items-start justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Telephony configurations</h1>
-            <p className="text-muted-foreground">
-              Connect one or more telephony provider accounts. Each campaign uses one
-              configuration; inbound calls are routed to the right one by account ID.{" "}
-              <a
-                href="https://docs.dograh.com/integrations/telephony/overview"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 underline"
-              >
-                Learn more <ExternalLink className="h-3 w-3" />
-              </a>
-            </p>
-          </div>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" /> Add configuration
-          </Button>
-        </div>
-
+      <PageLayout title="Telephony configurations" description={<>Connect one or more telephony provider accounts. Each campaign uses one
+        configuration; inbound calls are routed to the right one by account ID.{" "}
+        <a
+          href="https://docs.dograh.com/integrations/telephony/overview"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-0.5 underline"
+        >
+          Learn more <ExternalLink className="h-3 w-3" />
+        </a></>}>
         {telnyxMissingWebhookPublicKeyCount > 0 && (
-          <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
               <div className="space-y-1 text-sm">
@@ -227,7 +208,7 @@ export default function TelephonyConfigurationsPage() {
         )}
 
         {vonageMissingSignatureSecretCount > 0 && (
-          <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
               <div className="space-y-1 text-sm">
@@ -246,30 +227,24 @@ export default function TelephonyConfigurationsPage() {
           </div>
         )}
 
-        {loading ? (
-          <div className="grid gap-3">
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
-          </div>
-        ) : items.length === 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>No telephony configurations yet</CardTitle>
-              <CardDescription>
-                Add one to enable outbound calls and receive inbound calls.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" /> Add configuration
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-3">
-            {items.map((item) => (
-              <Card key={item.id}>
-                <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center">
+        <PageSection title="Your Configurations"
+          description="Manage telephony provider accounts and their phone numbers."
+          actions={<Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />Add configuration</Button>}>
+          {loading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="mb-2 font-medium">No telephony configurations yet</p>
+              <p className="mb-4 text-sm text-muted-foreground">Add one to enable outbound calls and receive inbound calls.</p>
+              <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />Add configuration</Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {items.map((item) => (
+                <div key={item.id} className="flex flex-col gap-4 rounded-lg border p-4 sm:flex-row sm:items-center">
                   <Link
                     href={`/telephony-configurations/${item.id}`}
                     className="flex flex-1 items-center gap-4 min-w-0"
@@ -377,12 +352,12 @@ export default function TelephonyConfigurationsPage() {
                       </Link>
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </PageShell>
+                </div>
+              ))}
+            </div>
+          )}
+        </PageSection>
+      </PageLayout>
 
       <ConfigFormDialog
         open={createOpen}

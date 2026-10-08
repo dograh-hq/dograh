@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createProviderConnection, updateProviderConnection } from "@/client/sdk.gen";
 
 import { ConnectionEditor } from "./ConnectionEditor";
+import { selectOptions } from "./test-helpers";
 import type { ModelConnectionCatalog, ProviderConnection } from "./types";
 
 vi.mock("@/client/sdk.gen", () => ({ createProviderConnection: vi.fn(), updateProviderConnection: vi.fn() }));
@@ -22,6 +23,20 @@ beforeEach(() => {
 });
 
 describe("provider connection credentials", () => {
+    it("offers one account provider when both standard and realtime models are available", () => {
+        const openai = { ...catalog.services.llm!.dograh, title: "OpenAI" };
+        const google = { ...openai, title: "Google" };
+        const shared: ModelConnectionCatalog = { services: {
+            llm: { openai, google },
+            realtime: {
+                openai: { ...openai, settings_schema: { properties: { model: { default: "gpt-realtime-2" } } } },
+                google: { ...google, settings_schema: { properties: { model: { default: "gemini-3.8-live" } } } },
+            },
+        } };
+        render(<ConnectionEditor catalog={shared} onSaved={vi.fn()} />);
+        expect(selectOptions("Provider")).toEqual(["Google", "OpenAI"]);
+    });
+
     it("preserves configured credentials without round-tripping masked or empty values", async () => {
         editor();
         expect(screen.getByText("Configured")).toBeDefined();

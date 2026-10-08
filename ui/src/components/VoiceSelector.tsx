@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { detailFromError } from "@/lib/apiError";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 // Providers that have MPS voice endpoints
@@ -19,6 +21,7 @@ const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", 
 const ALL_FILTER_VALUE = "__all__";
 
 interface VoiceSelectorProps {
+    id?: string;
     provider: string;
     value: string;
     onChange: (voiceId: string) => void;
@@ -30,6 +33,7 @@ interface VoiceSelectorProps {
 }
 
 export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
+    id,
     provider,
     value,
     onChange,
@@ -39,6 +43,8 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     allowManualInput = true,
     className,
 }) => {
+    const { user, loading: authLoading } = useAuth();
+    const userId = user?.id;
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [genderFilter, setGenderFilter] = useState(ALL_FILTER_VALUE);
@@ -71,6 +77,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     }, []);
 
     const fetchVoices = useCallback(async () => {
+        if (authLoading || !userId) return;
         const providerKey = getProviderKey(provider);
         if (!providerKey) {
             setVoices([]);
@@ -89,7 +96,10 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                 query: Object.keys(query).length > 0 ? query : undefined,
             });
 
-            if (response.data?.voices) {
+            if (response.error) {
+                setError(detailFromError(response.error, "Failed to load voices"));
+                setVoices([]);
+            } else if (response.data?.voices) {
                 setVoices(response.data.voices);
             }
         } catch (err) {
@@ -99,7 +109,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         } finally {
             setIsLoading(false);
         }
-    }, [provider, model, language, getProviderKey]);
+    }, [provider, model, language, getProviderKey, authLoading, userId]);
 
     useEffect(() => {
         if (provider) {
@@ -237,6 +247,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         return (
             <div className={cn("space-y-2", className)}>
                 <Input
+                    id={id}
                     type="text"
                     placeholder="Enter voice ID"
                     value={value || ""}
@@ -250,6 +261,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         return (
             <div className={cn("space-y-2", className)}>
                 <Input
+                    id={id}
                     type="text"
                     placeholder="Enter voice ID"
                     value={manualVoiceId}
@@ -277,6 +289,8 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             <Popover open={isOpen} onOpenChange={setIsOpen}>
                 <PopoverTrigger asChild>
                     <Button
+                        id={id}
+                        type="button"
                         variant="outline"
                         role="combobox"
                         aria-expanded={isOpen}
@@ -284,7 +298,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                             "w-full justify-between",
                             !value && "text-muted-foreground"
                         )}
-                        disabled={isLoading}
+                        disabled={isLoading || authLoading || !userId}
                     >
                         <span className="truncate">
                             {isLoading ? "Loading voices..." : getSelectedVoiceName()}

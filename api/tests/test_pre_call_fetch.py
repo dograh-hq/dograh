@@ -1,4 +1,87 @@
+import httpx
+import pytest
+
+from api.services.pipecat import pre_call_fetch as service
 from api.services.pipecat.pre_call_fetch import _extract_initial_context
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nested", [False, True])
+async def test_hook_keeps_model_overrides_separate_and_sends_stable_run_key(
+    monkeypatch, nested
+):
+    response_data = {
+        "initial_context": {"customer": "Jane", "model_overrides": {"injected": True}},
+        "model_overrides": {"tts": {"settings": {"voice": "Alice"}}},
+    }
+    if nested:
+        response_data = {"call_inbound": response_data}
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=response_data)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(service.httpx, "AsyncClient", lambda **kwargs: client)
+    result = await service.execute_pre_call_fetch_result(
+        url="https://hook.example/lookup",
+        credential_uuid=None,
+        call_context_vars={
+            "caller_number": "+15550001111",
+            "called_number": "+15550002222",
+        },
+        workflow_id=7,
+        workflow_run_id=51,
+        organization_id=1,
+    )
+    assert result.initial_context == {"customer": "Jane"}
+    assert result.model_overrides == {"tts": {"settings": {"voice": "Alice"}}}
+    assert result.outcome == "completed"
+    assert requests[0].headers["Idempotency-Key"] == "dograh-pre-call-51"
+    assert b'"workflow_run_id":51' in requests[0].content
+
+
+@pytest.mark.asyncio
+async def test_invalid_hook_model_envelope_is_carried_for_rejection_later(
+    monkeypatch,
+):
+    """The fetch does not judge overrides; they are validated where applied."""
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"model_overrides": "invalid"})
+        )
+    )
+    monkeypatch.setattr(service.httpx, "AsyncClient", lambda **kwargs: client)
+    result = await service.execute_pre_call_fetch_result(
+        url="https://hook.example/lookup",
+        credential_uuid=None,
+        call_context_vars={},
+        workflow_id=7,
+        workflow_run_id=51,
+        organization_id=1,
+    )
+    assert result.outcome == "completed"
+    assert result.model_overrides == "invalid"
+
+
+@pytest.mark.asyncio
+async def test_hook_timeout_preserves_best_effort_context_policy(monkeypatch):
+    def timeout(request):
+        raise httpx.ReadTimeout("timeout", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(timeout))
+    monkeypatch.setattr(service.httpx, "AsyncClient", lambda **kwargs: client)
+    result = await service.execute_pre_call_fetch_result(
+        url="https://hook.example/lookup",
+        credential_uuid=None,
+        call_context_vars={},
+        workflow_id=7,
+        workflow_run_id=51,
+        organization_id=1,
+    )
+    assert result.outcome == "unavailable"
+    assert result.model_overrides is None
 
 
 class TestExtractInitialContext:

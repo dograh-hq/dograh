@@ -19,8 +19,7 @@ from api.services.pipecat.service_factory import (
 from api.services.workflow.qa.llm_config import create_qa_llm_service
 
 _CONFIG_FN = (
-    "api.services.workflow.qa.llm_config"
-    ".get_effective_ai_model_configuration_for_workflow"
+    "api.services.workflow.qa.llm_config.get_effective_ai_model_configuration_for_run"
 )
 _OWN_LLM_FACTORY = (
     "api.services.workflow.qa.llm_config.create_llm_service_from_provider"
@@ -144,6 +143,7 @@ async def test_workflow_llm_delegates_typed_config_to_central_factory():
     config_resolver.assert_awaited_once_with(
         organization_id=1,
         workflow_configurations={"source": "workflow"},
+        workflow_run=run,
     )
     factory.assert_called_once_with(
         config,

@@ -14,6 +14,7 @@ from api.constants import (
     MIN_TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
     TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
 )
+from api.schemas.model_connections import ModelConfigurationOverride
 
 DEFAULT_MAX_CALL_DURATION_SECONDS = 300
 # Hard ceiling on configurable call duration. Must stay <= the concurrency
@@ -123,6 +124,7 @@ class AmbientNoiseConfigurationDefaults(BaseModel):
 
 class WorkflowConfigurationDefaults(BaseModel):
     model_config = ConfigDict(extra="allow")
+    model_configuration_override: ModelConfigurationOverride | None = None
 
     @model_validator(mode="before")
     @classmethod

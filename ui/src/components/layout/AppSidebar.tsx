@@ -16,7 +16,9 @@ import {
   type LucideIcon,
   Megaphone,
   Phone,
+  Plug,
   Settings,
+  ShieldCheck,
   TrendingUp,
   UserRound,
   Workflow,
@@ -94,9 +96,9 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         icon: Workflow,
       },
       {
-        title: "Campaigns",
-        url: "/campaigns",
-        icon: Megaphone,
+        title: "Providers",
+        url: "/provider-connections",
+        icon: Plug,
       },
       {
         title: "Models",
@@ -115,9 +117,19 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         icon: Wrench,
       },
       {
+        title: "Credentials",
+        url: "/credentials",
+        icon: ShieldCheck,
+      },
+      {
         title: "Files",
         url: "/files",
         icon: Database,
+      },
+      {
+        title: "Campaigns",
+        url: "/campaigns",
+        icon: Megaphone,
       },
       {
         title: "Recordings",

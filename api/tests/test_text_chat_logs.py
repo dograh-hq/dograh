@@ -124,3 +124,56 @@ def test_build_text_chat_realtime_feedback_events_uses_visible_branch_and_dedupe
         event.get("payload", {}).get("error") != "Should be hidden after rewind"
         for event in events
     )
+
+
+def test_message_events_keep_announcement_before_tool_and_do_not_duplicate_text():
+    def event(kind, second, **payload):
+        return {
+            "type": kind,
+            "created_at": f"2026-01-01T00:00:0{second}+00:00",
+            "payload": payload,
+        }
+
+    events = build_text_chat_realtime_feedback_events(
+        {
+            "turns": [
+                {
+                    "id": "turn-1",
+                    "message_events_version": 1,
+                    "events": [
+                        event("bot_speech", 1, text="Please wait."),
+                        event(
+                            "tool_call_started",
+                            2,
+                            function_name="lookup",
+                            tool_call_id="tool-1",
+                        ),
+                        event(
+                            "tool_call_result",
+                            3,
+                            function_name="lookup",
+                            tool_call_id="tool-1",
+                            result={},
+                        ),
+                        event("bot_speech", 4, text="Your result."),
+                    ],
+                    "assistant_message": {
+                        "text": "Please wait.\n\nYour result.",
+                        "created_at": "2026-01-01T00:00:05+00:00",
+                    },
+                }
+            ]
+        }
+    )
+    assert [item["type"] for item in events] == [
+        "rtf-bot-text",
+        "rtf-function-call-start",
+        "rtf-function-call-end",
+        "rtf-bot-text",
+    ]
+    assert [
+        item["payload"]["text"] for item in events if item["type"] == "rtf-bot-text"
+    ] == [
+        "Please wait.",
+        "Your result.",
+    ]

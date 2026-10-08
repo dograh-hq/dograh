@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
@@ -337,6 +338,13 @@ class EndCallToolDefinition(BaseModel):
     """
 
 
+class ErrorCondition(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    type: Annotated[Literal['error'], Field(title='Type')] = 'error'
+
+
 class ExternalPBXFieldMapping(BaseModel):
     """
     Map one gathered-context value to a provider-native field.
@@ -485,6 +493,19 @@ class McpToolDefinition(BaseModel):
     """
     MCP server configuration.
     """
+
+
+class Mode(Enum):
+    pipeline = 'pipeline'
+    realtime = 'realtime'
+
+
+class NoOutputCondition(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    type: Annotated[Literal['no_output'], Field(title='Type')] = 'no_output'
+    after_ms: Annotated[int | None, Field(ge=100, le=10000, title='After Ms')] = 1500
 
 
 class NodeCategory(Enum):
@@ -705,6 +726,24 @@ class RetryConfigResponse(BaseModel):
     retry_on_voicemail: Annotated[bool, Field(title='Retry On Voicemail')]
 
 
+class ServiceOverride(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    settings: Annotated[dict[str, Any] | None, Field(title='Settings')] = None
+    provider_connection_uuid: Annotated[
+        UUID | None, Field(title='Provider Connection Uuid')
+    ] = None
+
+
+class ServiceSelection(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    settings: Annotated[dict[str, Any] | None, Field(title='Settings')] = None
+    provider_connection_uuid: Annotated[UUID, Field(title='Provider Connection Uuid')]
+
+
 class TimeSlotRequest(BaseModel):
     day_of_week: Annotated[int, Field(ge=0, le=6, title='Day Of Week')]
     start_time: Annotated[str, Field(pattern='^\\d{2}:\\d{2}$', title='Start Time')]
@@ -907,57 +946,6 @@ class ExternalPbxLeadHeader(RootModel[str]):
     root: Annotated[str, Field(pattern='^[A-Za-z][A-Za-z0-9_]{0,63}$')]
 
 
-class WorkflowConfigurationDefaults(BaseModel):
-    model_config = ConfigDict(
-        extra='allow',
-    )
-    ambient_noise_configuration: AmbientNoiseConfigurationDefaults | None = None
-    max_call_duration: Annotated[
-        int | None, Field(gt=0, le=1200, title='Max Call Duration')
-    ] = 300
-    max_user_idle_timeout: Annotated[
-        float | None, Field(title='Max User Idle Timeout')
-    ] = 10.0
-    smart_turn_stop_secs: Annotated[
-        float | None, Field(title='Smart Turn Stop Secs')
-    ] = 2.0
-    turn_start_strategy: Annotated[
-        TurnStartStrategy | None, Field(title='Turn Start Strategy')
-    ] = 'min_words'
-    turn_start_min_words: Annotated[
-        int | None, Field(ge=1, title='Turn Start Min Words')
-    ] = 2
-    turn_stop_strategy: Annotated[
-        TurnStopStrategy | None, Field(title='Turn Stop Strategy')
-    ] = 'transcription'
-    dictionary: Annotated[str | None, Field(title='Dictionary')] = ''
-    context_compaction_enabled: Annotated[
-        bool | None, Field(title='Context Compaction Enabled')
-    ] = False
-    tts_cache_enabled: Annotated[bool | None, Field(title='Tts Cache Enabled')] = False
-    """
-    Reuse generated speech for repeated phrases. Supports MiniMax TTS.
-    """
-    call_dispositions: Annotated[
-        list[CallDispositionOption] | None,
-        Field(max_length=50, title='Call Dispositions'),
-    ] = None
-    """
-    Allowed business outcomes for terminal call classification. Each entry defines the exact stored code and the criteria for selecting it.
-    """
-    text_chat_inactivity_timeout_seconds: Annotated[
-        int | None, Field(ge=60, le=10500, title='Text Chat Inactivity Timeout Seconds')
-    ] = 1800
-    external_pbx_field_mappings: Annotated[
-        list[ExternalPBXFieldMapping] | None,
-        Field(max_length=100, title='External Pbx Field Mappings'),
-    ] = None
-    external_pbx_lead_headers: Annotated[
-        list[ExternalPbxLeadHeader] | None,
-        Field(max_length=50, title='External Pbx Lead Headers'),
-    ] = None
-
-
 class WorkflowError(BaseModel):
     kind: ItemKind
     id: Annotated[str | None, Field(title='Id')]
@@ -1092,6 +1080,17 @@ class DocumentListResponseSchema(BaseModel):
     total: Annotated[int, Field(title='Total')]
     limit: Annotated[int, Field(title='Limit')]
     offset: Annotated[int, Field(title='Offset')]
+
+
+class FallbackRuleServiceSelection(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    condition: Annotated[
+        NoOutputCondition | ErrorCondition,
+        Field(discriminator='type', title='Condition'),
+    ]
+    target: ServiceSelection
 
 
 class HTTPValidationError(BaseModel):
@@ -1407,17 +1406,6 @@ class UpdateToolRequest(BaseModel):
     status: Annotated[str | None, Field(title='Status')] = None
 
 
-class UpdateWorkflowRequest(BaseModel):
-    name: Annotated[str | None, Field(title='Name')] = None
-    workflow_definition: Annotated[
-        dict[str, Any] | None, Field(title='Workflow Definition')
-    ] = None
-    template_context_variables: Annotated[
-        dict[str, Any] | None, Field(title='Template Context Variables')
-    ] = None
-    workflow_configurations: WorkflowConfigurationDefaults | None = None
-
-
 class ValidateWorkflowResponse(BaseModel):
     is_valid: Annotated[bool, Field(title='Is Valid')]
     errors: Annotated[list[WorkflowError], Field(title='Errors')]
@@ -1529,6 +1517,32 @@ class CreateToolRequest(BaseModel):
     """
 
 
+class FallbackPolicyServiceSelection(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    version: Annotated[Literal[1], Field(title='Version')] = 1
+    rules: Annotated[
+        list[FallbackRuleServiceSelection] | None, Field(max_length=2, title='Rules')
+    ] = None
+
+
+class ModelConfigurationOverride(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    model_configuration_uuid: Annotated[
+        UUID | None, Field(title='Model Configuration Uuid')
+    ] = None
+    mode: Annotated[Mode | None, Field(title='Mode')] = None
+    llm: ServiceOverride | None = None
+    llm_fallback: FallbackPolicyServiceSelection | None = None
+    stt: ServiceOverride | None = None
+    tts: ServiceOverride | None = None
+    realtime: ServiceOverride | None = None
+    embeddings: ServiceOverride | None = None
+
+
 class NodeSpec(BaseModel):
     """
     Single source of truth for a node type.
@@ -1562,6 +1576,69 @@ class NodeSpec(BaseModel):
 class NodeTypesResponse(BaseModel):
     spec_version: Annotated[str, Field(title='Spec Version')]
     node_types: Annotated[list[NodeSpec], Field(title='Node Types')]
+
+
+class WorkflowConfigurationDefaults(BaseModel):
+    model_config = ConfigDict(
+        extra='allow',
+    )
+    model_configuration_override: ModelConfigurationOverride | None = None
+    ambient_noise_configuration: AmbientNoiseConfigurationDefaults | None = None
+    max_call_duration: Annotated[
+        int | None, Field(gt=0, le=1200, title='Max Call Duration')
+    ] = 300
+    max_user_idle_timeout: Annotated[
+        float | None, Field(title='Max User Idle Timeout')
+    ] = 10.0
+    smart_turn_stop_secs: Annotated[
+        float | None, Field(title='Smart Turn Stop Secs')
+    ] = 2.0
+    turn_start_strategy: Annotated[
+        TurnStartStrategy | None, Field(title='Turn Start Strategy')
+    ] = 'min_words'
+    turn_start_min_words: Annotated[
+        int | None, Field(ge=1, title='Turn Start Min Words')
+    ] = 2
+    turn_stop_strategy: Annotated[
+        TurnStopStrategy | None, Field(title='Turn Stop Strategy')
+    ] = 'transcription'
+    dictionary: Annotated[str | None, Field(title='Dictionary')] = ''
+    context_compaction_enabled: Annotated[
+        bool | None, Field(title='Context Compaction Enabled')
+    ] = False
+    tts_cache_enabled: Annotated[bool | None, Field(title='Tts Cache Enabled')] = False
+    """
+    Reuse generated speech for repeated phrases. Supports MiniMax TTS.
+    """
+    call_dispositions: Annotated[
+        list[CallDispositionOption] | None,
+        Field(max_length=50, title='Call Dispositions'),
+    ] = None
+    """
+    Allowed business outcomes for terminal call classification. Each entry defines the exact stored code and the criteria for selecting it.
+    """
+    text_chat_inactivity_timeout_seconds: Annotated[
+        int | None, Field(ge=60, le=10500, title='Text Chat Inactivity Timeout Seconds')
+    ] = 1800
+    external_pbx_field_mappings: Annotated[
+        list[ExternalPBXFieldMapping] | None,
+        Field(max_length=100, title='External Pbx Field Mappings'),
+    ] = None
+    external_pbx_lead_headers: Annotated[
+        list[ExternalPbxLeadHeader] | None,
+        Field(max_length=50, title='External Pbx Lead Headers'),
+    ] = None
+
+
+class UpdateWorkflowRequest(BaseModel):
+    name: Annotated[str | None, Field(title='Name')] = None
+    workflow_definition: Annotated[
+        dict[str, Any] | None, Field(title='Workflow Definition')
+    ] = None
+    template_context_variables: Annotated[
+        dict[str, Any] | None, Field(title='Template Context Variables')
+    ] = None
+    workflow_configurations: WorkflowConfigurationDefaults | None = None
 
 
 PropertySpec.model_rebuild()

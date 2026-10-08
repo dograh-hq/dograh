@@ -70,13 +70,23 @@ class AudioConfig:
         return int(self.pipeline_sample_rate * 2 * self.max_recording_duration_seconds)
 
 
-def create_audio_config(transport_type: str) -> AudioConfig:
+def create_audio_config(transport_type: str, *, is_realtime: bool = False) -> AudioConfig:
     """Create audio configuration for a given transport.
 
     Telephony providers contribute their wire-format sample rate through the
     provider registry (``ProviderSpec.transport_sample_rate``); WebRTC modes
     use 16 kHz (transports handle resampling from/to 24 kHz). The remaining
     AudioConfig fields are derived from the chosen rate.
+
+    Args:
+        transport_type: Transport identifier (e.g. ``"plivo"``, ``"twilio"``).
+        is_realtime: When *True* the pipeline will use a realtime/multimodal
+            LLM (e.g. Gemini Live) that handles STT internally.  For sub-16 kHz
+            telephony transports the internal pipeline rate is lifted to 16 kHz
+            so the model receives wideband audio.  When *False* (the default)
+            a separate STT service is used, and the pipeline rate stays at the
+            wire rate to avoid a sample-rate mismatch between the audio frames
+            and the rate declared to the STT provider.
     """
     # Defer registry import to avoid an import cycle: the registry is imported
     # by every telephony provider package at startup.
@@ -97,21 +107,32 @@ def create_audio_config(transport_type: str) -> AudioConfig:
         )
         rate = 16000
 
-    # For telephony transports that use a sub-16kHz wire rate (e.g. Plivo/Twilio
-    # at 8kHz), keep the transport wire rates as-is but run the internal pipeline
-    # at 16kHz.  The SOXR serializer automatically upsamples 8→16kHz on inbound
-    # audio so that Gemini Live receives "audio/pcm;rate=16000" instead of the
-    # narrowband "audio/pcm;rate=8000" it was getting before.  Gemini is trained
-    # on 16kHz+ audio; sending 8kHz caused spectral mismatch, poor transcription
-    # accuracy, and significantly longer processing times (5–40 s STT spans).
-    # Outbound audio (Gemini outputs 24kHz) is already downsampled to the wire
-    # rate by the serializer, so Plivo still receives standard 8kHz μ-law.
+    # For realtime/multimodal flows on telephony transports with a sub-16 kHz
+    # wire rate (e.g. Plivo/Twilio at 8 kHz), keep the transport wire rates
+    # as-is but run the internal pipeline at 16 kHz.  The SOXR serializer
+    # automatically upsamples 8→16 kHz on inbound audio so that Gemini Live
+    # receives "audio/pcm;rate=16000" instead of the narrowband
+    # "audio/pcm;rate=8000" it was getting before.  Gemini is trained on
+    # 16 kHz+ audio; sending 8 kHz caused spectral mismatch, poor
+    # transcription accuracy, and significantly longer processing times
+    # (5–40 s STT spans).  Outbound audio (Gemini outputs 24 kHz) is already
+    # downsampled to the wire rate by the serializer, so Plivo still receives
+    # standard 8 kHz µ-law.
+    #
+    # For non-realtime flows the pipeline rate must equal the transport rate
+    # because separate STT services (Deepgram, etc.) are constructed with
+    # sample_rate=transport_in_sample_rate.  Lifting the pipeline rate without
+    # updating the declared rate would cause the provider to interpret the
+    # audio at double speed.
     REALTIME_PIPELINE_RATE = 16000
-    pipeline_rate = REALTIME_PIPELINE_RATE if rate < REALTIME_PIPELINE_RATE else rate
+    if is_realtime and rate < REALTIME_PIPELINE_RATE:
+        pipeline_rate = REALTIME_PIPELINE_RATE
+    else:
+        pipeline_rate = rate
 
     return AudioConfig(
         transport_in_sample_rate=rate,          # wire rate unchanged (e.g. 8000 for Plivo)
         transport_out_sample_rate=rate,         # wire rate unchanged (e.g. 8000 for Plivo)
         vad_sample_rate=rate,                   # VAD operates on wire-rate audio
-        pipeline_sample_rate=pipeline_rate,     # internal pipeline & Gemini input: 16kHz
+        pipeline_sample_rate=pipeline_rate,     # 16 kHz for realtime, wire rate otherwise
     )

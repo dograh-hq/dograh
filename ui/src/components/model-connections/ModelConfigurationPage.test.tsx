@@ -6,7 +6,7 @@ import { useOrgConfig } from "@/context/OrgConfigContext";
 
 import { LLMConfigurationPage } from "./LLMConfigurationPage";
 import { ModelConfigurationPage } from "./ModelConfigurationPage";
-import { selectOption } from "./test-helpers";
+import { chooseMode, selectOption } from "./test-helpers";
 import type { ModelConnectionCatalog, NamedModelConfiguration, ProviderConnection } from "./types";
 import { useModelConnections } from "./useModelConnections";
 
@@ -37,7 +37,7 @@ const audio = vi.fn(function () { return { play, pause }; });
 beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal("Audio", audio);
-    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [...connections, openai], configurations: [configuration], defaultUuid: "sales", loading: false, error: null, reload });
+    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [...connections, openai], configurations: [configuration], defaultUuid: "sales", loading: false, error: null, reload, addConnection: vi.fn() });
     vi.mocked(useOrgConfig).mockReturnValue({ refreshConfig } as unknown as ReturnType<typeof useOrgConfig>);
     vi.mocked(createNamedModelConfiguration).mockResolvedValue({ data: { ...configuration, uuid: "new-configuration" } } as never);
     vi.mocked(updateNamedModelConfiguration).mockResolvedValue({ data: configuration } as never);
@@ -109,7 +109,7 @@ describe("model configuration pages", () => {
         expect(screen.queryByRole("dialog")).toBeNull();
         if (duplicateUuid) expect((screen.getByLabelText("Configuration name") as HTMLInputElement).value).toBe("Sales (copy)");
         fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Managed Support" } });
-        selectOption("Provider connection", "Secondary");
+        selectOption("Dograh account", "Secondary");
         fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
         await waitFor(() => expect(replace).toHaveBeenCalledWith("/model-configurations/new-configuration"));
         const body = vi.mocked(createNamedModelConfiguration).mock.calls[0][0]?.body;
@@ -141,7 +141,7 @@ describe("model configuration pages", () => {
 it("saves the current configuration before opening its fallback URL", async () => {
     render(<ModelConfigurationPage configurationUuid="sales" />);
     expect(screen.queryByRole("button", { name: "Configure fallbacks" })).toBeNull();
-    selectOption("Mode", "Cascade");
+    chooseMode("BYOK");
     fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "Updated sales" } });
     fireEvent.click(screen.getByRole("button", { name: "Configure fallbacks" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/model-configurations/sales/llm"));
@@ -154,7 +154,7 @@ it.each(["dograh", "cascade", "realtime"] as const)("guards the direct fallback 
         mode: mode === "realtime" ? "realtime" : "pipeline",
         llm: mode === "dograh" ? service : { provider_connection_uuid: openai.uuid, settings: {} },
     } };
-    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [...connections, openai], configurations: [saved], defaultUuid: "sales", loading: false, error: null, reload });
+    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [...connections, openai], configurations: [saved], defaultUuid: "sales", loading: false, error: null, reload, addConnection: vi.fn() });
     render(<LLMConfigurationPage configurationUuid="sales" />);
     expect(screen.getByRole("link", { name: "Back to model configuration" }).getAttribute("href")).toBe("/model-configurations/sales");
     if (mode === "dograh") {

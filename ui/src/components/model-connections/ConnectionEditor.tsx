@@ -11,14 +11,32 @@ import { detailFromError } from "@/lib/apiError";
 import { connectionProviders, schemaDefaults } from "./configuration";
 import { ConfigurationSelect } from "./ConfigurationSelect";
 import { SchemaFields } from "./SchemaFields";
-import type { ModelConnectionCatalog, ProviderConnection } from "./types";
+import type { ModelConnectionCatalog, ProviderCatalogEntry, ProviderConnection, ServiceRole } from "./types";
 
-export function ConnectionEditor({ catalog, connection, onSaved }: {
+// The providers to offer, in the order of `keys` when given, so the first is chosen to start.
+function forService(providers: Record<string, ProviderCatalogEntry>, catalog: ModelConnectionCatalog, keys?: string[], role?: ServiceRole) {
+    if (!keys && !role) return providers;
+    return Object.fromEntries((keys || Object.keys(providers)).flatMap(key => {
+        const entry = providers[key];
+        if (!entry) return [];
+        const service = role ? catalog.services[role]?.[key] : undefined;
+        if (role && !service) return [];
+        return [[key, service ? { ...entry, credential_required: service.credential_required, connection_required: service.connection_required } : entry]];
+    }));
+}
+
+export function ConnectionEditor({ catalog, connection, onSaved, providerKeys, role, embedded = false }: {
     catalog: ModelConnectionCatalog;
     connection?: ProviderConnection;
-    onSaved: (uuid: string) => Promise<void>;
+    onSaved: (uuid: string, connection: ProviderConnection) => Promise<void>;
+    /** Offer only these providers. */
+    providerKeys?: string[];
+    /** Require what this service needs, so the new connection can be used for it at once. */
+    role?: ServiceRole;
+    /** Inside a dialog, which supplies the heading. */
+    embedded?: boolean;
 }) {
-    const providers = connectionProviders(catalog);
+    const providers = forService(connectionProviders(catalog), catalog, providerKeys, role);
     const initialProvider = connection?.provider || Object.keys(providers)[0] || "";
     const [provider, setProvider] = useState(initialProvider);
     const [name, setName] = useState(connection?.name || "");
@@ -40,6 +58,9 @@ export function ConnectionEditor({ catalog, connection, onSaved }: {
     };
     return <form className="space-y-5" onSubmit={async event => {
         event.preventDefault();
+        // In a dialog this form portals out of the model configuration form,
+        // but React still bubbles the submit to it.
+        event.stopPropagation();
         setSaving(true);
         setError(null);
         try {
@@ -51,14 +72,14 @@ export function ConnectionEditor({ catalog, connection, onSaved }: {
                 : await createProviderConnection({ body: { ...body, provider } });
             if (result.error) throw new Error(detailFromError(result.error, "Failed to save provider connection"));
             if (!result.data) throw new Error("Failed to save provider connection");
-            await onSaved(result.data.uuid);
+            await onSaved(result.data.uuid, result.data);
         } catch (cause) { setError(cause instanceof Error ? cause.message : "Failed to save provider connection"); }
         finally { setSaving(false); }
     }}>
-        <div className="space-y-2">
+        {!embedded && <div className="space-y-2">
             <h1 className="text-2xl font-bold">{connection ? "Edit Provider Connection" : "Add Provider"}</h1>
             <p className="text-sm text-muted-foreground">Connect provider accounts, like OpenAI, Google Gemini, ElevenLabs using API Keys, then reuse it in your model configurations.</p>
-        </div>
+        </div>}
         {error && <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{error}</p>}
         <div className="space-y-1.5">
             <Label htmlFor="connection-provider">Provider</Label>

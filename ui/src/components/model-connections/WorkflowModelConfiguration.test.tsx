@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UnsavedChangesProvider } from "@/context/UnsavedChangesContext";
 import { resolveWorkflowConfigurations, type WorkflowConfigurations } from "@/types/workflow-configurations";
 
-import { selectOption, selectOptions } from "./test-helpers";
+import { selectedMode, selectOption, selectOptions, servicePanel } from "./test-helpers";
 import type { ConfigurationSpec, ModelConnectionCatalog, NamedModelConfiguration, ProviderConnection } from "./types";
 import { useModelConnections } from "./useModelConnections";
 import { WorkflowModelConfiguration } from "./WorkflowModelConfiguration";
@@ -42,7 +42,7 @@ function renderCard(overrides: Parameters<typeof resolveWorkflowConfigurations>[
 }
 
 const tab = (name: string) => screen.getByRole("tab", { name });
-const llmModel = () => within(screen.getByRole("region", { name: "LLM" })).getByLabelText("Model") as HTMLInputElement;
+const llmModel = () => within(servicePanel("LLM")).getByLabelText("Model") as HTMLInputElement;
 const customFromScratch = {
     mode: "pipeline",
     llm: { provider_connection_uuid: "connection", settings: { model: "model-z", temperature: 0.1 } },
@@ -54,7 +54,7 @@ const customFromScratch = {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations, defaultUuid: "Sales", loading: false, error: null, reload: vi.fn() });
+    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations, defaultUuid: "Sales", loading: false, error: null, reload: vi.fn(), addConnection: vi.fn() });
 });
 
 describe("workflow model configuration", () => {
@@ -88,7 +88,7 @@ describe("workflow model configuration", () => {
         const { onSave, saveAt } = renderCard();
         fireEvent.mouseDown(tab("Custom"));
         expect(screen.getByRole("status").textContent).toContain("save with your first change");
-        expect(screen.getByLabelText("Mode").textContent).toBe("Cascade");
+        expect(selectedMode()).toBe("BYOK");
         expect(llmModel().value).toBe("model-a");
         fireEvent.change(llmModel(), { target: { value: "model-z" } });
         await waitFor(() => expect(onSave).toHaveBeenCalledOnce(), { timeout: 2000 });
@@ -178,7 +178,7 @@ describe("workflow model configuration", () => {
     });
 
     it("explains when nothing is configured yet", () => {
-        vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations: [], defaultUuid: null, loading: false, error: null, reload: vi.fn() });
+        vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations: [], defaultUuid: null, loading: false, error: null, reload: vi.fn(), addConnection: vi.fn() });
         renderCard();
         expect(screen.getByRole("status").textContent).toContain("No configuration chosen yet");
         expect(screen.getByLabelText("Configuration").textContent).toBe("Organization default");

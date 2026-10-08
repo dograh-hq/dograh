@@ -26,7 +26,7 @@ const refreshConfig = vi.fn();
 
 beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations, defaultUuid: "Sales", loading: false, error: null, reload });
+    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations, defaultUuid: "Sales", loading: false, error: null, reload, addConnection: vi.fn() });
     vi.mocked(useOrgConfig).mockReturnValue({ refreshConfig } as unknown as ReturnType<typeof useOrgConfig>);
     vi.mocked(setDefaultModelConfiguration).mockResolvedValue({ data: {} } as never);
     vi.mocked(restoreNamedModelConfiguration).mockResolvedValue({ data: {} } as never);

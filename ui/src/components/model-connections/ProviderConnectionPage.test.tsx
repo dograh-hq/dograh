@@ -22,7 +22,7 @@ const refreshConfig = vi.fn();
 
 beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [connection], configurations: [], defaultUuid: null, loading: false, error: null, reload });
+    vi.mocked(useModelConnections).mockReturnValue({ catalog, connections: [connection], configurations: [], defaultUuid: null, loading: false, error: null, reload, addConnection: vi.fn() });
     vi.mocked(useOrgConfig).mockReturnValue({ refreshConfig } as unknown as ReturnType<typeof useOrgConfig>);
     vi.mocked(createProviderConnection).mockResolvedValue({ data: { ...connection, uuid: "created" } } as never);
     vi.mocked(updateProviderConnection).mockResolvedValue({ data: connection } as never);

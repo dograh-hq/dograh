@@ -1,22 +1,35 @@
 "use client";
 
-import Link from "next/link";
-import { type ReactNode, useState } from "react";
+import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { toast } from "sonner";
 
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
 import { compatibleConnections, configurationForMode, configurationMode, dograhConfiguration, selectionForConnection } from "./configuration";
-import { ConfigurationSelect } from "./ConfigurationSelect";
+import { AddProviderDialog, type ProviderOption, ProviderSelect } from "./ProviderSelect";
 import { SchemaFields } from "./SchemaFields";
 import type { ConfigurationEditorMode, ConfigurationSpec, FieldSchema, ModelConnectionCatalog, ProviderConnection, ServiceRole, ServiceSelection } from "./types";
-import { ROLE_LABELS } from "./types";
+import { MODE_LABELS, ROLE_LABELS } from "./types";
 
 export type ConfigurationFieldsDensity = "full" | "compact";
 
-// Dograh manages its services; only these settings are the user's to change.
-const DOGRAH_FIELDS: Partial<Record<ServiceRole, string[]>> = { llm: ["temperature"], tts: ["voice", "speed"], stt: ["language"] };
-const MODE_OPTIONS = [{ value: "dograh", label: "Dograh" }, { value: "cascade", label: "Cascade" }, { value: "realtime", label: "Realtime" }];
-const TAB_COLUMNS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3" };
+// Dograh manages its services; only these settings are the user's to change,
+// listed in the order they are shown.
+const DOGRAH_FIELDS: [ServiceRole, string[]][] = [["tts", ["voice", "speed"]], ["stt", ["language"]], ["llm", ["temperature"]]];
+const MODES: { value: ConfigurationEditorMode; description: string }[] = [
+    { value: "realtime", description: "One speech-to-speech model listens and replies." },
+    { value: "dograh", description: "Dograh runs the transcriber, LLM and voice for you." },
+    { value: "cascade", description: "Pick your own LLM, STT and TTS providers." },
+];
+const SERVICE_TAB = "-mb-px h-auto min-w-0 flex-1 flex-col items-start gap-0.5 rounded-none border-0 border-b-2 border-transparent px-3 py-2.5 text-left sm:px-4 text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-primary dark:data-[state=active]:bg-transparent";
+
+// Read aloud, "LLM", "STT" and "Embedding" take "an".
+const ROLE_ARTICLES: Record<ServiceRole, string> = { llm: "an", stt: "an", tts: "a", realtime: "a", embeddings: "an" };
+
+type AddTarget = ServiceRole | "dograh";
 
 function restrictSchema(schema: FieldSchema | undefined, allowed?: string[]): FieldSchema | undefined {
     if (!schema || !allowed) return schema;
@@ -27,21 +40,48 @@ function hasFields(schema: FieldSchema | undefined): schema is FieldSchema {
     return Boolean(schema && Object.keys(schema.properties || {}).length);
 }
 
+function listNames(names: string[]): string | undefined {
+    if (!names.length) return undefined;
+    return names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : names.join(", ");
+}
+
+function ModeChoice({ value, onChange }: { value: ConfigurationEditorMode; onChange: (value: string) => void }) {
+    const id = useId();
+    return <RadioGroupPrimitive.Root aria-label="Mode" value={value} onValueChange={onChange} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {MODES.map(option => <RadioGroupPrimitive.Item key={option.value} value={option.value} aria-labelledby={`${id}-${option.value}`} aria-describedby={`${id}-${option.value}-description`}
+            className="group flex items-start gap-3 rounded-lg border bg-card p-3 text-left outline-none transition-[color,border-color,box-shadow] hover:border-foreground/25 focus-visible:ring-[3px] focus-visible:ring-ring/50 data-[state=checked]:border-primary data-[state=checked]:ring-1 data-[state=checked]:ring-primary">
+            <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border border-input group-data-[state=checked]:border-primary">
+                <RadioGroupPrimitive.Indicator className="size-2 rounded-full bg-primary" />
+            </span>
+            <span className="min-w-0 space-y-0.5">
+                <span id={`${id}-${option.value}`} className="block text-sm font-medium">{MODE_LABELS[option.value]}</span>
+                <span id={`${id}-${option.value}-description`} className="block text-xs leading-snug text-muted-foreground">{option.description}</span>
+            </span>
+        </RadioGroupPrimitive.Item>)}
+    </RadioGroupPrimitive.Root>;
+}
+
 /**
- * The one editor for a model configuration spec, at two densities.
+ * The one editor for a model configuration spec.
  *
- * "full" is the Models page: every service as a section, every setting,
- * fallbacks and embeddings. "compact" is the agent editor's Model view: the
- * same mode switch and account selects, one tab per service laid out
- * horizontally, the settings named in `fields` (all of them when omitted),
- * and no embeddings or fallback actions. Both produce the same
- * ConfigurationSpec.
+ * The mode comes first: Realtime, Dograh or BYOK. Dograh shows the few
+ * settings Dograh leaves to the user. Realtime and BYOK show one tab per
+ * service, each naming its provider so the whole setup reads at a glance,
+ * with the provider and its settings inside. Every provider list ends with
+ * a way to add a provider in place.
+ *
+ * "full" is the Models page: every setting, embeddings and fallbacks.
+ * "compact" is the agent editor's Model view: the settings named in
+ * `fields` (all of them when omitted), and no embeddings or fallback
+ * actions. Both produce the same ConfigurationSpec.
  */
-export function ConfigurationFields({ configuration, catalog, connections, onChange, llmActions, density = "full", fields }: {
+export function ConfigurationFields({ configuration, catalog, connections, onChange, onConnectionAdded, llmActions, density = "full", fields }: {
     configuration: ConfigurationSpec;
     catalog: ModelConnectionCatalog;
     connections: ProviderConnection[];
     onChange: (configuration: ConfigurationSpec) => void;
+    /** Add a connection created from a provider list to `connections`. */
+    onConnectionAdded?: (connection: ProviderConnection) => void;
     llmActions?: ReactNode;
     density?: ConfigurationFieldsDensity;
     /** Setting names to show for each service; everything else stays as it is. */
@@ -49,9 +89,45 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
 }) {
     const compact = density === "compact";
     const [unconfiguredMode, setUnconfiguredMode] = useState<ConfigurationEditorMode>("cascade");
+    // The tab the user opened; until then, the mode's first service.
+    const [activeRole, setActiveRole] = useState<ServiceRole | null>(null);
+    const [adding, setAdding] = useState<AddTarget | null>(null);
+    const root = useRef<HTMLDivElement>(null);
+    const id = useId();
     const mode = configuration.mode === "realtime" || configuration.llm.provider_connection_uuid
         ? configurationMode(configuration, connections) : unconfiguredMode;
     const dograhConnections = connections.filter(connection => connection.is_active && connection.provider === "dograh");
+    const roles = (mode === "realtime" ? ["realtime", "llm", "embeddings"] as ServiceRole[] : ["llm", "stt", "tts", "embeddings"] as ServiceRole[])
+        .filter(role => !compact || role !== "embeddings");
+    const currentRole = activeRole && roles.includes(activeRole) ? activeRole : roles[0];
+
+    // Every service tab stays mounted so the form still validates the hidden
+    // ones. When a hidden service is missing its provider, open its tab.
+    useEffect(() => {
+        const node = root.current;
+        if (!node) return;
+        let handled = false;
+        const reveal = (event: Event) => {
+            if (handled) return;
+            handled = true;
+            queueMicrotask(() => { handled = false; });
+            const panel = (event.target as Element).closest<HTMLElement>("[data-service-role]");
+            if (!panel?.hidden) return;
+            setActiveRole(panel.dataset.serviceRole as ServiceRole);
+            // The browser could not point at a control it could not see; ask again once it shows.
+            const form = (event.target as HTMLInputElement).form;
+            requestAnimationFrame(() => form?.reportValidity());
+        };
+        node.addEventListener("invalid", reveal, true);
+        return () => node.removeEventListener("invalid", reveal, true);
+    }, []);
+
+    const providerTitle = (role: ServiceRole, provider: string) => catalog.services[role]?.[provider]?.title || provider;
+    const providerOption = (role: ServiceRole, connection: ProviderConnection): ProviderOption => {
+        const label = providerTitle(role, connection.provider);
+        const name = connection.name.trim();
+        return { value: connection.uuid, label, detail: name.toLowerCase() === label.toLowerCase() ? undefined : name };
+    };
     const changeSelection = (role: ServiceRole, selection: ServiceSelection | null) => {
         onChange({ ...configuration, [role]: selection });
     };
@@ -65,115 +141,114 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
     const changeMode = (value: string) => {
         const nextMode = value as ConfigurationEditorMode;
         setUnconfiguredMode(nextMode);
+        setActiveRole(null);
         onChange(configurationForMode(nextMode, configuration, catalog, connections));
     };
     const changeDograhConnection = (value: string) => {
         const connection = dograhConnections.find(item => item.uuid === value);
         if (connection) onChange(dograhConfiguration(catalog, connection, configuration, connections));
     };
-    const dograhConnectionValue = dograhConnections.some(item => item.uuid === configuration.llm.provider_connection_uuid) ? configuration.llm.provider_connection_uuid : "";
-    const allRoles: ServiceRole[] = configuration.mode === "realtime" ? ["realtime", "llm", "embeddings"] : ["llm", "stt", "tts", "embeddings"];
-
-    // Per-service account and settings, shared by both densities.
-    const service = (role: ServiceRole) => {
-        const selection = configuration[role];
+    const connected = new Set(connections.filter(item => item.is_active).map(item => item.provider));
+    // Providers a service could add, in catalog order (the most used first),
+    // the ones without a connection ahead of the rest.
+    const addProviderKeys = (target: AddTarget) => target === "dograh" ? ["dograh"]
+        : Object.keys(catalog.services[target] || {}).filter(provider => provider !== "dograh")
+            .sort((a, b) => Number(connected.has(a)) - Number(connected.has(b)));
+    // Named under the add entry, so the list shows what else is available.
+    const addHint = (role: ServiceRole) => listNames(addProviderKeys(role).filter(provider => !connected.has(provider)).map(provider => providerTitle(role, provider)));
+    const connectionAdded = (connection: ProviderConnection) => {
+        const target = adding;
+        // Added to the list in the same update that chooses it, so the mode
+        // is never read without it.
+        onConnectionAdded?.(connection);
+        setAdding(null);
+        toast.success("Provider connection saved");
+        if (target === "dograh") onChange(dograhConfiguration(catalog, connection, configuration, connections));
+        else if (target) changeSelection(target, selectionForConnection(catalog, target, connection, configuration[target], connections));
+    };
+    // The connections a service's picker offers, which its tab summary also reads.
+    const serviceOptions = (role: ServiceRole) => {
         const options = compatibleConnections(catalog, connections, role);
         // Existing mixed configurations may include a managed service.
         // Keep that selection visible without replacing it during edits.
-        const selected = connections.find(item => item.is_active && item.uuid === selection?.provider_connection_uuid && item.provider === "dograh");
-        if (selected) options.push(selected);
-        const connection = options.find(item => item.uuid === selection?.provider_connection_uuid);
-        const provider = connection ? catalog.services[role]?.[connection.provider] : undefined;
-        const schema = restrictSchema(provider?.settings_schema, fields);
-        const account = <ConfigurationSelect id={`connection-${role}`} required value={connection?.uuid || ""} onValueChange={value => {
-            const next = connections.find(item => item.uuid === value);
-            if (!next) return;
-            changeSelection(role, selectionForConnection(catalog, role, next, selection, connections));
-        }} placeholder="Select a connection" options={options.map(item => ({ value: item.uuid, label: `${item.name} · ${catalog.services[role]?.[item.provider]?.title || item.provider}` }))} />;
-        const settings = schema && selection && <SchemaFields key={connection?.provider} provider={connection?.provider} role={role} schema={schema} values={selection.settings}
-            context={connection?.connection_settings} onChange={(name, value) => changeSetting(role, name, value)} />;
-        return { selection, options, account, settings };
+        const managed = connections.find(item => item.is_active && item.uuid === configuration[role]?.provider_connection_uuid && item.provider === "dograh");
+        if (managed) options.push(managed);
+        return options;
     };
 
-    if (compact) {
-        const roles = mode === "dograh" ? (["llm", "tts", "stt"] as ServiceRole[]) : allRoles.filter(role => role !== "embeddings");
-        return <div className="space-y-3">
-            <div className="flex items-center gap-2">
-                <label htmlFor="model-configuration-mode" className="sr-only">Mode</label>
-                <div className="w-32 shrink-0"><ConfigurationSelect id="model-configuration-mode" value={mode} onValueChange={changeMode} options={MODE_OPTIONS} /></div>
-                {mode === "dograh" && <div className="min-w-0 flex-1">
-                    <label htmlFor="dograh-provider-connection" className="sr-only">Account</label>
-                    <ConfigurationSelect id="dograh-provider-connection" required value={dograhConnectionValue} onValueChange={changeDograhConnection}
-                        placeholder="Select a Dograh connection" options={dograhConnections.map(connection => ({ value: connection.uuid, label: connection.name }))} />
-                </div>}
-            </div>
-            <Tabs key={`${mode}-${configuration.mode}`} defaultValue={roles[0]}>
-                <TabsList className={`grid w-full ${TAB_COLUMNS[roles.length] || "grid-cols-3"}`}>
-                    {roles.map(role => <TabsTrigger key={role} value={role}>{ROLE_LABELS[role]}</TabsTrigger>)}
-                </TabsList>
-                {roles.map(role => <TabsContent key={role} value={role} className="mt-3 space-y-3">
-                    {mode === "dograh" ? (() => {
-                        const allowed = (DOGRAH_FIELDS[role] || []).filter(name => !fields || fields.includes(name));
-                        const schema = restrictSchema(catalog.services[role]?.dograh?.settings_schema, allowed);
-                        return hasFields(schema)
-                            ? <SchemaFields provider="dograh" role={role} schema={schema} values={configuration[role]?.settings || {}} onChange={(name, value) => changeSetting(role, name, value)} />
-                            : <p className="text-xs text-muted-foreground">Managed by Dograh.</p>;
-                    })() : (() => {
-                        const { account, settings } = service(role);
-                        return <>
-                            <div><label htmlFor={`connection-${role}`} className="sr-only">Account</label>{account}</div>
-                            {settings}
-                        </>;
-                    })()}
-                </TabsContent>)}
-            </Tabs>
-        </div>;
-    }
-
-    return <div className="space-y-5">
-        <div className="space-y-2">
-            <label htmlFor="model-configuration-mode" className="text-sm font-medium">Mode</label>
-            <ConfigurationSelect id="model-configuration-mode" value={mode} onValueChange={changeMode} options={MODE_OPTIONS} />
+    const dograhValue = dograhConnections.some(item => item.uuid === configuration.llm.provider_connection_uuid) ? configuration.llm.provider_connection_uuid : "";
+    const dograhPanel = <div className={cn("grid grid-cols-1 gap-4 rounded-lg border bg-card sm:grid-cols-2", compact ? "p-4" : "p-5")}>
+        {DOGRAH_FIELDS.map(([role, names]) => {
+            const schema = restrictSchema(catalog.services[role]?.dograh?.settings_schema, names.filter(name => !fields || fields.includes(name)));
+            if (!hasFields(schema)) return null;
+            return <SchemaFields key={role} className="contents" provider="dograh" role={role} schema={schema}
+                values={configuration[role]?.settings || {}} onChange={(name, value) => changeSetting(role, name, value)} />;
+        })}
+        <div className="space-y-1.5">
+            <Label htmlFor="dograh-provider-connection">Dograh account</Label>
+            <ProviderSelect id="dograh-provider-connection" required value={dograhValue} onValueChange={changeDograhConnection}
+                placeholder="Choose an account" addLabel="Add a Dograh account" onAdd={() => setAdding("dograh")}
+                options={dograhConnections.map(connection => ({ value: connection.uuid, label: connection.name }))} />
         </div>
-        {mode === "dograh" ? <div className="space-y-5 rounded-lg border p-4">
-            <div className="space-y-1.5">
-                <label htmlFor="dograh-provider-connection" className="text-sm font-medium">Provider connection</label>
-                <ConfigurationSelect id="dograh-provider-connection" required value={dograhConnectionValue} onValueChange={changeDograhConnection}
-                    placeholder="Select a Dograh connection" options={dograhConnections.map(connection => ({ value: connection.uuid, label: connection.name }))} />
-                <p className="text-xs text-muted-foreground">Add or manage connections in <Link href="/provider-connections" className="underline">Providers</Link>.</p>
-                <p className="text-xs text-muted-foreground">Dograh manages speech recognition, language models, voice synthesis, and embeddings through this connection.</p>
-            </div>
-            {(["llm", "tts", "stt"] as const).map(role => {
-                const allowed = (DOGRAH_FIELDS[role] || []).filter(name => !fields || fields.includes(name));
-                const schema = restrictSchema(catalog.services[role]?.dograh?.settings_schema, allowed);
-                if (!hasFields(schema)) return null;
-                return <SchemaFields key={role} provider="dograh" role={role} schema={schema}
-                    values={configuration[role]?.settings || {}}
-                    onChange={(name, value) => changeSetting(role, name, value)} />;
-            })}
-        </div> : <>
-            {configuration.mode === "realtime" && <p className="text-sm text-muted-foreground">Realtime also uses a separate text LLM for extraction and background tasks.</p>}
-            {allRoles.map(role => {
-                const { selection, options, account, settings } = service(role);
-                const isEmbedding = role === "embeddings";
-                return <section key={role} aria-labelledby={`service-${role}`} className="space-y-4 rounded-lg border p-4">
-                    <div className="flex items-center justify-between gap-3"><h3 id={`service-${role}`} className="text-sm font-semibold">{ROLE_LABELS[role]}</h3>{role === "llm" && connections.find(item => item.uuid === selection?.provider_connection_uuid)?.provider !== "dograh" && llmActions}</div>
-                    {isEmbedding && <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={Boolean(selection)} onChange={event => changeSelection(role,
-                            event.target.checked ? (options[0] ? selectionForConnection(catalog, role, options[0]) : { provider_connection_uuid: "", settings: {} }) : null)} />
-                        Enable embeddings
-                    </label>}
-                    {(!isEmbedding || selection) && <>
-                        <div className="space-y-1.5">
-                            <label htmlFor={`connection-${role}`} className="text-sm font-medium">Provider connection</label>
-                            {account}
-                            <p className="text-xs text-muted-foreground">Add or manage connections in <Link href="/provider-connections" className="underline">Providers</Link>.</p>
-                        </div>
-                        {settings}
-                    </>}
-                    {isEmbedding && <p className="text-xs text-muted-foreground">Use the embedding model that indexed this workflow’s knowledge base. Changing it does not reindex documents.</p>}
-                </section>;
-            })}
-        </>}
+    </div>;
+
+    const servicePanel = (role: ServiceRole) => {
+        const selection = configuration[role];
+        const options = serviceOptions(role);
+        const connection = options.find(item => item.uuid === selection?.provider_connection_uuid);
+        const schema = restrictSchema(connection ? catalog.services[role]?.[connection.provider]?.settings_schema : undefined, fields);
+        const isEmbedding = role === "embeddings";
+        return <div className="space-y-4">
+            {role === "llm" && mode === "realtime" && <p className="text-xs text-muted-foreground">The realtime model holds the conversation. This text LLM handles variable extraction and other background tasks.</p>}
+            {isEmbedding && <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={Boolean(selection)} onChange={event => changeSelection(role,
+                    event.target.checked ? (options[0] ? selectionForConnection(catalog, role, options[0]) : { provider_connection_uuid: "", settings: {} }) : null)} />
+                Enable embeddings
+            </label>}
+            {(!isEmbedding || selection) && <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                    <Label htmlFor={`connection-${role}`}>Provider</Label>
+                    <ProviderSelect id={`connection-${role}`} required value={connection?.uuid || ""} placeholder="Choose a provider"
+                        options={options.map(item => providerOption(role, item))} addLabel="Add a provider" addHint={addHint(role)} onAdd={() => setAdding(role)}
+                        onValueChange={value => {
+                            const next = connections.find(item => item.uuid === value);
+                            if (next) changeSelection(role, selectionForConnection(catalog, role, next, selection, connections));
+                        }} />
+                </div>
+                {schema && selection && <SchemaFields key={connection?.provider} className="contents" provider={connection?.provider} role={role} schema={schema}
+                    values={selection.settings} context={connection?.connection_settings} onChange={(name, value) => changeSetting(role, name, value)} />}
+            </div>}
+            {isEmbedding && <p className="text-xs text-muted-foreground">Use the embedding model that indexed this workflow’s knowledge base. Changing it does not reindex documents.</p>}
+            {role === "llm" && llmActions && connection?.provider !== "dograh" && <div className="flex justify-end border-t pt-4">{llmActions}</div>}
+        </div>;
+    };
+
+    // Each tab names the provider its picker shows, or that it needs one.
+    const tabSummary = (role: ServiceRole): { text: string; missing: boolean } => {
+        const selection = configuration[role];
+        if (role === "embeddings" && !selection) return { text: "Off", missing: false };
+        const connection = serviceOptions(role).find(item => item.uuid === selection?.provider_connection_uuid);
+        return connection ? { text: providerTitle(role, connection.provider), missing: false } : { text: "Choose a provider", missing: true };
+    };
+
+    return <div ref={root} className={compact ? "space-y-3" : "space-y-4"}>
+        <ModeChoice value={mode} onChange={changeMode} />
+        {mode === "dograh" ? dograhPanel : <Tabs value={currentRole} onValueChange={value => setActiveRole(value as ServiceRole)} className="gap-0 overflow-hidden rounded-lg border bg-card">
+            <TabsList aria-label="Services" className="flex h-auto w-full justify-start rounded-none border-b bg-transparent p-0">
+                {roles.map(role => {
+                    const summary = tabSummary(role);
+                    return <TabsTrigger key={role} value={role} className={SERVICE_TAB} aria-labelledby={`${id}-${role}`} aria-describedby={`${id}-${role}-summary`}>
+                        <span id={`${id}-${role}`} className="text-sm font-medium">{ROLE_LABELS[role]}</span>{" "}
+                        <span id={`${id}-${role}-summary`} className={cn("max-w-full truncate text-xs font-normal", summary.missing ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>{summary.text}</span>
+                    </TabsTrigger>;
+                })}
+            </TabsList>
+            {roles.map(role => <TabsContent key={role} value={role} forceMount hidden={role !== currentRole} data-service-role={role} className={compact ? "p-4" : "p-5"}>
+                {servicePanel(role)}
+            </TabsContent>)}
+        </Tabs>}
+        {adding && <AddProviderDialog open onOpenChange={open => { if (!open) setAdding(null); }} catalog={catalog}
+            title={adding === "dograh" ? "Add a Dograh account" : `Add ${ROLE_ARTICLES[adding]} ${ROLE_LABELS[adding]} provider`}
+            providerKeys={addProviderKeys(adding)} role={adding === "dograh" ? undefined : adding} onSaved={connectionAdded} />}
     </div>;
 }

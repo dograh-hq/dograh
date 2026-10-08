@@ -52,7 +52,7 @@ async def create_transport(
         transfer_strategy=TelnyxConferenceStrategy(),
         hangup_strategy=TelnyxHangupStrategy(),
         params=TelnyxFrameSerializer.InputParams(
-            telnyx_sample_rate=8000,
+            telnyx_sample_rate=audio_config.transport_in_sample_rate,
             sample_rate=audio_config.pipeline_sample_rate,
         ),
     )

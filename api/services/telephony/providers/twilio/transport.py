@@ -48,7 +48,7 @@ async def create_transport(
         transfer_strategy=TwilioConferenceStrategy(),
         hangup_strategy=TwilioHangupStrategy(),
         params=TwilioFrameSerializer.InputParams(
-            twilio_sample_rate=8000,
+            twilio_sample_rate=audio_config.transport_in_sample_rate,
             sample_rate=audio_config.pipeline_sample_rate,
         ),
     )

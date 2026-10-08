@@ -187,10 +187,10 @@ def create_pipeline_task(
 
     # If audio_config is provided, set the audio sample rates
     if audio_config:
-        pipeline_params.audio_in_sample_rate = audio_config.transport_in_sample_rate
+        pipeline_params.audio_in_sample_rate = audio_config.pipeline_sample_rate
         pipeline_params.audio_out_sample_rate = audio_config.transport_out_sample_rate
         logger.debug(
-            f"Setting pipeline audio params - in: {audio_config.transport_in_sample_rate}Hz, "
+            f"Setting pipeline audio params - in: {audio_config.pipeline_sample_rate}Hz, "
             f"out: {audio_config.transport_out_sample_rate}Hz"
         )
 

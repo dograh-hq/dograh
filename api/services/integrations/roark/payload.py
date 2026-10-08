@@ -296,8 +296,13 @@ def build_tool_invocations(
     tool was invoked and never returned is the signal, so dropping it would
     hide the more interesting case.
     """
+    # Pairing needs two passes, ends before starts, so the argument is
+    # materialised first: a generator would be exhausted by the end pass and
+    # the start pass would silently find no tool calls at all.
+    ordered = list(events)
+
     ends_by_id: dict[str, dict[str, Any]] = {}
-    for event in events:
+    for event in ordered:
         if event.get("type") != RealtimeFeedbackType.FUNCTION_CALL_END.value:
             continue
         tool_call_id = (event.get("payload") or {}).get("tool_call_id")
@@ -305,7 +310,7 @@ def build_tool_invocations(
             ends_by_id[tool_call_id] = event
 
     invocations: list[dict[str, Any]] = []
-    for event in events:
+    for event in ordered:
         if event.get("type") != RealtimeFeedbackType.FUNCTION_CALL_START.value:
             continue
 

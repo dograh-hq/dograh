@@ -718,6 +718,17 @@ def test_build_tool_invocations_reports_a_call_that_never_returned():
     ]
 
 
+def test_build_tool_invocations_accepts_a_generator():
+    """Pairing takes two passes over the events, ends before starts, so a
+    generator argument has to be materialised first. Exhausting it on the end
+    pass emitted no tool calls at all, silently."""
+    invocations = build_tool_invocations((event for event in _events()), T0)
+
+    assert [(i["name"], i["result"], i["endOffsetMs"]) for i in invocations] == [
+        ("get_weather", "sunny", 3400)
+    ]
+
+
 def test_build_tool_invocations_matches_by_tool_call_id():
     events = [
         _tool_start("a", 1.0, tool_call_id="id-a"),

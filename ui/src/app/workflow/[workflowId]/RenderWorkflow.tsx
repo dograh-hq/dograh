@@ -6,7 +6,7 @@ import {
     Panel,
     ReactFlow,
 } from "@xyflow/react";
-import { BrushCleaning, Maximize2, Minus, Plus, Settings } from 'lucide-react';
+import { BrushCleaning, Maximize2, Minus, Plus } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -26,6 +26,7 @@ import { WorkflowConfigurations } from '@/types/workflow-configurations';
 import AddNodePanel from "../../../components/flow/AddNodePanel";
 import CustomEdge from "../../../components/flow/edges/CustomEdge";
 import { GenericNode } from "../../../components/flow/nodes/GenericNode";
+import { EditorSetup, type EditorView, isEditorView } from './components/EditorSetup';
 import { PhoneCallDialog } from './components/PhoneCallDialog';
 import { VersionHistoryPanel } from './components/VersionHistoryPanel';
 import type { WorkflowRuntimeNodeTransition } from './components/workflow-tester/types';
@@ -102,6 +103,17 @@ function RenderWorkflow({
     // Version info that updates immediately from the GET/save/publish responses.
     const [currentVersionNumber, setCurrentVersionNumber] = useState<number | null>(initialVersionNumber ?? null);
     const [currentVersionStatus, setCurrentVersionStatus] = useState<string | null>(initialVersionStatus ?? null);
+    // What the editor body shows. It lives in the URL (`?view=`) so a refresh
+    // or a shared link lands on the same view; the canvas is the bare URL.
+    const viewParam = searchParams.get('view');
+    const editorView: EditorView = isEditorView(viewParam) ? viewParam : 'canvas';
+    const setEditorView = useCallback((view: EditorView) => {
+        const query = new URLSearchParams(searchParams.toString());
+        if (view === 'canvas') query.delete('view');
+        else query.set('view', view);
+        const suffix = query.toString();
+        router.replace(`/workflow/${workflowId}${suffix ? `?${suffix}` : ''}`, { scroll: false });
+    }, [router, searchParams, workflowId]);
     const versionsFetched = useRef(false);
     const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
     const [tools, setTools] = useState<ToolResponse[] | undefined>(undefined);
@@ -125,6 +137,13 @@ function RenderWorkflow({
         saveWorkflow,
         workflowConfigurations,
         saveWorkflowConfigurations,
+        saveTemplateContextVariables,
+        defaultCallDispositions,
+        defaultAnswerClassifierPrompt,
+        textChatInactivityTimeoutConstraints,
+        widgetTextDefaults,
+        dictionary,
+        saveDictionary,
         onConnect,
         onEdgesChange,
         onNodesChange,
@@ -637,7 +656,7 @@ function RenderWorkflow({
                                     color="#94a3b8"
                                 />
 
-                                {/* Top-right controls - vertical layout (hidden when viewing history) */}
+                                {/* Top-right controls (hidden when viewing history) */}
                                 {!isViewingHistoricalVersion && (
                                     <Panel position="top-right">
                                         <TooltipProvider>
@@ -655,22 +674,6 @@ function RenderWorkflow({
                                                     </TooltipTrigger>
                                                     <TooltipContent side="left">
                                                         <p>Add node</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="icon"
-                                                            onClick={() => router.push(`/workflow/${workflowId}/settings`)}
-                                                            className="bg-white shadow-sm hover:shadow-md"
-                                                        >
-                                                            <Settings className="h-4 w-4" />
-                                                        </Button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent side="left">
-                                                        <p>Workflow settings</p>
                                                     </TooltipContent>
                                                 </Tooltip>
                                             </div>
@@ -752,6 +755,28 @@ function RenderWorkflow({
                                     )}
                                 </TooltipProvider>
                             </div>
+
+                            {/* View switcher (Canvas / Model / Variables / Settings); the other views cover the canvas */}
+                            {!isViewingHistoricalVersion && (
+                                <EditorSetup
+                                    view={editorView}
+                                    onViewChange={setEditorView}
+                                    workflowId={workflowId}
+                                    workflowName={workflowName}
+                                    workflowUuid={workflowUuid}
+                                    nodes={nodes}
+                                    workflowConfigurations={workflowConfigurations}
+                                    defaultCallDispositions={defaultCallDispositions}
+                                    defaultAnswerClassifierPrompt={defaultAnswerClassifierPrompt}
+                                    textChatInactivityTimeoutConstraints={textChatInactivityTimeoutConstraints}
+                                    widgetTextDefaults={widgetTextDefaults}
+                                    templateContextVariables={templateContextVariables}
+                                    dictionary={dictionary}
+                                    saveWorkflowConfigurations={saveWorkflowConfigurations}
+                                    saveTemplateContextVariables={saveTemplateContextVariables}
+                                    saveDictionary={saveDictionary}
+                                />
+                            )}
                         </div>
 
                         {isTesterRailOpen && (

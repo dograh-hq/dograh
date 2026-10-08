@@ -325,6 +325,46 @@ async def test_inactive_pipeline_services_do_not_affect_realtime_authorization(c
 
 
 @pytest.mark.asyncio
+async def test_mode_setting_override_describes_a_configuration(catalog):
+    text = catalog(connection("openai"))
+    speech = catalog(connection("openai"))
+    base = {
+        "version": 3,
+        "mode": "pipeline",
+        "llm": selection(text, temperature=0.9),
+        "stt": selection(speech),
+        "tts": selection(speech, voice="Bob"),
+    }
+    catalog(text, default=True, configuration=base)
+    realtime = catalog(connection("openai_realtime"))
+    # The speech account was archived after the agent moved to realtime; the
+    # agent never uses it, so resolution must not depend on it.
+    speech.is_active = False
+
+    resolved = await service.resolve_model_configuration(
+        1,
+        workflow_override={
+            "mode": "realtime",
+            "llm": selection(text),
+            "realtime": selection(realtime, voice="cedar"),
+        },
+    )
+
+    assert set(resolved.snapshot["services"]) == {"llm", "realtime"}
+    assert resolved.effective.realtime.voice == "cedar"
+    # Named with an account, the service's settings are taken as given.
+    assert resolved.effective.llm.temperature != 0.9
+
+    # Without the mode, a patch stays a tweak that merges into the base.
+    speech.is_active = True
+    merged = await service.resolve_model_configuration(
+        1, workflow_override={"llm": {"settings": {"model": "gpt-4.1-mini"}}}
+    )
+    assert merged.effective.llm.temperature == 0.9
+    assert merged.effective.llm.model == "gpt-4.1-mini"
+
+
+@pytest.mark.asyncio
 async def test_realtime_requires_text_llm(catalog):
     realtime = catalog(connection("openai_realtime"))
     with pytest.raises(HTTPException):

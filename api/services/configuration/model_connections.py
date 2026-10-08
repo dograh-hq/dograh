@@ -338,9 +338,26 @@ async def resolve_model_configuration(
     )
 
 
+def _active_roles(mode):
+    return (
+        {"llm", "embeddings", "realtime"}
+        if mode == "realtime"
+        else {"llm", "embeddings", "stt", "tts"}
+    )
+
+
 async def _apply_model_patch(config, patch, get_connection):
-    if "mode" in patch:
+    # A patch that sets the mode describes a configuration rather than a
+    # tweak: services the mode does not use are dropped (they would otherwise
+    # keep being validated), and the services it names with an account are
+    # taken as given instead of merged into the base's settings. Services it
+    # omits, and the fallback policy, are still inherited.
+    describes_configuration = "mode" in patch
+    if describes_configuration:
         config["mode"] = patch.pop("mode")
+        for role in ROLES:
+            if role not in _active_roles(config["mode"]):
+                config.pop(role, None)
     if "llm_fallback" in patch:
         # Policies replace atomically. An empty rules array disables them;
         # omitting the policy inherits it from the selected configuration.
@@ -360,6 +377,8 @@ async def _apply_model_patch(config, patch, get_connection):
                 old_connection.provider
             ) != connection_provider(new_connection.provider):
                 settings = {}
+        if describes_configuration and "provider_connection_uuid" in selection:
+            settings = {}
         settings.update(selection.get("settings", {}))
         config[role] = {"provider_connection_uuid": new_uuid, "settings": settings}
 

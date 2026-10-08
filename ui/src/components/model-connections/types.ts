@@ -43,7 +43,6 @@ export type ServiceRole = typeof ROLES[number];
 export const ROLE_LABELS: Record<ServiceRole, string> = {
     llm: "LLM", stt: "STT", tts: "TTS", realtime: "Realtime", embeddings: "Embedding",
 };
-
 export interface ProviderCatalogEntry {
     title?: string;
     credential_fields: Record<string, FieldSchema>;

@@ -473,6 +473,8 @@ async def gaps(test_engine):
             full = workflow("Full", "archived")
             idle = workflow("Idle", "archived")
             done = workflow("Done", "archived")
+            array_split = workflow("ArraySplit", "archived")
+            missing_key = workflow("MissingKey", "archived")
             await session.flush()
 
             active_def = definition(
@@ -521,6 +523,12 @@ async def gaps(test_engine):
             done_def = definition(
                 done, "published", _voice("done-voice"), is_current=True
             )
+            array_def = definition(
+                array_split, "published", _voice("array-voice"), is_current=True
+            )
+            missing_def = definition(
+                missing_key, "published", _voice("missing-voice"), is_current=True
+            )
             await session.flush()
             for owner, released_definition in (
                 (active, active_def),
@@ -532,6 +540,8 @@ async def gaps(test_engine):
                 (full, full_def),
                 (idle, idle_def),
                 (done, done_def),
+                (array_split, array_def),
+                (missing_key, missing_def),
             ):
                 owner.released_definition_id = released_definition.id
 
@@ -561,6 +571,28 @@ async def gaps(test_engine):
             )
             campaign("full-pin", full, "running", _pin_split(full.id, full_def.id))
             campaign("completed", done, "completed", {})
+            # [] is falsy, so campaign_split runs the released definition.
+            campaign("empty-array", array_split, "running", {"traffic_split": []})
+            # Dispatch reads workflow_definition_id with bracket access. A
+            # missing key raises; it does not select the released definition.
+            campaign(
+                "missing-key",
+                missing_key,
+                "running",
+                {
+                    "traffic_split": {
+                        "seed": "missing",
+                        "revision": 1,
+                        "variants": [
+                            {
+                                "id": f"{missing_key.id}:latest",
+                                "workflow_id": missing_key.id,
+                                "weight": 100,
+                            }
+                        ],
+                    }
+                },
+            )
             await session.commit()
             ids = {
                 "organization": organization.id,
@@ -576,6 +608,8 @@ async def gaps(test_engine):
                 "full": full_def.id,
                 "idle": idle_def.id,
                 "done": done_def.id,
+                "array": array_def.id,
+                "missing": missing_def.id,
                 "unsplit_workflow": unsplit.id,
                 "legacy_workflow": legacy.id,
                 "latest_workflow": latest.id,
@@ -685,6 +719,8 @@ async def test_follow_up_binds_released_latest_null_and_current_credential(
         "idle",
         "done",
         "unused",
+        "array",
+        "missing",
     ):
         assert "model_configuration_uuid" not in (
             definitions[ids[definition_id]].get("model_configuration_override") or {}
@@ -703,7 +739,7 @@ async def test_follow_up_binds_released_latest_null_and_current_credential(
 
     summary = await _migrate(test_engine, follow_up.migrate)
     assert summary["inherited"] == []
-    assert summary["bindings"] == 6
+    assert summary["bindings"] == 7
 
     configurations, definitions, _, default_uuid = await _snapshot(
         factory, organization_id
@@ -722,6 +758,7 @@ async def test_follow_up_binds_released_latest_null_and_current_credential(
         ("legacy", "legacy-voice"),
         ("null", "null-voice"),
         ("partial", "partial-voice"),
+        ("array", "array-voice"),
     ):
         assert _bound_voice(configurations, definitions, ids[definition_id]) == voice
         binding = definitions[ids[definition_id]]["model_configuration_override"]
@@ -744,7 +781,7 @@ async def test_follow_up_binds_released_latest_null_and_current_credential(
     # Already bound, explicitly empty, or not referenced by a live campaign.
     assert definitions[ids["active"]]["model_configuration_override"] == active_binding
     assert definitions[ids["empty"]]["model_configuration_override"] == {}
-    for definition_id in ("unused", "idle", "done"):
+    for definition_id in ("unused", "idle", "done", "missing"):
         assert "model_configuration_override" not in definitions[ids[definition_id]]
     assert (
         await _resolved_voice(organization_id, definitions[ids["empty"]]) == "default"
@@ -759,3 +796,194 @@ async def test_follow_up_binds_released_latest_null_and_current_credential(
     _, _, connections_after, _ = await _snapshot(factory, organization_id)
     credentials_after = await _credentials(factory, organization_id)
     assert len(credentials_after) == connections_after
+
+
+@pytest.fixture
+async def fallback_pin(test_engine):
+    """One pinned partial override and one pinned full override."""
+    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    previous = db_client.engine, db_client.async_session
+    db_client.engine, db_client.async_session = test_engine, factory
+    ids = None
+    try:
+        async with factory() as session:
+            organization = OrganizationModel(provider_id=f"pinned-fallback-{uuid4()}")
+            session.add(organization)
+            await session.flush()
+            user = UserModel(
+                provider_id=f"pinned-fallback-{uuid4()}",
+                selected_organization_id=organization.id,
+            )
+            session.add(user)
+            await session.flush()
+            session.add(
+                OrganizationConfigurationModel(
+                    organization_id=organization.id,
+                    key="MODEL_CONFIGURATION_V2",
+                    value=DOGRAH_V2,
+                )
+            )
+            partial = WorkflowModel(
+                organization_id=organization.id,
+                user_id=user.id,
+                name="Partial",
+                status="archived",
+                workflow_configurations={},
+            )
+            full = WorkflowModel(
+                organization_id=organization.id,
+                user_id=user.id,
+                name="Full",
+                status="archived",
+                workflow_configurations={},
+            )
+            session.add_all([partial, full])
+            await session.flush()
+            partial_def = WorkflowDefinitionModel(
+                workflow_id=partial.id,
+                workflow_json={},
+                workflow_configurations=_voice("fallback-voice"),
+                status="published",
+                is_current=True,
+            )
+            full_def = WorkflowDefinitionModel(
+                workflow_id=full.id,
+                workflow_json={},
+                workflow_configurations={
+                    "model_configuration_v2_override": BYOK_PIPELINE_V2
+                },
+                status="published",
+                is_current=True,
+            )
+            session.add_all([partial_def, full_def])
+            await session.flush()
+            partial.released_definition_id = partial_def.id
+            full.released_definition_id = full_def.id
+            for name, owner, definition in (
+                ("partial-pin", partial, partial_def),
+                ("full-pin", full, full_def),
+            ):
+                session.add(
+                    CampaignModel(
+                        name=name,
+                        organization_id=organization.id,
+                        workflow_id=owner.id,
+                        created_by=user.id,
+                        source_type="csv",
+                        source_id=f"{name}.csv",
+                        state="running",
+                        orchestrator_metadata=_pin_split(owner.id, definition.id),
+                    )
+                )
+            await session.commit()
+            ids = {
+                "organization": organization.id,
+                "user": user.id,
+                "partial": partial_def.id,
+                "full": full_def.id,
+            }
+        yield factory, ids
+    finally:
+        db_client.engine, db_client.async_session = previous
+        if ids is not None:
+            await _cleanup(factory, ids)
+
+
+async def _point_default_at_fallback(factory, organization_id):
+    """Replace the catalog default with an OpenAI pipeline that has a fallback."""
+    async with factory() as session:
+        primary = ProviderConnectionModel(
+            organization_id=organization_id,
+            name="Primary OpenAI",
+            provider="openai",
+            credentials={"api_key": "primary-key"},
+            connection_settings={},
+        )
+        backup = ProviderConnectionModel(
+            organization_id=organization_id,
+            name="Backup OpenAI",
+            provider="openai",
+            credentials={"api_key": "backup-key"},
+            connection_settings={},
+        )
+        session.add_all([primary, backup])
+        await session.flush()
+        selection = {
+            "provider_connection_uuid": primary.uuid,
+            "settings": {},
+        }
+        fallback = {
+            "version": 1,
+            "rules": [
+                {
+                    "condition": {"type": "error"},
+                    "target": {
+                        "provider_connection_uuid": backup.uuid,
+                        "settings": {},
+                    },
+                }
+            ],
+        }
+        named = NamedModelConfigurationModel(
+            organization_id=organization_id,
+            name="Fallback default",
+            configuration={
+                "version": 3,
+                "mode": "pipeline",
+                "llm": dict(selection),
+                "stt": dict(selection),
+                "tts": dict(selection),
+                "llm_fallback": fallback,
+            },
+        )
+        session.add(named)
+        await session.flush()
+        await session.execute(
+            update(OrganizationConfigurationModel)
+            .where(
+                OrganizationConfigurationModel.organization_id == organization_id,
+                OrganizationConfigurationModel.key
+                == "MODEL_CONFIGURATION_DEFAULT_UUID",
+            )
+            .values(value=named.uuid)
+        )
+        await session.commit()
+        return fallback
+
+
+@pytest.mark.asyncio
+async def test_partial_override_keeps_the_current_default_fallback(
+    test_engine, fallback_pin
+):
+    factory, ids = fallback_pin
+    organization_id = ids["organization"]
+    await _migrate(test_engine, original.migrate)
+    fallback = await _point_default_at_fallback(factory, organization_id)
+
+    summary = await _migrate(test_engine, follow_up.migrate)
+    assert summary["inherited"] == []
+    assert summary["bindings"] == 2
+
+    configurations, definitions, _, _ = await _snapshot(factory, organization_id)
+    partial_binding = definitions[ids["partial"]]["model_configuration_override"]
+    partial_spec = configurations[
+        partial_binding["model_configuration_uuid"]
+    ].configuration
+    assert partial_spec["tts"]["settings"]["voice"] == "fallback-voice"
+    assert partial_spec["llm_fallback"] == fallback
+    resolved = await get_effective_ai_model_configuration_for_workflow(
+        organization_id=organization_id,
+        workflow_configurations=definitions[ids["partial"]],
+    )
+    assert resolved.tts.voice == "fallback-voice"
+    assert resolved.llm_fallback.rules[0].condition.type == "error"
+    assert resolved.llm.api_key == "primary-key"
+
+    full_binding = definitions[ids["full"]]["model_configuration_override"]
+    full_spec = configurations[full_binding["model_configuration_uuid"]].configuration
+    assert "llm_fallback" not in full_spec
+    assert full_spec["tts"]["settings"]["voice"] == "aura-2-thalia-en"
+
+    again = await _migrate(test_engine, follow_up.migrate)
+    assert again["bindings"] == 0
+    assert again["configurations"] == 0

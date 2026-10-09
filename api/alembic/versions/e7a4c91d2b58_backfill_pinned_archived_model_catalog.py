@@ -18,9 +18,11 @@ tracks latest. That released definition is what dispatch runs, including
 when the workflow itself is archived and b3c1d9e4f7a2 skipped it. Completed
 and failed campaigns are left alone.
 
-A partial override is layered on the organization's current catalog default.
-The older MODEL_CONFIGURATION_V2 row is used only when that default was
-never created; otherwise a default the organization changed later would be
+A partial override is layered on the organization's current catalog default,
+including that default's llm_fallback policy, because the new binding
+replaces the default rather than inheriting from it. The older
+MODEL_CONFIGURATION_V2 row is used only when that default was never
+created; otherwise a default the organization changed later would be
 replaced by the stale credential. A JSON null model_configuration_override
 is unbound, the same as a missing key, so those rows are included. An
 explicit binding, including an empty object, is left as written. Rows that
@@ -34,6 +36,7 @@ inline keys this revision leaves in place.
 
 import importlib.util
 import json
+import uuid
 from pathlib import Path
 
 import sqlalchemy as sa
@@ -56,10 +59,12 @@ _spec.loader.exec_module(_v3)
 
 _STATES_SQL = ", ".join(f"'{state}'" for state in NON_TERMINAL_CAMPAIGN_STATES)
 
-# Numeric pins, plus the released definition a "latest" variant actually
-# runs. Dispatch uses that definition when the campaign has no traffic
-# split, and when a variant's workflow_definition_id is JSON null. An
-# archived workflow's released definition was skipped by b3c1d9e4f7a2.
+# Numeric pins, plus the released definition a latest variant actually
+# runs. campaign_split treats any falsy traffic_split (missing, null,
+# false, 0, "", [], {}) as "no split". A variant tracks latest only when
+# workflow_definition_id is JSON null: dispatch reads that key directly, so
+# a missing key fails the call instead of selecting the released definition.
+# An archived workflow's released definition was skipped by b3c1d9e4f7a2.
 _VARIANT_ARRAY_SQL = """
 CASE
     WHEN jsonb_typeof(
@@ -89,15 +94,21 @@ explicit_pins AS (
 latest_workflows AS (
     SELECT c.organization_id, c.workflow_id
     FROM campaigns c
+    CROSS JOIN LATERAL (
+        SELECT COALESCE(c.orchestrator_metadata, '{{}}')::jsonb -> 'traffic_split'
+            AS split
+    ) meta
     WHERE c.state::text IN ({_STATES_SQL})
       AND (
-            COALESCE(c.orchestrator_metadata, '{{}}')::jsonb -> 'traffic_split'
-                IS NULL
-         OR jsonb_typeof(
-                COALESCE(c.orchestrator_metadata, '{{}}')::jsonb -> 'traffic_split'
-            ) = 'null'
-         OR COALESCE(c.orchestrator_metadata, '{{}}')::jsonb -> 'traffic_split'
-            = '{{}}'::jsonb
+            meta.split IS NULL
+         OR meta.split IN (
+                'null'::jsonb,
+                'false'::jsonb,
+                '0'::jsonb,
+                '""'::jsonb,
+                '[]'::jsonb,
+                '{{}}'::jsonb
+            )
       )
     UNION
     SELECT organization_id, (variant->>'workflow_id')::int AS workflow_id
@@ -291,9 +302,15 @@ def _services_from_catalog_default(connection, organization_id):
             **settings,
         }
     try:
-        return _v3._complete(mode, sections)
+        mode, sections = _v3._complete(mode, sections)
     except _v3.Unconvertible:
         return None
+    fallback = spec.get("llm_fallback")
+    if not isinstance(fallback, dict):
+        fallback = None
+    else:
+        fallback = json.loads(json.dumps(fallback))
+    return mode, sections, fallback
 
 
 def _organization_services(connection, organization_id):
@@ -306,22 +323,62 @@ def _organization_services(connection, organization_id):
     if row is None:
         return None
     try:
-        return _v3.sections_from_v2(row.value)
+        mode, sections = _v3.sections_from_v2(row.value)
     except _v3.Unconvertible:
         return None
+    return mode, sections, None
 
 
 def _sections(configuration, organization_services):
     full = _obj(configuration.get(_v3.FULL_OVERRIDE_KEY))
     partial = _obj(configuration.get(_v3.PARTIAL_OVERRIDE_KEY))
     if full:
-        return _v3.sections_from_v2(full)
+        mode, sections = _v3.sections_from_v2(full)
+        # A full inline override replaces the organization default. It does
+        # not inherit that default's fallback policy.
+        return mode, sections, None
     if partial:
         if organization_services is None:
             raise _v3.Unconvertible("partial_override_without_organization_default")
-        base_mode, base_sections = organization_services
-        return _v3.apply_partial_overrides(base_mode, base_sections, partial)
+        base_mode, base_sections, fallback = organization_services
+        mode, sections = _v3.apply_partial_overrides(base_mode, base_sections, partial)
+        return mode, sections, fallback
     return None
+
+
+def _configuration(catalog, mode, sections, name, fallback):
+    """Named configuration for these services, keeping the default's fallback.
+
+    The frozen catalog builder does not know about llm_fallback. A binding
+    replaces the organization default, so a partial override has to carry
+    that policy forward or the next call drops it.
+    """
+    parts = [
+        (role, _v3.split_service(role, service)) for role, service in sections.items()
+    ]
+    spec = {"version": 3, "mode": mode}
+    for role, (provider, credentials, connection_settings, settings) in parts:
+        spec[role] = {
+            "provider_connection_uuid": catalog._connection(
+                provider, credentials, connection_settings
+            ),
+            "settings": settings,
+        }
+    if fallback is not None:
+        spec["llm_fallback"] = fallback
+    key = _v3._canonical(spec)
+    if key not in catalog._configurations:
+        row_uuid = str(uuid.uuid4())
+        catalog._configurations[key] = row_uuid
+        catalog.configurations.append(
+            {
+                "uuid": row_uuid,
+                "organization_id": catalog.organization_id,
+                "name": catalog._name("configuration", name),
+                "configuration": json.dumps(spec),
+            }
+        )
+    return catalog._configurations[key]
 
 
 def migrate(connection):
@@ -362,9 +419,13 @@ def migrate(connection):
                 compiled = _sections(configuration, organization_services)
                 if compiled is None:
                     continue
-                mode, sections = compiled
-                configuration_uuid = catalog.configuration(
-                    mode, sections, row.name or f"Workflow {row.workflow_id}"
+                mode, sections, fallback = compiled
+                configuration_uuid = _configuration(
+                    catalog,
+                    mode,
+                    sections,
+                    row.name or f"Workflow {row.workflow_id}",
+                    fallback,
                 )
             except _v3.Unconvertible as exc:
                 summary["inherited"].append(

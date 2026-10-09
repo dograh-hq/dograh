@@ -109,7 +109,7 @@ Leave it on to be graded on what your own speech-to-text heard and what your age
 
 Roark downloads the recording from your Dograh deployment rather than having it pushed, so the address it is given has to be reachable from the public internet.
 
-Dograh resolves that address the same way it does for telephony webhooks: it uses `BACKEND_API_ENDPOINT` when that is publicly reachable, and otherwise falls back to the URL of a running [Cloudflare tunnel](/integrations/telephony/inbound). So a deployment on a laptop or inside a private network works as long as the tunnel is up:
+Dograh resolves that address the same way it does for telephony webhooks: it uses the deployment's configured origin (`BACKEND_API_ENDPOINT`, or the `PUBLIC_BASE_URL` it derives from) when that is publicly reachable, and otherwise falls back to the URL of a running [Cloudflare tunnel](/integrations/telephony/inbound). So a deployment on a laptop or inside a private network works as long as the tunnel is up:
 
 ```bash
 docker compose --profile tunnel up -d cloudflared
@@ -119,7 +119,14 @@ With neither a public address nor a tunnel, the export is refused before it is s
 
 The download URL is unauthenticated but unguessable: it carries the run's public access token, the same token QA and webhook exports use, and re-signs storage access on each request so it does not expire.
 
-Because that token is the whole of the access control, the address has to be HTTPS as well as public. A plain-HTTP one is refused as `recording_url_not_https`: Roark's fetch would put the token and the audio on the wire in the clear, and the token does not expire, so anyone who saw it could replay it for as long as the run exists. A Cloudflare tunnel is HTTPS already, but it is not a way out of this: the tunnel is only used when `BACKEND_API_ENDPOINT` is unset or not publicly reachable, so standing one up next to a public `http://` endpoint changes nothing. Either serve that endpoint over HTTPS, or unset it and let the tunnel provide the address.
+Because that token is the whole of the access control, the address has to be HTTPS as well as public. A plain-HTTP one is refused as `recording_url_not_https`: Roark's fetch would put the token and the audio on the wire in the clear, and the token does not expire, so anyone who saw it could replay it for as long as the run exists.
+
+Which address that is follows the deployment's usual resolution: `BACKEND_API_ENDPOINT` if you set it, otherwise `PUBLIC_BASE_URL`, otherwise `http://localhost:8000`. A standard single-host install sets only `PUBLIC_BASE_URL`, so that is normally the value to look at. Two configurations export:
+
+- **A public deployment whose canonical origin is HTTPS.** Point `PUBLIC_BASE_URL` at an `https://` URL. [Custom domain](/deployment/custom-domain) sets this up for you, certificate included.
+- **A laptop or private-network deployment with the tunnel up.** The resolved origin is local, so Dograh prefers the tunnel's URL, which is HTTPS.
+
+What does not work is a tunnel alongside a public `http://` origin. The tunnel is only consulted when the resolved origin is local or private, so a public `http://` one is handed to Roark as configured and refused, tunnel or no tunnel.
 
 ## Re-running an export
 

@@ -32,10 +32,16 @@ async def resolve_public_base_url() -> str:
     Its own failure mode is to raise, so a deployment with neither still gets
     the configured address rather than a crash.
 
-    The tunnel is consulted only when `BACKEND_API_ENDPOINT` is unset or not
-    publicly reachable: a public one is returned as configured, scheme and all.
-    So a tunnel is a remedy for an unreachable address and not for an insecure
-    one, which is why the two refusals below suggest different things.
+    The tunnel is consulted only when the resolved endpoint is local or
+    private; a public one is returned as configured, scheme and all. So a
+    tunnel is a remedy for an unreachable address and not for an insecure one,
+    which is why the two refusals below suggest different things.
+
+    `BACKEND_API_ENDPOINT` is itself derived: `os.getenv(...) or
+    PUBLIC_BASE_URL or "http://localhost:8000"`. A standard single-host install
+    sets only `PUBLIC_BASE_URL` (the setup scripts delete the derived keys from
+    `.env` so they follow it), so that is usually the value an operator has to
+    change, and it is named alongside in both refusals below.
 
     Neither path guarantees an address Roark can safely fetch from: with no
     tunnel running, the resolver returns the configured private one and so does
@@ -83,7 +89,8 @@ def unreachable_recording_host(recording_url: str) -> str | None:
     integration observes. That would leave a run recorded as `delivered` and a
     call in Roark that can never be transcribed, which is the one outcome worth
     refusing up front. A self-hosted deployment reaches this by running without
-    a public `BACKEND_API_ENDPOINT` and without a cloudflared tunnel.
+    a public origin (neither `BACKEND_API_ENDPOINT` nor the `PUBLIC_BASE_URL`
+    it derives from) and without a cloudflared tunnel.
     """
     if not is_local_or_private_url(recording_url):
         return None
@@ -195,7 +202,8 @@ async def run_completion(
             logger.warning(
                 f"Roark node '{roark_data.name}' (#{node_id}) skipped: the recording "
                 f"would be served from '{unreachable_host}', which Roark cannot reach. "
-                f"Set BACKEND_API_ENDPOINT to a public address or run a cloudflared tunnel."
+                f"Set BACKEND_API_ENDPOINT or PUBLIC_BASE_URL to a public address, "
+                f"or run a cloudflared tunnel."
             )
             results[result_key] = {
                 "error": "recording_url_not_public",
@@ -209,9 +217,10 @@ async def run_completion(
                 f"Roark node '{roark_data.name}' (#{node_id}) skipped: the recording "
                 f"would be served over '{insecure_scheme}', which puts the run's "
                 f"public access token and its audio on the wire in the clear. Serve "
-                f"BACKEND_API_ENDPOINT over HTTPS. A cloudflared tunnel does not "
-                f"help here: it is only consulted when BACKEND_API_ENDPOINT is "
-                f"unset or not publicly reachable."
+                f"the deployment's public origin over HTTPS (BACKEND_API_ENDPOINT, "
+                f"or PUBLIC_BASE_URL which it derives from). A cloudflared tunnel "
+                f"does not help here: it is only consulted when that origin is "
+                f"local or private."
             )
             results[result_key] = {
                 "error": "recording_url_not_https",

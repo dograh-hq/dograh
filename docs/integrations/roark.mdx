@@ -1,0 +1,151 @@
+---
+title: "Roark Integration"
+description: "Send completed Dograh calls to Roark for transcription, scoring and analytics"
+---
+
+## Overview
+
+The Roark integration node sends each completed call to [Roark](https://roark.ai) once the call finishes. Roark stores the recording, keeps the transcript and tool calls Dograh captured, and runs your metrics over them, so you can score agent behaviour and watch quality trends without writing any code.
+
+The node is export-only. It takes no part in the conversation, adds nothing to the live call path, and does its work after the call has already ended.
+
+## Prerequisites
+
+- A [Roark account](https://platform.roark.ai) with a project
+- A Dograh voice agent workflow
+- A Dograh deployment Roark can reach (see [Reachability](#reachability))
+
+## Setup
+
+### 1. Create a Roark API key
+
+In Roark, open **Settings → API Keys** and create a key for the project the calls should land in. The key decides the project; there is nothing to configure on the Dograh side for that.
+
+The key needs permission to create calls, and to create agents if you want Dograh to register the agent for you.
+
+### 2. Add the Roark node to your workflow
+
+In the workflow editor choose **Add node**, scroll to **Integrations**, and select **Roark**. The node drops onto the canvas unconnected, which is correct: it is configuration, not a conversation step.
+
+### 3. Configure the node
+
+| Field | Required | What it does |
+|---|---|---|
+| **Roark API Key** | Yes | The project key from step 1. |
+| **Roark Agent Name** | One of these two | The agent's name in Roark. Roark reuses an agent with this exact name in the project, or creates it on the first call. |
+| **Roark Agent ID** | One of these two | The UUID of an agent that already exists in Roark, as shown in the Roark dashboard. Takes precedence over the name. An **enabled** node is rejected on save if this is not a UUID; a disabled one keeps whatever it holds, so a wrong ID there surfaces on the save that re-enables the node. |
+| **Send Dograh transcript** | No, on by default | Send the turns and tool calls Dograh captured. Roark grades the transcript you send in preference to its own. Off means it grades its own transcription and gets no tool calls. |
+| **Send gathered context** | No, off by default | Also send the variables the agent gathered as Roark call properties. |
+| **Enabled** | No, on by default | Turn the export off without deleting the node. |
+
+Use **Roark Agent Name** unless you already have the agent in Roark and want to be certain the calls attach to it. Setting a name that does not exist yet is the zero-setup path: the agent appears in Roark the first time a call lands.
+
+For a campaign, consider creating the agent in Roark first and setting **Roark Agent ID**. An ID names one specific agent, so every call in the batch attaches to it with no name matching involved.
+
+Choose **Save**, then **Publish** the workflow.
+
+<Warning>
+  Inbound calls always run the **published** version of a workflow, never the
+  draft. If the Roark node only exists in your draft, calls will connect and
+  the conversation will happen normally, but nothing will ever reach Roark.
+</Warning>
+
+### 4. Verify
+
+Make a test call through your agent. When it completes, the call appears in Roark under the agent you configured. Its **External ID** is `dograh-run-<id>-<install>`, where `<id>` is the Dograh run.
+
+If nothing arrives, open the Dograh run and look at its annotations: every attempt records its outcome under a `roark_<node id>` key, including the message Roark replied with. A node that was misconfigured records `validation_failed` with the fields to fix, so you do not need access to the server logs.
+
+## What Dograh sends
+
+One `POST /v1/call` per exported run. A workflow holds at most one Roark node, so a run reaches Roark at most once. Not every completed run is exported: a text chat, a run with no recording, and a run whose recording URL is private or not HTTPS are all skipped, each recorded in the run's annotations with its reason (see [Limits](#limits)).
+
+| Roark field | Where it comes from |
+|---|---|
+| `recordingUrl` | The run's mixed-track recording, behind its public download token |
+| `startedAt` | The first event recorded in the call |
+| `interfaceType` | `WEB` for a browser call, `PHONE` for a telephony call |
+| `callDirection` | The run's inbound/outbound call type |
+| `endedStatus` | Mapped from `call_status`, the mechanism Dograh observed the call end by |
+| `agent` | The agent name or ID from the node |
+| `customer` | The caller's number inbound, the dialled number outbound |
+| `transcript` | Final user transcriptions and bot turns, with offsets |
+| `toolInvocations` | Function calls the agent made, with arguments and results |
+| `externalId` | `dograh-run-<id>-<install>`, the run id plus a fingerprint of the install |
+| `properties` | Dograh run, workflow, definition, campaign, status and disposition identifiers |
+
+### Call properties
+
+Every export carries `dograh_workflow_run_id`, `dograh_workflow_id` and `dograh_run_mode`, which you can filter and group on in Roark. The rest ship when the run has them: `dograh_workflow_name`, `dograh_definition_id`, `dograh_campaign_id` on a campaign call, and `dograh_call_status`, `dograh_call_disposition` and `dograh_mapped_call_disposition` once the call has been dispositioned.
+
+`dograh_call_status` is how the call ended and `dograh_call_disposition` is what came of it. They hold the same value until something records an outcome: an end-call tool, a transfer, or disposition extraction.
+
+Turning on **Send gathered context** adds the variables the agent collected during the call, each prefixed `dograh_context_`. It is off by default because gathered context routinely holds personal data, and Roark is a separate system with its own retention.
+
+Two things to know if you turn it on. Roark fixes a property's type the first time it sees it, so a variable whose type changes between calls (a number on one call, a string on the next) is dropped on the calls that disagree. And a variable holding a list is stored as text rather than as a list you can filter per element.
+
+### Transcripts
+
+Roark transcribes the recording with its own speech-to-text either way, unless your project has been set up to skip that when you send a transcript. So this setting does not decide whether Roark transcribes. It decides which transcript Roark **uses**: one you send takes precedence over Roark's own, and becomes the transcript the call view shows and the one your metrics are graded on.
+
+Leave it on to be graded on what your own speech-to-text heard and what your agent actually said, which is what the agent reasoned over. Turn it off to be graded on Roark's transcription of the same audio instead, for example if your provider's transcript is lossy. Turning it off also stops Dograh sending the call's tool invocations, which are read from the same event stream, so Roark is left with the audio and the call properties.
+
+<Note>
+  Comparing your transcript against Roark's is a Roark-side metric rather than
+  something this setting produces, and it needs both transcripts on the call.
+  Leave this on and ask Roark to enable transcription accuracy for your
+  project.
+</Note>
+
+<Note>
+  Each turn is timed from when the speaking started, not from when Dograh
+  logged it, so the transcript lines up with the recording in Roark's player.
+  Offsets are measured from the first event in the call, because Dograh does
+  not record the moment recording began; on measured calls that leaves the
+  transcript around half a second ahead of the audio.
+</Note>
+
+## Reachability
+
+Roark downloads the recording from your Dograh deployment rather than having it pushed, so the address it is given has to be reachable from the public internet.
+
+Dograh resolves that address the same way it does for telephony webhooks: it uses the deployment's configured origin (`BACKEND_API_ENDPOINT`, or the `PUBLIC_BASE_URL` it derives from) when that is publicly reachable, and otherwise falls back to the URL of a running [Cloudflare tunnel](/integrations/telephony/inbound). So a deployment on a laptop or inside a private network works as long as the tunnel is up:
+
+```bash
+docker compose --profile tunnel up -d cloudflared
+```
+
+With neither a public address nor a tunnel, the export is refused before it is sent and the run's annotations carry `recording_url_not_public` along with the host that was resolved. Roark fetches the recording asynchronously, so a private address would not fail the POST: the call would land in Roark and simply never get its audio.
+
+The download URL is unauthenticated but unguessable: it carries the run's public access token, the same token QA and webhook exports use, and re-signs storage access on each request so it does not expire.
+
+Because that token is the whole of the access control, the address has to be HTTPS as well as public. A plain-HTTP one is refused as `recording_url_not_https`: Roark's fetch would put the token and the audio on the wire in the clear, and the token does not expire, so anyone who saw it could replay it for as long as the run exists.
+
+Which address that is follows the deployment's usual resolution: `BACKEND_API_ENDPOINT` if you set it, otherwise `PUBLIC_BASE_URL`, otherwise `http://localhost:8000`. A standard single-host install sets only `PUBLIC_BASE_URL`, so that is normally the value to look at. Two configurations export:
+
+- **A public deployment whose canonical origin is HTTPS.** Point `PUBLIC_BASE_URL` at an `https://` URL. [Custom domain](/deployment/custom-domain) sets this up for you, certificate included.
+- **A laptop or private-network deployment with the tunnel up.** The resolved origin is local, so Dograh prefers the tunnel's URL, which is HTTPS.
+
+What does not work is a tunnel alongside a public `http://` origin. The tunnel is only consulted when the resolved origin is local or private, so a public `http://` one is handed to Roark as configured and refused, tunnel or no tunnel.
+
+## Re-running an export
+
+`externalId` is unique within a Roark project, so a run can only ever produce one Roark call. If the post-call job runs twice for the same run, Roark answers the second attempt with a 409 and Dograh records it as `duplicate` rather than as an error. Nothing is double-counted.
+
+The ID carries a fingerprint of the install as well as the run id, so two Dograh deployments sharing one Roark project (a staging install alongside production, or a rebuilt database that restarted its run numbering) do not answer each other's calls as duplicates. The fingerprint is a hash of the run's public access token, which is generated once per run, so it is the same on every attempt at the same run.
+
+## Limits
+
+- **A call with no recording is not exported.** Roark ingests a call around its audio, so a run that produced none is skipped and recorded as `missing_recording`. A recording URL whose host is local or private is refused the same way, as `recording_url_not_public`; that is a reachability check on the address, not a fetch, so a public host that happens to be unroutable is not caught.
+- **The recording address must be HTTPS.** The download URL carries the run's non-expiring access token, so a plain-HTTP address is refused as `recording_url_not_https` rather than exported under it. See [Reachability](#reachability).
+- **Text chat runs are not exported.** They have no audio, and Roark models a chat as a separate resource.
+- **The export is not retried.** A refusal is recorded in the run's annotations with Roark's message; publish the fix and the next call exports normally.
+- **Mono only.** Dograh keeps separate agent and caller tracks, but sends the mixed recording, so Roark separates speakers itself rather than reading them off channels.
+- **A run deleted in Roark cannot be re-sent.** A deleted call keeps its external ID, so a fresh export of the same run is answered as a duplicate.
+- **Tool results are sent as Dograh recorded them.** Dograh stores a tool's return value as its Python representation (`{'ok': True}`) rather than as JSON, and that string is what reaches Roark.
+
+## Configuration
+
+| Environment variable | Default | Purpose |
+|---|---|---|
+| `ROARK_BASE_URL` | `https://api.roark.ai` | Roark API base URL. Only change it to point at a different Roark environment. |

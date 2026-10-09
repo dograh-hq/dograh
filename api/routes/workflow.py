@@ -397,7 +397,13 @@ class CreateWorkflowTemplateRequest(BaseModel):
     activity_description: str
 
 
-@router.post("/{workflow_id}/validate")
+@router.post(
+    "/{workflow_id}/validate",
+    **sdk_expose(
+        method="validate_workflow",
+        description="Validate a workflow draft, or the published definition when no draft exists.",
+    ),
+)
 async def validate_workflow(
     workflow_id: int,
     user: UserModel = Depends(get_user),
@@ -842,6 +848,13 @@ class WorkflowVersionSummaryResponse(BaseModel):
     published_at: datetime | None
 
 
+class PublishWorkflowResponse(WorkflowVersionSummaryResponse):
+    """Published version, including the release notes stored on publish."""
+
+    version_name: str | None = None
+    change_description: str | None = None
+
+
 @router.get("/{workflow_id}/version-summaries")
 async def get_workflow_version_summaries(
     workflow_id: int, user: UserModel = Depends(get_user)
@@ -930,12 +943,21 @@ async def update_workflow_version_metadata(
     )
 
 
-@router.post("/{workflow_id}/publish")
+@router.post(
+    "/{workflow_id}/publish",
+    **sdk_expose(
+        method="publish_workflow",
+        description=(
+            "Publish the current draft of a workflow after validation. "
+            "An optional body may set version_name and change_description."
+        ),
+    ),
+)
 async def publish_workflow(
     workflow_id: int,
     request: PublishWorkflowRequest | None = None,
     user: UserModel = Depends(get_user),
-):
+) -> PublishWorkflowResponse:
     """Publish the current draft version of a workflow.
 
     Drafts are allowed to be incomplete (so the editor can save mid-edit),
@@ -1443,14 +1465,20 @@ async def create_workflow_run(
     }
 
 
-@router.get("/{workflow_id}/runs/{run_id}")
+@router.get(
+    "/{workflow_id}/runs/{run_id}",
+    **sdk_expose(
+        method="get_workflow_run",
+        description="Get a single workflow run, including transcript and recording links.",
+    ),
+)
 async def get_workflow_run(
     workflow_id: int, run_id: int, user: UserModel = Depends(get_user)
 ) -> WorkflowRunResponseSchema:
     run = await db_client.get_workflow_run(
         run_id, organization_id=user.selected_organization_id
     )
-    if not run:
+    if not run or run.workflow_id != workflow_id:
         raise HTTPException(status_code=404, detail="Workflow run not found")
 
     public_access_token = run.public_access_token
@@ -1510,7 +1538,13 @@ class WorkflowRunsResponse(BaseModel):
     applied_filters: Optional[List[dict]] = None
 
 
-@router.get("/{workflow_id}/runs")
+@router.get(
+    "/{workflow_id}/runs",
+    **sdk_expose(
+        method="list_workflow_runs",
+        description="List workflow runs for a workflow in the authenticated organization.",
+    ),
+)
 async def get_workflow_runs(
     workflow_id: int,
     page: int = Query(1, ge=1, description="Page number (starts from 1)"),

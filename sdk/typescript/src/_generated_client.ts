@@ -7,18 +7,30 @@
 // `_generated_models` (openapi-typescript output, --root-types).
 
 import type {
+    CampaignProgressResponse,
+    CampaignResponse,
+    CampaignsResponse,
+    CreateCampaignRequest,
+    CreateFolderRequest,
     CreateToolRequest,
     CreateWorkflowRequest,
     CredentialResponse,
     DocumentListResponseSchema,
+    FolderResponse,
     InitiateCallRequest,
     NodeSpec,
     NodeTypesResponse,
+    PublishWorkflowRequest,
+    PublishWorkflowResponse,
     RecordingListResponseSchema,
     ToolResponse,
+    UpdateToolRequest,
     UpdateWorkflowRequest,
+    ValidateWorkflowResponse,
     WorkflowListResponse,
     WorkflowResponse,
+    WorkflowRunResponseSchema,
+    WorkflowRunsResponse,
 } from "./_generated_models.js";
 
 export abstract class _GeneratedClient {
@@ -27,6 +39,16 @@ export abstract class _GeneratedClient {
         path: string,
         opts?: { json?: unknown; params?: Record<string, unknown> },
     ): Promise<T>;
+
+    /** Create a campaign that dials a CSV source with a workflow. */
+    async createCampaign(opts: { body: CreateCampaignRequest }): Promise<CampaignResponse> {
+        return this.request<CampaignResponse>("POST", "/campaign/create", { json: opts.body });
+    }
+
+    /** Create a folder in the authenticated organization. */
+    async createFolder(opts: { body: CreateFolderRequest }): Promise<FolderResponse> {
+        return this.request<FolderResponse>("POST", "/folder/", { json: opts.body });
+    }
 
     /** Create a reusable tool for the authenticated organization. */
     async createTool(opts: { body: CreateToolRequest }): Promise<ToolResponse> {
@@ -38,14 +60,44 @@ export abstract class _GeneratedClient {
         return this.request<WorkflowResponse>("POST", "/workflow/create/definition", { json: opts.body });
     }
 
+    /** Archive (soft-delete) a tool by UUID. */
+    async deleteTool(toolUuid: string): Promise<unknown> {
+        return this.request("DELETE", `/tools/${toolUuid}`);
+    }
+
+    /** Get a campaign by ID. */
+    async getCampaign(campaignId: number): Promise<CampaignResponse> {
+        return this.request<CampaignResponse>("GET", `/campaign/${campaignId}`);
+    }
+
+    /** Get live progress counts for a campaign. */
+    async getCampaignProgress(campaignId: number): Promise<CampaignProgressResponse> {
+        return this.request<CampaignProgressResponse>("GET", `/campaign/${campaignId}/progress`);
+    }
+
     /** Fetch a single node spec by name. */
     async getNodeType(name: string): Promise<NodeSpec> {
         return this.request<NodeSpec>("GET", `/node-types/${name}`);
     }
 
+    /** Get a tool by UUID, including archived tools. */
+    async getTool(toolUuid: string): Promise<ToolResponse> {
+        return this.request<ToolResponse>("GET", `/tools/${toolUuid}`);
+    }
+
     /** Get a single workflow by ID (returns draft if one exists, else published). */
     async getWorkflow(workflowId: number): Promise<WorkflowResponse> {
         return this.request<WorkflowResponse>("GET", `/workflow/fetch/${workflowId}`);
+    }
+
+    /** Get a single workflow run, including transcript and recording links. */
+    async getWorkflowRun(workflowId: number, runId: number): Promise<WorkflowRunResponseSchema> {
+        return this.request<WorkflowRunResponseSchema>("GET", `/workflow/${workflowId}/runs/${runId}`);
+    }
+
+    /** List campaigns in the authenticated organization. */
+    async listCampaigns(): Promise<CampaignsResponse> {
+        return this.request<CampaignsResponse>("GET", "/campaign/");
     }
 
     /** List webhook credentials available to the authenticated organization. */
@@ -61,6 +113,11 @@ export abstract class _GeneratedClient {
             ...(opts.offset !== undefined ? { "offset": opts.offset } : {}),
         };
         return this.request<DocumentListResponseSchema>("GET", "/knowledge-base/documents", { params });
+    }
+
+    /** List folders in the authenticated organization. */
+    async listFolders(): Promise<FolderResponse[]> {
+        return this.request<FolderResponse[]>("GET", "/folder/");
     }
 
     /** List every registered node type with its spec. Pinned to spec_version. */
@@ -88,6 +145,18 @@ export abstract class _GeneratedClient {
         return this.request<ToolResponse[]>("GET", "/tools/", { params });
     }
 
+    /** List workflow runs for a workflow in the authenticated organization. */
+    async listWorkflowRuns(workflowId: number, opts: { page?: number; limit?: number; filters?: string; sortBy?: string; sortOrder?: string } = {}): Promise<WorkflowRunsResponse> {
+        const params: Record<string, unknown> = {
+            ...(opts.page !== undefined ? { "page": opts.page } : {}),
+            ...(opts.limit !== undefined ? { "limit": opts.limit } : {}),
+            ...(opts.filters !== undefined ? { "filters": opts.filters } : {}),
+            ...(opts.sortBy !== undefined ? { "sort_by": opts.sortBy } : {}),
+            ...(opts.sortOrder !== undefined ? { "sort_order": opts.sortOrder } : {}),
+        };
+        return this.request<WorkflowRunsResponse>("GET", `/workflow/${workflowId}/runs`, { params });
+    }
+
     /** List all workflows in the authenticated organization. */
     async listWorkflows(opts: { status?: string } = {}): Promise<WorkflowListResponse[]> {
         const params: Record<string, unknown> = {
@@ -96,13 +165,43 @@ export abstract class _GeneratedClient {
         return this.request<WorkflowListResponse[]>("GET", "/workflow/fetch", { params });
     }
 
+    /** Pause a running campaign. */
+    async pauseCampaign(campaignId: number): Promise<CampaignResponse> {
+        return this.request<CampaignResponse>("POST", `/campaign/${campaignId}/pause`);
+    }
+
+    /** Publish the current draft of a workflow after validation. An optional body may set version_name and change_description. */
+    async publishWorkflow(workflowId: number, opts: { body?: PublishWorkflowRequest | null } = {}): Promise<PublishWorkflowResponse> {
+        return this.request<PublishWorkflowResponse>("POST", `/workflow/${workflowId}/publish`, { json: opts.body });
+    }
+
+    /** Resume a paused campaign. */
+    async resumeCampaign(campaignId: number): Promise<CampaignResponse> {
+        return this.request<CampaignResponse>("POST", `/campaign/${campaignId}/resume`);
+    }
+
+    /** Start a campaign that is ready to dial. */
+    async startCampaign(campaignId: number): Promise<CampaignResponse> {
+        return this.request<CampaignResponse>("POST", `/campaign/${campaignId}/start`);
+    }
+
     /** Place a test call from a workflow to a phone number. */
     async testPhoneCall(opts: { body: InitiateCallRequest }): Promise<unknown> {
         return this.request("POST", "/telephony/initiate-call", { json: opts.body });
     }
 
+    /** Update a tool's name, description, icon, icon color, definition, or status. */
+    async updateTool(toolUuid: string, opts: { body: UpdateToolRequest }): Promise<ToolResponse> {
+        return this.request<ToolResponse>("PUT", `/tools/${toolUuid}`, { json: opts.body });
+    }
+
     /** Update a workflow's name and/or definition. Saves as a new draft. */
     async updateWorkflow(workflowId: number, opts: { body: UpdateWorkflowRequest }): Promise<WorkflowResponse> {
         return this.request<WorkflowResponse>("PUT", `/workflow/${workflowId}`, { json: opts.body });
+    }
+
+    /** Validate a workflow draft, or the published definition when no draft exists. */
+    async validateWorkflow(workflowId: number): Promise<ValidateWorkflowResponse> {
+        return this.request<ValidateWorkflowResponse>("POST", `/workflow/${workflowId}/validate`);
     }
 }

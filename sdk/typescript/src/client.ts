@@ -152,6 +152,7 @@ export class DograhClient extends _GeneratedClient implements SpecProvider {
             if (q) url += (url.includes("?") ? "&" : "?") + q;
         }
 
+        // `null` is an explicit JSON body (`"null"`). `undefined` omits it.
         const hasBody = opts?.json !== undefined;
         const init: DograhFetchInit = {
             method,

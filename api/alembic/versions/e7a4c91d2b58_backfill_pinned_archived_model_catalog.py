@@ -11,12 +11,22 @@ no catalog binding, resolution inherits the organization default and drops
 the version's own inline voice, model and credentials.
 
 This revision writes those missing bindings with the same frozen conversion.
-It only considers versions referenced by a non-terminal campaign
-(created, syncing, running, paused), including an explicit pin of an archived
-definition. Completed and failed campaigns are left alone. Rows that already
-have a binding are skipped, and an identical provider setup reuses the
-existing connection and named configuration, so the revision is safe to run
-more than once. Inline keys stay on the row as audit data.
+It only considers versions a non-terminal campaign can still run (created,
+syncing, running, paused): an explicit numeric pin, or the workflow's
+released definition when the campaign has no traffic split or a variant
+tracks latest. That released definition is what dispatch runs, including
+when the workflow itself is archived and b3c1d9e4f7a2 skipped it. Completed
+and failed campaigns are left alone.
+
+A partial override is layered on the organization's current catalog default.
+The older MODEL_CONFIGURATION_V2 row is used only when that default was
+never created; otherwise a default the organization changed later would be
+replaced by the stale credential. A JSON null model_configuration_override
+is unbound, the same as a missing key, so those rows are included. An
+explicit binding, including an empty object, is left as written. Rows that
+already have a binding are skipped, and an identical provider setup reuses
+the existing connection and named configuration, so the revision is safe to
+run more than once. Inline keys stay on the row as audit data.
 
 Downgrade is a no-op. Older code ignores the binding and still reads the
 inline keys this revision leaves in place.
@@ -46,27 +56,77 @@ _spec.loader.exec_module(_v3)
 
 _STATES_SQL = ", ".join(f"'{state}'" for state in NON_TERMINAL_CAMPAIGN_STATES)
 
-# Explicit pins only. Campaigns that track "latest" already received a binding
-# for an active workflow's current definition in b3c1d9e4f7a2; a missing pin
-# means that version, not an archived one.
+# Numeric pins, plus the released definition a "latest" variant actually
+# runs. Dispatch uses that definition when the campaign has no traffic
+# split, and when a variant's workflow_definition_id is JSON null. An
+# archived workflow's released definition was skipped by b3c1d9e4f7a2.
+_VARIANT_ARRAY_SQL = """
+CASE
+    WHEN jsonb_typeof(
+        COALESCE(c.orchestrator_metadata, '{}')::jsonb
+        #> '{traffic_split,variants}'
+    ) = 'array'
+    THEN COALESCE(c.orchestrator_metadata, '{}')::jsonb
+         #> '{traffic_split,variants}'
+    ELSE '[]'::jsonb
+END
+"""
+
 _PINNED_DEFINITIONS_SQL = f"""
-WITH campaign_pins AS (
-    SELECT DISTINCT c.organization_id,
-           (variant->>'workflow_definition_id')::int AS definition_id
+WITH campaign_variants AS (
+    SELECT c.organization_id,
+           variant
     FROM campaigns c
-    CROSS JOIN LATERAL jsonb_array_elements(
-        CASE
-            WHEN jsonb_typeof(
-                COALESCE(c.orchestrator_metadata, '{{}}')::jsonb
-                #> '{{traffic_split,variants}}'
-            ) = 'array'
-            THEN COALESCE(c.orchestrator_metadata, '{{}}')::jsonb
-                 #> '{{traffic_split,variants}}'
-            ELSE '[]'::jsonb
-        END
-    ) AS variant
+    CROSS JOIN LATERAL jsonb_array_elements({_VARIANT_ARRAY_SQL}) AS variant
     WHERE c.state::text IN ({_STATES_SQL})
-      AND jsonb_typeof(variant->'workflow_definition_id') = 'number'
+),
+explicit_pins AS (
+    SELECT DISTINCT organization_id,
+           (variant->>'workflow_definition_id')::int AS definition_id
+    FROM campaign_variants
+    WHERE jsonb_typeof(variant->'workflow_definition_id') = 'number'
+),
+latest_workflows AS (
+    SELECT c.organization_id, c.workflow_id
+    FROM campaigns c
+    WHERE c.state::text IN ({_STATES_SQL})
+      AND (
+            COALESCE(c.orchestrator_metadata, '{{}}')::jsonb -> 'traffic_split'
+                IS NULL
+         OR jsonb_typeof(
+                COALESCE(c.orchestrator_metadata, '{{}}')::jsonb -> 'traffic_split'
+            ) = 'null'
+         OR COALESCE(c.orchestrator_metadata, '{{}}')::jsonb -> 'traffic_split'
+            = '{{}}'::jsonb
+      )
+    UNION
+    SELECT organization_id, (variant->>'workflow_id')::int AS workflow_id
+    FROM campaign_variants
+    WHERE jsonb_typeof(variant->'workflow_id') = 'number'
+      AND jsonb_typeof(variant->'workflow_definition_id') = 'null'
+),
+released_pins AS (
+    SELECT DISTINCT w.organization_id,
+           COALESCE(w.released_definition_id, current_def.id) AS definition_id
+    FROM latest_workflows lw
+    JOIN workflows w
+      ON w.id = lw.workflow_id
+     AND w.organization_id = lw.organization_id
+    LEFT JOIN LATERAL (
+        SELECT d.id
+        FROM workflow_definitions d
+        WHERE d.workflow_id = w.id
+          AND d.is_current
+          AND w.released_definition_id IS NULL
+        ORDER BY d.id
+        LIMIT 1
+    ) current_def ON true
+    WHERE COALESCE(w.released_definition_id, current_def.id) IS NOT NULL
+),
+campaign_pins AS (
+    SELECT organization_id, definition_id FROM explicit_pins
+    UNION
+    SELECT organization_id, definition_id FROM released_pins
 )
 SELECT w.organization_id,
        w.id AS workflow_id,
@@ -82,9 +142,14 @@ WHERE jsonb_exists_any(
           COALESCE(d.workflow_configurations, '{{}}')::jsonb,
           ARRAY[:full_key, :partial_key]
       )
-  AND NOT jsonb_exists(
-          COALESCE(d.workflow_configurations, '{{}}')::jsonb,
-          :binding_key
+  AND (
+        NOT jsonb_exists(
+            COALESCE(d.workflow_configurations, '{{}}')::jsonb,
+            :binding_key
+        )
+        OR jsonb_typeof(
+            COALESCE(d.workflow_configurations, '{{}}')::jsonb -> :binding_key
+        ) = 'null'
       )
 ORDER BY w.organization_id, d.id
 """
@@ -141,14 +206,103 @@ def _seed_existing(connection, catalog, organization_id):
             catalog._names["configuration"].add(row.name)
 
 
-def _organization_services(connection, organization_id):
-    row = connection.execute(
+class _NoCatalogDefault:
+    """The organization has no MODEL_CONFIGURATION_DEFAULT_UUID row."""
+
+
+_NO_CATALOG_DEFAULT = _NoCatalogDefault()
+
+
+def _json_value(value):
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
+
+def _configuration_value(connection, organization_id, key):
+    return connection.execute(
         sa.text(
             "SELECT value FROM organization_configurations "
             "WHERE organization_id = :organization_id AND key = :key"
         ),
-        {"organization_id": organization_id, "key": _v3.V2_KEY},
+        {"organization_id": organization_id, "key": key},
     ).first()
+
+
+def _services_from_catalog_default(connection, organization_id):
+    """Rebuild the frozen converter's service dicts from the live default.
+
+    Resolution of an unbound definition reads this catalog row, not the V2
+    payload the original backfill copied it from. Partial overrides have to
+    start here so a credential the organization has since rotated stays in
+    place, and only the inline voice or model settings change.
+    """
+    row = _configuration_value(connection, organization_id, _v3.DEFAULT_KEY)
+    if row is None:
+        return _NO_CATALOG_DEFAULT
+    configuration_uuid = _json_value(row.value)
+    if not isinstance(configuration_uuid, str) or not configuration_uuid.strip():
+        return None
+    spec_row = connection.execute(
+        sa.text(
+            "SELECT configuration FROM model_configurations "
+            "WHERE organization_id = :organization_id AND uuid = :uuid AND is_active"
+        ),
+        {
+            "organization_id": organization_id,
+            "uuid": configuration_uuid.strip(),
+        },
+    ).first()
+    spec = _obj(spec_row.configuration) if spec_row is not None else None
+    mode = spec.get("mode") if spec else None
+    if mode not in _v3._ROLES:
+        return None
+
+    connections = {
+        item.uuid: item
+        for item in connection.execute(
+            sa.text(
+                "SELECT uuid, provider, credentials, connection_settings "
+                "FROM provider_connections "
+                "WHERE organization_id = :organization_id AND is_active"
+            ),
+            {"organization_id": organization_id},
+        )
+    }
+    sections = {}
+    for role in _v3._ROLES[mode]:
+        selection = spec.get(role)
+        if not isinstance(selection, dict):
+            continue
+        connection_uuid = selection.get("provider_connection_uuid")
+        stored = connections.get(connection_uuid)
+        if stored is None or not stored.provider:
+            return None
+        settings = selection.get("settings")
+        if not isinstance(settings, dict):
+            settings = {}
+        sections[role] = {
+            "provider": stored.provider,
+            **(_obj(stored.credentials) or {}),
+            **(_obj(stored.connection_settings) or {}),
+            **settings,
+        }
+    try:
+        return _v3._complete(mode, sections)
+    except _v3.Unconvertible:
+        return None
+
+
+def _organization_services(connection, organization_id):
+    current = _services_from_catalog_default(connection, organization_id)
+    if current is not _NO_CATALOG_DEFAULT:
+        # A default row that cannot be read must not fall back to the stale
+        # V2 credential. The partial override then keeps inheriting.
+        return current
+    row = _configuration_value(connection, organization_id, _v3.V2_KEY)
     if row is None:
         return None
     try:

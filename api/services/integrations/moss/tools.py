@@ -34,12 +34,13 @@ _AMBIENT_HEADER = (
     "that you searched."
 )
 
-_PASSAGES_TAG = re.compile(r"</?passages>", re.IGNORECASE)
+# The bracket of anything a model could read as a passages tag, spaced or not.
+_PASSAGES_TAG = re.compile(r"<(?=\s*/?\s*passages)", re.IGNORECASE)
 
 
 def _passage(text: str) -> str:
     """One line of indexed text that cannot close the passages block."""
-    return " ".join(_PASSAGES_TAG.sub("", text).split())
+    return " ".join(_PASSAGES_TAG.sub("&lt;", text).split())
 
 
 class MossSearch:

@@ -767,7 +767,11 @@ export const reactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePut = <ThrowOnErr
 /**
  * Get Voices
  *
- * Get available voices for a TTS provider.
+ * Get voices from Dograh's managed catalog or a saved provider connection.
+ *
+ * External providers require provider_connection_uuid for an active connection
+ * in the selected organization. Model and language filtering depends on the
+ * provider's catalog capabilities.
  */
 export const getVoicesApiV1UserConfigurationsVoicesProviderGet = <ThrowOnError extends boolean = false>(options: Options<GetVoicesApiV1UserConfigurationsVoicesProviderGetData, ThrowOnError>): RequestResult<GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses, GetVoicesApiV1UserConfigurationsVoicesProviderGetErrors, ThrowOnError> => (options.client ?? client).get<GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses, GetVoicesApiV1UserConfigurationsVoicesProviderGetErrors, ThrowOnError>({ url: '/api/v1/user/configurations/voices/{provider}', ...options });
 

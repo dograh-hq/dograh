@@ -9751,6 +9751,10 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetData = {
          * Accent
          */
         accent?: string | null;
+        /**
+         * Provider Connection Uuid
+         */
+        provider_connection_uuid?: string | null;
     };
     url: '/api/v1/user/configurations/voices/{provider}';
 };

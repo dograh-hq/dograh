@@ -1452,6 +1452,8 @@ class PipecatEngine:
         mute_user: bool = False,
         timeout: float = 35,
         greeting: bool = False,
+        origin_agent: AgentRuntime | None = None,
+        can_queue: Callable[[], bool] | None = None,
     ) -> SpeechPlayback:
         """Queue one message and return its independently owned playback result.
 
@@ -1480,6 +1482,8 @@ class PipecatEngine:
         try:
             if self.is_call_disposed():
                 return completed(PlaybackOutcome.CLOSED)
+            if can_queue is not None and not can_queue():
+                return completed(PlaybackOutcome.SKIPPED)
             if text is not None and (self._is_realtime or not text.strip()):
                 return completed(PlaybackOutcome.SKIPPED)
             if recording_pk is not None or recording_id is not None:
@@ -1503,14 +1507,17 @@ class PipecatEngine:
 
             if self.is_call_disposed():
                 return completed(PlaybackOutcome.CLOSED)
+            if can_queue is not None and not can_queue():
+                return completed(PlaybackOutcome.SKIPPED)
+            speech_agent = origin_agent or self.active_agent
             frames = []
             if greeting:
                 append_to_context = False
                 persist_to_logs = True
             if text is not None:
-                if self.active_agent.worker is None:
+                if speech_agent.worker is None:
                     return completed(PlaybackOutcome.FAILED)
-                queue_frame = self.active_agent.queue_frame
+                queue_frame = speech_agent.queue_frame
                 frames.append(
                     TTSSpeakFrame(
                         text,
@@ -1541,6 +1548,8 @@ class PipecatEngine:
 
             if speech.done:
                 return speech
+            if can_queue is not None and not can_queue():
+                return completed(PlaybackOutcome.SKIPPED)
             speech.text = text if text is not None else (transcript or "")
             speech.mute_user = mute_user
             await queue_frame(SpeechBoundaryFrame(speech.id, beginning=True))
@@ -1901,6 +1910,7 @@ class PipecatEngine:
         a rolled-back handoff activates the same worker again.
         """
         self.call_monitor.cancel()
+        runtime.stop_tool_messages()
         if not runtime.is_child or self._call_worker is None:
             return
         self._agent_on_hold = True
@@ -2190,6 +2200,9 @@ class PipecatEngine:
         Connection owners are finalized by close_mcp_sessions() in the run
         finally block, including failures before the pipeline starts.
         """
+        for agent in [self.active_agent, self.pending_agent, *self._retired_agents]:
+            if agent is not None:
+                agent.stop_tool_messages()
         self.speech_playback.cancel_all()
         # Cancel any pending timeout tasks
         if self._response_timeout_task and not self._response_timeout_task.done():

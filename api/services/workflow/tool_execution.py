@@ -9,6 +9,9 @@ from loguru import logger
 from pipecat.frames.frames import FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallHandler, FunctionCallParams
 
+from api.schemas.tool import ToolMessages
+from api.services.workflow.tool_messages import ToolMessageSession
+
 if TYPE_CHECKING:
     from api.services.workflow.agent_runtime import AgentRuntime
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -23,6 +26,7 @@ class ToolExecution:
     properties: FunctionCallResultProperties | None = None
     received_result: bool = False
     delivered: bool = False
+    messages: ToolMessageSession | None = None
 
 
 class ToolExecutionOwner:
@@ -36,6 +40,8 @@ class ToolExecutionOwner:
         self._engine = engine
         self._agent = agent
         self._executions: dict[str, ToolExecution] = {}
+        self._pending: set[str] = set()
+        self._message_owner: str | None = None
 
     def get(self, tool_call_id: str) -> ToolExecution | None:
         return self._executions.get(tool_call_id)
@@ -45,12 +51,28 @@ class ToolExecutionOwner:
         handler: FunctionCallHandler,
         params: FunctionCallParams,
         timeout_secs: float | None,
+        messages: ToolMessages | None = None,
     ) -> ToolExecution:
         existing = self.get(params.tool_call_id)
         if existing is not None:
             return existing
         execution = ToolExecution()
         self._executions[params.tool_call_id] = execution
+        # Acceptance is synchronous and follows provider call order, before any
+        # handler starts. Streamed additions join the same pending group.
+        if not self._pending:
+            self._message_owner = None
+        self._pending.add(params.tool_call_id)
+        if (
+            self._message_owner is None
+            and messages
+            and (messages.start or messages.delayed)
+        ):
+            self._message_owner = params.tool_call_id
+            execution.messages = ToolMessageSession(
+                self._engine, self._agent, params.tool_call_id, messages
+            )
+            execution.messages.start()
         execution.task = asyncio.create_task(
             self._execute(
                 execution, handler, params, timeout_secs or DEFAULT_TOOL_TIMEOUT_SECONDS
@@ -74,6 +96,8 @@ class ToolExecutionOwner:
             execution.result = result
             execution.properties = properties
             execution.received_result = properties is None or properties.is_final
+            if execution.received_result and execution.messages:
+                execution.messages.stop()
 
         owned_params = copy.copy(params)
         owned_params.result_callback = capture
@@ -104,6 +128,9 @@ class ToolExecutionOwner:
                 "Tool {} [{}] failed", params.function_name, params.tool_call_id
             )
         finally:
+            if execution.messages:
+                execution.messages.stop()
+            self._pending.discard(params.tool_call_id)
             record = {
                 "visit_id": self._agent.visit_id,
                 "tool_call_id": params.tool_call_id,
@@ -122,6 +149,12 @@ class ToolExecutionOwner:
                 self._agent.visit_id,
             )
 
+    def stop_messages(self) -> None:
+        """Retire speech without cancelling accepted tool side effects."""
+        for execution in self._executions.values():
+            if execution.messages:
+                execution.messages.stop()
+
     async def finish(self) -> None:
         """Wait for accepted invocations, preserving their individual deadlines."""
         while pending := [
@@ -130,3 +163,11 @@ class ToolExecutionOwner:
             if e.task is not None and not e.task.done()
         ]:
             await asyncio.shield(asyncio.gather(*pending, return_exceptions=True))
+        await asyncio.gather(
+            *(
+                e.messages.task
+                for e in self._executions.values()
+                if e.messages and e.messages.task
+            ),
+            return_exceptions=True,
+        )

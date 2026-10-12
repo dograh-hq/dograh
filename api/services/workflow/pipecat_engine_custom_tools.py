@@ -29,6 +29,7 @@ from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
 )
+from api.services.workflow.tool_messages import tool_messages
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
@@ -261,6 +262,7 @@ class CustomToolManager:
                                 self._engine,
                                 self._create_mcp_handler(session, fs.name),
                                 timeout_secs=session.call_timeout_secs,
+                                messages=tool_messages(tool.definition),
                             ),
                             timeout_secs=session.call_timeout_secs,
                         )
@@ -291,6 +293,9 @@ class CustomToolManager:
                         handler,
                         is_node_transition=is_node_transition,
                         timeout_secs=timeout_secs,
+                        messages=tool_messages(tool.definition)
+                        if not is_node_transition
+                        else None,
                     ),
                     timeout_secs=timeout_secs,
                     is_node_transition=is_node_transition,
@@ -405,25 +410,6 @@ class CustomToolManager:
             logger.info(f"Arguments: {function_call_params.arguments}")
 
             try:
-                # Queue custom message before executing the API call
-                # Queue custom message (text or audio) before executing the API call
-                config = tool.definition.get("config", {}) if tool.definition else {}
-                custom_msg_type = config.get("customMessageType", "text")
-                custom_message = config.get("customMessage", "")
-                if custom_msg_type == "audio":
-                    recording_pk = config.get("customMessageRecordingId")
-                    if recording_pk and self._engine._fetch_recording_audio:
-                        logger.info(
-                            f"Playing audio message before HTTP tool: pk={recording_pk}"
-                        )
-                        await self._engine.queue_speech(
-                            recording_pk=int(recording_pk), mute_user=True
-                        )
-                elif custom_message:
-                    await self._engine.queue_text_message(
-                        custom_message, mute_user=True
-                    )
-
                 result = await execute_http_tool(
                     tool=tool,
                     arguments=function_call_params.arguments,

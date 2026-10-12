@@ -2,8 +2,6 @@
 
 import { Info } from "lucide-react";
 
-import type { RecordingResponseSchema } from "@/client/types.gen";
-import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import {
     CredentialSelector,
     extractUrlHostnameParameters,
@@ -61,13 +59,6 @@ export interface HttpApiToolConfigProps {
     onBodyFormatChange: (format: HttpBodyFormat) => void;
     timeoutMs: number;
     onTimeoutMsChange: (timeout: number) => void;
-    customMessage: string;
-    onCustomMessageChange: (message: string) => void;
-    customMessageType: 'text' | 'audio';
-    onCustomMessageTypeChange: (type: 'text' | 'audio') => void;
-    customMessageRecordingId: string;
-    onCustomMessageRecordingIdChange: (id: string) => void;
-    recordings?: RecordingResponseSchema[];
 }
 
 export function HttpApiToolConfig({
@@ -96,13 +87,6 @@ export function HttpApiToolConfig({
     onBodyFormatChange,
     timeoutMs,
     onTimeoutMsChange,
-    customMessage,
-    onCustomMessageChange,
-    customMessageType,
-    onCustomMessageTypeChange,
-    customMessageRecordingId,
-    onCustomMessageRecordingIdChange,
-    recordings = [],
 }: HttpApiToolConfigProps) {
     const urlHostnameParameters = extractUrlHostnameParameters(url);
     const urlPathParameters = extractUrlPathParameters(url);
@@ -195,30 +179,6 @@ export function HttpApiToolConfig({
                                     </span>
                                 </div>
                             )}
-                        </div>
-
-                        <div className="grid gap-2 pt-4 border-t">
-                            <Label>Custom Message</Label>
-                            <Label className="text-xs text-muted-foreground">
-                                Optional message the AI will speak or play before executing this tool.
-                            </Label>
-                            <TextOrAudioInput
-                                type={customMessageType}
-                                onTypeChange={onCustomMessageTypeChange}
-                                recordingId={customMessageRecordingId}
-                                onRecordingIdChange={onCustomMessageRecordingIdChange}
-                                recordings={recordings}
-                            >
-                                <>
-                                    <StaticTextWarning />
-                                    <Textarea
-                                        value={customMessage}
-                                        onChange={(e) => onCustomMessageChange(e.target.value)}
-                                        placeholder="e.g., Let me check that for you, one moment please."
-                                        rows={2}
-                                    />
-                                </>
-                            </TextOrAudioInput>
                         </div>
                     </TabsContent>
 

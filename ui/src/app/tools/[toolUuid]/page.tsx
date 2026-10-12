@@ -14,6 +14,7 @@ import type {
     EndCallConfig,
     HttpApiToolDefinition,
     RecordingResponseSchema,
+    ToolMessages,
     ToolResponse,
     TransferAgentConfig,
     TransferCallConfig,
@@ -29,6 +30,8 @@ import {
     validateUrl,
 } from "@/components/http";
 import { PageShell } from "@/components/layout/PageShell";
+import { loadToolMessages, orderedToolMessages, validateToolMessages } from "@/components/tools/toolMessages";
+import { ToolMessagesEditor } from "@/components/tools/ToolMessagesEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -182,9 +185,7 @@ export default function ToolDetailPage() {
         }
     };
 
-    // HTTP API form state - custom message type
-    const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
-    const [customMessageRecordingId, setCustomMessageRecordingId] = useState("");
+    const [messages, setMessages] = useState<ToolMessages>({});
 
     // MCP form state
     const [mcpUrl, setMcpUrl] = useState("");
@@ -231,6 +232,8 @@ export default function ToolDetailPage() {
     const populateFormFromTool = (tool: ToolResponse) => {
         setName(tool.name);
         setDescription(tool.description || "");
+
+        setMessages(loadToolMessages(tool.definition));
 
         if (tool.category === "end_call") {
             // Populate end call specific fields
@@ -342,18 +345,12 @@ export default function ToolDetailPage() {
                 const loadedUrl = config.url || "";
                 const loadedCredentialUuid = config.credential_uuid || "";
                 const loadedTimeoutMs = config.timeout_ms || 5000;
-                const loadedCustomMessage = config.customMessage || "";
-                const loadedCustomMessageType = config.customMessageType || "text";
-                const loadedCustomMessageRecordingId = config.customMessageRecordingId || "";
                 const loadedBodyTemplate = config.body_template ?? null;
                 const loadedBodyFormat = config.body_format ?? "json";
                 setHttpMethod(loadedHttpMethod);
                 setUrl(loadedUrl);
                 setCredentialUuid(loadedCredentialUuid);
                 setTimeoutMs(loadedTimeoutMs);
-                setCustomMessage(loadedCustomMessage);
-                setCustomMessageType(loadedCustomMessageType);
-                setCustomMessageRecordingId(loadedCustomMessageRecordingId);
                 setBodyTemplateEnabled(loadedBodyTemplate !== null);
                 setBodyTemplate(loadedBodyTemplate);
                 setIsBodyTemplateValid(true);
@@ -409,9 +406,7 @@ export default function ToolDetailPage() {
                         bodyTemplate: loadedBodyTemplate,
                         bodyFormat: loadedBodyFormat,
                         timeoutMs: loadedTimeoutMs,
-                        customMessage: loadedCustomMessage,
-                        customMessageType: loadedCustomMessageType,
-                        customMessageRecordingId: loadedCustomMessageRecordingId,
+                        messages: loadToolMessages(tool.definition),
                     })
                 );
             }
@@ -601,6 +596,11 @@ export default function ToolDetailPage() {
             }
         }
 
+        if (tool.category === "http_api" || tool.category === "mcp") {
+            const messageError = validateToolMessages(messages);
+            if (messageError) { setError(messageError); return; }
+        }
+
         try {
             setIsSaving(true);
             setError(null);
@@ -710,7 +710,7 @@ export default function ToolDetailPage() {
                 requestBody = {
                     name,
                     description: description || undefined,
-                    definition: createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter),
+                    definition: { ...createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter), messages: orderedToolMessages(messages) },
                 };
             } else if (tool.category === "transfer_agent") {
                 requestBody = {
@@ -740,6 +740,7 @@ export default function ToolDetailPage() {
                     definition: {
                         schema_version: 1,
                         type: "http_api",
+                        messages: orderedToolMessages(messages),
                         config: {
                             method: httpMethod,
                             url,
@@ -764,9 +765,6 @@ export default function ToolDetailPage() {
                                 : undefined,
                             body_format: bodyFormat,
                             timeout_ms: timeoutMs,
-                            customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
-                            customMessageType,
-                            customMessageRecordingId: customMessageType === 'audio' ? (customMessageRecordingId || undefined) : undefined,
                         },
                     },
                 };
@@ -804,9 +802,7 @@ export default function ToolDetailPage() {
                             bodyTemplate,
                             bodyFormat,
                             timeoutMs,
-                            customMessage,
-                            customMessageType,
-                            customMessageRecordingId,
+                            messages,
                         })
                     );
                 }
@@ -926,9 +922,7 @@ const data = await response.json();`;
                 bodyTemplate,
                 bodyFormat,
                 timeoutMs,
-                customMessage,
-                customMessageType,
-                customMessageRecordingId,
+                messages,
             }) !== savedHttpTestSnapshot);
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
 
@@ -1173,14 +1167,12 @@ const data = await response.json();`;
                         onBodyFormatChange={setBodyFormat}
                         timeoutMs={timeoutMs}
                         onTimeoutMsChange={setTimeoutMs}
-                        customMessage={customMessage}
-                        onCustomMessageChange={setCustomMessage}
-                        customMessageType={customMessageType}
-                        onCustomMessageTypeChange={setCustomMessageType}
-                        customMessageRecordingId={customMessageRecordingId}
-                        onCustomMessageRecordingIdChange={setCustomMessageRecordingId}
-                        recordings={recordings}
                     />
+                )}
+
+                {(isHttpApiTool || isMcpTool) && (
+                    <ToolMessagesEditor value={messages} onChange={setMessages} recordings={recordings}
+                        timeoutMs={isHttpApiTool ? timeoutMs : undefined} />
                 )}
 
                 {isHttpApiTool && (

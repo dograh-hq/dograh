@@ -2308,6 +2308,10 @@ export type HttpApiToolDefinition = {
      * HTTP API configuration.
      */
     config: HttpApiConfig;
+    /**
+     * Start and delayed announcements. An empty object disables legacy custom messages.
+     */
+    messages?: ToolMessages | null;
 };
 
 /**
@@ -2818,6 +2822,10 @@ export type McpToolDefinition = {
      * MCP server configuration.
      */
     config: McpToolConfig;
+    /**
+     * Start and delayed announcements for this server's tools.
+     */
+    messages?: ToolMessages | null;
 };
 
 /**
@@ -5113,6 +5121,79 @@ export type TimeSlotResponse = {
      * End Time
      */
     end_time: string;
+};
+
+/**
+ * ToolDelayedMessage
+ */
+export type ToolDelayedMessage = {
+    /**
+     * Variants
+     */
+    variants: Array<ToolMessageText | ToolMessageAudio>;
+    /**
+     * After Ms
+     *
+     * Elapsed execution time before this update is eligible.
+     */
+    after_ms: number;
+};
+
+/**
+ * ToolMessageAudio
+ *
+ * An organization-owned recording, referenced by its immutable primary key.
+ */
+export type ToolMessageAudio = {
+    /**
+     * Type
+     */
+    type: 'audio';
+    /**
+     * Recording Id
+     */
+    recording_id: number;
+};
+
+/**
+ * ToolMessageText
+ *
+ * A literal phrase spoken by the agent's TTS voice.
+ */
+export type ToolMessageText = {
+    /**
+     * Type
+     */
+    type: 'text';
+    /**
+     * Text
+     */
+    text: string;
+};
+
+/**
+ * ToolMessageVariants
+ *
+ * One variant is chosen randomly when this message fires.
+ */
+export type ToolMessageVariants = {
+    /**
+     * Variants
+     */
+    variants: Array<ToolMessageText | ToolMessageAudio>;
+};
+
+/**
+ * ToolMessages
+ *
+ * Announcements for one tool; execution never waits for playback.
+ */
+export type ToolMessages = {
+    start?: ToolMessageVariants | null;
+    /**
+     * Delayed
+     */
+    delayed?: Array<ToolDelayedMessage>;
 };
 
 /**

@@ -541,12 +541,68 @@ class McpToolConfig(BaseModel):
         return v
 
 
+class ToolMessageText(BaseModel):
+    """A literal phrase spoken by the agent's TTS voice."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    type: Literal["text"]
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class ToolMessageAudio(BaseModel):
+    """An organization-owned recording, referenced by its immutable primary key."""
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["audio"]
+    recording_id: int = Field(gt=0)
+
+
+ToolMessageVariant = Annotated[
+    ToolMessageText | ToolMessageAudio, Field(discriminator="type")
+]
+
+
+class ToolMessageVariants(BaseModel):
+    """One variant is chosen randomly when this message fires."""
+
+    model_config = ConfigDict(extra="forbid")
+    variants: list[ToolMessageVariant] = Field(min_length=1, max_length=20)
+
+
+class ToolDelayedMessage(ToolMessageVariants):
+    after_ms: int = Field(
+        gt=0,
+        le=120000,
+        description="Elapsed execution time before this update is eligible.",
+    )
+
+
+class ToolMessages(BaseModel):
+    """Announcements for one tool; execution never waits for playback."""
+
+    model_config = ConfigDict(extra="forbid")
+    start: ToolMessageVariants | None = None
+    delayed: list[ToolDelayedMessage] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def order_delays(self) -> ToolMessages:
+        timings = [message.after_ms for message in self.delayed]
+        if len(set(timings)) != len(timings):
+            raise ValueError("Delayed message timings must be unique")
+        self.delayed.sort(key=lambda message: message.after_ms)
+        return self
+
+
 class HttpApiToolDefinition(BaseModel):
     """Tool definition for HTTP API tools."""
 
     schema_version: int = Field(default=1, description="Schema version.")
     type: Literal["http_api"] = Field(description="Tool type.")
     config: HttpApiConfig = Field(description="HTTP API configuration.")
+    messages: ToolMessages | None = Field(
+        default=None,
+        description="Start and delayed announcements. An empty object disables legacy custom messages.",
+    )
 
 
 class EndCallToolDefinition(BaseModel):
@@ -632,6 +688,10 @@ class McpToolDefinition(BaseModel):
     schema_version: int = Field(default=1, description="Schema version.")
     type: Literal["mcp"] = Field(description="Tool type.")
     config: McpToolConfig = Field(description="MCP server configuration.")
+    messages: ToolMessages | None = Field(
+        default=None,
+        description="Start and delayed announcements for this server's tools.",
+    )
 
 
 ToolDefinition = Annotated[

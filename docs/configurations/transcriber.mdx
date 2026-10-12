@@ -18,3 +18,7 @@ Example: Deepgram has their language support documentation at https://developers
 With the `flux-general-multi` model, **Language hints** biases transcription toward the languages you expect callers to speak. Pick several when callers switch between known languages, for example Hindi and English. Hints are combined with the **Language** setting, and leaving both on auto-detect lets Flux detect the language on its own.
 
 Hints only help within the languages Flux multilingual supports. They do not add new ones. See [Deepgram's language prompting guide](https://developers.deepgram.com/docs/flux/language-prompting).
+
+In **Dograh** mode, language hints are also available when you select auto-detect (`multi`) or a Flux-supported language. For bilingual English/Spanish calls, choose auto-detect and check **English** and **Spanish** under **Language hints**. These hints bias recognition toward both languages; they do not guarantee that other languages will be excluded.
+
+Selecting a specific Flux-supported language combines that language with your hints. Hints are hidden and unused when you select a language that Dograh routes to its standard transcriber.

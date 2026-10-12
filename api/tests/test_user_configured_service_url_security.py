@@ -195,13 +195,16 @@ def test_runtime_blocks_azure_private_endpoint_in_saas(monkeypatch):
     assert "public IP" in exc_info.value.detail
 
 
-def test_runtime_blocks_elevenlabs_local_tts_base_url_in_saas(monkeypatch):
+@pytest.mark.parametrize(
+    "model", ["eleven_flash_v2_5", "eleven_v3_conversational", "eleven_v4_turbo"]
+)
+def test_runtime_blocks_elevenlabs_local_tts_base_url_in_saas(monkeypatch, model):
     monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
     user_config = SimpleNamespace(
         tts=SimpleNamespace(
             provider=ServiceProviders.ELEVENLABS.value,
             api_key="test-key",
-            model="eleven_flash_v2_5",
+            model=model,
             voice="voice-id",
             speed=1.0,
             base_url="http://localhost:8000",

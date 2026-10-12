@@ -21,7 +21,7 @@ async def test_voice_catalog_does_not_duplicate_mps_failure(monkeypatch):
 
     with pytest.raises(MPSUnavailableError):
         await user_routes.get_voices(
-            provider="cartesia",
+            provider="dograh",
             user=SimpleNamespace(
                 selected_organization_id=42,
                 provider_id="provider-123",

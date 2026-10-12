@@ -315,6 +315,12 @@ export type CalculatorToolDefinition = {
      */
     schema_version?: number;
     /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
+    /**
      * Type
      *
      * Tool type.
@@ -1892,24 +1898,6 @@ export type EmbedTokenResponse = {
  */
 export type EndCallConfig = {
     /**
-     * Messagetype
-     *
-     * Type of goodbye message.
-     */
-    messageType?: 'none' | 'custom' | 'audio';
-    /**
-     * Custommessage
-     *
-     * Custom message to play before ending the call.
-     */
-    customMessage?: string | null;
-    /**
-     * Audiorecordingid
-     *
-     * Recording ID for audio goodbye message.
-     */
-    audioRecordingId?: string | null;
-    /**
      * Endcallreason
      *
      * When enabled, the model must provide a reason for ending the call. The reason is set as call disposition and added to call tags.
@@ -1935,6 +1923,12 @@ export type EndCallToolDefinition = {
      * Schema version.
      */
     schema_version?: number;
+    /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**
      * Type
      *
@@ -2253,24 +2247,6 @@ export type HttpApiConfig = {
      */
     timeout_ms?: number | null;
     /**
-     * Custommessage
-     *
-     * Custom message to play before the tool executes, while the request is in flight.
-     */
-    customMessage?: string | null;
-    /**
-     * Custommessagetype
-     *
-     * Type of custom message.
-     */
-    customMessageType?: 'text' | 'audio' | null;
-    /**
-     * Custommessagerecordingid
-     *
-     * Recording ID for an audio custom message.
-     */
-    customMessageRecordingId?: string | null;
-    /**
      * Body Template
      *
      * Optional JSON body template for POST, PUT, and PATCH requests.
@@ -2298,6 +2274,12 @@ export type HttpApiToolDefinition = {
      * Schema version.
      */
     schema_version?: number;
+    /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**
      * Type
      *
@@ -2808,6 +2790,12 @@ export type McpToolDefinition = {
      * Schema version.
      */
     schema_version?: number;
+    /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**
      * Type
      *
@@ -5116,6 +5104,50 @@ export type TimeSlotResponse = {
 };
 
 /**
+ * ToolDelayedAudioMessage
+ */
+export type ToolDelayedAudioMessage = {
+    /**
+     * Type
+     */
+    type: 'audio';
+    /**
+     * Recording Id
+     */
+    recording_id: number;
+    /**
+     * Event
+     */
+    event: 'delayed';
+    /**
+     * After Ms
+     */
+    after_ms: number;
+};
+
+/**
+ * ToolDelayedTextMessage
+ */
+export type ToolDelayedTextMessage = {
+    /**
+     * Type
+     */
+    type: 'text';
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Event
+     */
+    event: 'delayed';
+    /**
+     * After Ms
+     */
+    after_ms: number;
+};
+
+/**
  * ToolParameter
  *
  * A parameter that the tool accepts from the model at call time.
@@ -5200,6 +5232,42 @@ export type ToolResponse = {
      */
     updated_at: string | null;
     created_by?: CreatedByResponse | null;
+};
+
+/**
+ * ToolStartAudioMessage
+ */
+export type ToolStartAudioMessage = {
+    /**
+     * Type
+     */
+    type: 'audio';
+    /**
+     * Recording Id
+     */
+    recording_id: number;
+    /**
+     * Event
+     */
+    event: 'start';
+};
+
+/**
+ * ToolStartTextMessage
+ */
+export type ToolStartTextMessage = {
+    /**
+     * Type
+     */
+    type: 'text';
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Event
+     */
+    event: 'start';
 };
 
 /**
@@ -5457,12 +5525,6 @@ export type TransferAgentConfig = {
      */
     workflow_id: number;
     /**
-     * Message
-     *
-     * Spoken by the current agent, in its own voice, before the caller is handed over. Supports template variables. Leave empty to hand over without saying anything.
-     */
-    message?: string;
-    /**
      * Play Greeting
      *
      * Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
@@ -5482,6 +5544,12 @@ export type TransferAgentToolDefinition = {
      * Schema version.
      */
     schema_version?: number;
+    /**
+     * Messages
+     *
+     * One start text message, with template variables supported. Omit to use the default handover line, or send an empty list for a silent handoff.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**
      * Type
      *
@@ -5525,24 +5593,6 @@ export type TransferCallConfig = {
      */
     destination?: string;
     /**
-     * Messagetype
-     *
-     * Type of message to play before transfer.
-     */
-    messageType?: 'none' | 'custom' | 'audio';
-    /**
-     * Custommessage
-     *
-     * Custom message to play before transferring.
-     */
-    customMessage?: string | null;
-    /**
-     * Audiorecordingid
-     *
-     * Recording ID for audio message before transfer.
-     */
-    audioRecordingId?: string | null;
-    /**
      * Timeout
      *
      * Maximum seconds to wait for the destination to answer.
@@ -5582,6 +5632,12 @@ export type TransferCallToolDefinition = {
      * Schema version.
      */
     schema_version?: number;
+    /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**
      * Type
      *

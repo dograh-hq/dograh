@@ -243,8 +243,9 @@ async def test_tool_message_reports_playback_only_when_text_is_queued(
         is_realtime=is_realtime,
     )
     manager = CustomToolManager(engine)
-    speech = await manager._play_config_message(
-        {"messageType": "custom", "customMessage": "Goodbye!"}, append_to_context=True
+    speech = await manager._play_tool_message(
+        {"messages": [{"event": "start", "type": "text", "text": "Goodbye!"}]},
+        append_to_context=True,
     )
     assert speech.outcome is (PlaybackOutcome.SKIPPED if is_realtime else None)
     if is_realtime:

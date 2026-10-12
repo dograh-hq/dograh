@@ -41,7 +41,6 @@ import {
     createMcpDefinition,
     createToolDefinition,
     createTransferAgentDefinition,
-    DEFAULT_TRANSFER_AGENT_MESSAGE,
     getCategoryConfig,
     MCP_URL_PATTERN,
     renderToolIcon,
@@ -176,7 +175,6 @@ export default function ToolsPage() {
             } else if (newToolCategory === "transfer_agent") {
                 definition = createTransferAgentDefinition({
                     workflow_id: Number(newTransferAgentWorkflowId),
-                    message: DEFAULT_TRANSFER_AGENT_MESSAGE,
                 });
             } else {
                 definition = createToolDefinition(newToolCategory);

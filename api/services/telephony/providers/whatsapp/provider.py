@@ -640,9 +640,7 @@ class WhatsAppProvider(TelephonyProvider):
                 async with session.get(
                     phone_number_endpoint,
                     headers=headers,
-                    params={
-                        "fields": "display_phone_number,verified_name,id,whatsapp_business_account"
-                    },
+                    params={"fields": "display_phone_number,verified_name,id"},
                 ) as response:
                     if response.status == 200:
                         payload = await response.json()

@@ -41,6 +41,7 @@ import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
+import { createUuid } from "@/lib/uuid";
 import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 
 interface ConfigFormDialogProps {
@@ -60,6 +61,10 @@ interface ConfigFormDialogProps {
 
 type FieldValue = string | number | boolean | undefined;
 type FieldValues = Record<string, FieldValue>;
+
+function generateWhatsAppVerifyToken(): string {
+  return `dograh_wa_${createUuid()}`;
+}
 
 function flattenValues(
   value: Record<string, unknown>,

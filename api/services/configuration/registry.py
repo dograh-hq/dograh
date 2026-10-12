@@ -1308,6 +1308,7 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
             return "aura-2"
 
 
+ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN = r"^eleven_v[34]"
 ELEVENLABS_DIALOGUE_TTS_MODELS = [
     "eleven_v3",
     "eleven_v3_conversational",
@@ -1316,6 +1317,7 @@ ELEVENLABS_DIALOGUE_TTS_MODELS = [
 ]
 ELEVENLABS_TTS_MODELS = [
     "eleven_flash_v2_5",
+    "eleven_turbo_v2_5",
     "eleven_multilingual_v2",
     *ELEVENLABS_DIALOGUE_TTS_MODELS,
 ]
@@ -1334,7 +1336,14 @@ class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
         ge=0.1,
         le=2.0,
         description="Speech speed for Flash, Turbo v2.5, and Multilingual models.",
-        json_schema_extra={"hidden_for_models": ELEVENLABS_DIALOGUE_TTS_MODELS},
+        json_schema_extra={
+            "model_constraints": [
+                {
+                    "pattern": ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN,
+                    "supported": False,
+                }
+            ]
+        },
     )
     model: str = Field(
         default="eleven_flash_v2_5",

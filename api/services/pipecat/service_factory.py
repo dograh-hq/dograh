@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from functools import wraps
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode, urlparse, urlunparse
@@ -22,6 +23,7 @@ from api.services.configuration.options import (
 )
 from api.services.configuration.registry import (
     ATLASCLOUD_API_BASE_URL,
+    ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN,
     HOPPER_API_BASE_URL,
     REGISTRY,
     ServiceProviders,
@@ -794,7 +796,7 @@ def create_tts_service(
         # scheme-less base_url contract.
         _validate_runtime_service_url(user_config.tts.base_url, "base_url")
         elevenlabs_url = _elevenlabs_websocket_url(user_config.tts.base_url)
-        if user_config.tts.model.startswith(("eleven_v3", "eleven_v4")):
+        if re.match(ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN, user_config.tts.model):
             tts_service_cls = ElevenLabsDialogueTTSService
             tts_settings = ElevenLabsDialogueTTSSettings(
                 voice=voice_id,

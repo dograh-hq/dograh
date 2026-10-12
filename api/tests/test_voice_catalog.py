@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -231,15 +231,94 @@ async def test_private_service_url_is_blocked_in_saas(
 
 
 @pytest.mark.asyncio
-async def test_key_pool_uses_one_key_for_every_page(connection, upstream):
+@pytest.mark.parametrize("selected_key", ["first-key", "second-key"])
+async def test_key_pool_uses_one_key_for_every_page(
+    selected_key, monkeypatch, connection, upstream
+):
     connection.credentials["api_key"] = ["first-key", "second-key"]
-    requests = upstream(lambda request: httpx.Response(200, json={"voices": []}))
-    await voice_catalog.get_connection_voices(
+    select_key = Mock(return_value=selected_key)
+    monkeypatch.setattr(voice_catalog, "choice", select_key)
+
+    def page(request):
+        second = request.url.params.get("next_page_token") == "second-page"
+        return httpx.Response(
+            200,
+            json={
+                "voices": [
+                    {"voice_id": "second" if second else "first", "name": "Sofie"}
+                ],
+                "has_more": not second,
+                "next_page_token": None if second else "second-page",
+            },
+        )
+
+    requests = upstream(page)
+    response = await voice_catalog.get_connection_voices(
         "elevenlabs", 42, connection.uuid, q="Sofie", language="da"
     )
-    assert requests[0].headers["xi-api-key"] == "first-key"
-    assert requests[0].url.params["search"] == "Sofie"
-    assert requests[0].url.params["language"] == "da"
+    assert {voice.voice_id for voice in response.voices} == {"first", "second"}
+    select_key.assert_called_once_with(["first-key", "second-key"])
+    assert len(requests) == 2
+    assert "next_page_token" not in requests[0].url.params
+    assert requests[1].url.params["next_page_token"] == "second-page"
+    for request in requests:
+        assert request.headers["xi-api-key"] == selected_key
+        assert request.url.params["search"] == "Sofie"
+        assert request.url.params["language"] == "da"
+
+
+@pytest.mark.parametrize(
+    "model,language,expected",
+    [
+        (None, None, ("en", "british", "english-v3")),
+        (None, "da", ("da", "danish", "danish-v4")),
+        ("eleven_v4_turbo", "da", ("da", "danish", "danish-v4")),
+        ("eleven_flash_v2_5", None, ("en", "american", "generic")),
+    ],
+)
+@pytest.mark.asyncio
+async def test_elevenlabs_verified_previews_respect_optional_model_and_language(
+    model, language, expected, connection, upstream
+):
+    upstream(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "voices": [
+                    {
+                        "voice_id": "sofie",
+                        "name": "Sofie",
+                        "labels": {"language": "en", "accent": "american"},
+                        "preview_url": "https://audio.example/generic.mp3",
+                        "verified_languages": [
+                            {
+                                "model_id": "eleven_v3",
+                                "language": "en",
+                                "accent": "british",
+                                "preview_url": "https://audio.example/english-v3.mp3",
+                            },
+                            {
+                                "model_id": "eleven_v4_turbo",
+                                "language": "da",
+                                "accent": "danish",
+                                "preview_url": "https://audio.example/danish-v4.mp3",
+                            },
+                        ],
+                    }
+                ]
+            },
+        )
+    )
+    response = await voice_catalog.get_connection_voices(
+        "elevenlabs", 42, connection.uuid, model=model, language=language
+    )
+    voice = response.voices[0]
+    expected_language, expected_accent, preview = expected
+    assert (voice.language, voice.accent, voice.preview_url) == (
+        expected_language,
+        expected_accent,
+        f"https://audio.example/{preview}.mp3",
+    )
 
 
 @pytest.mark.asyncio
@@ -476,8 +555,9 @@ async def test_rime_model_and_language_filtering_without_sending_secrets(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("language", [None, "hi-IN"])
 async def test_sarvam_reuses_model_options_without_external_requests(
-    connection, upstream
+    language, connection, upstream
 ):
     from api.services.configuration.options.sarvam import (
         SARVAM_V2_VOICES,
@@ -492,9 +572,10 @@ async def test_sarvam_reuses_model_options_without_external_requests(
         ("bulbul:v3", SARVAM_V3_VOICES),
     ]:
         response = await voice_catalog.get_connection_voices(
-            "sarvam", 42, connection.uuid, model=model
+            "sarvam", 42, connection.uuid, model=model, language=language
         )
         assert {voice.voice_id for voice in response.voices} == set(expected)
+        assert all(voice.language is None for voice in response.voices)
     assert requests == []
 
 

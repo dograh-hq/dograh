@@ -120,7 +120,7 @@ class ElevenLabsVoiceCatalog(VoiceCatalog):
         previews = [
             entry
             for entry in voice.get("verified_languages") or []
-            if entry.get("model_id") == query.model
+            if (not query.model or entry.get("model_id") == query.model)
             and (not query.language or entry.get("language") == query.language)
         ]
         preview = previews[0] if previews else {}
@@ -282,10 +282,7 @@ class SarvamVoiceCatalog(VoiceCatalog):
         # https://docs.sarvam.ai/api/migrations/from-cartesia/text-to-speech
         options = {"bulbul:v2": SARVAM_V2_VOICES, "bulbul:v3": SARVAM_V3_VOICES}
         names = options.get(query.model or "bulbul:v2", ())
-        return [
-            VoiceInfo(voice_id=name, name=name.title(), language=query.language)
-            for name in names
-        ]
+        return [VoiceInfo(voice_id=name, name=name.title()) for name in names]
 
 
 VOICE_CATALOGS: dict[str, type[VoiceCatalog]] = {

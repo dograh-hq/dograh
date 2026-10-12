@@ -1,6 +1,7 @@
 """Voice discovery using an organization's saved provider connection."""
 
 import asyncio
+from random import choice
 
 import httpx
 from fastapi import HTTPException
@@ -42,8 +43,8 @@ async def get_connection_voices(
             status_code=400, detail=f"Select a {name} provider connection"
         )
     keys = connection.credentials.get("api_key")
-    # Use one stable account throughout discovery when the connection has a pool.
-    api_key = keys[0] if isinstance(keys, list) and keys else keys
+    # Select from the pool once; pagination must keep using the same account.
+    api_key = choice(keys) if isinstance(keys, list) and keys else keys
     if catalog_type.auth_header and (
         not isinstance(api_key, str) or not api_key.strip()
     ):

@@ -18,9 +18,9 @@ TOPIC = VoicePromptingTopic(
         Stage.plan: StageLens(
             relevant=True,
             lens=(
-                "For each multi-turn node, sketch the step sequence (e.g. get name → "
-                "get order ID → verify → call tool → read back). Decide what each "
-                "node collects — one item per turn."
+                "Sketch the customer conversation (e.g. ask for the order ID, "
+                "verify it, look up the order, explain the result). Establish "
+                "which information is needed at each step."
             ),
         ),
         Stage.create: StageLens(

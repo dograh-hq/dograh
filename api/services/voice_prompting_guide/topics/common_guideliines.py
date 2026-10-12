@@ -17,6 +17,7 @@ TOPIC = VoicePromptingTopic(
     stages={
         Stage.create: StageLens(
             relevant=True,
+            required_read=True,
             lens=(
                 "Before writing the global node, call "
                 "get_voice_prompting_guide(topic='common_guidelines') and read "
@@ -27,6 +28,7 @@ TOPIC = VoicePromptingTopic(
         ),
         Stage.review: StageLens(
             relevant=True,
+            required_read=True,
             lens=(
                 "Check that the global node preserves the common template's "
                 "headings, order, examples, and voice rules unless the builder's "

@@ -19,8 +19,8 @@ TOPIC = VoicePromptingTopic(
             relevant=True,
             lens=(
                 "Enumerate the ways a call can end (success, voicemail, wrong "
-                "number, disqualified, reschedule, transfer) and consolidate them "
-                "into two or three end-call nodes rather than ten."
+                "number, disqualified, reschedule, transfer) and what the caller "
+                "should hear in each relevant case."
             ),
         ),
         Stage.create: StageLens(

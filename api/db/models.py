@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Table,
     Text,
@@ -20,6 +21,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
 from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG
@@ -36,6 +38,55 @@ from ..enums import (
 )
 
 Base = declarative_base()
+
+
+class CheckpointMigrationModel(Base):
+    """Compatibility ledger for the adopted LangGraph PostgreSQL schema.
+
+    Only Alembic manages this schema; the runtime never runs LangGraph setup().
+    """
+
+    __tablename__ = "checkpoint_migrations"
+    v = Column(Integer, primary_key=True, autoincrement=False)
+
+
+class CheckpointModel(Base):
+    __tablename__ = "checkpoints"
+    thread_id = Column(Text, primary_key=True)
+    checkpoint_ns = Column(Text, primary_key=True, server_default=text("''"))
+    checkpoint_id = Column(Text, primary_key=True)
+    parent_checkpoint_id = Column(Text)
+    type = Column(Text)
+    checkpoint = Column(JSONB, nullable=False)
+    checkpoint_metadata = Column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    __table_args__ = (Index("checkpoints_thread_id_idx", "thread_id"),)
+
+
+class CheckpointBlobModel(Base):
+    __tablename__ = "checkpoint_blobs"
+    thread_id = Column(Text, primary_key=True)
+    checkpoint_ns = Column(Text, primary_key=True, server_default=text("''"))
+    channel = Column(Text, primary_key=True)
+    version = Column(Text, primary_key=True)
+    type = Column(Text, nullable=False)
+    blob = Column(LargeBinary)
+    __table_args__ = (Index("checkpoint_blobs_thread_id_idx", "thread_id"),)
+
+
+class CheckpointWriteModel(Base):
+    __tablename__ = "checkpoint_writes"
+    thread_id = Column(Text, primary_key=True)
+    checkpoint_ns = Column(Text, primary_key=True, server_default=text("''"))
+    checkpoint_id = Column(Text, primary_key=True)
+    task_id = Column(Text, primary_key=True)
+    idx = Column(Integer, primary_key=True, autoincrement=False)
+    channel = Column(Text, nullable=False)
+    type = Column(Text)
+    blob = Column(LargeBinary, nullable=False)
+    task_path = Column(Text, nullable=False, server_default=text("''"))
+    __table_args__ = (Index("checkpoint_writes_thread_id_idx", "thread_id"),)
 
 
 # TODO: remove workflow_defintion after migration, remove nullable workflow_defintion_id from Workflow and Workflowrun

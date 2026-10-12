@@ -18,9 +18,8 @@ TOPIC = VoicePromptingTopic(
         Stage.plan: StageLens(
             relevant=True,
             lens=(
-                "When sketching the flow, plan a clear handoff back to the user at "
-                "each node. Nodes that finish without prompting the user are stall "
-                "risks; flag them at design time."
+                "When sketching the conversation, clarify where the caller "
+                "should answer, confirm, or wait, so each step can progress."
             ),
         ),
         Stage.create: StageLens(

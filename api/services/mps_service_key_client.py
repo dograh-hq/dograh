@@ -1,6 +1,7 @@
 """
 MPS Service Key HTTP Client
-This client communicates with the Model Proxy Service (MPS) for service key management.
+This client communicates with the Model Proxy Service (MPS) for service key
+management and managed model requests.
 Service keys are stored and managed entirely in MPS, not in the local database.
 """
 
@@ -10,6 +11,7 @@ from typing import List, Optional
 
 import httpx
 from loguru import logger
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from api.constants import DEPLOYMENT_MODE, DOGRAH_MPS_SECRET_KEY, MPS_API_URL
 from api.errors.failure import ErrorSource, classify_exception, log_failure
@@ -41,7 +43,7 @@ def _log_mps_dependency_failure(
 
 
 class MPSServiceKeyClient:
-    """HTTP client for managing service keys via MPS API."""
+    """HTTP client for service keys and managed model requests via MPS API."""
 
     def __init__(self):
         self.base_url = MPS_API_URL
@@ -635,6 +637,59 @@ class MPSServiceKeyClient:
                 request=response.request,
                 response=response,
             )
+
+    async def create_chat_completion(
+        self,
+        *,
+        service_key: str,
+        model: str,
+        messages: list[dict],
+        max_tokens: int,
+        metadata: dict | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict:
+        """Request a non-streaming managed completion outside a workflow run.
+
+        Authenticate with the caller's configured Dograh Service Key. Mint a
+        correlation with that same key and attach the billing v2 protocol here,
+        so callers only supply model inputs and application usage metadata.
+        Return the full response, preserving provider reasoning/tool metadata.
+
+        Transport and HTTP failures propagate to the caller. Missing correlation
+        data raises MPSUnavailableError; inference never falls back without it.
+        """
+        minted = await self.create_correlation_id(service_key=service_key)
+        correlation_id = (
+            minted.get("correlation_id") if isinstance(minted, dict) else None
+        )
+        if not isinstance(correlation_id, str) or not correlation_id.strip():
+            raise MPSUnavailableError("create_chat_completion")
+
+        headers = {"Authorization": f"Bearer {service_key}"}
+        # Only W3C trace context; never forward baggage or caller credentials to
+        # another destination. MPS remains responsible for the generation span.
+        TraceContextTextMapPropagator().inject(headers)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(110, connect=10)) as client:
+            response = await client.post(
+                f"{self.base_url.rstrip('/')}/api/v1/llm/chat/completions",
+                headers=headers,
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "stream": False,
+                    "max_tokens": max_tokens,
+                    "tools": tools,
+                    "tool_choice": tool_choice,
+                    "metadata": {
+                        **(metadata or {}),
+                        "correlation_id": correlation_id,
+                        "mps_billing_version": "2",
+                    },
+                },
+            )
+            response.raise_for_status()
+            return response.json()
 
     async def report_platform_usage(
         self,

@@ -63,11 +63,7 @@ class ToolExecutionOwner:
         if not self._pending:
             self._message_owner = None
         self._pending.add(params.tool_call_id)
-        if (
-            self._message_owner is None
-            and messages
-            and (messages.start or messages.delayed)
-        ):
+        if self._message_owner is None and messages:
             self._message_owner = params.tool_call_id
             execution.messages = ToolMessageSession(
                 self._engine, self._agent, params.tool_call_id, messages

@@ -14,7 +14,6 @@ import type {
     EndCallConfig,
     HttpApiToolDefinition,
     RecordingResponseSchema,
-    ToolMessages,
     ToolResponse,
     TransferAgentConfig,
     TransferCallConfig,
@@ -30,7 +29,7 @@ import {
     validateUrl,
 } from "@/components/http";
 import { PageShell } from "@/components/layout/PageShell";
-import { loadToolMessages, orderedToolMessages, validateToolMessages } from "@/components/tools/toolMessages";
+import { loadToolMessages, serializeToolMessages, singleStartMessages, type ToolMessagesForm, validateToolMessages } from "@/components/tools/toolMessages";
 import { ToolMessagesEditor } from "@/components/tools/ToolMessagesEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -185,7 +184,7 @@ export default function ToolDetailPage() {
         }
     };
 
-    const [messages, setMessages] = useState<ToolMessages>({});
+    const [messages, setMessages] = useState<ToolMessagesForm>({ start: null, delayed: [] });
 
     // MCP form state
     const [mcpUrl, setMcpUrl] = useState("");
@@ -233,21 +232,26 @@ export default function ToolDetailPage() {
         setName(tool.name);
         setDescription(tool.description || "");
 
-        setMessages(loadToolMessages(tool.definition));
+        const loadedMessages = loadToolMessages(tool.definition);
+        setMessages(loadedMessages);
+        const startMessage = loadedMessages.start?.variants[0];
+        const messageType = startMessage ? (startMessage.type === "text" ? "custom" : "audio") : "none";
+        const text = startMessage?.type === "text" ? startMessage.text : "";
+        const recordingId = startMessage?.type === "audio" ? String(startMessage.recording_id) : "";
+        setEndCallMessageType(messageType);
+        setTransferMessageType(messageType);
+        setCustomMessage(text);
+        setAudioRecordingId(recordingId);
+        setTransferAudioRecordingId(recordingId);
+        setTransferAgentMessage(text);
 
         if (tool.category === "end_call") {
             // Populate end call specific fields
             const config = tool.definition?.config as EndCallConfig | undefined;
             if (config) {
-                setEndCallMessageType(config.messageType || "none");
-                setCustomMessage(config.customMessage || "");
-                setAudioRecordingId(config.audioRecordingId || "");
                 setEndCallReason(config.endCallReason ?? false);
                 setEndCallReasonDescription(config.endCallReasonDescription || "");
             } else {
-                setEndCallMessageType("none");
-                setCustomMessage("");
-                setAudioRecordingId("");
                 setEndCallReason(false);
                 setEndCallReasonDescription("");
             }
@@ -258,9 +262,6 @@ export default function ToolDetailPage() {
                 const resolver = config.resolver || undefined;
                 setTransferDestinationSource(config.destination_source || (resolver ? "dynamic" : "static"));
                 setTransferDestination(config.destination || "");
-                setTransferMessageType(config.messageType || "none");
-                setCustomMessage(config.customMessage || "");
-                setTransferAudioRecordingId(config.audioRecordingId || "");
                 setTransferTimeout(config.timeout ?? 30);
                 setTransferCallDisposition(config.call_disposition || "");
                 setTransferIntroductionEnabled(config.introduction_enabled ?? false);
@@ -295,9 +296,6 @@ export default function ToolDetailPage() {
             } else {
                 setTransferDestinationSource("static");
                 setTransferDestination("");
-                setTransferMessageType("none");
-                setCustomMessage("");
-                setTransferAudioRecordingId("");
                 setTransferTimeout(30);
                 setTransferCallDisposition("");
                 setTransferIntroductionEnabled(false);
@@ -317,7 +315,6 @@ export default function ToolDetailPage() {
             setTransferAgentWorkflowId(
                 config?.workflow_id ? String(config.workflow_id) : "",
             );
-            setTransferAgentMessage(config?.message ?? DEFAULT_TRANSFER_AGENT_MESSAGE);
             setTransferAgentPlayGreeting(config?.play_greeting ?? true);
         } else if (tool.category === "mcp") {
             // Populate MCP specific fields
@@ -406,7 +403,7 @@ export default function ToolDetailPage() {
                         bodyTemplate: loadedBodyTemplate,
                         bodyFormat: loadedBodyFormat,
                         timeoutMs: loadedTimeoutMs,
-                        messages: loadToolMessages(tool.definition),
+                        messages: serializeToolMessages(loadedMessages),
                     })
                 );
             }
@@ -596,10 +593,15 @@ export default function ToolDetailPage() {
             }
         }
 
-        if (tool.category === "http_api" || tool.category === "mcp") {
-            const messageError = validateToolMessages(messages);
-            if (messageError) { setError(messageError); return; }
-        }
+        const controlMessages = tool.category === "end_call"
+            ? singleStartMessages(endCallMessageType, customMessage, audioRecordingId)
+            : tool.category === "transfer_call"
+                ? singleStartMessages(transferMessageType, customMessage, transferAudioRecordingId)
+                : singleStartMessages(transferAgentMessage.trim() ? "custom" : "none", transferAgentMessage.trim());
+        const messageError = validateToolMessages(
+            tool.category === "http_api" || tool.category === "mcp" ? messages : loadToolMessages({ messages: controlMessages })
+        );
+        if (messageError) { setError(messageError); return; }
 
         try {
             setIsSaving(true);
@@ -627,10 +629,8 @@ export default function ToolDetailPage() {
                     definition: {
                         schema_version: 1,
                         type: "end_call",
+                        messages: controlMessages,
                         config: {
-                            messageType: endCallMessageType,
-                            customMessage: endCallMessageType === "custom" ? customMessage : undefined,
-                            audioRecordingId: endCallMessageType === "audio" ? audioRecordingId || undefined : undefined,
                             endCallReason,
                             endCallReasonDescription: endCallReason ? endCallReasonDescription || undefined : undefined,
                         },
@@ -650,9 +650,6 @@ export default function ToolDetailPage() {
                 const transferConfig: TransferCallConfig = {
                     destination_source: transferDestinationSource,
                     destination: transferDestinationSource === "static" ? normalizedTransferDestination : "",
-                    messageType: transferMessageType,
-                    customMessage: transferMessageType === "custom" ? customMessage : undefined,
-                    audioRecordingId: transferMessageType === "audio" ? transferAudioRecordingId || undefined : undefined,
                     timeout: transferTimeout,
                     call_disposition: transferCallDisposition.trim() || undefined,
                     introduction_enabled: transferIntroductionEnabled,
@@ -703,6 +700,7 @@ export default function ToolDetailPage() {
                     definition: {
                         schema_version: 1,
                         type: "transfer_call",
+                        messages: controlMessages,
                         config: transferConfig,
                     } as UpdateToolRequest["definition"],
                 };
@@ -710,7 +708,7 @@ export default function ToolDetailPage() {
                 requestBody = {
                     name,
                     description: description || undefined,
-                    definition: { ...createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter), messages: orderedToolMessages(messages) },
+                    definition: { ...createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter), messages: serializeToolMessages(messages) },
                 };
             } else if (tool.category === "transfer_agent") {
                 requestBody = {
@@ -718,9 +716,8 @@ export default function ToolDetailPage() {
                     description: description || undefined,
                     definition: createTransferAgentDefinition({
                         workflow_id: Number(transferAgentWorkflowId),
-                        message: transferAgentMessage.trim(),
                         play_greeting: transferAgentPlayGreeting,
-                    }),
+                    }, controlMessages),
                 };
             } else {
                 // Build HTTP API request body
@@ -740,7 +737,7 @@ export default function ToolDetailPage() {
                     definition: {
                         schema_version: 1,
                         type: "http_api",
-                        messages: orderedToolMessages(messages),
+                        messages: serializeToolMessages(messages),
                         config: {
                             method: httpMethod,
                             url,
@@ -802,7 +799,7 @@ export default function ToolDetailPage() {
                             bodyTemplate,
                             bodyFormat,
                             timeoutMs,
-                            messages,
+                            messages: serializeToolMessages(messages),
                         })
                     );
                 }
@@ -922,7 +919,7 @@ const data = await response.json();`;
                 bodyTemplate,
                 bodyFormat,
                 timeoutMs,
-                messages,
+                messages: serializeToolMessages(messages),
             }) !== savedHttpTestSnapshot);
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
 

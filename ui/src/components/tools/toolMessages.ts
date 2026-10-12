@@ -1,30 +1,54 @@
-import type { HttpApiToolDefinition, ToolMessages, ToolMessageVariants } from "@/client/types.gen";
+import type { HttpApiToolDefinition, ToolStartAudioMessage, ToolStartTextMessage } from "@/client/types.gen";
 
-export type MessageVariant = ToolMessageVariants["variants"][number];
+export type ToolMessages = NonNullable<HttpApiToolDefinition["messages"]>;
+export type MessageVariant = Pick<ToolStartTextMessage, "type" | "text"> | Pick<ToolStartAudioMessage, "type" | "recording_id">;
 
-export function loadToolMessages(definition: Record<string, unknown>): ToolMessages {
-    if (definition.messages != null) return definition.messages as ToolMessages;
-    if (definition.type !== "http_api") return {};
-    const config = definition.config as HttpApiToolDefinition["config"] | undefined;
-    if (config?.customMessageType === "audio") {
-        const recordingId = Number(config.customMessageRecordingId);
-        return recordingId > 0
-            ? { start: { variants: [{ type: "audio", recording_id: recordingId }] } }
-            : {};
+// Groups are an editing convenience; the API stores a flat list of messages.
+export type ToolMessagesForm = {
+    start: { variants: MessageVariant[] } | null;
+    delayed: { after_ms: number; variants: MessageVariant[] }[];
+};
+
+export function loadToolMessages(definition: Record<string, unknown>): ToolMessagesForm {
+    const messages = (definition.messages ?? []) as ToolMessages;
+    const start: MessageVariant[] = [];
+    const delayed = new Map<number, MessageVariant[]>();
+    for (const message of messages) {
+        const variant: MessageVariant = message.type === "text"
+            ? { type: "text", text: message.text }
+            : { type: "audio", recording_id: message.recording_id };
+        if (message.event === "start") start.push(variant);
+        else delayed.set(message.after_ms, [...(delayed.get(message.after_ms) ?? []), variant]);
     }
-    return config?.customMessage?.trim()
-        ? { start: { variants: [{ type: "text", text: config.customMessage }] } }
-        : {};
+    return {
+        start: start.length ? { variants: start } : null,
+        delayed: [...delayed].sort(([a], [b]) => a - b).map(([after_ms, variants]) => ({ after_ms, variants })),
+    };
 }
 
-export function validateToolMessages(messages: ToolMessages): string | null {
-    const delayed = messages.delayed ?? [];
+export function serializeToolMessages(form: ToolMessagesForm): ToolMessages {
+    return [
+        ...(form.start?.variants ?? []).map(variant => ({ ...variant, event: "start" as const })),
+        ...[...form.delayed].sort((a, b) => a.after_ms - b.after_ms).flatMap(group =>
+            group.variants.map(variant => ({ ...variant, event: "delayed" as const, after_ms: group.after_ms }))),
+    ];
+}
+
+export function singleStartMessages(type: "none" | "custom" | "audio", text = "", recordingId = ""): ToolMessages {
+    if (type === "none") return [];
+    return type === "audio"
+        ? [{ event: "start", type: "audio", recording_id: Number(recordingId) }]
+        : [{ event: "start", type: "text", text }];
+}
+
+export function validateToolMessages(messages: ToolMessagesForm): string | null {
+    const delayed = messages.delayed;
     if (delayed.length > 10) return "You can add up to 10 delayed updates.";
     if (delayed.some(({ after_ms }) => !Number.isInteger(after_ms) || after_ms <= 0 || after_ms > 120000)) {
         return "Each delay must be a whole number between 1 and 120000 milliseconds.";
     }
     if (new Set(delayed.map(({ after_ms }) => after_ms)).size !== delayed.length) {
-        return "Each delayed update must have a different timing.";
+        return "Each delayed update must have a different timing. Add variants within the same update.";
     }
     for (const group of [messages.start, ...delayed]) {
         if (!group) continue;
@@ -32,8 +56,8 @@ export function validateToolMessages(messages: ToolMessages): string | null {
             return "Each message group must contain between 1 and 20 variants.";
         }
         for (const variant of group.variants) {
-            if (variant.type === "text" && (!variant.text.trim() || variant.text.trim().length > 2000)) {
-                return "Enter between 1 and 2000 characters for each text variant, or remove it.";
+            if (variant.type === "text" && !variant.text.trim()) {
+                return "Enter text for each variant, or remove it.";
             }
             if (variant.type === "audio" && (!Number.isInteger(variant.recording_id) || variant.recording_id <= 0)) {
                 return "Select a recording for each audio variant, or remove it.";
@@ -41,8 +65,4 @@ export function validateToolMessages(messages: ToolMessages): string | null {
         }
     }
     return null;
-}
-
-export function orderedToolMessages(messages: ToolMessages): ToolMessages {
-    return { ...messages, delayed: [...(messages.delayed ?? [])].sort((a, b) => a.after_ms - b.after_ms) };
 }

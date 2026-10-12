@@ -29,7 +29,11 @@ from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
 )
-from api.services.workflow.tool_messages import tool_messages
+from api.services.workflow.tool_messages import (
+    first_start_message,
+    speech_source,
+    tool_messages,
+)
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
@@ -109,21 +113,16 @@ class CustomToolManager:
         self._engine = engine
         self._agent = agent or engine.active_agent
 
-    async def _play_config_message(
-        self, config: dict, *, append_to_context: bool = False
+    async def _play_tool_message(
+        self, definition: dict, *, append_to_context: bool = False
     ) -> SpeechPlayback | None:
-        """Queue configured text or audio, returning its playback operation."""
-        message_type = config.get("messageType", "none")
-        if message_type == "audio" and config.get("audioRecordingId"):
-            return await self._engine.queue_speech(
-                recording_pk=int(config["audioRecordingId"]),
-                append_to_context=append_to_context,
-            )
-        if message_type == "custom" and config.get("customMessage"):
-            return await self._engine.queue_speech(
-                config["customMessage"], append_to_context=append_to_context
-            )
-        return None
+        """Control tools retain their playback policy using the shared format."""
+        message = first_start_message(definition)
+        if message is None:
+            return None
+        return await self._engine.queue_speech(
+            **speech_source(message), append_to_context=append_to_context
+        )
 
     async def get_organization_id(self) -> Optional[int]:
         """Get the organization ID from the engine (shared cache)."""
@@ -497,7 +496,7 @@ class CustomToolManager:
                     properties=properties,
                 )
 
-                speech = await self._play_config_message(config)
+                speech = await self._play_tool_message(tool.definition)
                 if speech is not None and speech.outcome not in (
                     PlaybackOutcome.FAILED,
                     PlaybackOutcome.SKIPPED,
@@ -569,7 +568,8 @@ class CustomToolManager:
                 )
                 return
 
-            announcement = config.get("message")
+            message = first_start_message(tool.definition)
+            announcement = message.text if message and message.type == "text" else None
             announcement = (
                 engine._format_prompt(str(announcement)) if announcement else None
             )
@@ -756,7 +756,7 @@ class CustomToolManager:
                 if resolved_transfer.message:
                     speech = await self._engine.queue_speech(resolved_transfer.message)
                 else:
-                    speech = await self._play_config_message(config)
+                    speech = await self._play_tool_message(tool.definition)
 
                 if external_pbx_call:
                     transfer_disposition = (

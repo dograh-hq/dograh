@@ -1,5 +1,5 @@
-import type { ToolMessages } from "@/client/types.gen";
 import type { HttpMethod, KeyValueItem, ParameterType, PresetToolParameter, ToolParameter } from "@/components/http";
+import type { ToolMessages } from "@/components/tools/toolMessages";
 
 const TYPE_SAMPLE_VALUES: Record<ParameterType, string> = {
     string: "sample_text",

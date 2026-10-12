@@ -3,7 +3,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useId } from "react";
 
-import type { RecordingResponseSchema, ToolMessages } from "@/client/types.gen";
+import type { RecordingResponseSchema } from "@/client/types.gen";
 import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,11 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-import { type MessageVariant, validateToolMessages } from "./toolMessages";
+import { type MessageVariant, type ToolMessagesForm, validateToolMessages } from "./toolMessages";
 
 type Props = {
-    value: ToolMessages;
-    onChange: (value: ToolMessages) => void;
+    value: ToolMessagesForm;
+    onChange: (value: ToolMessagesForm) => void;
     recordings: RecordingResponseSchema[];
     timeoutMs?: number;
 };
@@ -47,7 +47,7 @@ function Variants({ value, onChange, recordings, label }: {
                         recordings={recordings}
                     >
                         <Textarea id={`${id}-${index}`} aria-label={`${label} variant ${index + 1}`}
-                            value={variant.type === "text" ? variant.text : ""} maxLength={2000} rows={2}
+                            value={variant.type === "text" ? variant.text : ""} rows={2}
                             placeholder="e.g., Let me check that for you."
                             onChange={(event) => update(index, { type: "text", text: event.target.value })} />
                     </TextOrAudioInput>

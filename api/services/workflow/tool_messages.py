@@ -7,40 +7,41 @@ import random
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
-from api.schemas.tool import ToolMessageAudio, ToolMessages, ToolMessageVariants
+from api.schemas.tool import ToolMessage, ToolMessages
 
 if TYPE_CHECKING:
     from api.services.workflow.agent_runtime import AgentRuntime
     from api.services.workflow.pipecat_engine import PipecatEngine
 
 
-def tool_messages(definition: dict[str, Any] | None) -> ToolMessages | None:
-    """Read the shared plan, falling back to the original HTTP announcement."""
-    definition = definition or {}
-    raw = definition.get("messages")
-    if raw is None and definition.get("type") == "http_api":
-        config = definition.get("config") or {}
-        if config.get("customMessageType") == "audio":
-            if recording_id := config.get("customMessageRecordingId"):
-                raw = {
-                    "start": {
-                        "variants": [{"type": "audio", "recording_id": recording_id}]
-                    }
-                }
-        elif text := config.get("customMessage"):
-            raw = {"start": {"variants": [{"type": "text", "text": text}]}}
-    if raw is None:
-        return None
+_messages_adapter = TypeAdapter(ToolMessages)
+
+
+def tool_messages(definition: dict[str, Any] | None) -> ToolMessages:
+    """Read the canonical message list. Legacy data is handled by Alembic."""
     try:
-        plan = ToolMessages.model_validate(raw)
+        return _messages_adapter.validate_python((definition or {}).get("messages", []))
     except ValidationError:
-        # Old definitions can predate today's validation. A broken announcement
-        # must not prevent the underlying tool from being registered or executed.
         logger.warning("Ignoring invalid tool message configuration")
-        return None
-    return plan if plan.start or plan.delayed else None
+        return []
+
+
+def first_start_message(definition: dict[str, Any] | None) -> ToolMessage | None:
+    """Control tools support one start message, with no variant selection."""
+    return next(
+        (message for message in tool_messages(definition) if message.event == "start"),
+        None,
+    )
+
+
+def speech_source(message: ToolMessage) -> dict[str, Any]:
+    return (
+        {"recording_pk": message.recording_id}
+        if message.type == "audio"
+        else {"text": message.text}
+    )
 
 
 class ToolMessageSession:
@@ -61,7 +62,11 @@ class ToolMessageSession:
         self.engine = engine
         self.agent = agent
         self.tool_call_id = tool_call_id
-        self.plan = plan
+        self.start_variants = [message for message in plan if message.event == "start"]
+        self.delayed_variants: dict[int, ToolMessages] = {}
+        for message in plan:
+            if message.event == "delayed":
+                self.delayed_variants.setdefault(message.after_ms, []).append(message)
         self.stopped = False
         self.task: asyncio.Task | None = None
 
@@ -79,17 +84,11 @@ class ToolMessageSession:
     def can_speak(self) -> bool:
         return not self.stopped and self.engine.agent_can_act(self.agent)
 
-    async def _speak(self, message: ToolMessageVariants):
+    async def _speak(self, variants: ToolMessages):
         if not self.can_speak():
             return
-        variant = random.choice(message.variants)
-        source = (
-            {"recording_pk": variant.recording_id}
-            if isinstance(variant, ToolMessageAudio)
-            else {"text": variant.text}
-        )
         await self.engine.queue_speech(
-            **source,
+            **speech_source(random.choice(variants)),
             mute_user=True,
             origin_agent=self.agent,
             can_queue=self.can_speak,
@@ -97,13 +96,13 @@ class ToolMessageSession:
 
     async def _run(self, started_at: float) -> None:
         try:
-            if self.plan.start:
-                await self._speak(self.plan.start)
-            pending = list(self.plan.delayed)
+            if self.start_variants:
+                await self._speak(self.start_variants)
+            pending = sorted(self.delayed_variants)
             loop = asyncio.get_running_loop()
             while pending and self.can_speak():
                 await asyncio.sleep(
-                    max(0, started_at + pending[0].after_ms / 1000 - loop.time())
+                    max(0, started_at + pending[0] / 1000 - loop.time())
                 )
                 # Keep fillers outside the media queue while prior speech plays.
                 # This also covers a start recording that is still being voiced.
@@ -116,11 +115,9 @@ class ToolMessageSession:
                 message = pending.pop(0)
                 # If several thresholds elapsed during speech, only the latest
                 # update remains useful. Never read a backlog of waiting lines.
-                while (
-                    pending and started_at + pending[0].after_ms / 1000 <= loop.time()
-                ):
+                while pending and started_at + pending[0] / 1000 <= loop.time():
                     message = pending.pop(0)
-                await self._speak(message)
+                await self._speak(self.delayed_variants[message])
         except asyncio.CancelledError:
             pass
         except Exception:  # noqa: BLE001 - isolate announcement failures from tool execution

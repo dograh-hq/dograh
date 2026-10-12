@@ -32,6 +32,7 @@ from pipecat.turns.user_mute import CallbackUserMuteStrategy
 from pipecat.turns.user_start import ExternalUserTurnStartStrategy
 from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pydantic import TypeAdapter
 
 from api.schemas.tool import ToolMessages
 from api.services.pipecat.speech_playback import PlaybackOutcome
@@ -590,8 +591,8 @@ async def test_tool_result_cancels_recording_preparation_without_blocking_reques
         handler,
         SimpleNamespace(tool_call_id="save-1", function_name="save", arguments={}),
         1,
-        ToolMessages.model_validate(
-            {"start": {"variants": [{"type": "audio", "recording_id": 42}]}}
+        TypeAdapter(ToolMessages).validate_python(
+            [{"event": "start", "type": "audio", "recording_id": 42}]
         ),
     )
     try:

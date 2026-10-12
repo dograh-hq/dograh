@@ -141,14 +141,10 @@ async def validate_tool_references(
                 status_code=404,
             )
 
-    messages = definition.get("messages") or {}
-    groups = [messages.get("start"), *messages.get("delayed", [])]
     recording_ids = {
-        variant["recording_id"]
-        for group in groups
-        if group
-        for variant in group.get("variants", [])
-        if variant.get("type") == "audio"
+        message["recording_id"]
+        for message in definition.get("messages", [])
+        if message.get("type") == "audio"
     }
     for recording_id in recording_ids:
         if not await db_client.get_recording_by_id(recording_id, organization_id):

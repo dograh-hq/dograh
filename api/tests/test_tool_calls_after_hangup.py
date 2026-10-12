@@ -15,6 +15,7 @@ from pipecat.processors.frame_processor import FrameProcessorSetup
 from pipecat.services.llm_service import FunctionCallFromLLM, FunctionCallParams
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.utils.asyncio.task_manager import TaskManager
+from pydantic import TypeAdapter
 
 from api.schemas.tool import ToolMessages
 from api.services.workflow.pipecat_engine import PipecatEngine
@@ -84,8 +85,8 @@ async def test_message_owner_is_selected_in_llm_batch_order(running_engine):
         messages = (
             None
             if name == "silent"
-            else ToolMessages.model_validate(
-                {"start": {"variants": [{"type": "text", "text": name}]}}
+            else TypeAdapter(ToolMessages).validate_python(
+                [{"event": "start", "type": "text", "text": name}]
             )
         )
         llm.register_function(

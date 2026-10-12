@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
-from api.schemas.tool import ToolMessages
+from api.schemas.tool import CreateToolRequest, ToolMessages
 from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechPlaybackTracker
 from api.services.tool_management import ToolManagementError, validate_tool_references
 from api.services.workflow.tool_execution import ToolExecutionOwner
@@ -15,18 +15,17 @@ from api.services.workflow.tool_messages import tool_messages
 
 
 def plan(text="Checking.", delays=()):
-    return ToolMessages.model_validate(
+    messages = [{"event": "start", "type": "text", "text": text}] if text else []
+    messages += [
         {
-            "start": {"variants": [{"type": "text", "text": text}]} if text else None,
-            "delayed": [
-                {
-                    "after_ms": delay,
-                    "variants": [{"type": "text", "text": f"Waiting {delay}."}],
-                }
-                for delay in delays
-            ],
+            "event": "delayed",
+            "after_ms": delay,
+            "type": "text",
+            "text": f"Waiting {delay}.",
         }
-    )
+        for delay in delays
+    ]
+    return TypeAdapter(ToolMessages).validate_python(messages)
 
 
 class Harness:
@@ -204,15 +203,11 @@ async def test_selects_one_variant_and_audio_uses_recording_primary_key(
         "api.services.workflow.tool_messages.random.choice",
         lambda variants: variants[-1],
     )
-    messages = ToolMessages.model_validate(
-        {
-            "start": {
-                "variants": [
-                    {"type": "text", "text": "First."},
-                    {"type": "audio", "recording_id": 42},
-                ]
-            }
-        }
+    messages = TypeAdapter(ToolMessages).validate_python(
+        [
+            {"event": "start", "type": "text", "text": "First."},
+            {"event": "start", "type": "audio", "recording_id": 42},
+        ]
     )
     execution, release = harness.start("recording", messages)
     assert await harness.next_message() == 42
@@ -221,30 +216,16 @@ async def test_selects_one_variant_and_audio_uses_recording_primary_key(
     assert harness.spoken.empty()
 
 
-def test_legacy_messages_and_explicit_disable():
-    definition = {"type": "http_api", "config": {"customMessage": "Wait."}}
-    assert tool_messages(definition).start.variants[0].text == "Wait."
-    assert tool_messages({**definition, "messages": {}}) is None
+def test_runtime_reads_only_canonical_messages():
+    assert tool_messages({"type": "http_api", "messages": []}) == []
     assert (
-        tool_messages({**definition, "messages": {"start": None, "delayed": []}})
-        is None
+        tool_messages({"type": "http_api", "config": {"customMessage": "Legacy"}}) == []
     )
     assert (
-        tool_messages(
-            {
-                "type": "http_api",
-                "config": {
-                    "customMessageType": "audio",
-                    "customMessageRecordingId": "12",
-                },
-            }
-        )
-        .start.variants[0]
-        .recording_id
-        == 12
-    )
-    assert (
-        tool_messages({"type": "http_api", "config": {"customMessage": "   "}}) is None
+        tool_messages({"messages": [{"event": "start", "type": "text", "text": "Hi"}]})[
+            0
+        ].text
+        == "Hi"
     )
 
 
@@ -252,26 +233,103 @@ def test_legacy_messages_and_explicit_disable():
     "messages",
     [
         {"start": {"variants": []}},
-        {"start": {"variants": [{"type": "text", "text": "  "}]}},
-        {"start": {"variants": [{"type": "audio", "recording_id": 0}]}},
-        {
-            "start": {
-                "variants": [{"type": "text", "text": "Hi"}],
-                "wait_for_playback": True,
-            }
-        },
-        {"delayed": [{"after_ms": 0, "variants": [{"type": "text", "text": "Hi"}]}]},
+        [{"event": "start", "type": "text", "text": "  "}],
+        [{"event": "start", "type": "audio", "recording_id": 0}],
+        [{"event": "start", "type": "text", "text": "Hi", "wait_for_playback": True}],
+        [{"event": "start", "type": "text", "text": "Hi", "after_ms": 10}],
+        [{"event": "delayed", "type": "text", "text": "Hi"}],
+        [{"event": "delayed", "type": "text", "text": "Hi", "after_ms": 0}],
     ],
 )
 def test_invalid_plans_are_rejected(messages):
     with pytest.raises(ValidationError):
-        ToolMessages.model_validate(messages)
+        TypeAdapter(ToolMessages).validate_python(messages)
 
 
-def test_timings_are_unique_and_sorted():
-    assert [m.after_ms for m in plan(delays=[50, 10]).delayed] == [10, 50]
-    with pytest.raises(ValidationError, match="unique"):
-        plan(delays=[10, 10])
+@pytest.mark.asyncio
+async def test_same_delay_entries_are_variants_not_repeated_updates(
+    harness, monkeypatch
+):
+    monkeypatch.setattr(
+        "api.services.workflow.tool_messages.random.choice",
+        lambda variants: variants[-1],
+    )
+    messages = plan(None, [20, 10])
+    messages += TypeAdapter(ToolMessages).validate_python(
+        [
+            {
+                "event": "delayed",
+                "after_ms": 10,
+                "type": "text",
+                "text": "Alternative.",
+            },
+        ]
+    )
+    execution, release = harness.start("variants", messages)
+    assert await harness.next_message() == "Alternative."
+    assert await harness.next_message() == "Waiting 20."
+    release.set()
+    await execution.task
+    assert harness.spoken.empty()
+
+
+def definition(category, messages):
+    config = {
+        "http_api": {"method": "POST", "url": "https://example.com"},
+        "mcp": {"url": "https://example.com/mcp"},
+        "transfer_agent": {"workflow_id": 1},
+    }.get(category, {})
+    return CreateToolRequest.model_validate(
+        {
+            "name": "Tool",
+            "definition": {
+                "type": category,
+                "messages": messages,
+                **({"config": config} if category != "calculator" else {}),
+            },
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "category",
+    ["http_api", "mcp", "end_call", "transfer_call", "transfer_agent", "calculator"],
+)
+def test_all_tool_definitions_have_a_shared_empty_list(category):
+    assert definition(category, []).definition.messages == []
+
+
+@pytest.mark.parametrize("category", ["end_call", "transfer_call", "transfer_agent"])
+def test_control_tools_accept_one_start_and_reject_variants_or_delays(category):
+    start = {"event": "start", "type": "text", "text": "Goodbye."}
+    assert definition(category, [start]).definition.messages[0].text == "Goodbye."
+    for messages in ([start, start], [{**start, "event": "delayed", "after_ms": 1000}]):
+        with pytest.raises(ValidationError, match="at most one start"):
+            definition(category, messages)
+
+
+def test_capabilities_and_legacy_api_fields_are_validated():
+    audio = {"event": "start", "type": "audio", "recording_id": 42}
+    for category in ("end_call", "transfer_call"):
+        assert definition(category, [audio]).definition.messages[0].recording_id == 42
+    with pytest.raises(ValidationError, match="text messages only"):
+        definition("transfer_agent", [audio])
+    with pytest.raises(ValidationError, match="500 characters"):
+        definition(
+            "transfer_agent", [{"event": "start", "type": "text", "text": "x" * 501}]
+        )
+    with pytest.raises(ValidationError, match="do not support"):
+        definition("calculator", [audio])
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        CreateToolRequest.model_validate(
+            {
+                "name": "Old",
+                "definition": {
+                    "type": "end_call",
+                    "config": {"customMessage": "Goodbye", "messageType": "custom"},
+                },
+            }
+        )
 
 
 @pytest.mark.asyncio
@@ -283,7 +341,7 @@ async def test_recording_references_are_organization_scoped(monkeypatch):
     definition = {
         "type": "http_api",
         "config": {},
-        "messages": {"start": {"variants": [{"type": "audio", "recording_id": 42}]}},
+        "messages": [{"event": "start", "type": "audio", "recording_id": 42}],
     }
     with pytest.raises(ToolManagementError, match="organization"):
         await validate_tool_references(definition, organization_id=7)

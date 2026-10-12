@@ -91,7 +91,7 @@ describe("buildHttpToolTestSnapshot", () => {
         bodyTemplate: null,
         bodyFormat: "json",
         timeoutMs: 5000,
-        messages: {},
+        messages: [],
     };
 
     it("produces identical output for identical fields", () => {
@@ -115,7 +115,7 @@ describe("buildHttpToolTestSnapshot", () => {
             buildHttpToolTestSnapshot({ ...base, description: "Updated description" })
         );
         expect(buildHttpToolTestSnapshot(base)).not.toBe(
-            buildHttpToolTestSnapshot({ ...base, messages: { start: { variants: [{ type: "text", text: "One moment." }] } } })
+            buildHttpToolTestSnapshot({ ...base, messages: [{ event: "start", type: "text", text: "One moment." }] })
         );
         expect(buildHttpToolTestSnapshot(base)).not.toBe(
             buildHttpToolTestSnapshot({ ...base, bodyTemplate: { id: "{{id}}" } })

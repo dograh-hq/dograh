@@ -299,6 +299,11 @@ export interface components {
              */
             schema_version: number;
             /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
+            /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
              */
@@ -572,23 +577,6 @@ export interface components {
          */
         EndCallConfig: {
             /**
-             * Messagetype
-             * @description Type of goodbye message.
-             * @default none
-             * @enum {string}
-             */
-            messageType: "none" | "custom" | "audio";
-            /**
-             * Custommessage
-             * @description Custom message to play before ending the call.
-             */
-            customMessage?: string | null;
-            /**
-             * Audiorecordingid
-             * @description Recording ID for audio goodbye message.
-             */
-            audioRecordingId?: string | null;
-            /**
              * Endcallreason
              * @description When enabled, the model must provide a reason for ending the call. The reason is set as call disposition and added to call tags.
              * @default false
@@ -612,12 +600,25 @@ export interface components {
              */
             schema_version: number;
             /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
+            /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             type: "end_call";
             /** @description End Call configuration. */
             config: components["schemas"]["EndCallConfig"];
+        };
+        /** ErrorCondition */
+        ErrorCondition: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "error";
         };
         /**
          * ExternalPBXFieldMapping
@@ -628,6 +629,23 @@ export interface components {
             context_path: string;
             /** Destination Field */
             destination_field: string;
+        };
+        /** FallbackPolicy[ServiceSelection] */
+        FallbackPolicy_ServiceSelection_: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Rules */
+            rules?: components["schemas"]["FallbackRule_ServiceSelection_"][];
+        };
+        /** FallbackRule[ServiceSelection] */
+        FallbackRule_ServiceSelection_: {
+            /** Condition */
+            condition: components["schemas"]["NoOutputCondition"] | components["schemas"]["ErrorCondition"];
+            target: components["schemas"]["ServiceSelection"];
         };
         /**
          * GraphConstraints
@@ -697,21 +715,6 @@ export interface components {
              */
             timeout_ms: number | null;
             /**
-             * Custommessage
-             * @description Custom message to play before the tool executes, while the request is in flight.
-             */
-            customMessage?: string | null;
-            /**
-             * Custommessagetype
-             * @description Type of custom message.
-             */
-            customMessageType?: ("text" | "audio") | null;
-            /**
-             * Custommessagerecordingid
-             * @description Recording ID for an audio custom message.
-             */
-            customMessageRecordingId?: string | null;
-            /**
              * Body Template
              * @description Optional JSON body template for POST, PUT, and PATCH requests.
              */
@@ -737,6 +740,11 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+            /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
             /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -868,12 +876,43 @@ export interface components {
              */
             schema_version: number;
             /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
+            /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             type: "mcp";
             /** @description MCP server configuration. */
             config: components["schemas"]["McpToolConfig"];
+        };
+        /** ModelConfigurationOverride */
+        ModelConfigurationOverride: {
+            /** Model Configuration Uuid */
+            model_configuration_uuid?: string | null;
+            /** Mode */
+            mode?: ("pipeline" | "realtime") | null;
+            llm?: components["schemas"]["ServiceOverride"] | null;
+            llm_fallback?: components["schemas"]["FallbackPolicy_ServiceSelection_"] | null;
+            stt?: components["schemas"]["ServiceOverride"] | null;
+            tts?: components["schemas"]["ServiceOverride"] | null;
+            realtime?: components["schemas"]["ServiceOverride"] | null;
+            embeddings?: components["schemas"]["ServiceOverride"] | null;
+        };
+        /** NoOutputCondition */
+        NoOutputCondition: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "no_output";
+            /**
+             * After Ms
+             * @default 1500
+             */
+            after_ms: number;
         };
         /**
          * NodeCategory
@@ -1128,6 +1167,61 @@ export interface components {
             /** Is Active */
             is_active: boolean;
         };
+        /** ServiceOverride */
+        ServiceOverride: {
+            /** Settings */
+            settings?: {
+                [key: string]: unknown;
+            };
+            /** Provider Connection Uuid */
+            provider_connection_uuid?: string | null;
+        };
+        /** ServiceSelection */
+        ServiceSelection: {
+            /** Settings */
+            settings?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Provider Connection Uuid
+             * Format: uuid
+             */
+            provider_connection_uuid: string;
+        };
+        /** ToolDelayedAudioMessage */
+        ToolDelayedAudioMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "audio";
+            /** Recording Id */
+            recording_id: number;
+            /**
+             * Event
+             * @constant
+             */
+            event: "delayed";
+            /** After Ms */
+            after_ms: number;
+        };
+        /** ToolDelayedTextMessage */
+        ToolDelayedTextMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "text";
+            /** Text */
+            text: string;
+            /**
+             * Event
+             * @constant
+             */
+            event: "delayed";
+            /** After Ms */
+            after_ms: number;
+        };
         /**
          * ToolParameter
          * @description A parameter that the tool accepts from the model at call time.
@@ -1190,6 +1284,36 @@ export interface components {
             updated_at: string | null;
             created_by?: components["schemas"]["CreatedByResponse"] | null;
         };
+        /** ToolStartAudioMessage */
+        ToolStartAudioMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "audio";
+            /** Recording Id */
+            recording_id: number;
+            /**
+             * Event
+             * @constant
+             */
+            event: "start";
+        };
+        /** ToolStartTextMessage */
+        ToolStartTextMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "text";
+            /** Text */
+            text: string;
+            /**
+             * Event
+             * @constant
+             */
+            event: "start";
+        };
         /**
          * TransferAgentConfig
          * @description Configuration for Transfer Agent tools.
@@ -1213,12 +1337,6 @@ export interface components {
              */
             workflow_id: number;
             /**
-             * Message
-             * @description Spoken by the current agent, in its own voice, before the caller is handed over. Supports template variables. Leave empty to hand over without saying anything.
-             * @default Let me connect you with the right person. One moment please.
-             */
-            message: string;
-            /**
              * Play Greeting
              * @description Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
              * @default true
@@ -1236,6 +1354,11 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+            /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
             /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -1275,23 +1398,6 @@ export interface components {
              */
             destination: string;
             /**
-             * Messagetype
-             * @description Type of message to play before transfer.
-             * @default none
-             * @enum {string}
-             */
-            messageType: "none" | "custom" | "audio";
-            /**
-             * Custommessage
-             * @description Custom message to play before transferring.
-             */
-            customMessage?: string | null;
-            /**
-             * Audiorecordingid
-             * @description Recording ID for audio message before transfer.
-             */
-            audioRecordingId?: string | null;
-            /**
              * Timeout
              * @description Maximum seconds to wait for the destination to answer.
              * @default 30
@@ -1323,6 +1429,11 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+            /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
             /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -1360,6 +1471,7 @@ export interface components {
         };
         /** WorkflowConfigurationDefaults */
         WorkflowConfigurationDefaults: {
+            model_configuration_override?: components["schemas"]["ModelConfigurationOverride"] | null;
             ambient_noise_configuration?: components["schemas"]["AmbientNoiseConfigurationDefaults"];
             /**
              * Max Call Duration
@@ -1509,7 +1621,10 @@ export type DocumentListResponseSchema = components['schemas']['DocumentListResp
 export type DocumentResponseSchema = components['schemas']['DocumentResponseSchema'];
 export type EndCallConfig = components['schemas']['EndCallConfig'];
 export type EndCallToolDefinition = components['schemas']['EndCallToolDefinition'];
+export type ErrorCondition = components['schemas']['ErrorCondition'];
 export type ExternalPbxFieldMapping = components['schemas']['ExternalPBXFieldMapping'];
+export type FallbackPolicyServiceSelection = components['schemas']['FallbackPolicy_ServiceSelection_'];
+export type FallbackRuleServiceSelection = components['schemas']['FallbackRule_ServiceSelection_'];
 export type GraphConstraints = components['schemas']['GraphConstraints'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HttpApiConfig = components['schemas']['HttpApiConfig'];
@@ -1518,6 +1633,8 @@ export type HttpTransferResolverConfig = components['schemas']['HttpTransferReso
 export type InitiateCallRequest = components['schemas']['InitiateCallRequest'];
 export type McpToolConfig = components['schemas']['McpToolConfig'];
 export type McpToolDefinition = components['schemas']['McpToolDefinition'];
+export type ModelConfigurationOverride = components['schemas']['ModelConfigurationOverride'];
+export type NoOutputCondition = components['schemas']['NoOutputCondition'];
 export type NodeCategory = components['schemas']['NodeCategory'];
 export type NodeExample = components['schemas']['NodeExample'];
 export type NodeSpec = components['schemas']['NodeSpec'];
@@ -1531,8 +1648,14 @@ export type PropertySpec = components['schemas']['PropertySpec'];
 export type PropertyType = components['schemas']['PropertyType'];
 export type RecordingListResponseSchema = components['schemas']['RecordingListResponseSchema'];
 export type RecordingResponseSchema = components['schemas']['RecordingResponseSchema'];
+export type ServiceOverride = components['schemas']['ServiceOverride'];
+export type ServiceSelection = components['schemas']['ServiceSelection'];
+export type ToolDelayedAudioMessage = components['schemas']['ToolDelayedAudioMessage'];
+export type ToolDelayedTextMessage = components['schemas']['ToolDelayedTextMessage'];
 export type ToolParameter = components['schemas']['ToolParameter'];
 export type ToolResponse = components['schemas']['ToolResponse'];
+export type ToolStartAudioMessage = components['schemas']['ToolStartAudioMessage'];
+export type ToolStartTextMessage = components['schemas']['ToolStartTextMessage'];
 export type TransferAgentConfig = components['schemas']['TransferAgentConfig'];
 export type TransferAgentToolDefinition = components['schemas']['TransferAgentToolDefinition'];
 export type TransferCallConfig = components['schemas']['TransferCallConfig'];

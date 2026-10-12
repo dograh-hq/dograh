@@ -112,7 +112,12 @@ export function ToolMessagesEditor({ value, onChange, recordings, timeoutMs }: P
                     ))}
                     <Button type="button" variant="outline" size="sm" disabled={delayed.length >= 10}
                         onClick={() => {
-                            const after_ms = Math.min(120000, Math.max(0, ...delayed.map((item) => item.after_ms)) + 3000);
+                            const timings = new Set(delayed.map((item) => item.after_ms));
+                            let after_ms = Math.min(120000, Math.max(0, ...timings) + 3000);
+                            if (timings.has(after_ms)) {
+                                after_ms = 3000;
+                                while (timings.has(after_ms)) after_ms += 3000;
+                            }
                             onChange({ ...value, delayed: [...delayed, { after_ms, variants: [{ type: "text", text: "" }] }] });
                         }}>
                         <Plus className="mr-2 size-4" />Add delayed update

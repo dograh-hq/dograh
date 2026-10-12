@@ -132,6 +132,8 @@ A body template works the same way in either format. Its top-level keys become t
 
 Use **Messages** to add text or recording variants when the tool starts, and updates after a delay in milliseconds. One variant is chosen randomly for each event and timing. The request runs while the announcement plays.
 
+Text variants are unavailable with realtime models; use recordings instead. You can configure up to 20 variants per event or timing and up to 10 distinct delayed timings. Each `after_ms` must be a whole number from 1 to 120000 milliseconds (2 minutes).
+
 The API stores these entries in `definition.messages`:
 
 ```json

@@ -77,6 +77,14 @@ describe("tool messages", () => {
         expect(saved().delayed[0].variants[0].text).toBe("Thanks for waiting.");
     });
 
+    it("picks an unused delay when an existing update is at the maximum", () => {
+        render(<Harness initial={{ start: null, delayed: [3000, 120000].map(after_ms => ({ after_ms, variants: [{ type: "text", text: "Checking." }] })) }} />);
+        fireEvent.click(screen.getByRole("button", { name: "Add delayed update" }));
+        fireEvent.change(screen.getByLabelText("delayed 3 variant 1"), { target: { value: "Still checking." } });
+        expect(validateToolMessages(saved())).toBeNull();
+        expect(saved().delayed.map((m: { after_ms: number }) => m.after_ms)).toEqual([3000, 120000, 6000]);
+    });
+
     it("rejects blank variants and invalid timings before saving", () => {
         expect(validateToolMessages({ start: null, delayed: [] })).toBeNull();
         expect(validateToolMessages({ delayed: [], start: { variants: [{ type: "text", text: " " }] } })).toContain("Enter text");

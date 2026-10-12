@@ -332,17 +332,69 @@ def test_capabilities_and_legacy_api_fields_are_validated():
         )
 
 
+def test_agent_transfer_preserves_default_handover_unless_explicitly_disabled():
+    request = CreateToolRequest.model_validate(
+        {
+            "name": "Transfer",
+            "definition": {"type": "transfer_agent", "config": {"workflow_id": 1}},
+        }
+    )
+    assert request.definition.messages[0].text == (
+        "Let me connect you with the right person. One moment please."
+    )
+    assert definition("transfer_agent", []).definition.messages == []
+
+
 @pytest.mark.asyncio
-async def test_recording_references_are_organization_scoped(monkeypatch):
-    lookup = AsyncMock(return_value=None)
+@pytest.mark.parametrize("accessible_ids", [set(), {42}, {42, 43}])
+async def test_recording_references_are_organization_scoped(
+    monkeypatch, accessible_ids
+):
+    lookup = AsyncMock(return_value=accessible_ids)
     monkeypatch.setattr(
-        "api.services.tool_management.db_client.get_recording_by_id", lookup
+        "api.services.tool_management.db_client.get_active_recording_ids", lookup
     )
     definition = {
         "type": "http_api",
         "config": {},
-        "messages": [{"event": "start", "type": "audio", "recording_id": 42}],
+        "messages": [
+            {"event": "start", "type": "audio", "recording_id": recording_id}
+            for recording_id in (42, 43, 42)
+        ],
     }
-    with pytest.raises(ToolManagementError, match="organization"):
+    if accessible_ids == {42, 43}:
         await validate_tool_references(definition, organization_id=7)
-    lookup.assert_awaited_once_with(42, 7)
+    else:
+        with pytest.raises(ToolManagementError, match="organization"):
+            await validate_tool_references(definition, organization_id=7)
+    lookup.assert_awaited_once_with({42, 43}, 7)
+
+
+@pytest.mark.asyncio
+async def test_bulk_recording_lookup_excludes_other_orgs_and_deleted_audio(db_session):
+    user, _ = await db_session.get_or_create_user_by_provider_id(
+        "tool_message_recordings"
+    )
+    organization, _ = await db_session.get_or_create_organization_by_provider_id(
+        "tool_message_recordings", user.id
+    )
+    other_org, _ = await db_session.get_or_create_organization_by_provider_id(
+        "other_tool_message_recordings", user.id
+    )
+    recordings = []
+    for index, org_id in enumerate((organization.id, organization.id, other_org.id)):
+        recordings.append(
+            await db_session.create_recording(
+                recording_id=f"tool-message-{index}",
+                organization_id=org_id,
+                transcript="Checking.",
+                storage_key=f"tool-message-{index}.wav",
+                storage_backend="s3",
+                created_by=user.id,
+            )
+        )
+    await db_session.delete_recording(recordings[1].recording_id, organization.id)
+    assert await db_session.get_active_recording_ids(
+        {recording.id for recording in recordings}, organization.id
+    ) == {recordings[0].id}
+    assert await db_session.get_active_recording_ids(set(), organization.id) == set()

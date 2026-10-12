@@ -5547,7 +5547,7 @@ export type TransferAgentToolDefinition = {
     /**
      * Messages
      *
-     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     * One start text message, with template variables supported. Omit to use the default handover line, or send an empty list for a silent handoff.
      */
     messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**

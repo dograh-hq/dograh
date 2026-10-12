@@ -162,6 +162,22 @@ class WorkflowRecordingClient(BaseDBClient):
             result = await session.execute(query)
             return result.scalar_one_or_none()
 
+    async def get_active_recording_ids(
+        self, recording_ids: set[int], organization_id: int
+    ) -> set[int]:
+        """Find accessible recording references in one organization-scoped query."""
+        if not recording_ids:
+            return set()
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRecordingModel.id).where(
+                    WorkflowRecordingModel.id.in_(recording_ids),
+                    WorkflowRecordingModel.organization_id == organization_id,
+                    WorkflowRecordingModel.is_active.is_(True),
+                )
+            )
+            return set(result.scalars().all())
+
     async def has_active_recordings(
         self,
         organization_id: int,

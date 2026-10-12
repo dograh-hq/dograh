@@ -146,8 +146,11 @@ async def validate_tool_references(
         for message in definition.get("messages", [])
         if message.get("type") == "audio"
     }
-    for recording_id in recording_ids:
-        if not await db_client.get_recording_by_id(recording_id, organization_id):
+    if recording_ids:
+        accessible_ids = await db_client.get_active_recording_ids(
+            recording_ids, organization_id
+        )
+        if recording_ids != accessible_ids:
             raise ToolManagementError(
                 "recording_not_found",
                 "A tool message recording was not found in this organization.",

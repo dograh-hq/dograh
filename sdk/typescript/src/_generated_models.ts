@@ -1356,7 +1356,7 @@ export interface components {
             schema_version: number;
             /**
              * Messages
-             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             * @description One start text message, with template variables supported. Omit to use the default handover line, or send an empty list for a silent handoff.
              */
             messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
             /**

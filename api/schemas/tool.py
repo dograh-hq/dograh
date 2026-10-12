@@ -667,6 +667,20 @@ class TransferAgentToolDefinition(ToolDefinitionBase):
 
     type: Literal["transfer_agent"] = Field(description="Tool type.")
     config: TransferAgentConfig = Field(description="Transfer Agent configuration.")
+    messages: ToolMessages = Field(
+        default_factory=lambda: [
+            ToolStartTextMessage(
+                event="start",
+                type="text",
+                text="Let me connect you with the right person. One moment please.",
+            )
+        ],
+        max_length=220,
+        description=(
+            "One start text message, with template variables supported. Omit to "
+            "use the default handover line, or send an empty list for a silent handoff."
+        ),
+    )
 
 
 class CalculatorToolDefinition(ToolDefinitionBase):

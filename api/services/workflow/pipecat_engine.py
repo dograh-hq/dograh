@@ -34,6 +34,7 @@ from api.errors.failure import (
     log_failure,
 )
 from api.schemas.workflow_configurations import CallDispositionOption
+from api.services.credential_resolution import resolve_credential
 from api.services.pipecat.audio_playback import play_audio
 from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.greeting import GreetingController
@@ -2141,15 +2142,16 @@ class PipecatEngine:
 
                 credential = None
                 if cfg["credential_uuid"]:
-                    try:
-                        credential = await db_client.get_credential_by_uuid(
-                            cfg["credential_uuid"], organization_id
-                        )
-                    except Exception as e:
+                    resolution = await resolve_credential(
+                        cfg["credential_uuid"], organization_id
+                    )
+                    if resolution.fetch_error:
                         logger.warning(
-                            f"MCP tool '{tool.name}': credential fetch failed: {e}"
+                            f"MCP tool '{tool.name}': credential fetch failed: "
+                            f"{resolution.fetch_error}"
                         )
                         continue
+                    credential = resolution.credential
 
                 session = McpToolSession(
                     tool_uuid=tool.tool_uuid,

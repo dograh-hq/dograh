@@ -538,6 +538,7 @@ async def test_deliver_webhook_success():
 
     with (
         patch("api.tasks.webhook_delivery.db_client", db),
+        patch("api.services.credential_resolution.db_client", db),
         patch("api.tasks.webhook_delivery.httpx.AsyncClient", _mock_httpx()),
     ):
         await deliver_webhook(None, delivery.id)
@@ -555,6 +556,7 @@ async def test_deliver_webhook_transient_error_schedules_retry():
 
     with (
         patch("api.tasks.webhook_delivery.db_client", db),
+        patch("api.services.credential_resolution.db_client", db),
         patch(
             "api.tasks.webhook_delivery.httpx.AsyncClient",
             _mock_httpx(raise_request_error=httpx.ConnectTimeout("timed out")),
@@ -581,6 +583,7 @@ async def test_deliver_webhook_permanent_4xx_dead_letters():
 
     with (
         patch("api.tasks.webhook_delivery.db_client", db),
+        patch("api.services.credential_resolution.db_client", db),
         patch(
             "api.tasks.webhook_delivery.httpx.AsyncClient",
             _mock_httpx(status_error=status_error, status_code=401),
@@ -602,6 +605,7 @@ async def test_deliver_webhook_retryable_5xx_schedules_retry():
 
     with (
         patch("api.tasks.webhook_delivery.db_client", db),
+        patch("api.services.credential_resolution.db_client", db),
         patch(
             "api.tasks.webhook_delivery.httpx.AsyncClient",
             _mock_httpx(status_error=status_error, status_code=503),
@@ -622,6 +626,7 @@ async def test_deliver_webhook_exhausted_attempts_dead_letters():
 
     with (
         patch("api.tasks.webhook_delivery.db_client", db),
+        patch("api.services.credential_resolution.db_client", db),
         patch(
             "api.tasks.webhook_delivery.httpx.AsyncClient",
             _mock_httpx(raise_request_error=httpx.ConnectError("boom")),
@@ -645,6 +650,7 @@ async def test_deliver_webhook_no_op_when_claim_fails():
 
     with (
         patch("api.tasks.webhook_delivery.db_client", db),
+        patch("api.services.credential_resolution.db_client", db),
         patch("api.tasks.webhook_delivery.httpx.AsyncClient", httpx_mock),
     ):
         await deliver_webhook(None, delivery.id)
@@ -667,6 +673,7 @@ async def test_deliver_webhook_delivered_but_record_failure_does_not_dead_letter
 
     with (
         patch("api.tasks.webhook_delivery.db_client", db),
+        patch("api.services.credential_resolution.db_client", db),
         patch("api.tasks.webhook_delivery.httpx.AsyncClient", _mock_httpx()),
     ):
         await deliver_webhook(None, delivery.id)

@@ -55,6 +55,10 @@ from pipecat.services.dograh.flux.stt import DograhFluxSTTService
 from pipecat.services.dograh.llm import DograhLLMService
 from pipecat.services.dograh.stt import DograhSTTService, DograhSTTSettings
 from pipecat.services.dograh.tts import DograhTTSService, DograhTTSSettings
+from pipecat.services.elevenlabs.dialogue.tts import (
+    ElevenLabsDialogueTTSService,
+    ElevenLabsDialogueTTSSettings,
+)
 from pipecat.services.elevenlabs.stt import (
     CommitStrategy,
     ElevenLabsRealtimeSTTService,
@@ -195,6 +199,20 @@ def _resolve_deepgram_flux_language_hint(language: str | None) -> Language | Non
     """Resolve a supported BCP-47 language or locale to its Flux base language."""
     base_language = (language or "").split("-", 1)[0].lower()
     return DEEPGRAM_FLUX_LANGUAGE_HINTS.get(base_language)
+
+
+def _resolve_deepgram_flux_language_hints(
+    language: str | None, hints: list[str] | None
+) -> list[Language]:
+    return list(
+        dict.fromkeys(
+            hint
+            for hint in map(
+                _resolve_deepgram_flux_language_hint, [language, *(hints or [])]
+            )
+            if hint
+        )
+    )
 
 
 def dograh_stt_uses_flux_language(language: str | None) -> bool:
@@ -379,16 +397,9 @@ def create_stt_service(
                 "keyterm": keyterms or [],
             }
             if user_config.stt.model == "flux-general-multi":
-                codes = [
+                language_hints = _resolve_deepgram_flux_language_hints(
                     getattr(user_config.stt, "language", None),
-                    *(getattr(user_config.stt, "language_hints", None) or []),
-                ]
-                language_hints = list(
-                    dict.fromkeys(
-                        hint
-                        for hint in map(_resolve_deepgram_flux_language_hint, codes)
-                        if hint
-                    )
+                    getattr(user_config.stt, "language_hints", None),
                 )
                 if language_hints:
                     settings_kwargs["language_hints"] = language_hints
@@ -479,9 +490,11 @@ def create_stt_service(
                 "eager_eot_threshold": 0.5,
                 "keyterm": keyterms or [],
             }
-            language_hint = _resolve_deepgram_flux_language_hint(language)
-            if language_hint:
-                settings_kwargs["language_hints"] = [language_hint]
+            language_hints = _resolve_deepgram_flux_language_hints(
+                language, getattr(user_config.stt, "language_hints", None)
+            )
+            if language_hints:
+                settings_kwargs["language_hints"] = language_hints
             return DograhFluxSTTService(
                 base_url=base_url,
                 api_key=user_config.stt.api_key,
@@ -781,17 +794,27 @@ def create_tts_service(
         # scheme-less base_url contract.
         _validate_runtime_service_url(user_config.tts.base_url, "base_url")
         elevenlabs_url = _elevenlabs_websocket_url(user_config.tts.base_url)
-        return ElevenLabsTTSService(
-            reconnect_on_error=False,
-            api_key=user_config.tts.api_key,
-            url=elevenlabs_url,
-            settings=ElevenLabsTTSSettings(
+        if user_config.tts.model.startswith(("eleven_v3", "eleven_v4")):
+            tts_service_cls = ElevenLabsDialogueTTSService
+            tts_settings = ElevenLabsDialogueTTSSettings(
+                voice=voice_id,
+                model=user_config.tts.model,
+                stability=0.8,
+            )
+        else:
+            tts_service_cls = ElevenLabsTTSService
+            tts_settings = ElevenLabsTTSSettings(
                 voice=voice_id,
                 model=user_config.tts.model,
                 stability=0.8,
                 speed=user_config.tts.speed,
                 similarity_boost=0.75,
-            ),
+            )
+        return tts_service_cls(
+            reconnect_on_error=False,
+            api_key=user_config.tts.api_key,
+            url=elevenlabs_url,
+            settings=tts_settings,
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
@@ -1611,23 +1634,25 @@ def get_llm_runtime_configuration(user_config) -> dict:
     policy = getattr(user_config, "llm_fallback", None)
     configuration["llm_fallback"] = {
         "version": 1,
-        "rules": [
-            {
-                "condition": rule.condition.model_dump(mode="json"),
-                "target": {
-                    "provider": rule.target.provider,
-                    "model": rule.target.model,
-                    **(
-                        {"location": rule.target.location}
-                        if hasattr(rule.target, "location")
-                        else {}
-                    ),
-                },
-            }
-            for rule in policy.rules
-        ]
-        if policy
-        else [],
+        "rules": (
+            [
+                {
+                    "condition": rule.condition.model_dump(mode="json"),
+                    "target": {
+                        "provider": rule.target.provider,
+                        "model": rule.target.model,
+                        **(
+                            {"location": rule.target.location}
+                            if hasattr(rule.target, "location")
+                            else {}
+                        ),
+                    },
+                }
+                for rule in policy.rules
+            ]
+            if policy
+            else []
+        ),
     }
     return configuration
 

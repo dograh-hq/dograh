@@ -26,8 +26,11 @@ export interface FieldSchema {
     format?: string;
     multiline?: boolean;
     allow_custom_input?: boolean;
+    voice_catalog?: "dropdown" | "dialog";
+    option_labels?: Record<string, string>;
     model_options?: Record<string, string[]>;
     visible_for_models?: string[];
+    visible_for_languages?: string[];
     hidden_for_models?: string[];
     supported?: boolean;
     model_constraints?: (FieldSchema & { pattern: string })[];

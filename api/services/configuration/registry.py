@@ -697,8 +697,12 @@ class DograhLLMService(BaseChatLLMConfiguration):
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
         default="default",
+        title="LLM model",
         description="Dograh-hosted model tier.",
-        json_schema_extra={"examples": DOGRAH_LLM_MODELS, "allow_custom_input": True},
+        json_schema_extra={
+            "examples": DOGRAH_LLM_MODELS,
+            "option_labels": {"default": "default (recommended)"},
+        },
     )
 
 
@@ -1264,6 +1268,7 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
     voice: str = Field(
         default="aura-2-helena-en",
         description="Deepgram voice ID (model is inferred from the 'aura-N' prefix).",
+        json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
     )
     speed: float | None = Field(
         default=None,
@@ -1303,7 +1308,17 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
             return "aura-2"
 
 
-ELEVENLABS_TTS_MODELS = ["eleven_flash_v2_5"]
+ELEVENLABS_DIALOGUE_TTS_MODELS = [
+    "eleven_v3",
+    "eleven_v3_conversational",
+    "eleven_v4",
+    "eleven_v4_turbo",
+]
+ELEVENLABS_TTS_MODELS = [
+    "eleven_flash_v2_5",
+    "eleven_multilingual_v2",
+    *ELEVENLABS_DIALOGUE_TTS_MODELS,
+]
 
 
 @register_tts(provider=ELEVENLABS_PROVIDER)
@@ -1312,8 +1327,15 @@ class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
     voice: str = Field(
         default="21m00Tcm4TlvDq8ikWAM",
         description="ElevenLabs voice ID from your Voice Library.",
+        json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
     )
-    speed: float = Field(default=1.0, ge=0.1, le=2.0, description="Speed of the voice.")
+    speed: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=2.0,
+        description="Speech speed for Flash, Turbo v2.5, and Multilingual models.",
+        json_schema_extra={"hidden_for_models": ELEVENLABS_DIALOGUE_TTS_MODELS},
+    )
     model: str = Field(
         default="eleven_flash_v2_5",
         description="ElevenLabs TTS model.",
@@ -1424,7 +1446,7 @@ class DograhTTSService(BaseTTSConfiguration):
     voice: str = Field(
         default="default",
         description="Voice preset.",
-        json_schema_extra={"allow_custom_input": True},
+        json_schema_extra={"voice_catalog": "dialog", "allow_custom_input": True},
     )
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice.")
 
@@ -1446,6 +1468,7 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
     voice: str = Field(
         default="3faa81ae-d3d8-4ab1-9e44-e50e46d33c30",
         description="Cartesia voice UUID from your Cartesia dashboard.",
+        json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
     )
     speed: float = Field(default=1.0, ge=0.6, le=1.5, description="Speed of the voice.")
     volume: float = Field(
@@ -1563,6 +1586,7 @@ class RimeTTSConfiguration(BaseTTSConfiguration):
     voice: str = Field(
         default="celeste",
         description="Rime voice ID.",
+        json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
     )
     speed: float = Field(
         default=1.0, ge=0.5, le=2.0, description="Speech speed multiplier."
@@ -1880,6 +1904,20 @@ TTSConfig = Annotated[
 ###################################################### STT ########################################################################
 
 
+def _validate_flux_language_hints(hints: list[str]) -> list[str]:
+    # An unsupported hint rejects the whole Flux stream, so validate at save time.
+    unsupported = [
+        hint
+        for hint in hints
+        if hint.split("-", 1)[0].lower() not in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES
+    ]
+    if unsupported:
+        raise ValueError(
+            "Unsupported Flux multilingual language hints: " + ", ".join(unsupported)
+        )
+    return hints
+
+
 @register_stt(provider=DEEPGRAM_PROVIDER)
 class DeepgramSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
@@ -1935,19 +1973,7 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     @field_validator("language_hints")
     @classmethod
     def validate_language_hints(cls, hints: list[str]) -> list[str]:
-        # Deepgram rejects the whole stream for an unsupported hint, so catch it
-        # when the configuration is saved rather than when a call connects.
-        unsupported = [
-            hint
-            for hint in hints
-            if hint.split("-", 1)[0].lower() not in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES
-        ]
-        if unsupported:
-            raise ValueError(
-                "Unsupported Flux multilingual language hints: "
-                + ", ".join(unsupported)
-            )
-        return hints
+        return _validate_flux_language_hints(hints)
 
 
 @register_stt(provider=CARTESIA_PROVIDER)
@@ -2045,9 +2071,27 @@ class DograhSTTService(BaseSTTConfiguration):
     )
     language: str = Field(
         default="multi",
-        description="Language code; use 'multi' for auto-detect.",
+        description="Language code; use 'multi' for auto-detect, optionally guided by language hints.",
         json_schema_extra={"examples": DOGRAH_STT_LANGUAGES},
     )
+    language_hints: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Languages to bias transcription toward, in addition to the language "
+            "above. For English and Spanish calls, choose auto-detect and select "
+            "both hints. Hints guide recognition without restricting it to these "
+            "languages, and only apply to Flux-supported languages."
+        ),
+        json_schema_extra={
+            "examples": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
+            "visible_for_languages": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
+        },
+    )
+
+    @field_validator("language_hints")
+    @classmethod
+    def validate_language_hints(cls, hints: list[str]) -> list[str]:
+        return _validate_flux_language_hints(hints)
 
 
 @register_stt(provider=SARVAM_PROVIDER)

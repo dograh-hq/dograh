@@ -297,6 +297,35 @@ async def test_hydration_uses_current_credentials_and_saved_model_settings(catal
 
 
 @pytest.mark.asyncio
+async def test_managed_model_and_language_hints_survive_overrides_and_snapshot(catalog):
+    row = connection()
+    config = pipeline(row)
+    config["llm"]["settings"] = {"model": "fast"}
+    config["stt"]["settings"] = {"language": "multi", "language_hints": ["en"]}
+    named = catalog(row, default=True, configuration=config)
+    result = await service.resolve_model_configuration(
+        1,
+        workflow_override={"model_configuration_uuid": named.uuid},
+        api_override={
+            "llm": {"settings": {"model": "zen"}},
+            "stt": {"settings": {"language_hints": ["en", "es"]}},
+        },
+    )
+    assert result.effective.llm.model == "zen"
+    assert result.effective.stt.language_hints == ["en", "es"]
+    hydrated = await service.hydrate_model_configuration_snapshot(1, result.snapshot)
+    assert hydrated.llm.model == "zen"
+    assert hydrated.stt.language == "multi"
+    assert hydrated.stt.language_hints == ["en", "es"]
+
+    cleared = await service.resolve_model_configuration(
+        1, workflow_override={"stt": {"settings": {"language_hints": []}}}
+    )
+    assert cleared.effective.llm.model == "fast"
+    assert cleared.effective.stt.language_hints == []
+
+
+@pytest.mark.asyncio
 async def test_disjoint_dograh_keys_are_rejected(catalog):
     one = connection(keys=["a", "b"])
     two = catalog(connection(keys=["c", "d"]))

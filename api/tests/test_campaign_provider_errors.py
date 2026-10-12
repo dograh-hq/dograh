@@ -1,5 +1,6 @@
 """Immediate campaign pauses are limited to provider HTTP 401, 402 and 403."""
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -45,6 +46,8 @@ async def test_only_requested_http_statuses_pause(status, monkeypatch):
         ("server rejected WebSocket connection: HTTP 402", 402),
         ("Error code: 401 - unauthorized", 401),
         ("provider status_code=403", 403),
+        ("received HTTP 500 upstream, then HTTP 401", 401),
+        ("HTTP 429 retry failed: HTTP 402", 402),
         ("audio chunk 402 failed", None),
         ("quota exhausted", None),
     ],
@@ -151,17 +154,25 @@ async def test_resume_clears_old_ratio_before_readmitting_dispatch(monkeypatch):
     monkeypatch.setattr(
         runner.db_client,
         "get_campaign_by_id",
-        AsyncMock(return_value=SimpleNamespace(state="paused")),
+        AsyncMock(return_value=SimpleNamespace(state="paused", organization_id=1)),
     )
     monkeypatch.setattr(
         runner.circuit_breaker,
         "reset",
-        AsyncMock(side_effect=lambda *_: events.append("reset")),
+        AsyncMock(side_effect=lambda *_: events.append("reset") or True),
     )
+
+    @asynccontextmanager
+    async def transition(campaign_id, organization_id):
+        assert (campaign_id, organization_id) == (8, 1)
+        events.append("locked")
+        yield
+        events.append("running")
+
     monkeypatch.setattr(
         runner.db_client,
-        "update_campaign",
-        AsyncMock(side_effect=lambda **_: events.append("running")),
+        "campaign_resume_transition",
+        transition,
     )
     await runner.campaign_runner_service.resume_campaign(8)
-    assert events == ["reset", "running"]
+    assert events == ["locked", "reset", "running"]

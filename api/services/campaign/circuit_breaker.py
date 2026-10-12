@@ -47,8 +47,11 @@ def provider_http_status(exception=None, message=""):
         if status is not None:
             return status
         message = f"{message} {exception}"
-    match = _HTTP_STATUS_RE.search(message)
-    return int(match.group(1)) if match else None
+    statuses = [int(match) for match in _HTTP_STATUS_RE.findall(message)]
+    return next(
+        (status for status in statuses if status in PROVIDER_PAUSE_STATUSES),
+        statuses[0] if statuses else None,
+    )
 
 
 def register_campaign_provider_error_handler(service, *, provider, source):
@@ -144,7 +147,9 @@ class CircuitBreaker:
         """Return the Redis key used for the capped recent-failures list."""
         return f"cb_pipeline_recent_failures:{campaign_id}"
 
-    async def _get_recent_failures(self, campaign_id: int) -> List[Dict[str, Any]]:
+    async def _get_recent_failures(
+        self, campaign_id: int, *, since: float | None = None
+    ) -> List[Dict[str, Any]]:
         """Return the recent-failures list (most-recent first)."""
         redis_client = await self._get_redis()
         key = self._recent_failures_key(campaign_id)
@@ -158,8 +163,10 @@ class CircuitBreaker:
         decoded: List[Dict[str, Any]] = []
         for raw in entries:
             try:
-                decoded.append(json.loads(raw))
-            except (TypeError, ValueError):
+                entry = json.loads(raw)
+                if since is None or entry["ts"] > since:
+                    decoded.append(entry)
+            except (KeyError, TypeError, ValueError):
                 continue
         return decoded
 
@@ -233,6 +240,7 @@ class CircuitBreaker:
                 redis.call('ZADD', fail_key, now, run_id)
                 redis.call('LPUSH', recent_key, recent_failure)
                 redis.call('LTRIM', recent_key, 0, max_recent - 1)
+                redis.call('EXPIRE', recent_key, ttl)
             else
                 redis.call('ZADD', succ_key, now, run_id)
             end
@@ -241,7 +249,6 @@ class CircuitBreaker:
         -- Refresh TTL on both keys
         redis.call('EXPIRE', fail_key, ttl)
         redis.call('EXPIRE', succ_key, ttl)
-        redis.call('EXPIRE', recent_key, ttl)
 
         -- Count via ZCARD (O(1))
         local failures = redis.call('ZCARD', fail_key)
@@ -424,7 +431,9 @@ class CircuitBreaker:
                     f"pausing campaign. Stats: {stats}"
                 )
 
-                recent_failures = await self._get_recent_failures(campaign_id)
+                recent_failures = await self._get_recent_failures(
+                    campaign_id, since=time.time() - stats["window_seconds"]
+                )
 
                 await db_client.update_campaign(campaign_id=campaign_id, state="paused")
                 await db_client.append_campaign_log(

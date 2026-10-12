@@ -127,6 +127,36 @@ async def test_recent_failures_are_bounded_unique_and_use_campaign_ttl(
 
 
 @pytest.mark.asyncio
+async def test_successes_and_duplicates_do_not_extend_failure_diagnostics_ttl(
+    pipeline_breaker,
+):
+    s = pipeline_breaker
+    await s.breaker.record_call_outcome(s.campaign_id, True, workflow_run_id=88)
+    key = s.breaker._recent_failures_key(s.campaign_id)
+    # Shorten the real Redis TTL without sleeping through an entire window.
+    await s.redis.expire(key, 10)
+    await s.breaker.record_call_outcome(s.campaign_id, False, workflow_run_id=89)
+    await s.other_worker.record_call_outcome(s.campaign_id, True, workflow_run_id=88)
+    assert 0 < await s.redis.ttl(key) <= 10
+    await s.breaker.record_call_outcome(s.campaign_id, True, workflow_run_id=90)
+    assert await s.redis.ttl(key) > 170
+
+
+@pytest.mark.asyncio
+async def test_trip_diagnostics_exclude_failures_outside_campaign_window(
+    pipeline_breaker,
+):
+    s = pipeline_breaker
+    await s.breaker.record_call_outcome(s.campaign_id, True, workflow_run_id=88)
+    s.clock.now += 121
+    await s.breaker.record_call_outcome(s.campaign_id, True, workflow_run_id=89)
+    recent = await s.breaker._get_recent_failures(
+        s.campaign_id, since=s.clock.now - 120
+    )
+    assert [entry["workflow_run_id"] for entry in recent] == [89]
+
+
+@pytest.mark.asyncio
 async def test_reset_clears_counts_and_failure_diagnostics(pipeline_breaker):
     s = pipeline_breaker
     await s.breaker.record_call_outcome(s.campaign_id, True, workflow_run_id=88)

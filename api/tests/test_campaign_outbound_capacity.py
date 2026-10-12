@@ -22,6 +22,7 @@ from api.services.call_concurrency import CallConcurrencySlot
 from api.services.call_concurrency.rate_limiter import RateLimiter
 from api.services.campaign.campaign_call_dispatcher import CampaignCallDispatcher
 from api.services.campaign.errors import (
+    CampaignDispatchPaused,
     ConcurrentSlotAcquisitionError,
 )
 
@@ -132,13 +133,18 @@ async def test_campaign_pause_during_rate_wait_defers_contact_and_releases_capac
 ):
     s = setup_call
 
-    async def rate_admission(*args, **kwargs):
-        s.campaign.state = "paused"
-        return True
+    async def rate_wait(*args, **kwargs):
+        # The dispatch input remains stale/running; only the fresh DB read sees
+        # the pause committed by another worker.
+        s.db.get_campaign.return_value = SimpleNamespace(state="paused")
+        return 0.01
 
-    s.limiter.acquire_token.side_effect = rate_admission
+    s.limiter.acquire_token.return_value = False
+    s.limiter.get_next_available_slot.side_effect = rate_wait
     assert await s.dispatcher.process_batch(s.campaign.id) == 0
-    s.db.get_campaign.assert_awaited_once_with(48, 206)
+    assert s.campaign.state == "running"
+    assert s.db.get_campaign.await_count == 3
+    s.db.get_campaign.assert_awaited_with(48, 206)
     s.provider.initiate_call.assert_not_awaited()
     s.concurrency.release_workflow_run_slot.assert_awaited_once_with(100)
     s.concurrency.release_slot.assert_awaited_once_with(s.slot)
@@ -162,6 +168,30 @@ async def test_campaign_state_lookup_failure_defers_instead_of_dialing(setup_cal
 
 
 @pytest.mark.asyncio
+async def test_already_paused_campaign_does_not_create_a_workflow_run(setup_call):
+    s = setup_call
+    s.db.get_campaign.return_value = SimpleNamespace(state="paused")
+    assert await s.dispatcher.process_batch(s.campaign.id) == 0
+    s.db.create_workflow_run.assert_not_awaited()
+    s.provider.initiate_call.assert_not_awaited()
+    s.db.update_queued_run.assert_awaited_once_with(queued_run_id=1, state="queued")
+    s.concurrency.release_slot.assert_awaited_once_with(s.slot)
+
+
+@pytest.mark.asyncio
+async def test_campaign_lookup_error_is_logged_and_preserves_cause(setup_call):
+    s = setup_call
+    error = RuntimeError("DB unavailable")
+    s.db.get_campaign.side_effect = error
+    with patch(f"{MODULE}.logger") as logger:
+        with pytest.raises(CampaignDispatchPaused) as caught:
+            await s.dispatcher.dispatch_call(s.row, s.campaign, s.slot)
+    assert caught.value.__cause__ is error
+    logger.error.assert_called_once()
+    assert logger.error.call_args.args[1:] == (48, 206, "RuntimeError")
+
+
+@pytest.mark.asyncio
 async def test_carrier_account_error_uses_same_campaign_pause_handler(setup_call):
     s = setup_call
     error = HTTPException(status_code=401, detail="Rejected by carrier")
@@ -175,6 +205,40 @@ async def test_carrier_account_error_uses_same_campaign_pause_handler(setup_call
         exception=error,
     )
     s.concurrency.release_slot.assert_awaited_once_with(s.slot)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_provider_pause_retains_known_rejection(setup_call):
+    s = setup_call
+    error = HTTPException(status_code=401, detail="Rejected by carrier")
+    s.provider.initiate_call.side_effect = error
+    entered, release, persisted = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def pause(**kwargs):
+        entered.set()
+        await release.wait()
+        persisted.set()
+
+    s.breaker.pause_on_provider_error.side_effect = pause
+    task = asyncio.create_task(s.dispatcher.dispatch_call(s.row, s.campaign, s.slot))
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        task.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 1)
+        assert persisted.is_set()
+        update = s.db.update_workflow_run.await_args.kwargs
+        assert update["logs"]["campaign_dispatch"]["outcome"] == "failed"
+        assert "call_initiation_uncertain" not in update["gathered_context"]
+        assert s.db.update_queued_run.await_args.kwargs["state"] == "failed"
+        s.concurrency.release_workflow_run_slot.assert_awaited_once_with(100)
+        s.concurrency.release_slot.assert_awaited_once_with(s.slot)
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 2)
 
 
 @pytest.mark.asyncio
@@ -504,6 +568,69 @@ async def test_actual_dial_starts_remain_limited_after_a_long_capacity_wait(setu
         if task and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        redis = await rl._get_redis()
+        await redis.delete(
+            f"rate_limit:{scope}", f"caller_id_rotation:{s.campaign.organization_id}:55"
+        )
+        await rl.close()
+
+
+@pytest.mark.asyncio
+async def test_actual_dial_starts_remain_limited_after_slow_campaign_reads(setup_call):
+    s = setup_call
+    rl = RateLimiter()
+    s.campaign.id = uuid.uuid4().int % 10**9
+    s.campaign.organization_id = s.campaign.id
+    scope = f"campaign:{s.campaign.id}"
+    release, both_reading = asyncio.Event(), asyncio.Event()
+    prepared_tasks = set()
+    reads = 0
+    starts = []
+    s.db.claim_queued_runs_for_processing.return_value = [
+        s.row,
+        SimpleNamespace(
+            id=2, source_uuid="second", context_variables=s.row.context_variables
+        ),
+    ]
+
+    async def create_run(**kwargs):
+        prepared_tasks.add(asyncio.current_task())
+        return s.run
+
+    async def read_campaign(*args):
+        nonlocal reads
+        if asyncio.current_task() not in prepared_tasks:
+            return SimpleNamespace(state="running")
+        reads += 1
+        if reads == 2:
+            both_reading.set()
+        await release.wait()
+        return SimpleNamespace(state="running")
+
+    async def dial(**kwargs):
+        starts.append(time.monotonic())
+        return SimpleNamespace(provider_metadata={})
+
+    s.db.get_campaign.side_effect = read_campaign
+    s.db.create_workflow_run.side_effect = create_run
+    s.provider.initiate_call.side_effect = dial
+    task = None
+    try:
+        with patch(f"{MODULE}.rate_limiter", rl):
+            task = asyncio.create_task(s.dispatcher.process_batch(s.campaign.id))
+            await asyncio.wait_for(both_reading.wait(), 3)
+            # Both DB reads complete together after a full rate window. Tokens
+            # taken before those reads would let the two carrier starts burst.
+            await asyncio.sleep(1.05)
+            release.set()
+            assert await asyncio.wait_for(task, 4) == 2
+        assert len(starts) == 2
+        assert starts[1] - starts[0] >= 0.95
+    finally:
+        release.set()
+        if task and not task.done():
+            task.cancel()
+            await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 2)
         redis = await rl._get_redis()
         await redis.delete(
             f"rate_limit:{scope}", f"caller_id_rotation:{s.campaign.organization_id}:55"

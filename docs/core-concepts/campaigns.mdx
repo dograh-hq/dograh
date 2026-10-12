@@ -73,7 +73,7 @@ Dograh can automatically retry contacts who didn't answer, were busy, or went to
 
 The circuit breaker automatically pauses a campaign when too many connected calls end with an AI pipeline failure, such as an STT, LLM, or TTS error.
 
-Each finished pipeline contributes one outcome, including calls made through ARI. The failure rate is failed pipelines divided by all finished pipelines in the rolling time window. Busy, no-answer, carrier rejections, and failed dial attempts are excluded. A telephony provider's "completed" callback does not count as a successful pipeline.
+While the campaign is running, each finished pipeline with a known outcome contributes one sample, including calls made through ARI. The failure rate is failed pipelines divided by all counted pipelines in the rolling time window. Unclassified framework cancellations, busy, no-answer, carrier rejections, and failed dial attempts are excluded. Calls finishing while the campaign is paused do not enter the window. A telephony provider's "completed" callback does not count as a successful pipeline.
 
 When enabled, the circuit breaker pauses the campaign once the minimum sample size is reached and the failure rate meets or exceeds the threshold. You must manually resume the campaign after investigating the issue.
 
@@ -91,7 +91,7 @@ An HTTP 401, 402, or 403 reported by a campaign call's STT, TTS, LLM, realtime, 
 
 Fix the provider issue, then resume the campaign normally. Resuming clears the pause; another 401, 402, or 403 pauses it again. Other provider errors do not trigger this immediate pause; pipeline failures still contribute to the existing failure-rate breaker.
 
-Calls waiting to dial recheck the campaign state after their rate-limit wait. If paused, their contacts remain queued and their reserved call capacity is released. Calls already dialed can finish. This protection does not block API-triggered calls or other campaigns using the same provider.
+Calls waiting to dial recheck the campaign state after each rate-limit wait, immediately before trying rate admission. If paused, their contacts remain queued and their reserved call capacity is released. Calls already dialed can finish. This protection does not block API-triggered calls or other campaigns using the same provider.
 
 ## Campaign lifecycle
 

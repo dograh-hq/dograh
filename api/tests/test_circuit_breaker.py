@@ -632,7 +632,7 @@ class TestResumeCampaignResetsCircuitBreaker:
             # Verify circuit breaker was reset
             mock_cb.reset.assert_called_once_with(42)
 
-            # Verify campaign state was updated
-            mock_db.update_campaign.assert_called_once_with(
-                campaign_id=42, state="running"
+            # The DB context owns the serialized transition to running.
+            mock_db.campaign_resume_transition.assert_called_once_with(
+                42, mock_campaign.organization_id
             )

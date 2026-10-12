@@ -1,4 +1,5 @@
 import json
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
@@ -1001,6 +1002,30 @@ class CampaignClient(BaseDBClient):
             )
             return [dict(row) for row in result.mappings()]
 
+    @asynccontextmanager
+    async def campaign_resume_transition(self, campaign_id: int, organization_id: int):
+        """Keep provider pauses serialized with reset and the transition to running."""
+        async with self.async_session() as session:
+            campaign = await session.scalar(
+                select(CampaignModel)
+                .where(
+                    CampaignModel.id == campaign_id,
+                    CampaignModel.organization_id == organization_id,
+                )
+                .with_for_update()
+            )
+            if campaign is None:
+                raise ValueError(f"Campaign {campaign_id} not found")
+            if campaign.state != "paused":
+                raise ValueError(
+                    "Campaign must be in 'paused' state to resume, "
+                    f"current state: {campaign.state}"
+                )
+            yield
+            campaign.state = "running"
+            campaign.updated_at = datetime.now(UTC)
+            await session.commit()
+
     async def pause_campaign_for_provider_error(
         self,
         organization_id: int,
@@ -1026,11 +1051,12 @@ class CampaignClient(BaseDBClient):
                     WorkflowRunModel.id == workflow_run_id,
                     WorkflowModel.organization_id == organization_id,
                     CampaignModel.organization_id == organization_id,
-                    CampaignModel.state.in_(["running", "syncing"]),
                 )
                 .with_for_update(of=CampaignModel)
             )
-            if campaign is None:
+            # Check state only after acquiring the lock. A concurrent resume
+            # can still have the row paused while resetting its Redis window.
+            if campaign is None or campaign.state not in ("running", "syncing"):
                 return None
             now = datetime.now(UTC)
             campaign.state = "paused"

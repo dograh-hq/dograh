@@ -315,12 +315,16 @@ def register_event_handlers(
                     return
                 gathered_context = await engine.get_gathered_context()
                 call_status = gathered_context.get("call_status")
-                if not call_status:
+                if (
+                    not call_status
+                    or call_status == EndTaskReason.SYSTEM_CANCELLED.value
+                ):
+                    # Bare framework cancellation has no reliable call outcome.
+                    # Do not invent either a success or a provider failure.
                     return
                 is_failure = call_status in {
                     EndTaskReason.PIPELINE_ERROR.value,
                     EndTaskReason.UNEXPECTED_ERROR.value,
-                    EndTaskReason.SYSTEM_CANCELLED.value,
                 }
                 run = await db_client.get_workflow_run_by_id(workflow_run_id)
                 if run and run.campaign_id:

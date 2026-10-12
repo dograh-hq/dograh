@@ -291,7 +291,6 @@ async def test_errors_the_call_survives_do_not_count_as_campaign_failures(
         ("ivr_detected", False),
         (EndTaskReason.PIPELINE_ERROR.value, True),
         (EndTaskReason.UNEXPECTED_ERROR.value, True),
-        (EndTaskReason.SYSTEM_CANCELLED.value, True),
     ],
 )
 async def test_final_pipeline_status_records_one_outcome_without_carrier_callbacks(
@@ -317,10 +316,19 @@ async def test_final_pipeline_status_records_one_outcome_without_carrier_callbac
 
 
 @pytest.mark.asyncio
-async def test_missing_terminal_status_is_not_assumed_healthy(campaign_call):
+@pytest.mark.parametrize("reason", [None, EndTaskReason.SYSTEM_CANCELLED.value])
+async def test_unknown_terminal_status_is_not_assumed_healthy_or_failed(
+    campaign_call, reason
+):
     call = campaign_call
+    if reason:
+        await call.engine.end_call_with_reason(reason)
     await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
     call.breaker.assert_not_awaited()
+    assert all(
+        invocation.args[2] != event_handlers.PostHogEvent.CALL_FAILED
+        for invocation in event_handlers._capture_call_event.call_args_list
+    )
 
 
 @pytest.mark.asyncio

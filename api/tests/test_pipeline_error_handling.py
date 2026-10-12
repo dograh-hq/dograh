@@ -269,7 +269,109 @@ async def test_errors_the_call_survives_do_not_count_as_campaign_failures(
     await call.engine.end_call_with_reason(EndTaskReason.USER_HANGUP.value)
     await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
 
+    call.breaker.assert_awaited_once_with(
+        campaign_id=42,
+        is_failure=False,
+        workflow_run_id=88,
+        reason="user_hangup",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reason,is_failure",
+    [
+        (EndTaskReason.END_CALL.value, False),
+        (EndTaskReason.USER_HANGUP.value, False),
+        (EndTaskReason.TRANSFER_CALL.value, False),
+        (EndTaskReason.CALL_TRANSFERRED.value, False),
+        (EndTaskReason.VOICEMAIL_DETECTED.value, False),
+        (EndTaskReason.CALL_DURATION_EXCEEDED.value, False),
+        (EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value, False),
+        ("ivr_detected", False),
+        (EndTaskReason.PIPELINE_ERROR.value, True),
+        (EndTaskReason.UNEXPECTED_ERROR.value, True),
+    ],
+)
+async def test_final_pipeline_status_records_one_outcome_without_carrier_callbacks(
+    campaign_call, reason, is_failure
+):
+    """ARI has no completed callback; finalization alone must count its outcome."""
+    call = campaign_call
+    await call.engine.end_call_with_reason(reason)
+    async with asyncio.timeout(5):
+        await asyncio.gather(
+            *(
+                call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+                for _ in range(2)
+            )
+        )
+
+    call.breaker.assert_awaited_once_with(
+        campaign_id=42,
+        is_failure=is_failure,
+        workflow_run_id=88,
+        reason=reason,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", [None, EndTaskReason.SYSTEM_CANCELLED.value])
+async def test_unknown_terminal_status_is_not_assumed_healthy_or_failed(
+    campaign_call, reason
+):
+    call = campaign_call
+    if reason:
+        await call.engine.end_call_with_reason(reason)
+    await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
     call.breaker.assert_not_awaited()
+    assert all(
+        invocation.args[2] != event_handlers.PostHogEvent.CALL_FAILED
+        for invocation in event_handlers._capture_call_event.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("callback_first", [False, True])
+@pytest.mark.parametrize("reason", ["pipeline_error", "user_hangup"])
+async def test_carrier_completion_cannot_double_count_pipeline_outcome(
+    campaign_call, monkeypatch, callback_first, reason
+):
+    from api.services.telephony import status_processor
+
+    call = campaign_call
+    run = event_handlers.db_client.get_workflow_run_by_id.return_value
+    run.logs = {}
+    run.state = "running"
+    monkeypatch.setattr(
+        status_processor.campaign_call_dispatcher, "release_call_slot", AsyncMock()
+    )
+    monkeypatch.setattr(status_processor, "notify_campaign_call_completed", AsyncMock())
+
+    async def carrier_completes():
+        # Both the terminal webhook and the CDR can report the same completed call.
+        for _ in range(2):
+            await status_processor._process_status_update(
+                88,
+                status_processor.StatusCallbackRequest(
+                    call_id="call-88", status="completed"
+                ),
+            )
+
+    if callback_first:
+        await carrier_completes()
+        call.breaker.assert_not_awaited()
+    await call.engine.end_call_with_reason(reason)
+    await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+    if not callback_first:
+        await carrier_completes()
+
+    call.breaker.assert_awaited_once_with(
+        campaign_id=42,
+        is_failure=reason == "pipeline_error",
+        workflow_run_id=88,
+        reason=reason,
+    )
 
 
 @pytest.mark.asyncio

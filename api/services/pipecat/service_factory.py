@@ -157,12 +157,20 @@ def _report_service_factory_failures(
                 )
                 raise
 
-            return annotate_failure_metadata(
+            service = annotate_failure_metadata(
                 service,
                 source=source,
                 provider=provider,
                 error_owner=error_owner,
             )
+            from api.services.campaign.circuit_breaker import (
+                register_campaign_provider_error_handler,
+            )
+
+            register_campaign_provider_error_handler(
+                service, provider=provider, source=source
+            )
+            return service
 
         return wrapped
 

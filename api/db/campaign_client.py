@@ -1001,6 +1001,59 @@ class CampaignClient(BaseDBClient):
             )
             return [dict(row) for row in result.mappings()]
 
+    async def pause_campaign_for_provider_error(
+        self,
+        organization_id: int,
+        workflow_run_id: int,
+        *,
+        provider: str,
+        service: str,
+        status_code: int,
+    ) -> Optional[int]:
+        """Pause only the failing run's campaign and save the reason atomically.
+
+        The ordinary campaign state is the block; resuming it clears the block.
+        Row locking prevents duplicate pause entries from concurrent failures.
+        """
+        async with self.async_session() as session:
+            campaign = await session.scalar(
+                select(CampaignModel)
+                .join(
+                    WorkflowRunModel, WorkflowRunModel.campaign_id == CampaignModel.id
+                )
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.id == workflow_run_id,
+                    WorkflowModel.organization_id == organization_id,
+                    CampaignModel.organization_id == organization_id,
+                    CampaignModel.state.in_(["running", "syncing"]),
+                )
+                .with_for_update(of=CampaignModel)
+            )
+            if campaign is None:
+                return None
+            now = datetime.now(UTC)
+            campaign.state = "paused"
+            campaign.updated_at = now
+            campaign.logs = [
+                *(campaign.logs or []),
+                {
+                    "ts": now.isoformat(),
+                    "level": "warning",
+                    "event": "provider_error_circuit_breaker_tripped",
+                    "message": f"Paused: {provider} {service} returned HTTP {status_code}. Fix the provider issue, then resume the campaign.",
+                    "details": {
+                        "workflow_run_id": workflow_run_id,
+                        "provider": provider,
+                        "service": service,
+                        "status_code": status_code,
+                    },
+                },
+            ]
+            campaign_id = campaign.id
+            await session.commit()
+            return campaign_id
+
     async def append_campaign_log(
         self,
         campaign_id: int,

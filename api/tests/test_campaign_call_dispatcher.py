@@ -134,6 +134,97 @@ async def dispatcher(sessions, campaign_data):
 
 
 @pytest.mark.asyncio
+async def test_provider_pause_is_campaign_scoped_and_resume_allows_retrip(
+    campaign_data, sessions, monkeypatch
+):
+    from api.services.campaign import runner
+
+    s = campaign_data
+    async with sessions() as session:
+        other = CampaignModel(
+            name="unaffected campaign",
+            organization_id=s.org.id,
+            workflow_id=s.campaign.workflow_id,
+            created_by=s.campaign.created_by,
+            source_type="csv",
+            source_id="other",
+            state="running",
+            rate_limit_per_second=4,
+        )
+        run = WorkflowRunModel(
+            name="failing campaign call",
+            workflow_id=s.campaign.workflow_id,
+            mode="ari",
+            campaign_id=s.campaign.id,
+        )
+        api_run = WorkflowRunModel(
+            name="api trigger", workflow_id=s.campaign.workflow_id, mode="ari"
+        )
+        session.add_all([other, run, api_run])
+        await session.commit()
+    details = {"provider": "deepgram", "service": "stt", "status_code": 402}
+    try:
+        # API-triggered runs and a caller outside the run's organization cannot
+        # pause this campaign, even though they report the same provider error.
+        assert (
+            await db_client.pause_campaign_for_provider_error(
+                s.org.id, api_run.id, **details
+            )
+            is None
+        )
+        assert (
+            await db_client.pause_campaign_for_provider_error(
+                s.org.id + 10000, run.id, **details
+            )
+            is None
+        )
+        async with asyncio.timeout(30):
+            results = await asyncio.gather(
+                *[
+                    db_client.pause_campaign_for_provider_error(
+                        s.org.id, run.id, **details
+                    )
+                    for _ in range(5)
+                ]
+            )
+        assert results.count(s.campaign.id) == 1
+        paused = await db_client.get_campaign(s.campaign.id, s.org.id)
+        assert paused.state == "paused"
+        assert len(paused.logs) == 1
+        assert paused.logs[0]["details"] == {"workflow_run_id": run.id, **details}
+        assert (await db_client.get_campaign(other.id, s.org.id)).state == "running"
+
+        monkeypatch.setattr(
+            runner.circuit_breaker, "reset", AsyncMock(return_value=True)
+        )
+        await runner.campaign_runner_service.resume_campaign(s.campaign.id)
+        assert (
+            await db_client.get_campaign(s.campaign.id, s.org.id)
+        ).state == "running"
+        assert (
+            await db_client.pause_campaign_for_provider_error(
+                s.org.id, run.id, **{**details, "status_code": 403}
+            )
+            == s.campaign.id
+        )
+        paused_again = await db_client.get_campaign(s.campaign.id, s.org.id)
+        assert paused_again.state == "paused"
+        assert [entry["details"]["status_code"] for entry in paused_again.logs] == [
+            402,
+            403,
+        ]
+    finally:
+        async with sessions() as session:
+            await session.execute(
+                delete(WorkflowRunModel).where(WorkflowRunModel.id == api_run.id)
+            )
+            await session.execute(
+                delete(CampaignModel).where(CampaignModel.id == other.id)
+            )
+            await session.commit()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("sizes", [(5,), (5, 5), (3, 7), (2, 2, 2, 2, 2), (20, 20)])
 async def test_parallel_claims_count_every_dispatch_once(
     sizes, dispatcher, campaign_data, sessions

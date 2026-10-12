@@ -70,6 +70,7 @@ def setup_call():
         setattr(db, name, AsyncMock())
     db.get_workflow = AsyncMock(return_value=SimpleNamespace(id=249))
     db.get_campaign_by_id = AsyncMock(return_value=campaign)
+    db.get_campaign = AsyncMock(return_value=campaign)
     db.create_workflow_run = AsyncMock(return_value=run)
     db.claim_queued_runs_for_processing = AsyncMock(return_value=[row])
     concurrency = SimpleNamespace(
@@ -100,8 +101,10 @@ def setup_call():
         ),
         patch(
             f"{MODULE}.circuit_breaker",
-            SimpleNamespace(record_and_evaluate=AsyncMock()),
-        ),
+            SimpleNamespace(
+                record_and_evaluate=AsyncMock(), pause_on_provider_error=AsyncMock()
+            ),
+        ) as breaker,
         patch.object(
             dispatcher, "get_provider_for_campaign", AsyncMock(return_value=provider)
         ),
@@ -119,7 +122,59 @@ def setup_call():
             db=db,
             concurrency=concurrency,
             limiter=limiter,
+            breaker=breaker,
         )
+
+
+@pytest.mark.asyncio
+async def test_campaign_pause_during_rate_wait_defers_contact_and_releases_capacity(
+    setup_call,
+):
+    s = setup_call
+
+    async def rate_admission(*args, **kwargs):
+        s.campaign.state = "paused"
+        return True
+
+    s.limiter.acquire_token.side_effect = rate_admission
+    assert await s.dispatcher.process_batch(s.campaign.id) == 0
+    s.db.get_campaign.assert_awaited_once_with(48, 206)
+    s.provider.initiate_call.assert_not_awaited()
+    s.concurrency.release_workflow_run_slot.assert_awaited_once_with(100)
+    s.concurrency.release_slot.assert_awaited_once_with(s.slot)
+    s.db.update_queued_run.assert_awaited_once_with(queued_run_id=1, state="queued")
+    assert (
+        s.db.update_workflow_run.call_args.kwargs["logs"]["campaign_dispatch"][
+            "outcome"
+        ]
+        == "not_started"
+    )
+
+
+@pytest.mark.asyncio
+async def test_campaign_state_lookup_failure_defers_instead_of_dialing(setup_call):
+    s = setup_call
+    s.db.get_campaign.side_effect = RuntimeError("DB unavailable")
+    assert await s.dispatcher.process_batch(s.campaign.id) == 0
+    s.provider.initiate_call.assert_not_awaited()
+    s.db.update_queued_run.assert_awaited_once_with(queued_run_id=1, state="queued")
+    s.concurrency.release_slot.assert_awaited_once_with(s.slot)
+
+
+@pytest.mark.asyncio
+async def test_carrier_account_error_uses_same_campaign_pause_handler(setup_call):
+    s = setup_call
+    error = HTTPException(status_code=401, detail="Rejected by carrier")
+    s.provider.initiate_call.side_effect = error
+    assert await s.dispatcher.process_batch(s.campaign.id) == 0
+    s.breaker.pause_on_provider_error.assert_awaited_once_with(
+        organization_id=206,
+        workflow_run_id=100,
+        provider="ari",
+        service="telephony",
+        exception=error,
+    )
+    s.concurrency.release_slot.assert_awaited_once_with(s.slot)
 
 
 @pytest.mark.asyncio
@@ -166,14 +221,16 @@ async def test_rate_contention_waits_on_same_scope_without_dropping_contact(setu
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("where", ["prepare", "rate", "provider"])
+@pytest.mark.parametrize("where", ["prepare", "rate", "campaign_check", "provider"])
 async def test_cancelled_setup_releases_only_when_no_provider_request_started(
     setup_call, where
 ):
     s = setup_call
+    carrier_dial = s.provider.initiate_call
     target = {
         "prepare": s.db.get_workflow,
         "rate": s.limiter.acquire_token,
+        "campaign_check": s.db.get_campaign,
         "provider": s.provider.initiate_call,
     }[where]
     target.side_effect = asyncio.CancelledError
@@ -194,8 +251,8 @@ async def test_cancelled_setup_releases_only_when_no_provider_request_started(
         assert datetime.fromisoformat(recovery["uncertain_at"]).tzinfo is not None
     else:
         s.concurrency.release_slot.assert_awaited_once_with(s.slot)
-        s.provider.initiate_call.assert_not_awaited()
-        if where == "rate":
+        carrier_dial.assert_not_awaited()
+        if where in {"rate", "campaign_check"}:
             assert s.db.update_queued_run.await_args.kwargs["state"] == "queued"
 
 
@@ -251,6 +308,7 @@ async def test_failed_dial_does_not_cancel_an_independent_contact(setup_call):
     assert await s.dispatcher.process_batch(48) == 1
     assert s.provider.initiate_call.await_count == 2
     s.concurrency.release_slot.assert_awaited_once()
+    s.breaker.record_and_evaluate.assert_not_awaited()
 
 
 @pytest.mark.asyncio

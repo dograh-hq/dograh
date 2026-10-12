@@ -90,12 +90,13 @@ class CampaignRunnerService:
                 f"Campaign must be in 'paused' state to resume, current state: {campaign.state}"
             )
 
+        # Clear the old failure-rate window before admitting new dispatch work.
+        # The provider-error block itself is just the campaign's paused state.
+        await circuit_breaker.reset(campaign_id)
+
         # Update state to running. Do not queue batch since campaign orchestrator's
         # stale campaign checker would do that if there are pending work.
         await db_client.update_campaign(campaign_id=campaign_id, state="running")
-
-        # Reset circuit breaker so the resumed campaign starts with a clean slate
-        await circuit_breaker.reset(campaign_id)
 
         logger.info(f"Campaign {campaign_id} resumed")
 

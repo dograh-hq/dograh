@@ -32,11 +32,6 @@ from api.services.pipecat.fallback_llm import FallbackLLMProcessor, FallbackRout
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
-from api.services.pipecat.minimax_tts import (
-    MiniMaxCachingTTSService,
-    MiniMaxOwnedSessionTTSService,
-)
-from api.services.pipecat.tts_cache.runtime import get_speech_cache
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
@@ -85,7 +80,7 @@ from pipecat.services.huggingface.stt import (
 )
 from pipecat.services.inworld.tts import InworldTTSService, InworldTTSSettings
 from pipecat.services.minimax.llm import MiniMaxLLMService
-from pipecat.services.minimax.tts import MiniMaxTTSSettings
+from pipecat.services.minimax.tts import MiniMaxTTSService, MiniMaxTTSSettings
 from pipecat.services.openai._constants import OPENAI_SAMPLE_RATE
 from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
@@ -697,7 +692,8 @@ def create_tts_service(
         audio_config: Pipeline and transport audio configuration.
         correlation_id: Managed model services correlation ID.
         organization_id: Trusted tenant scope for TTS caching.
-        tts_cache_enabled: Whether the workflow enables caching for supported providers.
+        tts_cache_enabled: Whether the workflow enables the speech cache. No provider
+            uses it at present; MiniMax logs a warning when it is set.
     """
     # Synthesis carries the same residency question as transcription - the text
     # sent for speaking is drawn from the conversation - so the endpoint is
@@ -965,20 +961,18 @@ def create_tts_service(
             base_url = f"{base_url}/t2a_v2"
         _validate_runtime_service_url(base_url, "base_url")
 
-        cache = get_speech_cache(organization_id, enabled=tts_cache_enabled)
-        service_type = (
-            MiniMaxCachingTTSService if cache else MiniMaxOwnedSessionTTSService
-        )
-        cache_kwargs = (
-            {"speech_cache": cache, "organization_id": organization_id} if cache else {}
-        )
-        session = aiohttp.ClientSession()
-        return service_type(
+        if tts_cache_enabled:
+            logger.warning(
+                "MiniMax TTS runs over the WebSocket API and does not use the speech "
+                "cache; every reply is synthesized"
+            )
+        # One bidirectional WebSocket session serves the whole call: synthesis stops
+        # when the caller interrupts, and word timestamps keep the spoken part of an
+        # interrupted reply in the transcript. It is served from the same host as
+        # /v1/t2a_v2.
+        return MiniMaxTTSService(
             api_key=user_config.tts.api_key,
-            group_id=group_id,
-            base_url=base_url,
-            aiohttp_session=session,
-            **cache_kwargs,
+            url=f"wss://{urlparse(base_url).netloc}/ws/v1/t2a_v2_bidi",
             settings=MiniMaxTTSSettings(
                 model=user_config.tts.model,
                 voice=voice,

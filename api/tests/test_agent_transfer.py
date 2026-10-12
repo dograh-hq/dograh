@@ -577,7 +577,7 @@ async def test_transfer_retires_source_before_starting_destination(monkeypatch, 
 
     async def watch_opening(**kwargs):
         if engine.active_agent is not source:
-            assert engine.transfer_coordinator._hold_task is None
+            assert not engine.transfer_coordinator.hold_audio_active
             opening_queued.set()
         return await queue_opening(**kwargs)
 
@@ -621,7 +621,7 @@ async def test_transfer_retires_source_before_starting_destination(monkeypatch, 
         await asyncio.wait_for(transfer_task, 5)
         assert source._close_task.done()
         assert not engine.transfer_in_progress
-        assert engine.transfer_coordinator._hold_task is None
+        assert not engine.transfer_coordinator.hold_audio_active
         outcome = engine.transfer_coordinator.completed[-1]["outcome"]
         if hangup:
             await asyncio.wait_for(hangup_task, 5)
@@ -683,7 +683,7 @@ async def test_post_commit_drain_failure_does_not_skip_opening(
         if engine.active_agent is source:
             return await drain(*args, **kwargs)
         assert source._close_task.done()
-        assert engine.transfer_coordinator._hold_task is None
+        assert not engine.transfer_coordinator.hold_audio_active
         drain_started.set()
         if drain_result in {"hangup", "pipeline_error"}:
             await asyncio.wait_for(release_drain.wait(), 5)
@@ -1931,7 +1931,9 @@ async def test_minimum_ring_is_measured_after_the_announcement(monkeypatch):
         ring_times.append(asyncio.get_running_loop().time())
 
     monkeypatch.setattr(coordinator, "_announce", announce)
-    monkeypatch.setattr(agent_transfer, "play_hold_audio_loop", ring)
+    monkeypatch.setattr(
+        "api.services.pipecat.audio_playback.play_hold_audio_loop", ring
+    )
     monkeypatch.setattr(agent_transfer, "TRANSFER_MIN_HOLD_SECONDS", 0.05)
     request = agent_transfer.TransferRequest(
         destination_workflow_id=99,

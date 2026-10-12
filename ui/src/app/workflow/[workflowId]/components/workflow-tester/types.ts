@@ -12,6 +12,7 @@ export interface TextChatTurn {
     created_at: string;
     user_message: TextChatMessage | null;
     assistant_message: TextChatMessage | null;
+    message_events_version?: number;
     events: Array<Record<string, unknown>>;
     usage: Record<string, unknown>;
 }

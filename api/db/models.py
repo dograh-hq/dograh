@@ -218,6 +218,50 @@ class OrganizationConfigurationModel(Base):
     )
 
 
+class ProviderConnectionModel(Base):
+    __tablename__ = "provider_connections"
+
+    id = Column(Integer, primary_key=True)
+    uuid = Column(
+        String(36), nullable=False, unique=True, default=lambda: str(uuid.uuid4())
+    )
+    organization_id = Column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(String(128), nullable=False)
+    provider = Column(String(64), nullable=False)
+    credentials = Column(JSON, nullable=False, default=dict)
+    connection_settings = Column(JSON, nullable=False, default=dict)
+    revision = Column(Integer, nullable=False, default=1)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class NamedModelConfigurationModel(Base):
+    __tablename__ = "model_configurations"
+
+    id = Column(Integer, primary_key=True)
+    uuid = Column(
+        String(36), nullable=False, unique=True, default=lambda: str(uuid.uuid4())
+    )
+    organization_id = Column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(String(128), nullable=False)
+    configuration = Column(JSON, nullable=False)
+    revision = Column(Integer, nullable=False, default=1)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
 class TelephonyConfigurationModel(Base):
     __tablename__ = "telephony_configurations"
 
@@ -649,6 +693,8 @@ class WorkflowRunModel(Base):
     )
     usage_info = Column(JSON, nullable=False, default=dict)
     cost_info = Column(JSON, nullable=False, default=dict)
+    model_configuration_overrides = Column(JSON, nullable=True)
+    model_configuration_snapshot = Column(JSON, nullable=True)
     initial_context = Column(JSON, nullable=False, default=dict)
     gathered_context = Column(JSON, nullable=False, default=dict)
     logs = Column(JSON, nullable=False, default=dict, server_default=text("'{}'::json"))

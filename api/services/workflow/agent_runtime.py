@@ -347,7 +347,7 @@ class AgentRuntime:
 
     def describe(self) -> dict[str, Any]:
         """Summarize this visit for the call's visit history."""
-        return {
+        description = {
             "visit_id": self.visit_id,
             "workflow_id": self.workflow_id,
             "workflow_name": self.workflow_name,
@@ -359,3 +359,7 @@ class AgentRuntime:
             "error": self.error,
             "node": self.current_node.name if self.current_node else None,
         }
+        fallback_metrics = getattr(self.llm, "fallback_metrics", None)
+        if isinstance(fallback_metrics, dict):
+            description["llm_fallback_metrics"] = fallback_metrics
+        return description

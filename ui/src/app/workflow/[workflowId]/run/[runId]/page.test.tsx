@@ -16,9 +16,6 @@ vi.mock('next/navigation', () => ({ useParams: () => ({ workflowId: '12', runId:
 vi.mock('@/lib/auth', () => ({ useAuth: () => mocks.auth }));
 vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));
 vi.mock('@/hooks/useOrganizationTimezone', () => ({ useOrganizationTimezone: () => 'UTC' }));
-vi.mock('@/app/workflow/WorkflowLayout', () => ({
-    default: ({ children }: { children: ReactNode }) => children,
-}));
 vi.mock('@/components/MediaPreviewDialog', () => ({
     MediaPreviewDialog: () => ({ openPreview: vi.fn(), dialog: null }),
     MediaPreviewButton: () => null,

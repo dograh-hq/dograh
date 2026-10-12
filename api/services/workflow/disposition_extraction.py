@@ -24,7 +24,7 @@ that happened to be active when it ended.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from loguru import logger
@@ -84,15 +84,23 @@ class DispositionExtractionService:
     def __init__(
         self,
         *,
-        llm: Any,
+        llm: Any = None,
         context: LLMContext,
         options: Sequence[CallDispositionOption],
         template_context: Mapping[str, Any],
+        llm_getter: Callable[[], Any] | None = None,
     ) -> None:
-        self._llm = llm
+        # The run's extraction client is bound after the caller is connected
+        # (it depends on the pre-call fetch), so the engine passes a getter
+        # that is resolved at extraction time.
+        self._get_llm = llm_getter if llm_getter is not None else (lambda: llm)
         self._context = context
         self._options = tuple(options)
         self._template_context = dict(template_context)
+
+    @property
+    def _llm(self) -> Any:
+        return self._get_llm()
 
     async def extract(
         self,

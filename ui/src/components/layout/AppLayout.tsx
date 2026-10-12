@@ -89,15 +89,9 @@ function BackendStatusBanner() {
 
 interface AppLayoutProps {
   children: ReactNode;
-  headerActions?: ReactNode;
-  stickyTabs?: ReactNode;
 }
 
-const AppLayout: React.FC<AppLayoutProps> = ({
-  children,
-  headerActions,
-  stickyTabs,
-}) => {
+const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const pathname = usePathname();
 
   // Check if current route should have sidebar
@@ -118,27 +112,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({
             <SidebarInset className="flex-1">
               <BackendStatusBanner />
               {!isWorkflowEditor && <AppHeader />}
-              {/* Optional header area for specific pages */}
-              {headerActions && (
-                <header className="sticky top-[var(--event-banner-h,0px)] z-50 w-full border-b border-border/60 bg-background/70 backdrop-blur-md supports-[backdrop-filter]:bg-background/55">
-                  <div className="container mx-auto px-4 py-4">
-                    <div className="flex items-center justify-center">
-                      {headerActions}
-                    </div>
-                  </div>
-                </header>
-              )}
-
-              {/* Optional sticky tabs */}
-              {stickyTabs && (
-                <div className="sticky top-[var(--event-banner-h,0px)] z-40 bg-[#2a2e39] border-b border-gray-700">
-                  <div className="container mx-auto px-4">
-                    <div className="flex items-center justify-center py-2">
-                      {stickyTabs}
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Main content area */}
               <main className="app-surface flex-1">

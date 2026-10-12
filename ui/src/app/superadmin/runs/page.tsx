@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getWorkflowRunsApiV1SuperuserWorkflowRunsGet } from '@/client/sdk.gen';
 import { FilterBuilder } from "@/components/filters/FilterBuilder";
+import { PageShell } from '@/components/layout/PageShell';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -288,17 +289,17 @@ export default function RunsPage() {
 
     if (isLoading && runs.length === 0) {
         return (
-            <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
+            <PageShell width="full" className="flex min-h-[400px] items-center justify-center">
                 <div className="flex items-center space-x-2">
                     <Loader2 className="h-6 w-6 animate-spin" />
                     <span>Loading workflow runs...</span>
                 </div>
-            </div>
+            </PageShell>
         );
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-6 max-w-full">
+        <PageShell width="full" className="space-y-6">
             <div>
                 <h1 className="text-3xl font-bold mb-2">Workflow Runs</h1>
                 <p className="text-muted-foreground">View and manage all workflow runs across organizations</p>
@@ -662,6 +663,6 @@ export default function RunsPage() {
                 {/* Media Preview Dialog */}
                 {mediaPreview.dialog}
 
-        </div>
+        </PageShell>
     );
 }

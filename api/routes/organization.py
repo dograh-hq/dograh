@@ -47,7 +47,11 @@ from api.services.auth.depends import (
     get_user,
     get_user_with_selected_organization,
 )
-from api.services.configuration.masking import is_mask_of, mask_key
+from api.services.configuration.masking import (
+    is_mask_of,
+    mask_key,
+    restore_masked_fields,
+)
 from api.services.observability.call_events.configuration import (
     check_connection,
     resolve_settings,
@@ -408,21 +412,13 @@ async def get_model_configuration_preferences_legacy(
     return await get_preferences(user=user)
 
 
-def preserve_masked_fields(provider: str, request_dict: dict, existing: dict):
-    """If the client re-submitted a masked sensitive field, restore the original."""
-    for field_name in _sensitive_fields(provider):
-        v = _get_nested_field(request_dict, field_name)
-        existing_value = _get_nested_field(existing, field_name)
-        if v and is_mask_of(v, existing_value or ""):
-            _set_nested_field(request_dict, field_name, existing_value)
-
-
-def _get_nested_field(value: dict, dotted_path: str):
+def _get_nested_field(value: dict, dotted_path: str) -> Any:
+    """Resolve a dotted path in a nested dict, or None when it is not there."""
     current = value
     for part in dotted_path.split("."):
-        if not isinstance(current, dict):
+        if not isinstance(current, dict) or part not in current:
             return None
-        current = current.get(part)
+        current = current[part]
     return current
 
 
@@ -436,6 +432,44 @@ def _set_nested_field(value: dict, dotted_path: str, field_value) -> None:
             current[part] = child
         current = child
     current[parts[-1]] = field_value
+
+
+def _get_model_fields_set_paths(model: BaseModel, prefix: str = "") -> set[str]:
+    """Recursively collect dotted field paths that were explicitly set on a Pydantic model.
+
+    A nested path is only recorded under a parent that was itself set, so the
+    result is ancestor-closed: ``"a.b" in paths`` implies ``"a" in paths``.
+    ``preserve_masked_fields`` leans on that — it can settle "did the caller
+    say anything about this path?" with one membership test.
+    """
+    paths = set()
+    for field in model.model_fields_set:
+        full_path = f"{prefix}.{field}" if prefix else field
+        paths.add(full_path)
+        val = getattr(model, field, None)
+        if isinstance(val, BaseModel):
+            paths.update(_get_model_fields_set_paths(val, prefix=full_path))
+    return paths
+
+
+def preserve_masked_fields(
+    provider: str,
+    request_dict: dict,
+    existing: dict,
+    fields_set: set[str],
+) -> None:
+    """Restore stored secrets the caller re-submitted masked or left out.
+
+    Provider-aware wrapper: the registry says which paths are sensitive, and
+    ``restore_masked_fields`` does the merge. ``fields_set`` comes from
+    ``_get_model_fields_set_paths``, whose ancestor-closure it relies on.
+    """
+    restore_masked_fields(
+        request_dict,
+        existing,
+        fields_set,
+        sensitive_paths=_sensitive_fields(provider),
+    )
 
 
 def _credentials_from_payload(config: TelephonyConfigRequest) -> dict:
@@ -740,8 +774,12 @@ async def update_telephony_configuration(
                 detail="Provider cannot be changed; create a new configuration instead.",
             )
         credentials = _credentials_from_payload(request.config)
+        fields_set = _get_model_fields_set_paths(request.config)
         preserve_masked_fields(
-            existing.provider, credentials, existing.credentials or {}
+            existing.provider,
+            credentials,
+            existing.credentials or {},
+            fields_set=fields_set,
         )
         credentials = await _run_preprocess_hook(
             existing.provider,

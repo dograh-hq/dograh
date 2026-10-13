@@ -284,18 +284,129 @@ class TestWhatsAppConfigurationSave(IsolatedAsyncioTestCase):
         self.assertNotEqual(displayed["app_secret"], "secret_app_secret_value")
 
     def test_masked_secrets_are_restored_on_update(self):
+        from api.routes.organization import _get_model_fields_set_paths
+
         displayed = self._credentials_for_display("whatsapp", self.stored)
-        request_dict = WhatsAppConfigurationRequest.model_validate(
+        req = WhatsAppConfigurationRequest.model_validate(
             displayed
-        ).model_dump()
+        )
+        request_dict = req.model_dump()
+        fields_set = _get_model_fields_set_paths(req)
         # The request schema does not declare the token, so an edit cannot
         # change it; the save hook carries the stored one forward instead.
         self.assertNotIn("webhook_verify_token", request_dict)
 
-        self.preserve_masked_fields("whatsapp", request_dict, self.stored)
+        self.preserve_masked_fields("whatsapp", request_dict, self.stored, fields_set=fields_set)
 
         self.assertEqual(request_dict["access_token"], "secret_access_token_value")
         self.assertEqual(request_dict["app_secret"], "secret_app_secret_value")
+
+    def test_preserve_masked_fields_accepts_new_secrets_when_updated(self):
+        """When user provides a new real secret, it is not overwritten by existing value."""
+        from api.routes.organization import _get_model_fields_set_paths
+
+        req = WhatsAppConfigurationRequest.model_validate({
+            "phone_number_id": "106540352242922",
+            "access_token": "new_rotated_access_token",
+            "app_secret": "new_rotated_app_secret",
+        })
+        request_dict = req.model_dump()
+        fields_set = _get_model_fields_set_paths(req)
+
+        self.preserve_masked_fields("whatsapp", request_dict, self.stored, fields_set=fields_set)
+
+        self.assertEqual(request_dict["access_token"], "new_rotated_access_token")
+        self.assertEqual(request_dict["app_secret"], "new_rotated_app_secret")
+
+    def test_preserve_masked_fields_allows_clearing_optional_secrets(self):
+        """When an optional sensitive credential is set to None or empty, it is not restored."""
+        from api.routes.organization import _get_model_fields_set_paths
+        from api.services.configuration.masking import mask_key
+        from api.services.telephony.providers.vonage.config import (
+            VonageConfigurationRequest,
+        )
+
+        stored_vonage = {
+            "api_key": "k1",
+            "api_secret": "secret_key_12345",
+            "application_id": "app1",
+            "private_key": "private_key_data_here",
+            "signature_secret": "existing_sig_secret",
+        }
+        req = VonageConfigurationRequest.model_validate({
+            "api_key": "k1",
+            "api_secret": mask_key(stored_vonage["api_secret"]),
+            "application_id": "app1",
+            "private_key": mask_key(stored_vonage["private_key"]),
+            "signature_secret": None,  # user explicitly cleared
+        })
+        request_dict = req.model_dump()
+        fields_set = _get_model_fields_set_paths(req)
+        self.preserve_masked_fields("vonage", request_dict, stored_vonage, fields_set=fields_set)
+        self.assertEqual(request_dict["api_secret"], "secret_key_12345")
+        self.assertEqual(request_dict["private_key"], "private_key_data_here")
+        self.assertIsNone(request_dict["signature_secret"])
+
+    def test_preserve_masked_fields_preserves_omitted_secrets_on_partial_update(self):
+        """When an update omits an optional sensitive field, stored value is preserved."""
+        from api.routes.organization import _get_model_fields_set_paths
+        from api.services.configuration.masking import mask_key
+        from api.services.telephony.providers.vonage.config import (
+            VonageConfigurationRequest,
+        )
+
+        stored_vonage = {
+            "api_key": "k1",
+            "api_secret": "secret_key_12345",
+            "application_id": "app1",
+            "private_key": "private_key_data_here",
+            "signature_secret": "existing_sig_secret",
+        }
+        # Update payload omits signature_secret
+        req = VonageConfigurationRequest.model_validate({
+            "api_key": "k1",
+            "api_secret": mask_key(stored_vonage["api_secret"]),
+            "application_id": "app1",
+            "private_key": mask_key(stored_vonage["private_key"]),
+        })
+        fields_set = _get_model_fields_set_paths(req)
+        request_dict = req.model_dump()
+        self.assertNotIn("signature_secret", fields_set)
+        self.assertIsNone(request_dict["signature_secret"])
+
+        self.preserve_masked_fields("vonage", request_dict, stored_vonage, fields_set=fields_set)
+        self.assertEqual(request_dict["signature_secret"], "existing_sig_secret")
+        self.assertEqual(request_dict["api_secret"], "secret_key_12345")
+
+    def test_preserve_masked_fields_allows_explicit_null_clearing_with_fields_set(self):
+        """When signature_secret is explicitly set to None, it is not restored."""
+        from api.routes.organization import _get_model_fields_set_paths
+        from api.services.configuration.masking import mask_key
+        from api.services.telephony.providers.vonage.config import (
+            VonageConfigurationRequest,
+        )
+
+        stored_vonage = {
+            "api_key": "k1",
+            "api_secret": "secret_key_12345",
+            "application_id": "app1",
+            "private_key": "private_key_data_here",
+            "signature_secret": "existing_sig_secret",
+        }
+        req = VonageConfigurationRequest.model_validate({
+            "api_key": "k1",
+            "api_secret": mask_key(stored_vonage["api_secret"]),
+            "application_id": "app1",
+            "private_key": mask_key(stored_vonage["private_key"]),
+            "signature_secret": None,
+        })
+        fields_set = _get_model_fields_set_paths(req)
+        request_dict = req.model_dump()
+        self.assertIn("signature_secret", fields_set)
+
+        self.preserve_masked_fields("vonage", request_dict, stored_vonage, fields_set=fields_set)
+        self.assertIsNone(request_dict["signature_secret"])
+        self.assertEqual(request_dict["api_secret"], "secret_key_12345")
 
     async def test_verify_token_is_minted_on_create_and_carried_on_update(self):
         with _meta_accepts(), _number_held_by():

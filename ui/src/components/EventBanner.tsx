@@ -122,38 +122,60 @@ export function EventBanner() {
         onClick={() =>
           posthog.capture("event_banner_clicked", { event: event.analyticsId })
         }
-        aria-label={`${event.cta}: ${event.title} ${event.subtitle} (opens in a new tab)`}
+        aria-label={`${event.cta}: ${event.title}${event.subtitle ? ` ${event.subtitle}` : ""} (opens in a new tab)`}
         className="group mx-auto flex h-12 max-w-7xl items-center gap-2.5 pr-9 pl-4 transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cta sm:h-[41px] sm:gap-4 sm:pr-12 sm:pl-6 md:justify-center md:gap-5 lg:pr-14 lg:pl-8"
       >
         <Lockup partner={event.partner} />
 
         <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5 sm:flex-row sm:items-center sm:gap-3 md:flex-initial">
           <span className="flex shrink-0 items-center gap-2">
-            <span
-              aria-hidden
-              className="signal-pulse block h-1.5 w-1.5 shrink-0 rounded-full bg-cta"
-            />
-            {/* Compacts to "Live" only in the 640-767px band, where the bar is
-                a single line but still narrow enough that the full label costs
-                the title characters. Below 640 the bar is two lines and has the
-                room. */}
+            {/* The pulsing dot says "happening now"; `pulse: false` drops it
+                for announcements that are not live events. */}
+            {event.pulse !== false && (
+              <span
+                aria-hidden
+                className="signal-pulse block h-1.5 w-1.5 shrink-0 rounded-full bg-cta"
+              />
+            )}
             <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-cta sm:text-[10px]">
-              <span className="hidden sm:inline md:hidden">Live</span>
-              <span className="sm:hidden md:inline">Live virtual session</span>
+              {event.eyebrow ? (
+                event.eyebrow
+              ) : (
+                <>
+                  {/* The default compacts to "Live" only in the 640-767px band,
+                      where the bar is a single line but still narrow enough
+                      that the full label costs the title characters. Below 640
+                      the bar is two lines and has the room. A custom eyebrow
+                      has no short form, so it renders as given everywhere. */}
+                  <span className="hidden sm:inline md:hidden">Live</span>
+                  <span className="sm:hidden md:inline">Live virtual session</span>
+                </>
+              )}
             </span>
           </span>
           <span aria-hidden className="hidden h-3 w-px shrink-0 bg-border sm:block" />
           {/* The title never truncates: whitespace-nowrap + shrink-0 means the
               row gives up the subtitle before it gives up a single character of
               the sentence. The subtitle is the flexible half and is hidden
-              outright below lg, where it cannot fit whole. */}
+              outright below lg, where it cannot fit whole. Below md an event
+              may swap in a shorter `titleMobile` instead; that is a copy
+              change, not a truncation. */}
           <span className="flex min-w-0 items-baseline gap-1.5 text-[11px] sm:text-[13px]">
             <span className="shrink-0 whitespace-nowrap text-foreground/85 underline-offset-4 group-hover:underline">
-              {event.title}
+              {event.titleMobile ? (
+                <>
+                  <span className="md:hidden">{event.titleMobile}</span>
+                  <span className="hidden md:inline">{event.title}</span>
+                </>
+              ) : (
+                event.title
+              )}
             </span>
-            <span className="hidden whitespace-nowrap text-muted-foreground lg:inline">
-              · {event.subtitle}
-            </span>
+            {event.subtitle && (
+              <span className="hidden whitespace-nowrap text-muted-foreground lg:inline">
+                · {event.subtitle}
+              </span>
+            )}
           </span>
         </div>
 

@@ -156,6 +156,9 @@ class TelephonyProviderMetadata(BaseModel):
     # Lets the UI present the two ways to get calls flowing without naming any
     # provider itself.
     connectivity: ProviderConnectivity = "api"
+    # False for an inbound-only channel: the form then offers no outbound
+    # default, again without the UI naming the provider.
+    supports_outbound: bool = True
     fields: List[TelephonyProviderUIField]
     docs_url: Optional[str] = None
 
@@ -219,6 +222,7 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
                 provider=spec.name,
                 display_name=spec.ui_metadata.display_name,
                 connectivity=spec.connectivity,
+                supports_outbound=spec.supports_outbound,
                 fields=[
                     TelephonyProviderUIField(
                         name=f.name,
@@ -613,6 +617,7 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 [n for n in active if n.telephony_trunk_id is None]
             ),
         )
+        supports_outbound = _provider_supports_outbound(row.provider)
         items.append(
             TelephonyConfigurationListItem(
                 id=row.id,
@@ -624,8 +629,9 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 inactive_since=row.inactive_since,
                 inactive_reason=row.inactive_reason,
                 phone_number_count=len(active),
+                supports_outbound=supports_outbound,
                 is_ready_for_outbound=(
-                    checklist.ready_for_outbound if checklist else True
+                    checklist.ready_for_outbound if checklist else supports_outbound
                 ),
                 outbound_blocked_reason=(
                     checklist.outbound_blocked_reason if checklist else None
@@ -645,6 +651,14 @@ async def create_telephony_configuration(
     """Create a new telephony configuration for the org."""
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
+
+    if request.is_default_outbound and not _provider_supports_outbound(
+        request.config.provider
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="This provider receives calls only; it cannot be the outbound default.",
+        )
 
     credentials = _credentials_from_payload(request.config)
     credentials = await _run_preprocess_hook(request.config.provider, credentials)
@@ -771,6 +785,17 @@ async def set_default_outbound(config_id: int, user: UserModel = Depends(get_use
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 
+    existing = await db_client.get_telephony_configuration_for_org(
+        config_id, user.selected_organization_id, active_only=False
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Telephony configuration not found")
+    if not _provider_supports_outbound(existing.provider):
+        raise HTTPException(
+            status_code=400,
+            detail="This provider receives calls only; it cannot be the outbound default.",
+        )
+
     row = await db_client.set_default_telephony_configuration(
         config_id, user.selected_organization_id
     )
@@ -852,6 +877,7 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
         sip_connectivity=get_sip_connectivity_details(
             row.provider, row.credentials or {}
         ),
+        supports_outbound=_provider_supports_outbound(row.provider),
         # Built from the stored (unmasked) credentials: the checklist reports
         # whether a field is set, never what it is.
         setup_checklist=get_setup_checklist(
@@ -884,6 +910,12 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
 def _provider_supports_trunks(provider: str) -> bool:
     spec = telephony_registry.get_optional(provider)
     return bool(spec and spec.supports_trunks)
+
+
+def _provider_supports_outbound(provider: str) -> bool:
+    """Unknown providers count as outbound-capable so a stale row keeps its UI."""
+    spec = telephony_registry.get_optional(provider)
+    return spec.supports_outbound if spec else True
 
 
 async def _list_trunks_if_supported(provider: str, config_id: int):

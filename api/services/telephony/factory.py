@@ -273,14 +273,15 @@ def get_setup_checklist(
 
     A provider's own resolver wins. Otherwise every provider that needs a
     caller ID gets the shared one-step checklist, so "credentials are saved"
-    is never mistaken for "this can place a call". Returns None only for
-    providers that can dial with nothing but credentials.
+    is never mistaken for "this can place a call". Returns None for providers
+    that can dial with nothing but credentials, and for inbound-only providers,
+    which have no outbound setup to report on.
 
     Phone-number and trunk counts are passed in rather than queried here so
     list endpoints, which have already loaded them, don't pay per row.
     """
     spec = registry.get_optional(provider_name)
-    if spec is None:
+    if spec is None or not spec.supports_outbound:
         return None
 
     if spec.setup_checklist_resolver is not None:

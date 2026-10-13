@@ -8,6 +8,7 @@ Each row represents one provider account that an organization has connected
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
+from loguru import logger
 from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
@@ -179,6 +180,58 @@ class TelephonyConfigurationClient(BaseDBClient):
                 )
             )
             return list(result.scalars().all())
+
+    async def list_active_whatsapp_configurations_by_phone_number_id(
+        self, phone_number_id: str
+    ) -> list[TelephonyConfigurationModel]:
+        """Every active WhatsApp configuration whose credentials name this Meta phone number."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(TelephonyConfigurationModel).where(
+                    TelephonyConfigurationModel.provider == "whatsapp",
+                    TelephonyConfigurationModel.credentials.op("->>")("phone_number_id")
+                    == phone_number_id,
+                    TelephonyConfigurationModel.inactive.is_(False),
+                )
+            )
+            return list(result.scalars().all())
+
+    async def get_whatsapp_configuration_by_phone_number_id(
+        self, phone_number_id: str
+    ) -> Optional[TelephonyConfigurationModel]:
+        """The active WhatsApp configuration whose credentials name this Meta phone number.
+
+        Meta's webhook carries no tenant, so this is the only thing that routes
+        a call to an organization. Two active configurations claiming the same
+        number is therefore refused rather than guessed between.
+        """
+        rows = await self.list_active_whatsapp_configurations_by_phone_number_id(
+            phone_number_id
+        )
+        if len(rows) > 1:
+            ids = ", ".join(str(r.id) for r in rows)
+            logger.error(
+                f"[WhatsApp] phone_number_id={phone_number_id!r} matches "
+                f"{len(rows)} active configurations ({ids}); refusing to route."
+            )
+            return None
+        return rows[0] if rows else None
+
+    async def get_whatsapp_configuration_by_verify_token(
+        self, verify_token: str
+    ) -> Optional[TelephonyConfigurationModel]:
+        """Look up an active WhatsApp config matching a webhook verify token."""
+        async with self.async_session() as session:
+            stmt = select(TelephonyConfigurationModel).where(
+                TelephonyConfigurationModel.provider == "whatsapp",
+                TelephonyConfigurationModel.credentials.op("->>")(
+                    "webhook_verify_token"
+                )
+                == verify_token,
+                TelephonyConfigurationModel.inactive.is_(False),
+            )
+            result = await session.execute(stmt)
+            return result.scalars().first()
 
     async def set_telephony_configuration_inactive(
         self, config_id: int, organization_id: int, reason: str

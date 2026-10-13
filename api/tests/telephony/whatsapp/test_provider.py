@@ -371,6 +371,23 @@ class TestWhatsAppConfigurationSave(IsolatedAsyncioTestCase):
         lookup.assert_not_called()
         self.assertEqual(updated["webhook_verify_token"], "v")
 
+    async def test_update_moving_to_a_number_another_configuration_holds_is_refused(
+        self,
+    ):
+        existing = {
+            "access_token": "t",
+            "phone_number_id": "p",
+            "app_secret": "s",
+            "webhook_verify_token": "v",
+        }
+        with _meta_accepts(), _number_held_by(MagicMock(id=7)):
+            with self.assertRaises(HTTPException) as ctx:
+                await _preprocess_credentials_on_save(
+                    {"access_token": "t", "phone_number_id": "q", "app_secret": "s"},
+                    existing,
+                )
+        self.assertEqual(ctx.exception.status_code, 409)
+
     def test_request_requires_every_credential(self):
         with self.assertRaises(ValidationError) as ctx:
             WhatsAppConfigurationRequest(phone_number_id="12345")

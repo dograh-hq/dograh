@@ -105,15 +105,39 @@ async def _claim_call(call_id: str) -> bool:
             return True
         return bool(
             await redis.set(
-                f"whatsapp:call:{call_id}:claim",
-                _WORKER_ID,
-                nx=True,
-                ex=CALL_CLAIM_TTL_SECONDS,
+                _claim_key(call_id), _WORKER_ID, nx=True, ex=CALL_CLAIM_TTL_SECONDS
             )
         )
     except Exception as e:
         logger.warning(f"[WhatsApp] Call claim unavailable for {call_id}: {e}")
         return True
+
+
+def _claim_key(call_id: str) -> str:
+    return f"whatsapp:call:{call_id}:claim"
+
+
+# Deletes the claim only while this worker still holds it.
+_RELEASE_CLAIM_SCRIPT = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+    "return redis.call('del', KEYS[1]) end return 0"
+)
+
+
+async def _release_claim(call_id: str) -> None:
+    """Hand a claim back so Meta's retry can be answered; only the holder may.
+
+    Used when connect processing failed before the call was answered or
+    rejected. Keeping the claim would make the retry report success while
+    nobody picks up.
+    """
+    try:
+        redis = await _get_redis()
+        if redis is None:
+            return
+        await redis.eval(_RELEASE_CLAIM_SCRIPT, 1, _claim_key(call_id), _WORKER_ID)
+    except Exception as e:
+        logger.warning(f"[WhatsApp] Could not release claim for {call_id}: {e}")
 
 
 def _ensure_redis_subscriber() -> None:
@@ -538,6 +562,36 @@ async def _handle_inbound_call_connect(
         )
         return
 
+    try:
+        await _answer_claimed_call(
+            call_id=call_id,
+            from_number=from_number,
+            to_number=to_number,
+            phone_number_id=phone_number_id,
+            payload=payload,
+            config=config,
+        )
+    except Exception:
+        # The call was neither answered nor rejected, so Meta's retry must be
+        # able to try again rather than be swallowed by the claim.
+        await _release_claim(call_id)
+        raise
+
+
+async def _answer_claimed_call(
+    call_id: str,
+    from_number: str,
+    to_number: str,
+    phone_number_id: str,
+    payload: Dict[str, Any],
+    config: TelephonyConfigurationModel,
+) -> None:
+    """Create the run for a claimed connect and hand the call to pipecat.
+
+    Every failure this function handles itself ends with the call rejected on
+    Meta's side, so the claim stays. Anything that escapes left the call
+    untouched.
+    """
     existing_run = await db_client.get_workflow_run_by_call_id(call_id)
     if existing_run:
         logger.warning(

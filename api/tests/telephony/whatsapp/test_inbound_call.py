@@ -328,6 +328,42 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
         create_run.assert_not_called()
         mock_acquire.assert_not_called()
 
+    async def test_connect_failing_before_an_answer_releases_the_claim(self):
+        """An unexpected error leaves the call untouched; Meta's retry must get through."""
+        phone_number_id = "106540352242922"
+        app_secret = "test_app_secret"
+        payload = _build_webhook_payload(
+            [_call("connect", "call_db_down")], phone_number_id=phone_number_id
+        )
+        request = _build_request(payload, app_secret=app_secret)
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with (
+            _config_lookup(
+                _build_mock_config(
+                    phone_number_id=phone_number_id, app_secret=app_secret
+                )
+            ),
+            patch(f"{ROUTES}._get_redis", AsyncMock(return_value=mock_redis)),
+            patch.object(
+                db_client,
+                "get_workflow_run_by_call_id",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                await handle_whatsapp_webhook(request)
+
+        self.assertEqual(ctx.exception.status_code, 500)
+        mock_redis.eval.assert_awaited_once()
+        script, nkeys, key, owner = mock_redis.eval.await_args.args
+        self.assertEqual(
+            (nkeys, key, owner),
+            (1, "whatsapp:call:call_db_down:claim", routes._WORKER_ID),
+        )
+        self.assertIn("del", script)
+
     async def test_batched_connects_are_answered_one_call_at_a_time(self):
         """Pipecat's client stops at the first call it sees, so each gets its own payload."""
         phone_number_id = "106540352242922"

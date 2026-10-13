@@ -601,6 +601,11 @@ export interface components {
              */
             schema_version: number;
             /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
+            /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
              */
@@ -1070,23 +1075,6 @@ export interface components {
          */
         EndCallConfig: {
             /**
-             * Messagetype
-             * @description Type of goodbye message.
-             * @default none
-             * @enum {string}
-             */
-            messageType: "none" | "custom" | "audio";
-            /**
-             * Custommessage
-             * @description Custom message to play before ending the call.
-             */
-            customMessage?: string | null;
-            /**
-             * Audiorecordingid
-             * @description Recording ID for audio goodbye message.
-             */
-            audioRecordingId?: string | null;
-            /**
              * Endcallreason
              * @description When enabled, the model must provide a reason for ending the call. The reason is set as call disposition and added to call tags.
              * @default false
@@ -1109,6 +1097,11 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+            /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
             /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -1232,21 +1225,6 @@ export interface components {
              */
             timeout_ms: number | null;
             /**
-             * Custommessage
-             * @description Custom message to play before the tool executes, while the request is in flight.
-             */
-            customMessage?: string | null;
-            /**
-             * Custommessagetype
-             * @description Type of custom message.
-             */
-            customMessageType?: ("text" | "audio") | null;
-            /**
-             * Custommessagerecordingid
-             * @description Recording ID for an audio custom message.
-             */
-            customMessageRecordingId?: string | null;
-            /**
              * Body Template
              * @description Optional JSON body template for POST, PUT, and PATCH requests.
              */
@@ -1272,6 +1250,11 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+            /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
             /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -1407,6 +1390,11 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+            /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
             /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -1830,6 +1818,40 @@ export interface components {
             /** End Time */
             end_time: string;
         };
+        /** ToolDelayedAudioMessage */
+        ToolDelayedAudioMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "audio";
+            /** Recording Id */
+            recording_id: number;
+            /**
+             * Event
+             * @constant
+             */
+            event: "delayed";
+            /** After Ms */
+            after_ms: number;
+        };
+        /** ToolDelayedTextMessage */
+        ToolDelayedTextMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "text";
+            /** Text */
+            text: string;
+            /**
+             * Event
+             * @constant
+             */
+            event: "delayed";
+            /** After Ms */
+            after_ms: number;
+        };
         /**
          * ToolParameter
          * @description A parameter that the tool accepts from the model at call time.
@@ -1892,6 +1914,36 @@ export interface components {
             updated_at: string | null;
             created_by?: components["schemas"]["CreatedByResponse"] | null;
         };
+        /** ToolStartAudioMessage */
+        ToolStartAudioMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "audio";
+            /** Recording Id */
+            recording_id: number;
+            /**
+             * Event
+             * @constant
+             */
+            event: "start";
+        };
+        /** ToolStartTextMessage */
+        ToolStartTextMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "text";
+            /** Text */
+            text: string;
+            /**
+             * Event
+             * @constant
+             */
+            event: "start";
+        };
         /** TrafficSplitRequest */
         TrafficSplitRequest: {
             /** Variants */
@@ -1951,12 +2003,6 @@ export interface components {
              */
             workflow_id: number;
             /**
-             * Message
-             * @description Spoken by the current agent, in its own voice, before the caller is handed over. Supports template variables. Leave empty to hand over without saying anything.
-             * @default Let me connect you with the right person. One moment please.
-             */
-            message: string;
-            /**
              * Play Greeting
              * @description Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
              * @default true
@@ -1974,6 +2020,11 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+            /**
+             * Messages
+             * @description One start text message, with template variables supported. Omit to use the default handover line, or send an empty list for a silent handoff.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
             /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -2013,23 +2064,6 @@ export interface components {
              */
             destination: string;
             /**
-             * Messagetype
-             * @description Type of message to play before transfer.
-             * @default none
-             * @enum {string}
-             */
-            messageType: "none" | "custom" | "audio";
-            /**
-             * Custommessage
-             * @description Custom message to play before transferring.
-             */
-            customMessage?: string | null;
-            /**
-             * Audiorecordingid
-             * @description Recording ID for audio message before transfer.
-             */
-            audioRecordingId?: string | null;
-            /**
              * Timeout
              * @description Maximum seconds to wait for the destination to answer.
              * @default 30
@@ -2061,6 +2095,11 @@ export interface components {
              * @default 1
              */
             schema_version: number;
+            /**
+             * Messages
+             * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+             */
+            messages?: (components["schemas"]["ToolStartTextMessage"] | components["schemas"]["ToolStartAudioMessage"] | components["schemas"]["ToolDelayedTextMessage"] | components["schemas"]["ToolDelayedAudioMessage"])[];
             /**
              * @description Tool type. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -2415,8 +2454,12 @@ export type ServiceOverride = components['schemas']['ServiceOverride'];
 export type ServiceSelection = components['schemas']['ServiceSelection'];
 export type TimeSlotRequest = components['schemas']['TimeSlotRequest'];
 export type TimeSlotResponse = components['schemas']['TimeSlotResponse'];
+export type ToolDelayedAudioMessage = components['schemas']['ToolDelayedAudioMessage'];
+export type ToolDelayedTextMessage = components['schemas']['ToolDelayedTextMessage'];
 export type ToolParameter = components['schemas']['ToolParameter'];
 export type ToolResponse = components['schemas']['ToolResponse'];
+export type ToolStartAudioMessage = components['schemas']['ToolStartAudioMessage'];
+export type ToolStartTextMessage = components['schemas']['ToolStartTextMessage'];
 export type TrafficSplitRequest = components['schemas']['TrafficSplitRequest'];
 export type TrafficSplitResponse = components['schemas']['TrafficSplitResponse'];
 export type TrafficVariantRequest = components['schemas']['TrafficVariantRequest'];

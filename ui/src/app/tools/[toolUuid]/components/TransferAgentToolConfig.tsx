@@ -120,6 +120,7 @@ export function TransferAgentToolConfig({
                     </Label>
                     <Input
                         id="transfer-agent-message"
+                        maxLength={500}
                         value={message}
                         onChange={(e) => onMessageChange(e.target.value)}
                         placeholder="Let me connect you with the right person. One moment please."

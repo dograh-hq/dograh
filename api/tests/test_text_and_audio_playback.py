@@ -757,7 +757,7 @@ class TestTransitionSpeech:
 
 
 class TestPlayConfigMessage:
-    """Unit tests for CustomToolManager._play_config_message."""
+    """Unit tests for CustomToolManager._play_tool_message."""
 
     @pytest.fixture
     def mock_engine(self):
@@ -788,11 +788,15 @@ class TestPlayConfigMessage:
 
     @pytest.mark.asyncio
     async def test_custom_text_queues_tts_speak_frame(self, mock_engine):
-        """messageType='custom' queues TTSSpeakFrame with the message text."""
+        """A text start message queues TTSSpeakFrame with the message text."""
         manager = CustomToolManager(mock_engine)
-        config = {"messageType": "custom", "customMessage": "Ending your call now."}
+        config = {
+            "messages": [
+                {"event": "start", "type": "text", "text": "Ending your call now."}
+            ]
+        }
 
-        result = await manager._play_config_message(config)
+        result = await manager._play_tool_message(config)
 
         assert not result.done
         frames = [
@@ -806,14 +810,16 @@ class TestPlayConfigMessage:
 
     @pytest.mark.asyncio
     async def test_audio_queues_started_raw_stopped_frames(self, mock_engine):
-        """messageType='audio' queues TTSStarted + TTSAudioRaw + TTSStopped."""
+        """An audio start message queues TTSStarted + TTSAudioRaw + TTSStopped."""
         mock_fetch = AsyncMock(return_value=RecordingAudio(audio=FAKE_PCM_AUDIO))
         mock_engine._fetch_recording_audio = mock_fetch
 
         manager = CustomToolManager(mock_engine)
-        config = {"messageType": "audio", "audioRecordingId": "201"}
+        config = {
+            "messages": [{"event": "start", "type": "audio", "recording_id": 201}]
+        }
 
-        result = await manager._play_config_message(config)
+        result = await manager._play_tool_message(config)
 
         assert not result.done
         mock_fetch.assert_called_once_with(recording_pk=201)
@@ -841,9 +847,9 @@ class TestPlayConfigMessage:
 
     @pytest.mark.asyncio
     async def test_none_message_type_returns_false(self, mock_engine):
-        """messageType='none' returns False without queuing frames."""
+        """An empty message list returns False without queuing frames."""
         manager = CustomToolManager(mock_engine)
-        result = await manager._play_config_message({"messageType": "none"})
+        result = await manager._play_tool_message({"messages": []})
 
         assert result is None
         assert len(mock_engine._queued_frames) == 0
@@ -854,9 +860,11 @@ class TestPlayConfigMessage:
         mock_engine._fetch_recording_audio = None
 
         manager = CustomToolManager(mock_engine)
-        config = {"messageType": "audio", "audioRecordingId": "301"}
+        config = {
+            "messages": [{"event": "start", "type": "audio", "recording_id": 301}]
+        }
 
-        result = await manager._play_config_message(config)
+        result = await manager._play_tool_message(config)
 
         assert result.outcome is PlaybackOutcome.FAILED
         assert len(mock_engine._queued_frames) == 0
@@ -868,9 +876,11 @@ class TestPlayConfigMessage:
         mock_engine._fetch_recording_audio = mock_fetch
 
         manager = CustomToolManager(mock_engine)
-        config = {"messageType": "audio", "audioRecordingId": "301"}
+        config = {
+            "messages": [{"event": "start", "type": "audio", "recording_id": 301}]
+        }
 
-        result = await manager._play_config_message(config)
+        result = await manager._play_tool_message(config)
 
         assert result.outcome is PlaybackOutcome.FAILED
         mock_fetch.assert_called_once_with(recording_pk=301)
@@ -878,11 +888,11 @@ class TestPlayConfigMessage:
 
     @pytest.mark.asyncio
     async def test_custom_empty_message_returns_false(self, mock_engine):
-        """messageType='custom' with empty message returns False."""
+        """A text start message with empty message returns False."""
         manager = CustomToolManager(mock_engine)
-        config = {"messageType": "custom", "customMessage": ""}
+        config = {"messages": [{"event": "start", "type": "text", "text": ""}]}
 
-        result = await manager._play_config_message(config)
+        result = await manager._play_tool_message(config)
 
         assert result is None
         assert len(mock_engine._queued_frames) == 0

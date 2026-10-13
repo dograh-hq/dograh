@@ -161,9 +161,11 @@ class TransferAgentTool:
         self.definition = {
             "schema_version": 1,
             "type": "transfer_agent",
+            "messages": [{"event": "start", "type": "text", "text": message}]
+            if message
+            else [],
             "config": {
                 "workflow_id": DESTINATION_WORKFLOW_ID,
-                "message": message or "",
                 "play_greeting": play_greeting,
             },
         }

@@ -18,7 +18,7 @@ export type ConfigurationFieldsDensity = "full" | "compact";
 
 // Dograh manages its services; only these settings are the user's to change,
 // listed in the order they are shown.
-const DOGRAH_FIELDS: [ServiceRole, string[]][] = [["tts", ["voice", "speed"]], ["stt", ["language"]], ["llm", ["temperature"]]];
+const DOGRAH_FIELDS: [ServiceRole, string[]][] = [["tts", ["voice", "speed"]], ["stt", ["language", "language_hints"]], ["llm", ["model", "temperature"]]];
 const MODES: { value: ConfigurationEditorMode; description: string }[] = [
     { value: "realtime", description: "One speech-to-speech model listens and replies." },
     { value: "dograh", description: "Dograh runs the transcriber, LLM and voice for you." },
@@ -215,7 +215,7 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
                             if (next) changeSelection(role, selectionForConnection(catalog, role, next, selection, connections));
                         }} />
                 </div>
-                {schema && selection && <SchemaFields key={connection?.provider} className="contents" provider={connection?.provider} role={role} schema={schema}
+                {schema && selection && <SchemaFields key={`${connection?.uuid}:${connection?.revision}`} className="contents" provider={connection?.provider} providerConnectionUuid={connection?.uuid} role={role} schema={schema}
                     values={selection.settings} context={connection?.connection_settings} onChange={(name, value) => changeSetting(role, name, value)} />}
             </div>}
             {isEmbedding && <p className="text-xs text-muted-foreground">Use the embedding model that indexed this workflow’s knowledge base. Changing it does not reindex documents.</p>}

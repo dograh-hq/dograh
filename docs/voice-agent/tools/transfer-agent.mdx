@@ -47,7 +47,7 @@ Because context travels with the caller, the destination agent should not re-ask
 A Transfer to Agent tool has three settings. Everything else about how a handoff sounds is fixed.
 
 - **Agent** (`workflow_id`, required) — the id of the Dograh agent to transfer to. It must belong to the same organization.
-- **Handover message** (`message`) — spoken by the current agent, in its own voice, just before the handover. Supports [template variables](/voice-agent/template-variables). Maximum 500 characters. Defaults to "Let me connect you with the right person. One moment please." Leave it empty to hand over without saying anything.
+- **Handover message** — stored as one text entry with `event: "start"` in `definition.messages`. Spoken by the current agent, in its own voice, just before the handover. Supports [template variables](/voice-agent/template-variables). Maximum 500 characters. The editor starts with "Let me connect you with the right person. One moment please." Leave it empty, or send `messages: []` through the API, to hand over without saying anything.
 - **Play greeting** (`play_greeting`, default `true`) — whether the destination agent opens with its Start Call greeting. Turn it off when the destination should continue the conversation rather than introduce itself, for example an agent that greets callers on its own phone number but is also a transfer target. It then opens with a reply generated from the conversation history.
 
 Set the handover message in the language the destination agent speaks. The default is English, which will sound wrong in front of a Portuguese or Spanish agent.
@@ -82,9 +82,15 @@ It is **not** available on speech-to-speech (realtime) agents. The tool still re
   "description": "Hand the call to the billing agent once the caller says their question is about an invoice, a charge, or a refund.",
   "definition": {
     "type": "transfer_agent",
+    "messages": [
+      {
+        "event": "start",
+        "type": "text",
+        "text": "Let me put you through to our billing team. One moment."
+      }
+    ],
     "config": {
-      "workflow_id": 117,
-      "message": "Let me put you through to our billing team. One moment."
+      "workflow_id": 117
     }
   }
 }

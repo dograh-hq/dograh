@@ -72,6 +72,22 @@ describe("provider field controls", () => {
         expect(screen.getByRole("link", { name: "Supported languages" }).getAttribute("href")).toContain("/flux-multilingual");
     });
 
+    it.each(["eleven_v3_custom", "eleven_v4_custom"])("omits unsupported speed for custom dialogue model %s", model => {
+        const onSave = vi.fn();
+        render(<Editor schema={{ properties: {
+            model: { type: "string", title: "Model" },
+            speed: { type: "number", title: "Speed", model_constraints: [{ pattern: "^eleven_v[34]", supported: false }] },
+        } }} initial={{ model, speed: 1.2 }} onSave={onSave} />);
+        expect(screen.queryByLabelText("Speed")).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+        expect(onSave).toHaveBeenLastCalledWith({ model });
+
+        fireEvent.change(screen.getByLabelText("Model"), { target: { value: "eleven_flash_v2_5" } });
+        expect((screen.getByLabelText("Speed") as HTMLInputElement).value).toBe("1.2");
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+        expect(onSave).toHaveBeenLastCalledWith({ model: "eleven_flash_v2_5", speed: 1.2 });
+    });
+
     it("uses removable input rows for free-form lists", () => {
         const onSave = vi.fn();
         render(<Editor schema={{ properties: { keyterms: { type: "array", title: "Keyterms", items: { type: "string" } } } }} initial={{ keyterms: ["Dograh"] }} onSave={onSave} />);

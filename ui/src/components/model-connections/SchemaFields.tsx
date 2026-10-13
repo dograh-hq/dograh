@@ -18,7 +18,8 @@ import type { FieldSchema, ServiceRole } from "./types";
 
 const PROVIDER_DEFAULT = "__provider_default__";
 
-function optionLabel(name: string, value: string) {
+function optionLabel(name: string, value: string, schema: FieldSchema) {
+    if (schema.option_labels?.[value]) return schema.option_labels[value];
     if (name === "language" || name === "language_hints") return LANGUAGE_DISPLAY_NAMES[value] || value;
     return value;
 }
@@ -57,9 +58,9 @@ function StringListInput({ id, name, values, onChange, secret, required }: {
     </div>;
 }
 
-function ValueInput({ id, name, schema, value, onChange, secret, required, provider, role, model }: {
+function ValueInput({ id, name, schema, value, onChange, secret, required, provider, providerConnectionUuid, model, language }: {
     id: string; name: string; schema: FieldSchema; value: unknown; onChange: (value: unknown) => void;
-    secret: boolean; required: boolean; provider?: string; role?: ServiceRole; model?: string;
+    secret: boolean; required: boolean; provider?: string; providerConnectionUuid?: string; model?: string; language?: string;
 }) {
     const alternatives = schema.anyOf || [schema];
     const nullable = alternatives.some(option => option.type === "null");
@@ -67,15 +68,12 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
     const numeric = alternatives.find(option => option.type === "number" || option.type === "integer");
     const canPool = secret && alternatives.some(option => option.type === "array") && alternatives.some(option => option.type === "string");
     const options = schema.enum || concrete.enum || schema.examples;
+    const voiceCatalog = Boolean(schema.voice_catalog && provider);
     const [custom, setCustom] = useState(false);
 
     if (canPool) {
         return <StringListInput id={id} name={name} secret required={required} values={Array.isArray(value) ? value : [String(value || "")]}
             onChange={next => onChange(next.length === 1 ? next[0] : next)} />;
-    }
-    if (role === "tts" && name === "voice" && provider) {
-        if (provider === "dograh") return <VoiceSelectorModal id={id} provider={provider} value={String(value || "")} onChange={onChange} allowManualInput={schema.allow_custom_input} />;
-        if (!schema.allow_custom_input && !options?.length) return <VoiceSelector id={id} provider={provider} value={String(value || "")} onChange={onChange} model={model} />;
     }
     if (concrete.type === "array") {
         if (concrete.items?.type && concrete.items.type !== "string") return <JsonInput id={id} value={value} onChange={onChange} required={required} />;
@@ -84,7 +82,7 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
         if (choices?.length) return <div role="group" aria-labelledby={`${id}-label`} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {[...choices, ...values.filter(item => !choices.includes(item))].map(option => <div key={option} className="flex items-center gap-2">
                 <Checkbox id={`${id}-${option}`} checked={values.includes(option)} onCheckedChange={checked => onChange(checked === true ? [...values, option] : values.filter(item => item !== option))} />
-                <Label htmlFor={`${id}-${option}`} className="cursor-pointer text-sm font-normal">{optionLabel(name, option)}</Label>
+                <Label htmlFor={`${id}-${option}`} className="cursor-pointer text-sm font-normal">{optionLabel(name, option, schema)}</Label>
             </div>)}
         </div>;
         return <StringListInput id={id} name={name} secret={secret} required={required} values={values} onChange={onChange} />;
@@ -103,19 +101,24 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
     if (concrete.type === "object" || concrete.properties) return <JsonInput id={id} value={value} onChange={onChange} required={required} />;
     if (schema.multiline) return <Textarea id={id} rows={4} required={required} autoComplete="off" spellCheck={false} className="font-mono text-xs"
         value={value == null ? "" : String(value)} onChange={event => onChange(event.target.value || (nullable ? null : ""))} />;
-    if (!secret && options?.length) {
+    if (!secret && (options?.length || voiceCatalog)) {
         const current = value == null ? "" : String(value);
-        const customInput = schema.allow_custom_input && (custom || Boolean(current && !options.includes(current)));
+        // A remote catalog may be loading or omit a saved/custom voice. Keep
+        // browsing available until the user explicitly chooses manual entry.
+        const customInput = schema.allow_custom_input && (custom || (!voiceCatalog && Boolean(current && !options?.includes(current))));
         return <div className="space-y-2">
             {customInput ? <Input id={id} value={current} required={required} placeholder={`Enter ${name.replaceAll("_", " ")}`} onChange={event => onChange(event.target.value)} />
+                : voiceCatalog && provider ? (schema.voice_catalog === "dialog"
+                    ? <VoiceSelectorModal id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} value={current} onChange={onChange} model={model} />
+                    : <VoiceSelector id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} value={current} onChange={onChange} model={model} language={language} />)
                 : <ConfigurationSelect id={id} value={value == null && nullable ? PROVIDER_DEFAULT : current} required={required}
                     placeholder={`Select ${name.replaceAll("_", " ")}`} onValueChange={next => onChange(next === PROVIDER_DEFAULT ? null : next)}
                     options={[...(nullable ? [{ value: PROVIDER_DEFAULT, label: "Provider default" }] : []),
-                        ...[...options, ...(!schema.allow_custom_input && current && !options.includes(current) ? [current] : [])].map(option => ({ value: option, label: optionLabel(name, option) }))]} />}
+                        ...[...(options || []), ...(!schema.allow_custom_input && current && !options?.includes(current) ? [current] : [])].map(option => ({ value: option, label: optionLabel(name, option, schema) }))]} />}
             {schema.allow_custom_input && <div className="flex items-center gap-2">
                 <Checkbox id={`${id}-custom`} checked={Boolean(customInput)} onCheckedChange={checked => {
                     setCustom(checked === true);
-                    if (!checked) onChange(options[0]);
+                    if (!checked && !voiceCatalog) onChange(options?.[0]);
                 }} />
                 <Label htmlFor={`${id}-custom`} className="cursor-pointer text-sm font-normal">Enter Custom Value</Label>
             </div>}
@@ -126,10 +129,10 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
         onChange={event => onChange(event.target.value || (nullable ? null : ""))} />;
 }
 
-export function SchemaFields({ schema, values, onChange, secret = false, configuredFields = [], context = {}, provider, role, className = "grid grid-cols-1 gap-4 sm:grid-cols-2" }: {
+export function SchemaFields({ schema, values, onChange, secret = false, configuredFields = [], context = {}, provider, providerConnectionUuid, role, className = "grid grid-cols-1 gap-4 sm:grid-cols-2" }: {
     schema: FieldSchema; values: Record<string, unknown>; onChange: (name: string, value: unknown) => void;
     secret?: boolean; configuredFields?: string[];
-    context?: Record<string, unknown>; provider?: string; role?: ServiceRole;
+    context?: Record<string, unknown>; provider?: string; providerConnectionUuid?: string; role?: ServiceRole;
     /** "contents" lays the fields into the parent's two-column grid. */
     className?: string;
 }) {
@@ -139,7 +142,7 @@ export function SchemaFields({ schema, values, onChange, secret = false, configu
     return <div className={className}>
         {Object.entries(schema.properties || {}).map(([name, raw]) => {
             const field = fieldForModel(resolveFieldSchema(raw, schema), { ...context, ...resolvedValues });
-            if (!isFieldVisible(field, resolvedValues.model)) return null;
+            if (!isFieldVisible(field, resolvedValues.model, resolvedValues.language)) return null;
             const id = `${prefix}-${name}`;
             const configured = secret && configuredFields.includes(name);
             const editing = !configured || replacing.includes(name);
@@ -151,7 +154,8 @@ export function SchemaFields({ schema, values, onChange, secret = false, configu
                 <div className="flex min-h-6 items-center justify-between gap-2">
                     <Label id={`${id}-label`} htmlFor={id} className="capitalize">{label}</Label>
                 </div>
-                {editing ? <ValueInput id={id} name={name} provider={provider} role={role} model={String(resolvedValues.model || "") || undefined}
+                {editing ? <ValueInput id={id} name={name} provider={provider} providerConnectionUuid={providerConnectionUuid} model={String(resolvedValues.model || "") || undefined}
+                    language={String(resolvedValues.language || "") || undefined}
                     schema={suggestions ? { ...field, examples: suggestions, enum: field.enum ? suggestions : undefined } : field}
                     value={Object.hasOwn(values, name) ? values[name] : field.default} secret={secret}
                     required={Boolean(schema.required?.includes(name))} onChange={value => onChange(name, value)} />

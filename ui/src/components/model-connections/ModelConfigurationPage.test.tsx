@@ -21,7 +21,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 const provider = { credential_fields: {}, connection_fields: {}, settings_schema: { properties: {} } };
 const catalog: ModelConnectionCatalog = { services: {
     llm: { dograh: provider, openai: provider }, stt: { dograh: provider, openai: provider }, embeddings: { dograh: provider },
-    tts: { openai: provider, dograh: { ...provider, settings_schema: { properties: { voice: { type: "string", title: "Voice", default: "alice-id", allow_custom_input: true } } } } },
+    tts: { openai: provider, dograh: { ...provider, settings_schema: { properties: { voice: { type: "string", title: "Voice", default: "alice-id", voice_catalog: "dialog", allow_custom_input: true } } } } },
 } };
 const connections: ProviderConnection[] = ["Primary", "Secondary"].map(name => ({ uuid: name, name, provider: "dograh", is_active: true, revision: 1, connection_settings: {}, configured_credentials: ["api_key"] }));
 const openai: ProviderConnection = { ...connections[0], uuid: "openai", name: "OpenAI", provider: "openai" };
@@ -129,9 +129,9 @@ describe("model configuration pages", () => {
         render(<ModelConfigurationPage configurationUuid="sales" />);
         fireEvent.click(screen.getByLabelText("Voice"));
         expect(await screen.findByText("Failed to load voices")).toBeDefined();
-        fireEvent.click(screen.getByRole("button", { name: "Custom voice ID" }));
-        fireEvent.change(screen.getByLabelText("Custom voice ID"), { target: { value: "custom-voice" } });
-        fireEvent.click(screen.getByRole("button", { name: "Use this voice" }));
+        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+        fireEvent.click(screen.getByLabelText("Enter Custom Value"));
+        fireEvent.change(screen.getByLabelText("Voice"), { target: { value: "custom-voice" } });
         fireEvent.click(screen.getByRole("button", { name: "Save Configuration" }));
         await waitFor(() => expect(updateNamedModelConfiguration).toHaveBeenCalledOnce());
         expect(vi.mocked(updateNamedModelConfiguration).mock.calls[0][0]?.body?.configuration?.tts?.settings?.voice).toBe("custom-voice");

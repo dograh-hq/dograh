@@ -277,6 +277,10 @@ class ProviderSpec:
         connectivity: Whether the customer buys phone service from this
             provider ("api") or connects their own carrier to it ("sip").
             Drives how the UI offers the choice; nothing at runtime reads it.
+        supports_outbound: Whether this provider can place calls at all. False
+            for a channel that only delivers calls made *to* the business, so
+            the UI never offers it as an outbound default or a caller-ID source
+            and the outbound call paths skip it before dialing.
         requires_caller_id: Whether an outbound call fails without at least one
             phone number on the configuration. True for every carrier, so it is
             the default and a new provider is honest about readiness for free.
@@ -330,6 +334,9 @@ class ProviderSpec:
     # Whether phone service is bought from this provider or brought to it.
     # Defaults to "api": most providers are carriers in their own right.
     connectivity: ProviderConnectivity = "api"
+    # Whether this provider can place calls at all. Every carrier can; an
+    # inbound-only channel opts out so nothing offers it for outbound.
+    supports_outbound: bool = True
     # Whether outbound calls need a phone number on the configuration. True by
     # default so a provider is never reported ready when it cannot dial.
     requires_caller_id: bool = True

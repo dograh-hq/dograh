@@ -297,32 +297,55 @@ def register_event_handlers(
         ready_state["pipeline_started"] = True
         await maybe_trigger_initial_response()
 
-    async def _record_pipeline_error() -> None:
+    outcome_lock = asyncio.Lock()
+    outcome_recorded = False
+
+    async def _record_pipeline_outcome() -> None:
+        """Own campaign health accounting for every provider, including ARI.
+
+        A carrier's completed callback only means the phone call ended. The
+        engine's final status tells us whether its pipeline failed. Keep this
+        independent of artifact/observer finalization and ignore unfinished
+        teardown rather than inventing a successful outcome.
+        """
+        nonlocal outcome_recorded
         try:
-            gathered_context = await engine.get_gathered_context()
-            if (
-                gathered_context.get("call_status")
-                != EndTaskReason.PIPELINE_ERROR.value
-            ):
-                return
-            workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-            if workflow_run and workflow_run.campaign_id:
-                await circuit_breaker.record_and_evaluate(
-                    campaign_id=workflow_run.campaign_id,
-                    is_failure=True,
-                    workflow_run_id=workflow_run_id,
-                    reason="pipeline_error",
-                )
-            asyncio.create_task(
-                _capture_call_event(
-                    workflow_run_id,
-                    user_provider_id,
-                    PostHogEvent.CALL_FAILED,
-                    extra_properties={"error_reason": "pipeline_error"},
-                )
-            )
+            async with outcome_lock:
+                if outcome_recorded:
+                    return
+                gathered_context = await engine.get_gathered_context()
+                call_status = gathered_context.get("call_status")
+                if (
+                    not call_status
+                    or call_status == EndTaskReason.SYSTEM_CANCELLED.value
+                ):
+                    # Bare framework cancellation has no reliable call outcome.
+                    # Do not invent either a success or a provider failure.
+                    return
+                is_failure = call_status in {
+                    EndTaskReason.PIPELINE_ERROR.value,
+                    EndTaskReason.UNEXPECTED_ERROR.value,
+                }
+                run = await db_client.get_workflow_run_by_id(workflow_run_id)
+                if run and run.campaign_id:
+                    await circuit_breaker.record_and_evaluate(
+                        campaign_id=run.campaign_id,
+                        is_failure=is_failure,
+                        workflow_run_id=workflow_run_id,
+                        reason=call_status,
+                    )
+                outcome_recorded = True
+                if is_failure:
+                    asyncio.create_task(
+                        _capture_call_event(
+                            workflow_run_id,
+                            user_provider_id,
+                            PostHogEvent.CALL_FAILED,
+                            extra_properties={"error_reason": call_status},
+                        )
+                    )
         except Exception as e:
-            logger.error(f"Error recording circuit breaker failure: {e}", exc_info=True)
+            logger.error(f"Error recording circuit breaker outcome: {e}", exc_info=True)
 
     async def dispose_call(reason: str, error: ErrorFrame | None = None) -> None:
         """Dispose of a call whose pipeline asked to stop.
@@ -365,7 +388,7 @@ def register_event_handlers(
         # Count the final call outcome once, including agent-worker failures
         # that bypassed the funnel. Observer or persistence errors below must
         # not suppress this independently protected accounting path.
-        await _record_pipeline_error()
+        await _record_pipeline_outcome()
 
         # Turn and feedback observers run on independent queues. Drain them
         # before finalizing immutable transcripts and taking the DB snapshot.

@@ -406,8 +406,7 @@ class WorkflowRunClient(BaseDBClient):
         annotations: dict | None = None,
         extra: dict | None = None,
         model_configuration_snapshot: dict | None = None,
-        only_if_incomplete: bool = False,
-    ) -> WorkflowRunModel | None:
+    ) -> WorkflowRunModel:
         async with self.async_session() as session:
             # Use SELECT FOR UPDATE to lock the row during the update
             result = await session.execute(
@@ -418,8 +417,6 @@ class WorkflowRunClient(BaseDBClient):
             run = result.scalars().first()
             if not run:
                 raise ValueError(f"Workflow run with ID {run_id} not found")
-            if only_if_incomplete and run.is_completed:
-                return None
             if model_configuration_snapshot:
                 # Replaced wholesale: the pre-call fetch re-resolves the run's
                 # whole setup, so a merge would mix two credential selections.

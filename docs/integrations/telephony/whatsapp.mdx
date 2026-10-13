@@ -47,15 +47,13 @@ Dograh AI answers voice calls that WhatsApp users place to your WhatsApp Busines
 ## Step 3: Configure in Dograh AI
 
 1. Navigate to **/telephony-configurations**, click **Add configuration**, and select **WhatsApp**
-2. Copy the pre-filled **Webhook Verify Token** and the **Callback URL** — you'll paste both into Meta in Step 5
-3. Enter the **Access Token**, **Phone Number ID**, and **App Secret**
-4. Leave **Enable Business-Initiated Calls** off
-5. Click **Create**. Dograh imports your WhatsApp number into the configuration's **Phone numbers** list.
-6. Edit the imported number and set its **Inbound workflow** to the agent that should answer
+2. Enter the **Access Token**, **Phone Number ID**, and **App Secret**, then click **Create**. Dograh checks them with Meta before saving.
+3. Open the new configuration. Under **Webhook for your Meta app**, copy the **Callback URL** and the **Verify token** — you'll paste both into Meta in Step 5
+4. Click **Add phone number**, enter your WhatsApp Business number with its country code (for example `+918792672808`), set the **Inbound workflow** to the agent that should answer, and click **Add**. Dograh checks the number against Meta before saving it.
 
 <Note>
   On self-hosted Dograh, the Callback URL must be your backend's public HTTPS
-  URL. If the dialog shows a `localhost` address, expose your backend (for
+  URL. If the page shows a `localhost` address, expose your backend (for
   example with a tunnel) and use that hostname instead.
 </Note>
 
@@ -95,13 +93,21 @@ Call your business number from the WhatsApp app on a phone. Your Dograh AI agent
     The app has no `calls` webhook yet. Complete Step 5, then turn on calling.
   </Accordion>
 
-  <Accordion title="Verify and save fails">
-    Save the Dograh configuration first, and make sure the Verify token in
-    Meta matches the one in Dograh exactly.
+  <Accordion title="Create fails with 'Meta did not accept these credentials'">
+    Meta could not read the Phone Number ID with the access token. Check the
+    Phone Number ID against the API Setup page, and that the token's system
+    user has full control of your WhatsApp account.
   </Accordion>
 
-  <Accordion title="The number doesn't appear under Phone numbers">
-    Check that the Phone Number ID is correct and that the access token's
-    system user has full control of your WhatsApp account.
+  <Accordion title="Verify and save fails">
+    Save the Dograh configuration first, and make sure the Verify token in
+    Meta matches the one on the configuration page exactly.
+  </Accordion>
+
+  <Accordion title="Add phone number is rejected">
+    Dograh asks Meta which number sits behind your Phone Number ID and only
+    accepts that one. Check that the number you typed matches the number shown
+    on the API Setup page, and that the access token's system user has full
+    control of your WhatsApp account.
   </Accordion>
 </AccordionGroup>

@@ -83,11 +83,8 @@ export default function TelephonyConfigurationDetailPage() {
   const { externalPbxIntegrationsEnabled } = useOrgConfig();
   const organizationTimezone = useOrganizationTimezone();
   const [config, setConfig] = useState<TelephonyConfigurationDetail | null>(null);
-  const isWhatsApp = config?.provider === "whatsapp";
-  const webhookPath = isWhatsApp
-    ? "/api/v1/telephony/whatsapp/webhook"
-    : INBOUND_WEBHOOK_PATH;
-  const inboundWebhookUrl = `${resolveWebhookBaseUrl(appConfig?.tunnelUrl)}${webhookPath}`;
+  const webhookBaseUrl = resolveWebhookBaseUrl(appConfig?.tunnelUrl);
+  const inboundWebhookUrl = `${webhookBaseUrl}${INBOUND_WEBHOOK_PATH}`;
   // ARI only: Dograh generates the Stasis application name, so the dialplan
   // line cannot be written until the configuration has been saved.
   const stasisAppName =
@@ -95,6 +92,14 @@ export default function TelephonyConfigurationDetailPage() {
       ? config.credentials.stasis_app_name
       : "";
   const stasisDialplanLine = `same => n,Stasis(${stasisAppName})`;
+  // WhatsApp only: Meta verifies the webhook with a token Dograh generates on
+  // save, and delivers calls to the provider's own route rather than the
+  // shared inbound dispatcher — so the customer pastes this pair into Meta.
+  const webhookVerifyToken =
+    typeof config?.credentials?.webhook_verify_token === "string"
+      ? config.credentials.webhook_verify_token
+      : "";
+  const providerWebhookUrl = `${webhookBaseUrl}/api/v1/telephony/${config?.provider}/webhook`;
   const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumberResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [editConfigOpen, setEditConfigOpen] = useState(false);
@@ -165,32 +170,6 @@ export default function TelephonyConfigurationDetailPage() {
       fetchAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to set default");
-    }
-  };
-
-  const onSyncMetaPhoneNumbers = async () => {
-    if (!config || config.provider !== "whatsapp") return;
-    try {
-      const token = await getAccessToken();
-      const response = await fetch(
-        `/api/v1/organizations/telephony-configs/${config.id}/sync-phone-numbers`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(
-          payload?.detail ?? payload?.message ?? "Failed to sync phone numbers",
-        );
-      }
-      toast.success(payload?.message ?? "Imported phone numbers from Meta");
-      fetchAll();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sync phone numbers");
     }
   };
 
@@ -322,7 +301,7 @@ export default function TelephonyConfigurationDetailPage() {
                 <RotateCcw className="h-4 w-4 mr-2" /> Reactivate
               </Button>
             )}
-            {!config.is_default_outbound && (
+            {!config.is_default_outbound && config.supports_outbound !== false && (
               <Button variant="outline" size="sm" onClick={onSetDefaultOutbound}>
                 <Star className="h-4 w-4 mr-2" /> Set as default
               </Button>
@@ -361,7 +340,7 @@ export default function TelephonyConfigurationDetailPage() {
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
             {Object.entries(config.credentials ?? {})
               .filter(([key]) => key !== "external_pbx" || externalPbxIntegrationsEnabled)
-              .filter(([key]) => key !== "stasis_app_name")
+              .filter(([key]) => key !== "stasis_app_name" && key !== "webhook_verify_token")
               .map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-3">
                   <dt className="text-muted-foreground">{k}</dt>
@@ -394,57 +373,54 @@ export default function TelephonyConfigurationDetailPage() {
               </button>
             </div>
           )}
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">
-              {isWhatsApp ? "Meta callback URL" : "Inbound webhook URL"}
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                const url = inboundWebhookUrl;
-                copyTextToClipboard(url)
-                  .then(() =>
-                    toast.success(
-                      isWhatsApp ? "Meta callback URL copied" : "Inbound webhook URL copied",
-                    ),
-                  )
-                  .catch(() => toast.error("Failed to copy URL"));
-              }}
-              title={isWhatsApp ? "Click to copy Meta callback URL" : "Click to copy inbound webhook URL"}
-              aria-label={isWhatsApp ? "Copy Meta callback URL" : "Copy inbound webhook URL"}
-              className="inline-flex items-center gap-1.5 self-start rounded font-mono text-xs text-muted-foreground hover:text-foreground max-w-full min-w-0"
-            >
-              <span className="truncate min-w-0">{inboundWebhookUrl}</span>
-              <Copy className="h-3.5 w-3.5 shrink-0" />
-            </button>
-          </div>
-          {isWhatsApp && (
-            <div className="space-y-1 min-w-0 max-w-full">
-              <p className="text-xs text-muted-foreground">Webhook verify token</p>
+          {webhookVerifyToken ? (
+            <div className="space-y-2 rounded-md border border-dashed p-3">
+              <p className="text-sm font-medium">Webhook for your Meta app</p>
+              <p className="text-xs text-muted-foreground">
+                Paste both into the app&apos;s webhook settings and verify, then
+                subscribe to the <code>calls</code> field. Until you do, calls to
+                your number never reach Dograh.
+              </p>
+              {[
+                { label: "Callback URL", value: providerWebhookUrl },
+                { label: "Verify token", value: webhookVerifyToken },
+              ].map(({ label, value }) => (
+                <div key={label} className="space-y-1">
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      copyTextToClipboard(value)
+                        .then(() => toast.success(`${label} copied`))
+                        .catch(() => toast.error("Failed to copy"));
+                    }}
+                    title="Click to copy"
+                    className="group flex w-full items-center gap-2 rounded-md border bg-muted/20 p-2 text-left font-mono text-xs transition-colors hover:bg-muted/40"
+                  >
+                    <code className="flex-1 truncate">{value}</code>
+                    <Copy className="h-3 w-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Inbound webhook URL</p>
               <button
                 type="button"
                 onClick={() => {
-                  const token = String(
-                    (config?.credentials as Record<string, unknown>)?.webhook_verify_token || "",
-                  );
-                  copyTextToClipboard(token)
-                    .then(() => toast.success("Webhook verify token copied"))
-                    .catch(() => toast.error("Failed to copy token"));
+                  const url = inboundWebhookUrl;
+                  copyTextToClipboard(url)
+                    .then(() => toast.success("Inbound webhook URL copied"))
+                    .catch(() => toast.error("Failed to copy URL"));
                 }}
-                title="Click to copy webhook verify token"
-                aria-label="Copy webhook verify token"
-                className="inline-flex items-center gap-1.5 self-start rounded font-mono text-xs text-muted-foreground hover:text-foreground max-w-full min-w-0"
+                title="Click to copy inbound webhook URL"
+                aria-label="Copy inbound webhook URL"
+                className="inline-flex items-center gap-1 self-start rounded font-mono text-xs text-muted-foreground hover:text-foreground"
               >
-                <span className="truncate min-w-0">
-                  {String(
-                    (config?.credentials as Record<string, unknown>)?.webhook_verify_token || "-",
-                  )}
-                </span>
-                <Copy className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{inboundWebhookUrl}</span>
+                <Copy className="h-3 w-3 shrink-0" />
               </button>
-              <p className="text-xs text-muted-foreground mt-1">
-                In Meta App Dashboard (<strong>WhatsApp &gt; Configuration &gt; Edit</strong>): paste the Callback URL and Verify Token, then click <strong>Verify and Save</strong> and subscribe to the <code>calls</code> field.
-              </p>
             </div>
           )}
         </CardContent>
@@ -479,57 +455,30 @@ export default function TelephonyConfigurationDetailPage() {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div className="space-y-1">
-            <CardTitle>
-              {config.provider === "whatsapp" ? "WhatsApp numbers" : "Phone numbers"}
-            </CardTitle>
+            <CardTitle>Phone numbers</CardTitle>
             <CardDescription>
-              {config.provider === "whatsapp" ? (
-                <>
-                  Dograh pulls the Meta phone numbers attached to this WhatsApp Business
-                  Account automatically. If nothing shows up yet, use{" "}
-                  <span className="font-medium text-foreground">Refresh from Meta</span>{" "}
-                  after confirming the WhatsApp connection is active.
-                </>
-              ) : (
-                <>
-                  Numbers used as caller ID for outbound and accepted for inbound matching.
-                  SIP URIs and extensions are supported alongside PSTN numbers.{" "}
-                  <a
-                    href="https://docs.dograh.com/integrations/telephony/inbound"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-0.5 underline"
-                  >
-                    Inbound docs <ExternalLink className="h-3 w-3" />
-                  </a>
-                </>
-              )}
+              Numbers used as caller ID for outbound and accepted for inbound matching.
+              SIP URIs and extensions are supported alongside PSTN numbers.{" "}
+              <a
+                href="https://docs.dograh.com/integrations/telephony/inbound"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 underline"
+              >
+                Inbound docs <ExternalLink className="h-3 w-3" />
+              </a>
             </CardDescription>
           </div>
-          {config.provider === "whatsapp" ? (
-            <Button size="sm" onClick={onSyncMetaPhoneNumbers}>
-              <RotateCcw className="h-4 w-4 mr-2" /> Refresh from Meta
-            </Button>
-          ) : (
-            <Button size="sm" onClick={() => openPhoneDialog(null)}>
-              <Plus className="h-4 w-4 mr-2" /> Add phone number
-            </Button>
-          )}
+          <Button size="sm" onClick={() => openPhoneDialog(null)}>
+            <Plus className="h-4 w-4 mr-2" /> Add phone number
+          </Button>
         </CardHeader>
         <CardContent>
           {phoneNumbers.length === 0 ? (
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                {config.provider === "whatsapp"
-                  ? "No Meta numbers are synced yet. Refresh from Meta once the WhatsApp Business connection is ready."
-                  : "No phone numbers yet. Add one to start placing or receiving calls on this configuration."}
-              </p>
-              {config.provider === "whatsapp" && (
-                <Button variant="outline" size="sm" onClick={onSyncMetaPhoneNumbers}>
-                  <RotateCcw className="h-4 w-4 mr-2" /> Refresh from Meta
-                </Button>
-              )}
-            </div>
+            <p className="text-sm text-muted-foreground">
+              No phone numbers yet. Add one to start placing or receiving calls on this
+              configuration.
+            </p>
           ) : (
             <Table>
               <TableHeader>
@@ -551,32 +500,20 @@ export default function TelephonyConfigurationDetailPage() {
                   <TableRow key={n.id}>
                     <TableCell className="font-mono">{n.address}</TableCell>
                     <TableCell>
-                      {(() => {
-                        const displayId = isWhatsApp
-                          ? String(
-                              n.extra_metadata?.phone_number_id ||
-                                n.extra_metadata?.meta_phone_number_id ||
-                                (config?.credentials as Record<string, unknown>)?.phone_number_id ||
-                                n.id,
-                            )
-                          : String(n.id);
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              copyTextToClipboard(displayId)
-                                .then(() => toast.success("Phone number ID copied"))
-                                .catch(() => toast.error("Failed to copy ID"));
-                            }}
-                            title="Click to copy phone number ID"
-                            aria-label={`Copy phone number ID ${displayId}`}
-                            className="group inline-flex items-center gap-1 rounded font-mono text-xs text-muted-foreground hover:text-foreground"
-                          >
-                            <span>{displayId}</span>
-                            <Copy className="h-3 w-3 shrink-0" />
-                          </button>
-                        );
-                      })()}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          copyTextToClipboard(String(n.id))
+                            .then(() => toast.success("Phone number ID copied"))
+                            .catch(() => toast.error("Failed to copy ID"));
+                        }}
+                        title="Click to copy phone number ID"
+                        aria-label={`Copy phone number ID ${n.id}`}
+                        className="group inline-flex items-center gap-1 rounded font-mono text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <span>{n.id}</span>
+                        <Copy className="h-3 w-3 shrink-0" />
+                      </button>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{n.address_type}</Badge>
@@ -642,7 +579,9 @@ export default function TelephonyConfigurationDetailPage() {
                     )}
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        {!n.is_default_caller_id && n.is_active && (
+                        {!n.is_default_caller_id &&
+                          n.is_active &&
+                          config.supports_outbound !== false && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -689,7 +628,7 @@ export default function TelephonyConfigurationDetailPage() {
         open={phoneDialogOpen}
         onOpenChange={setPhoneDialogOpen}
         configId={configId}
-        provider={config?.provider}
+        supportsOutbound={config?.supports_outbound !== false}
         trunks={config?.trunks}
         defaultTrunkId={phoneDefaultTrunkId}
         existing={phoneEditTarget}

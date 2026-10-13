@@ -261,7 +261,6 @@ class ProviderSpec:
             uses (e.g. 8000 for Twilio/Plivo, 16000 for Vonage). The pipecat
             layer derives the full ``AudioConfig`` from this.
         config_request_cls: Pydantic model for incoming save requests.
-        config_response_cls: Optional Pydantic model for outgoing (masked) responses.
         ui_metadata: Optional form metadata used by the telephony-config
             UI to render a provider-specific form. Surfaced via
             ``GET /api/v1/telephony/providers/metadata``.
@@ -278,6 +277,10 @@ class ProviderSpec:
         connectivity: Whether the customer buys phone service from this
             provider ("api") or connects their own carrier to it ("sip").
             Drives how the UI offers the choice; nothing at runtime reads it.
+        supports_outbound: Whether this provider can place calls at all. False
+            for a channel that only delivers calls made *to* the business, so
+            the UI never offers it as an outbound default or a caller-ID source
+            and the outbound call paths skip it before dialing.
         requires_caller_id: Whether an outbound call fails without at least one
             phone number on the configuration. True for every carrier, so it is
             the default and a new provider is honest about readiness for free.
@@ -308,7 +311,6 @@ class ProviderSpec:
     transport_factory: TransportFactory
     transport_sample_rate: int
     config_request_cls: Type[BaseModel]
-    config_response_cls: Optional[Type[BaseModel]] = None
     ui_metadata: Optional[ProviderUIMetadata] = None
     # Credential field that uniquely identifies the provider account. Used to
     # (a) match an inbound webhook to the right org config when multiple configs
@@ -332,6 +334,9 @@ class ProviderSpec:
     # Whether phone service is bought from this provider or brought to it.
     # Defaults to "api": most providers are carriers in their own right.
     connectivity: ProviderConnectivity = "api"
+    # Whether this provider can place calls at all. Every carrier can; an
+    # inbound-only channel opts out so nothing offers it for outbound.
+    supports_outbound: bool = True
     # Whether outbound calls need a phone number on the configuration. True by
     # default so a provider is never reported ready when it cannot dial.
     requires_caller_id: bool = True

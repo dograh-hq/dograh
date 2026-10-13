@@ -4687,7 +4687,9 @@ export type TelephonyConfigurationCreateRequest = {
         provider: 'vobiz';
     } & VobizConfigurationRequest) | ({
         provider: 'vonage';
-    } & VonageConfigurationRequest);
+    } & VonageConfigurationRequest) | ({
+        provider: 'whatsapp';
+    } & WhatsAppConfigurationRequest);
 };
 
 /**
@@ -4735,6 +4737,10 @@ export type TelephonyConfigurationDetail = {
         [key: string]: unknown;
     };
     sip_connectivity?: SipConnectivityDetails | null;
+    /**
+     * Supports Outbound
+     */
+    supports_outbound?: boolean;
     setup_checklist?: ProviderSetupChecklist | null;
     /**
      * Supports Trunks
@@ -4797,6 +4803,10 @@ export type TelephonyConfigurationListItem = {
      */
     phone_number_count?: number;
     /**
+     * Supports Outbound
+     */
+    supports_outbound?: boolean;
+    /**
      * Is Ready For Outbound
      */
     is_ready_for_outbound?: boolean;
@@ -4853,7 +4863,9 @@ export type TelephonyConfigurationUpdateRequest = {
         provider: 'vobiz';
     } & VobizConfigurationRequest) | ({
         provider: 'vonage';
-    } & VonageConfigurationRequest) | null;
+    } & VonageConfigurationRequest) | ({
+        provider: 'whatsapp';
+    } & WhatsAppConfigurationRequest) | null;
 };
 
 /**
@@ -4874,6 +4886,10 @@ export type TelephonyProviderMetadata = {
      * Connectivity
      */
     connectivity?: 'api' | 'sip';
+    /**
+     * Supports Outbound
+     */
+    supports_outbound?: boolean;
     /**
      * Fields
      */
@@ -6318,6 +6334,40 @@ export type VonageConfigurationRequest = {
 export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
 
 /**
+ * WhatsAppConfigurationRequest
+ *
+ * Credentials for one WhatsApp Business phone number on the Cloud API.
+ *
+ * The webhook verify token is deliberately not declared here: it is minted
+ * by the provider's save hook and carried forward on update, never read from
+ * a request (see ``_preprocess_credentials_on_save`` in the package).
+ */
+export type WhatsAppConfigurationRequest = {
+    /**
+     * Provider
+     */
+    provider?: 'whatsapp';
+    /**
+     * Access Token
+     *
+     * System user access token from Meta
+     */
+    access_token: string;
+    /**
+     * Phone Number Id
+     *
+     * Phone Number ID from the app's API Setup page
+     */
+    phone_number_id: string;
+    /**
+     * App Secret
+     *
+     * App secret used to verify webhook signatures
+     */
+    app_secret: string;
+};
+
+/**
  * WidgetTexts
  *
  * Every visitor-facing string the embed widget can render.
@@ -7717,6 +7767,67 @@ export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostErrors = {
 };
 
 export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Hub.Mode
+         */
+        'hub.mode': string;
+        /**
+         * Hub.Verify Token
+         */
+        'hub.verify_token': string;
+        /**
+         * Hub.Challenge
+         */
+        'hub.challenge': string;
+    };
+    url: '/api/v1/telephony/whatsapp/webhook';
+};
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetError = HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetErrors[keyof HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetErrors];
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleWhatsappWebhookApiV1TelephonyWhatsappWebhookPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/whatsapp/webhook';
+};
+
+export type HandleWhatsappWebhookApiV1TelephonyWhatsappWebhookPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleWhatsappWebhookApiV1TelephonyWhatsappWebhookPostResponses = {
     /**
      * Successful Response
      */

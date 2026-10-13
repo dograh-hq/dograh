@@ -35,7 +35,9 @@ interface PhoneNumberDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   configId: number;
-  provider?: string;
+  /** False for a provider that only receives calls: a number on it is never a
+      caller ID, so the default-caller choice is not offered. */
+  supportsOutbound?: boolean;
   /** Carrier paths on this configuration; empty for providers without trunks. */
   trunks?: TrunkResponse[];
   /** Preselected trunk when creating — set when the dialog is opened from a
@@ -72,14 +74,13 @@ export function PhoneNumberDialog({
   open,
   onOpenChange,
   configId,
-  provider,
+  supportsOutbound = true,
   trunks = [],
   defaultTrunkId = null,
-  existing = null,
+  existing,
   onSaved,
 }: PhoneNumberDialogProps) {
   const { user, getAccessToken } = useAuth();
-  const isWhatsApp = provider === "whatsapp";
   const isEdit = !!existing;
 
   const [address, setAddress] = useState("");
@@ -179,7 +180,7 @@ export function PhoneNumberDialog({
               country_code: countryCode || undefined,
               label: label || undefined,
               is_active: isActive,
-              is_default_caller_id: !isWhatsApp && isDefaultCallerId,
+              is_default_caller_id: supportsOutbound && isDefaultCallerId,
               inbound_workflow_id: inboundId ?? undefined,
               telephony_trunk_id: selectedTrunkId ?? undefined,
             },
@@ -249,17 +250,11 @@ export function PhoneNumberDialog({
               <Label htmlFor="pn-country">Country (ISO-2)</Label>
               <Input
                 id="pn-country"
-                placeholder={isWhatsApp ? "N/A" : "US"}
+                placeholder="US"
                 maxLength={2}
                 value={countryCode}
                 onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
-                disabled={isWhatsApp}
               />
-              {isWhatsApp && (
-                <p className="text-xs text-muted-foreground">
-                  Country is locked for WhatsApp numbers.
-                </p>
-              )}
             </div>
             <div className="space-y-1">
               <Label htmlFor="pn-label">Label</Label>
@@ -275,19 +270,16 @@ export function PhoneNumberDialog({
           <div className="space-y-1">
             <Label htmlFor="pn-workflow">Inbound workflow</Label>
             <Select value={inboundWorkflowId} onValueChange={setInboundWorkflowId}>
-              <SelectTrigger id="pn-workflow" className="w-full max-w-full overflow-hidden min-w-0 [&>span]:truncate [&>span]:min-w-0">
+              <SelectTrigger id="pn-workflow">
                 <SelectValue placeholder="(none)" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={NO_WORKFLOW}>(none)</SelectItem>
-                {workflows.map((w) => {
-                  const label = `#${w.id} - ${w.name}`;
-                  return (
-                    <SelectItem key={w.id} value={String(w.id)} title={label}>
-                      <span className="truncate max-w-[380px]">{label}</span>
-                    </SelectItem>
-                  );
-                })}
+                {workflows.map((w) => (
+                  <SelectItem key={w.id} value={String(w.id)}>
+                    #{w.id} - {w.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
@@ -300,17 +292,15 @@ export function PhoneNumberDialog({
             <div className="space-y-1">
               <Label htmlFor="pn-trunk">Outbound trunk</Label>
               <Select value={trunkId} onValueChange={setTrunkId}>
-                <SelectTrigger id="pn-trunk" className="w-full max-w-full overflow-hidden min-w-0 [&>span]:truncate [&>span]:min-w-0">
+                <SelectTrigger id="pn-trunk">
                   <SelectValue placeholder="(none)" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NO_TRUNK}>(none)</SelectItem>
                   {trunks.map((trunk) => (
                     <SelectItem key={trunk.id} value={String(trunk.id)}>
-                      <span className="truncate max-w-[380px]">
-                        {trunk.name}
-                        {trunk.enabled ? "" : " (disabled)"}
-                      </span>
+                      {trunk.name}
+                      {trunk.enabled ? "" : " (disabled)"}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -328,7 +318,7 @@ export function PhoneNumberDialog({
             <Switch checked={isActive} onCheckedChange={setIsActive} />
           </div>
 
-          {!isEdit && !isWhatsApp && (
+          {!isEdit && supportsOutbound && (
             <div className="flex items-center justify-between rounded border p-3">
               <div>
                 <Label className="text-sm">Default caller ID for this configuration</Label>

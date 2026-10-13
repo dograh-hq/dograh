@@ -39,12 +39,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useUserConfig } from "@/context/UserConfigContext";
 import { detailFromError } from "@/lib/apiError";
 
@@ -116,7 +110,11 @@ export const PhoneCallDialog = ({
             try {
                 const configResponse = await listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet({});
 
-                const configurations = configResponse.data?.configurations ?? [];
+                // A configuration that only receives calls has no place in a
+                // dialog that places one.
+                const configurations = (configResponse.data?.configurations ?? []).filter(
+                    (config) => config.supports_outbound !== false,
+                );
                 if (configResponse.error || configurations.length === 0) {
                     setNeedsConfiguration(true);
                     setTelephonyConfigs([]);
@@ -235,25 +233,18 @@ export const PhoneCallDialog = ({
     const selectedConfig = telephonyConfigs.find(
         (config) => String(config.id) === selectedConfigId,
     );
-    const isWhatsApp = selectedConfig?.provider === "whatsapp";
     const selectedConfigBlocked =
         selectedConfig !== undefined && !isCallable(selectedConfig);
     // Nothing here can place a call: either the org has no configurations, or
     // the ones it has are still waiting on the customer's own carrier. An org
-    // whose only configurations are *inactive* or intentionally inbound-only
-    // (such as WhatsApp) falls through to the form rather than getting setup instructions.
-    // Suppress setup guidance only when every not-yet-callable non-inactive config
-    // is WhatsApp (inbound-only). If there are non-WhatsApp configs awaiting carrier
-    // setup, still surface the pointer to finish outbound configuration.
-    const hasNonWhatsAppPendingOutbound = telephonyConfigs.some(
-        (config) =>
-            !config.inactive &&
-            config.provider !== "whatsapp" &&
-            config.is_ready_for_outbound === false,
-    );
+    // whose only configurations are *inactive* is a different problem, so it
+    // falls through to the form rather than getting setup instructions.
     const needsPhoneService =
         needsConfiguration === true ||
-        (hasNonWhatsAppPendingOutbound && !telephonyConfigs.some(isCallable));
+        (!telephonyConfigs.some(isCallable) &&
+            telephonyConfigs.some(
+                (config) => !config.inactive && config.is_ready_for_outbound === false,
+            ));
 
     const goToConfiguration = (target?: { configId?: number; add?: boolean }) => {
         onOpenChange(false);
@@ -289,10 +280,6 @@ export const PhoneCallDialog = ({
     };
 
     const handleStartCall = async () => {
-        if (isWhatsApp) {
-            setCallError("Outbound calling via WhatsApp is currently under development. Only inbound calling is supported.");
-            return;
-        }
         setCallLoading(true);
         setCallError(null);
         setCallSuccessMsg(null);
@@ -470,30 +457,20 @@ export const PhoneCallDialog = ({
                 <div className="flex flex-col gap-1.5">
                     <Label htmlFor="telephony-config">Telephony configuration</Label>
                     <Select value={selectedConfigId} onValueChange={setSelectedConfigId}>
-                        <SelectTrigger id="telephony-config" className="w-full max-w-full overflow-hidden min-w-0 [&>span]:truncate [&>span]:min-w-0">
+                        <SelectTrigger id="telephony-config" className="w-full">
                             <SelectValue placeholder="Select a configuration" />
                         </SelectTrigger>
                         <SelectContent>
-                            {telephonyConfigs.map((config) => {
-                                const statusSuffix = !isCallable(config)
-                                    ? config.provider === "whatsapp"
-                                        ? " - inbound only"
-                                        : " - setup incomplete"
-                                    : "";
-                                const label = `${config.name} (${config.provider})${config.is_default_outbound ? " - default" : ""}${statusSuffix}`;
-                                return (
-                                    <SelectItem key={config.id} value={String(config.id)} title={label}>
-                                        <span className="truncate max-w-[380px]">{label}</span>
-                                    </SelectItem>
-                                );
-                            })}
+                            {telephonyConfigs.map((config) => (
+                                <SelectItem key={config.id} value={String(config.id)}>
+                                    {config.name} ({config.provider})
+                                    {config.is_default_outbound ? " - default" : ""}
+                                    {!isCallable(config) ? " - setup incomplete" : ""}
+                                </SelectItem>
+                            ))}
                         </SelectContent>
                     </Select>
-                    {isWhatsApp ? (
-                        <p className="text-xs text-amber-600 dark:text-amber-500">
-                            Outbound calling via WhatsApp is currently under development. Only inbound calling is supported.
-                        </p>
-                    ) : selectedConfigBlocked ? (
+                    {selectedConfigBlocked && (
                         <p className="text-xs text-amber-600 dark:text-amber-500">
                             {selectedConfig?.inactive
                                 ? "This configuration is disabled after repeated connection failures."
@@ -509,7 +486,7 @@ export const PhoneCallDialog = ({
                                 {selectedConfig?.inactive ? "Open configuration" : "Finish setup"}
                             </button>
                         </p>
-                    ) : null}
+                    )}
                 </div>
             )}
             {selectedConfigId && (
@@ -525,18 +502,16 @@ export const PhoneCallDialog = ({
                             value={selectedFromPhoneNumberId}
                             onValueChange={setSelectedFromPhoneNumberId}
                         >
-                            <SelectTrigger id="from-phone-number" className="w-full max-w-full overflow-hidden min-w-0 [&>span]:truncate [&>span]:min-w-0">
+                            <SelectTrigger id="from-phone-number" className="w-full">
                                 <SelectValue placeholder="Select a phone number" />
                             </SelectTrigger>
                             <SelectContent>
-                                {fromPhoneNumbers.map((phone) => {
-                                    const label = `${phone.label ? `${phone.label} - ${phone.address}` : phone.address}${phone.is_default_caller_id ? " - default" : ""}`;
-                                    return (
-                                        <SelectItem key={phone.id} value={String(phone.id)} title={label}>
-                                            <span className="truncate max-w-[380px]">{label}</span>
-                                        </SelectItem>
-                                    );
-                                })}
+                                {fromPhoneNumbers.map((phone) => (
+                                    <SelectItem key={phone.id} value={String(phone.id)}>
+                                        {phone.label ? `${phone.label} - ${phone.address}` : phone.address}
+                                        {phone.is_default_caller_id ? " - default" : ""}
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                     ) : selectedConfigBlocked ? (
@@ -563,8 +538,6 @@ export const PhoneCallDialog = ({
                     defaultCountry="in"
                     value={phoneNumber}
                     onChange={handlePhoneInputChange}
-                    className="w-full"
-                    inputClassName="!w-full !bg-transparent !text-foreground !border-input"
                 />
             )}
             <button
@@ -589,36 +562,12 @@ export const PhoneCallDialog = ({
                         <Button variant="outline">Cancel</Button>
                     </DialogClose>
                     {!callSuccessMsg ? (
-                        isWhatsApp ? (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <span
-                                            tabIndex={0}
-                                            className="inline-block cursor-not-allowed"
-                                            title="Outbound calling via WhatsApp is currently under development. Only inbound calling is supported."
-                                        >
-                                            <Button
-                                                disabled
-                                                className="pointer-events-none"
-                                            >
-                                                Start Call
-                                            </Button>
-                                        </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top" className="max-w-xs text-center">
-                                        Outbound calling via WhatsApp is currently under development. Only inbound calling is supported.
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        ) : (
-                            <Button
-                                onClick={handleStartCall}
-                                disabled={callLoading || !phoneNumber || selectedConfigBlocked}
-                            >
-                                {callLoading ? "Calling..." : "Start Call"}
-                            </Button>
-                        )
+                        <Button
+                            onClick={handleStartCall}
+                            disabled={callLoading || !phoneNumber || selectedConfigBlocked}
+                        >
+                            {callLoading ? "Calling..." : "Start Call"}
+                        </Button>
                     ) : (
                         <>
                             <Button variant="outline" onClick={() => { setCallSuccessMsg(null); setCallError(null); }}>
@@ -631,8 +580,8 @@ export const PhoneCallDialog = ({
                     )}
                 </div>
             </DialogFooter>
-            {callError && <div className="text-red-500 text-sm mt-2 break-all break-words max-w-full">{callError}</div>}
-            {callSuccessMsg && <div className="text-green-600 text-sm mt-2 break-all break-words max-w-full">{callSuccessMsg}</div>}
+            {callError && <div className="text-red-500 text-sm mt-2">{callError}</div>}
+            {callSuccessMsg && <div className="text-green-600 text-sm mt-2">{callSuccessMsg}</div>}
         </>
     );
 

@@ -38,8 +38,13 @@ def test_carrier_providers_block_on_a_missing_caller_id():
     covered = []
     for spec in registry.all_specs():
         # Providers with their own resolver are covered by their own tests;
-        # this is about everyone falling back to the shared checklist.
-        if not spec.requires_caller_id or spec.setup_checklist_resolver:
+        # this is about everyone falling back to the shared checklist. An
+        # inbound-only provider has no outbound to be ready for.
+        if (
+            not spec.requires_caller_id
+            or spec.setup_checklist_resolver
+            or not spec.supports_outbound
+        ):
             continue
         covered.append(spec.name)
 
@@ -66,6 +71,22 @@ def test_carrier_providers_block_on_a_missing_caller_id():
 
     # A guard against the loop silently covering nothing.
     assert covered
+
+
+def test_inbound_only_provider_has_no_outbound_checklist():
+    """WhatsApp only receives calls: no caller-ID step the customer could ever
+    complete, and nothing that should ever read as "setup incomplete"."""
+    spec = registry.get("whatsapp")
+    assert spec.supports_outbound is False
+    assert (
+        get_setup_checklist(
+            "whatsapp",
+            {},
+            active_phone_number_count=1,
+            inbound_routed_phone_number_count=1,
+        )
+        is None
+    )
 
 
 def test_provider_that_can_dial_without_a_number_has_no_checklist():

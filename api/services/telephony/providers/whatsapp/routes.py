@@ -1,16 +1,21 @@
 """WhatsApp webhook routes.
 
-This module handles incoming webhooks from Meta's WhatsApp Business Calling API,
-including call lifecycle events (connect, terminate), permission callbacks, and
-webhook verification, connecting incoming WhatsApp calls directly to Dograh's
-WebRTC AI voice pipeline.
+Meta's WhatsApp Business Calling API announces calls here: the GET handshake
+that verifies the webhook, then ``connect`` events carrying an SDP offer and
+``terminate`` events when the caller hangs up. Pipecat's ``WhatsAppClient``
+answers a ``connect`` over WebRTC and closes the peer connection on
+``terminate``; the call itself runs through Dograh's WebRTC voice pipeline.
+
+Meta posts every event to one URL, so with several API workers a call's
+``terminate`` can land on a worker that does not hold its peer connection.
+Terminates are therefore re-broadcast over Redis, and every worker hands them
+to its own client, which closes the calls it holds and ignores the rest.
 """
 
 import asyncio
-import hashlib
-import hmac
 import json
-from typing import Any, Dict, Optional, Tuple
+import uuid
+from typing import Any, Dict, Optional
 
 import aiohttp
 import redis.asyncio as aioredis
@@ -18,24 +23,17 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
 from pipecat.transports.whatsapp.api import (
+    WhatsAppApi,
     WhatsAppConnectCall,
     WhatsAppWebhookRequest,
 )
 from pipecat.transports.whatsapp.client import WhatsAppClient
 from starlette.responses import PlainTextResponse
 
-from api.constants import (
-    ENABLE_COTURN,
-    FORCE_TURN_RELAY,
-    REDIS_URL,
-    WHATSAPP_WEBHOOK_VERIFY_TOKEN,
-)
+from api.constants import ENABLE_COTURN, FORCE_TURN_RELAY, REDIS_URL
 from api.db import db_client
-from api.db.models import (
-    TelephonyConfigurationModel,
-    TelephonyPhoneNumberModel,
-)
-from api.enums import CallType, WorkflowRunState
+from api.db.models import TelephonyConfigurationModel, TelephonyPhoneNumberModel
+from api.enums import CallType
 from api.routes.turn_credentials import (
     TURN_HOST,
     TURN_PORT,
@@ -52,15 +50,21 @@ from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.telephony_address import normalize_telephony_address
 
+from .provider import signature_matches
+
 router = APIRouter(prefix="/whatsapp")
 
 REDIS_TERMINATE_CHANNEL = "whatsapp:call:terminate"
-WHATSAPP_CALL_KEY_PREFIX = "whatsapp:call:"
 
-# Active in-memory registry of ongoing WhatsApp WebRTC calls on this worker:
-# call_id -> (SmallWebRTCConnection, workflow_run_id, organization_id, phone_number_id)
-_active_connections: Dict[str, Tuple[SmallWebRTCConnection, int, int, str]] = {}
+# Marks this worker's own terminate broadcasts so it does not handle them twice.
+_WORKER_ID = uuid.uuid4().hex
+
 _background_tasks: set[asyncio.Task] = set()
+
+# Calls whose pipeline runs on this worker, and which of those Meta has
+# already ended — so the pipeline's teardown knows whether to end the call.
+_owned_calls: set[str] = set()
+_terminated_by_meta: set[str] = set()
 
 # Reusable aiohttp session and cached clients per phone_number_id
 _http_session: Optional[aiohttp.ClientSession] = None
@@ -88,7 +92,7 @@ def _ensure_redis_subscriber() -> None:
 
 
 async def _listen_for_remote_terminates() -> None:
-    """Listen for cross-worker terminate events on Redis pub/sub and disconnect local peer."""
+    """Hand terminate webhooks received by other workers to this worker's clients."""
     while True:
         redis = None
         pubsub = None
@@ -101,20 +105,13 @@ async def _listen_for_remote_terminates() -> None:
                     continue
                 try:
                     data = json.loads(message["data"])
-                    target_call_id = data.get("call_id")
-                    if target_call_id and target_call_id in _active_connections:
-                        entry = _active_connections.pop(target_call_id, None)
-                        if entry:
-                            conn = entry[0]
-                            try:
-                                await conn.disconnect()
-                                logger.info(
-                                    f"[WhatsApp] Peer connection closed via cross-worker terminate for {target_call_id}"
-                                )
-                            except Exception as e:
-                                logger.warning(
-                                    f"[WhatsApp] Error during cross-worker peer disconnect: {e}"
-                                )
+                    if data.get("worker_id") == _WORKER_ID:
+                        continue
+                    await _dispatch_terminate(
+                        phone_number_id=str(data.get("phone_number_id") or ""),
+                        payload=data.get("payload") or {},
+                        call_ids=list(data.get("call_ids") or []),
+                    )
                 except Exception as e:
                     logger.warning(
                         f"[WhatsApp] Error handling cross-worker terminate message: {e}"
@@ -180,7 +177,7 @@ def _build_whatsapp_ice_servers() -> list[IceServer]:
         servers.append(IceServer(urls="stun:stun.l.google.com:19302"))
 
     if ENABLE_COTURN and TURN_HOST and TURN_SECRET:
-        creds = generate_turn_credentials("whatsapp", TURN_SECRET)
+        creds = generate_turn_credentials("whatsapp")
         turn_udp = f"turn:{TURN_HOST}:{TURN_PORT}?transport=udp"
         turn_tcp = f"turn:{TURN_HOST}:{TURN_PORT}?transport=tcp"
         servers.append(
@@ -220,32 +217,73 @@ def _get_or_create_whatsapp_client(
     return client
 
 
+def _graph_api(phone_number_id: str, access_token: str) -> WhatsAppApi:
+    """Pipecat's Graph API wrapper for one business number, on the shared session."""
+    return WhatsAppApi(
+        whatsapp_token=access_token,
+        phone_number_id=phone_number_id,
+        session=_get_http_session(),
+    )
+
+
 async def _reject_whatsapp_call(
     phone_number_id: str,
     call_id: str,
     access_token: Optional[str],
 ) -> None:
-    """Send a call rejection signal to Meta Graph API."""
+    """Decline a ringing call; the caller sees it rejected."""
     if not access_token or not phone_number_id or not call_id:
         return
     try:
-        url = f"https://graph.facebook.com/v21.0/{phone_number_id}/calls"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "messaging_product": "whatsapp",
-            "call_id": call_id,
-            "action": "reject",
-        }
-        session = _get_http_session()
-        async with session.post(url, headers=headers, json=payload) as resp:
-            logger.info(
-                f"[WhatsApp] Call {call_id} rejected via Graph API, status={resp.status}"
-            )
+        result = await _graph_api(
+            phone_number_id, access_token
+        ).reject_call_to_whatsapp(call_id)
+        logger.info(f"[WhatsApp] Rejected call {call_id}: {result}")
     except Exception as e:
-        logger.error(f"[WhatsApp] Failed to send call reject to Meta: {e}")
+        logger.error(f"[WhatsApp] Failed to reject call {call_id}: {e}")
+
+
+async def _terminate_whatsapp_call(
+    phone_number_id: str,
+    call_id: str,
+    access_token: Optional[str],
+) -> None:
+    """End an accepted call on Meta's side; the caller hears it hang up."""
+    if not access_token or not phone_number_id or not call_id:
+        return
+    try:
+        result = await _graph_api(
+            phone_number_id, access_token
+        ).terminate_call_to_whatsapp(call_id)
+        logger.info(f"[WhatsApp] Terminated call {call_id}: {result}")
+    except Exception as e:
+        logger.error(f"[WhatsApp] Failed to terminate call {call_id}: {e}")
+
+
+async def _dispatch_terminate(
+    phone_number_id: str, payload: Dict[str, Any], call_ids: list[str]
+) -> None:
+    """Give a terminate webhook to this worker's client for the number.
+
+    The client closes the peer connections it holds for those calls, which
+    ends their pipelines, and ignores calls it never answered. A worker with
+    no client for the number has nothing to close.
+    """
+    for call_id in call_ids:
+        if call_id in _owned_calls:
+            _terminated_by_meta.add(call_id)
+
+    client = _clients.get(phone_number_id)
+    if client is None:
+        return
+    try:
+        await client.handle_webhook_request(
+            WhatsAppWebhookRequest.model_validate(payload)
+        )
+    except Exception as e:
+        logger.warning(
+            f"[WhatsApp] Terminate handling failed for calls {call_ids}: {e}"
+        )
 
 
 @router.get("/webhook")
@@ -254,21 +292,14 @@ async def handle_webhook_verification(
     hub_verify_token: str = Query(alias="hub.verify_token"),
     hub_challenge: str = Query(alias="hub.challenge"),
 ):
-    """Handle Meta's webhook verification handshake (hub.challenge)."""
+    """Handle Meta's webhook verification handshake (hub.challenge).
+
+    Every organization's configuration points Meta at this one URL, so the
+    token is what identifies which configuration is being verified.
+    """
     if hub_mode != "subscribe":
         raise HTTPException(status_code=400, detail="Invalid hub.mode")
 
-    # 1. Match against the global environment variable
-    if (
-        WHATSAPP_WEBHOOK_VERIFY_TOKEN
-        and hub_verify_token == WHATSAPP_WEBHOOK_VERIFY_TOKEN
-    ):
-        logger.info(
-            "[WhatsApp] Webhook verification succeeded via environment verify token"
-        )
-        return PlainTextResponse(hub_challenge, status_code=200)
-
-    # 2. Fallback: Match against active WhatsApp telephony configurations in the DB
     try:
         matching_config = await db_client.get_whatsapp_configuration_by_verify_token(
             hub_verify_token
@@ -312,18 +343,7 @@ def _verify_whatsapp_signature(
         )
         raise HTTPException(status_code=403, detail="Missing webhook signature")
 
-    if not signature_header.startswith("sha256="):
-        logger.error(f"[WhatsApp] Invalid signature header format: {signature_header}")
-        raise HTTPException(status_code=403, detail="Invalid webhook signature")
-
-    expected_sig = hmac.new(
-        key=app_secret.encode("utf-8"),
-        msg=raw_body,
-        digestmod=hashlib.sha256,
-    ).hexdigest()
-    received_sig = signature_header[7:]
-
-    if not hmac.compare_digest(expected_sig, received_sig):
+    if not signature_matches(app_secret, raw_body, signature_header):
         logger.error(
             f"[WhatsApp] Webhook signature verification failed for phone_number_id={phone_number_id}"
         )
@@ -364,18 +384,6 @@ async def handle_whatsapp_webhook(request: Request):
                 if not calls:
                     continue
 
-                # Fallback to active connection if phone_number_id is omitted from metadata
-                if not phone_number_id:
-                    for c in calls:
-                        cid = c.get("id")
-                        if (
-                            cid
-                            and cid in _active_connections
-                            and len(_active_connections[cid]) > 3
-                        ):
-                            phone_number_id = str(_active_connections[cid][3])
-                            break
-
                 if not phone_number_id:
                     logger.error(
                         "[WhatsApp] Webhook calling change missing phone_number_id"
@@ -408,6 +416,7 @@ async def handle_whatsapp_webhook(request: Request):
                     phone_number_id=phone_number_id,
                 )
 
+                terminated: list[str] = []
                 for call_data in calls:
                     event = call_data.get("event")
                     call_id = call_data.get("id")
@@ -417,20 +426,19 @@ async def handle_whatsapp_webhook(request: Request):
                             call_data=call_data,
                             metadata=metadata,
                             phone_number_id=phone_number_id,
-                            raw_body=raw_body,
-                            signature_header=signature_header,
                             payload=payload,
                             config=config,
                         )
                     elif event == "terminate":
-                        await _handle_call_terminate(
-                            call_data=call_data,
-                            payload=payload,
-                        )
+                        if call_id:
+                            terminated.append(call_id)
                     else:
                         logger.info(
                             f"[WhatsApp] Received call event {event!r} for call {call_id}"
                         )
+
+                if terminated:
+                    await _handle_call_terminate(phone_number_id, payload, terminated)
 
         return {"status": "success"}
 
@@ -447,12 +455,14 @@ async def _handle_inbound_call_connect(
     call_data: Dict[str, Any],
     metadata: Dict[str, Any],
     phone_number_id: str,
-    raw_body: bytes,
-    signature_header: Optional[str],
     payload: Dict[str, Any],
-    config: Optional[TelephonyConfigurationModel] = None,
+    config: TelephonyConfigurationModel,
 ) -> None:
-    """Process an incoming WhatsApp call connect event (SDP offer)."""
+    """Process an incoming WhatsApp call connect event (SDP offer).
+
+    The caller has already matched ``config`` to ``phone_number_id`` and
+    verified the payload signature against its app secret.
+    """
     call_id = call_data.get("id") or ""
     from_number = call_data.get("from") or ""
     to_number = call_data.get("to") or metadata.get("display_phone_number") or ""
@@ -475,12 +485,6 @@ async def _handle_inbound_call_connect(
         logger.warning("[WhatsApp] Missing call_id in connect event")
         return
 
-    if call_id in _active_connections:
-        logger.warning(
-            f"[WhatsApp] Call {call_id} already active in-memory, ignoring duplicate connect"
-        )
-        return
-
     existing_run = await db_client.get_workflow_run_by_call_id(call_id)
     if existing_run:
         logger.warning(
@@ -488,28 +492,9 @@ async def _handle_inbound_call_connect(
         )
         return
 
-    # 2. Lookup the TelephonyConfiguration for this phone_number_id if not supplied
-    if config is None:
-        config = await db_client.get_whatsapp_configuration_by_phone_number_id(
-            phone_number_id
-        )
-        if not config:
-            logger.error(
-                f"[WhatsApp] No active configuration found for phone_number_id {phone_number_id}"
-            )
-            return
-
-        app_secret = (config.credentials or {}).get("app_secret")
-        _verify_whatsapp_signature(
-            app_secret=app_secret,
-            raw_body=raw_body,
-            signature_header=signature_header,
-            phone_number_id=phone_number_id,
-        )
-
     access_token = (config.credentials or {}).get("access_token")
 
-    # 3. Resolve destination phone number & assigned inbound workflow
+    # 2. Resolve the called number on this configuration & its inbound workflow
     normalized_to = (
         normalize_telephony_address(to_number).canonical if to_number else ""
     )
@@ -518,41 +503,15 @@ async def _handle_inbound_call_connect(
     )
 
     phones = await db_client.list_phone_numbers_for_config(config.id)
-    phone_row: Optional[TelephonyPhoneNumberModel] = None
-    for p in phones:
-        if p.is_active and p.address_normalized == normalized_to:
-            phone_row = p
-            break
-
-    # Fallback: only when destination to_number was omitted/empty in the incoming webhook,
-    # resolve by matching phone_number_id in extra_metadata or single active phone row
-    if not phone_row and not normalized_to:
-        if phone_number_id:
-            for p in phones:
-                if not getattr(p, "is_active", True):
-                    continue
-                meta = getattr(p, "extra_metadata", {}) or {}
-                if str(
-                    meta.get("phone_number_id")
-                    or meta.get("meta_phone_number_id")
-                    or ""
-                ) == str(phone_number_id):
-                    phone_row = p
-                    break
-
-        if not phone_row:
-            active_phones = [p for p in phones if getattr(p, "is_active", True)]
-            if len(active_phones) == 1:
-                phone_row = active_phones[0]
-
-        if phone_row:
-            normalized_to = phone_row.address_normalized
+    phone_row: Optional[TelephonyPhoneNumberModel] = next(
+        (p for p in phones if p.is_active and p.address_normalized == normalized_to),
+        None,
+    )
 
     if not phone_row:
         logger.warning(
-            f"[WhatsApp] No active configured phone number found matching destination "
-            f"{normalized_to} (or phone_number_id {phone_number_id}) for config {config.id}. "
-            f"Rejecting call {call_id}."
+            f"[WhatsApp] No active phone number {normalized_to!r} on config "
+            f"{config.id} (phone_number_id {phone_number_id}). Rejecting call {call_id}."
         )
         await _reject_whatsapp_call(phone_number_id, call_id, access_token)
         return
@@ -576,7 +535,7 @@ async def _handle_inbound_call_connect(
         await _reject_whatsapp_call(phone_number_id, call_id, access_token)
         return
 
-    # 4. Concurrency slot & workflow run creation
+    # 3. Concurrency slot & workflow run creation
     try:
         concurrency_slot = await call_concurrency.acquire_org_slot(
             config.organization_id,
@@ -654,7 +613,7 @@ async def _handle_inbound_call_connect(
         await _reject_whatsapp_call(phone_number_id, call_id, access_token)
         return
 
-    # 5. Connect WebRTC via Pipecat's WhatsAppClient
+    # 4. Connect WebRTC via Pipecat's WhatsAppClient
     # Signature is already verified above in routes.py, so we pass app_secret=None
     # to avoid redundant double-verification in WhatsAppClient.
     client = _get_or_create_whatsapp_client(
@@ -670,32 +629,9 @@ async def _handle_inbound_call_connect(
             f"[WhatsApp] Call {call.id} connected! Starting voice pipeline for "
             f"workflow_run {workflow_run.id} in background"
         )
-        _active_connections[call.id] = (
-            connection,
-            workflow_run.id,
-            config.organization_id,
-            phone_number_id,
-        )
+        _owned_calls.add(call.id)
 
-        # Store call lifecycle state in shared Redis
-        try:
-            redis = await _get_redis()
-            if redis:
-                await redis.setex(
-                    f"{WHATSAPP_CALL_KEY_PREFIX}{call.id}",
-                    3600,
-                    json.dumps(
-                        {
-                            "workflow_run_id": workflow_run.id,
-                            "organization_id": config.organization_id,
-                            "phone_number_id": phone_number_id,
-                        }
-                    ),
-                )
-        except Exception as e:
-            logger.warning(f"[WhatsApp] Failed to store call state in Redis: {e}")
-
-        # Ensure this worker is subscribed to cross-worker shutdown events
+        # Ensure this worker hears terminates that reach other workers
         _ensure_redis_subscriber()
 
         # Launch the voice pipeline asynchronously so the webhook responds immediately
@@ -707,18 +643,17 @@ async def _handle_inbound_call_connect(
                 user_id=workflow.user_id,
                 organization_id=config.organization_id,
                 call_id=call.id,
+                phone_number_id=phone_number_id,
+                access_token=access_token,
             )
         )
         _background_tasks.add(pipeline_task)
         pipeline_task.add_done_callback(_background_tasks.discard)
 
     try:
-        parsed_request = WhatsAppWebhookRequest.model_validate(payload)
         await client.handle_webhook_request(
-            request=parsed_request,
+            request=WhatsAppWebhookRequest.model_validate(payload),
             connection_callback=on_call_connected,
-            raw_body=raw_body,
-            sha256_signature=signature_header,
         )
         logger.info(
             f"[WhatsApp] Successfully accepted call {call_id} and dispatched pipeline"
@@ -741,8 +676,16 @@ async def _run_whatsapp_pipeline(
     user_id: int,
     organization_id: int,
     call_id: str,
+    phone_number_id: str,
+    access_token: Optional[str],
 ) -> None:
-    """Execute Dograh's WebRTC AI pipeline over the active peer connection."""
+    """Execute Dograh's WebRTC AI pipeline over the active peer connection.
+
+    The pipeline ends either because Meta closed the call (the client dropped
+    the peer connection on ``terminate``) or on its own — the agent hung up or
+    the connection died. Only in the second case is Meta still holding the
+    call open for the caller, so only then is it told to end it.
+    """
     try:
         logger.info(
             f"[WhatsApp] Pipeline started for workflow_run {workflow_run_id}, call_id={call_id}"
@@ -762,22 +705,19 @@ async def _run_whatsapp_pipeline(
             f"[WhatsApp] Pipeline error for workflow_run {workflow_run_id}: {e}",
             exc_info=True,
         )
-        try:
-            await mark_workflow_run_failed(
-                workflow_run_id, str(e), only_if_incomplete=True
-            )
-        except Exception as mark_err:
-            logger.warning(
-                f"[WhatsApp] Failed to mark workflow run {workflow_run_id} failed: {mark_err}"
-            )
+        # Best-effort by contract; a run the pipeline already completed is left
+        # as it is, so a teardown error cannot rewrite a finished call.
+        run = await db_client.get_workflow_run(
+            workflow_run_id, organization_id=organization_id
+        )
+        if run and not run.is_completed:
+            await mark_workflow_run_failed(workflow_run_id, str(e))
     finally:
-        _active_connections.pop(call_id, None)
-        try:
-            redis = await _get_redis()
-            if redis:
-                await redis.delete(f"{WHATSAPP_CALL_KEY_PREFIX}{call_id}")
-        except Exception:
-            pass
+        _owned_calls.discard(call_id)
+        if call_id in _terminated_by_meta:
+            _terminated_by_meta.discard(call_id)
+        else:
+            await _terminate_whatsapp_call(phone_number_id, call_id, access_token)
         try:
             await call_concurrency.release_workflow_run_slot(workflow_run_id)
         except Exception as e:
@@ -787,82 +727,30 @@ async def _run_whatsapp_pipeline(
 
 
 async def _handle_call_terminate(
-    call_data: Dict[str, Any], payload: Dict[str, Any]
+    phone_number_id: str, payload: Dict[str, Any], call_ids: list[str]
 ) -> None:
-    """Handle a WhatsApp call termination event from Meta."""
-    call_id = call_data.get("id") or ""
-    if not call_id:
-        return
-    logger.info(f"[WhatsApp] Processing terminate event for call {call_id}")
+    """Close the calls Meta reports ended, on whichever worker holds them.
 
-    # Broadcast terminate to owning worker via Redis pub/sub and delete call key
+    This worker tries first; the broadcast reaches the others. The pipeline
+    behind a closed connection winds down on its own and completes the run,
+    so nothing is written to the run here.
+    """
+    logger.info(f"[WhatsApp] Processing terminate for calls {call_ids}")
+    await _dispatch_terminate(phone_number_id, payload, call_ids)
+
     try:
         redis = await _get_redis()
         if redis:
-            await redis.delete(f"{WHATSAPP_CALL_KEY_PREFIX}{call_id}")
             await redis.publish(
                 REDIS_TERMINATE_CHANNEL,
-                json.dumps({"call_id": call_id}),
+                json.dumps(
+                    {
+                        "worker_id": _WORKER_ID,
+                        "phone_number_id": phone_number_id,
+                        "call_ids": call_ids,
+                        "payload": payload,
+                    }
+                ),
             )
     except Exception as e:
         logger.warning(f"[WhatsApp] Failed to publish terminate to Redis: {e}")
-
-    entry = _active_connections.pop(call_id, None)
-    if entry:
-        connection, workflow_run_id, org_id = entry[:3]
-        try:
-            await connection.disconnect()
-            logger.info(f"[WhatsApp] Peer connection closed for call {call_id}")
-        except Exception as e:
-            logger.warning(f"[WhatsApp] Error during peer connection disconnect: {e}")
-
-        # Mark workflow run state if still running
-        try:
-            await db_client.update_workflow_run(
-                workflow_run_id,
-                is_completed=True,
-                state=WorkflowRunState.COMPLETED.value,
-            )
-        except Exception as e:
-            logger.warning(
-                f"[WhatsApp] Failed to update workflow run on termination: {e}"
-            )
-
-        try:
-            await call_concurrency.release_workflow_run_slot(workflow_run_id)
-        except Exception as e:
-            logger.warning(
-                f"[WhatsApp] Failed to release concurrency slot on terminate for {workflow_run_id}: {e}"
-            )
-    else:
-        # Cross-worker termination cleanup: when webhook hits a different worker instance
-        try:
-            run = await db_client.get_workflow_run_by_call_id(call_id)
-            if run and not run.is_completed:
-                logger.info(
-                    f"[WhatsApp] Cleaning up cross-worker workflow run {run.id} for terminated call {call_id}"
-                )
-                await db_client.update_workflow_run(
-                    run.id,
-                    is_completed=True,
-                    state=WorkflowRunState.COMPLETED.value,
-                )
-                await call_concurrency.release_workflow_run_slot(run.id)
-        except Exception as e:
-            logger.warning(
-                f"[WhatsApp] Failed cross-worker terminate cleanup for call {call_id}: {e}"
-            )
-
-
-@router.post("/permissions")
-async def handle_permission_callback(request: Request):
-    """Handle permission callback webhooks from Meta for business-initiated calls."""
-    try:
-        payload = await request.json()
-        logger.info(f"[WhatsApp] Received permission callback: {payload}")
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"[WhatsApp] Error processing permission callback: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Permission callback processing failed: {str(e)}"
-        )

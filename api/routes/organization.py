@@ -47,11 +47,7 @@ from api.services.auth.depends import (
     get_user,
     get_user_with_selected_organization,
 )
-from api.services.configuration.masking import (
-    is_mask_of,
-    mask_key,
-    restore_masked_fields,
-)
+from api.services.configuration.masking import is_mask_of, mask_key
 from api.services.observability.call_events.configuration import (
     check_connection,
     resolve_settings,
@@ -79,9 +75,6 @@ from api.services.telephony.inbound_routing import (
     InboundRoutingConflictError,
     assert_no_inbound_routing_conflict,
     canonical_address,
-)
-from api.services.telephony.phone_number_sync import (
-    sync_available_phone_numbers_for_config,
 )
 from api.services.telephony.registry import ProviderConnectivity, TrunkDesiredState
 from api.services.worker_sync.manager import get_worker_sync_manager
@@ -126,17 +119,6 @@ def _credentials_for_display(provider_name: str, value: dict) -> dict:
     if spec:
         for field_name in spec.server_managed_credential_fields:
             out.pop(field_name, None)
-        if spec.config_response_cls:
-            try:
-                payload = dict(out)
-                if "provider" not in payload:
-                    payload["provider"] = provider_name
-                return spec.config_response_cls(**payload).model_dump()
-            except Exception as e:
-                logger.warning(
-                    f"Failed to build response via {spec.config_response_cls.__name__} "
-                    f"for provider {provider_name}: {e}"
-                )
     return out
 
 
@@ -174,6 +156,9 @@ class TelephonyProviderMetadata(BaseModel):
     # Lets the UI present the two ways to get calls flowing without naming any
     # provider itself.
     connectivity: ProviderConnectivity = "api"
+    # False for an inbound-only channel: the form then offers no outbound
+    # default, again without the UI naming the provider.
+    supports_outbound: bool = True
     fields: List[TelephonyProviderUIField]
     docs_url: Optional[str] = None
 
@@ -237,6 +222,7 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
                 provider=spec.name,
                 display_name=spec.ui_metadata.display_name,
                 connectivity=spec.connectivity,
+                supports_outbound=spec.supports_outbound,
                 fields=[
                     TelephonyProviderUIField(
                         name=f.name,
@@ -422,13 +408,21 @@ async def get_model_configuration_preferences_legacy(
     return await get_preferences(user=user)
 
 
-def _get_nested_field(value: dict, dotted_path: str) -> Any:
-    """Resolve a dotted path in a nested dict, or None when it is not there."""
+def preserve_masked_fields(provider: str, request_dict: dict, existing: dict):
+    """If the client re-submitted a masked sensitive field, restore the original."""
+    for field_name in _sensitive_fields(provider):
+        v = _get_nested_field(request_dict, field_name)
+        existing_value = _get_nested_field(existing, field_name)
+        if v and is_mask_of(v, existing_value or ""):
+            _set_nested_field(request_dict, field_name, existing_value)
+
+
+def _get_nested_field(value: dict, dotted_path: str):
     current = value
     for part in dotted_path.split("."):
-        if not isinstance(current, dict) or part not in current:
+        if not isinstance(current, dict):
             return None
-        current = current[part]
+        current = current.get(part)
     return current
 
 
@@ -442,44 +436,6 @@ def _set_nested_field(value: dict, dotted_path: str, field_value) -> None:
             current[part] = child
         current = child
     current[parts[-1]] = field_value
-
-
-def _get_model_fields_set_paths(model: BaseModel, prefix: str = "") -> set[str]:
-    """Recursively collect dotted field paths that were explicitly set on a Pydantic model.
-
-    A nested path is only recorded under a parent that was itself set, so the
-    result is ancestor-closed: ``"a.b" in paths`` implies ``"a" in paths``.
-    ``preserve_masked_fields`` leans on that — it can settle "did the caller
-    say anything about this path?" with one membership test.
-    """
-    paths = set()
-    for field in model.model_fields_set:
-        full_path = f"{prefix}.{field}" if prefix else field
-        paths.add(full_path)
-        val = getattr(model, field, None)
-        if isinstance(val, BaseModel):
-            paths.update(_get_model_fields_set_paths(val, prefix=full_path))
-    return paths
-
-
-def preserve_masked_fields(
-    provider: str,
-    request_dict: dict,
-    existing: dict,
-    fields_set: set[str],
-) -> None:
-    """Restore stored secrets the caller re-submitted masked or left out.
-
-    Provider-aware wrapper: the registry says which paths are sensitive, and
-    ``restore_masked_fields`` does the merge. ``fields_set`` comes from
-    ``_get_model_fields_set_paths``, whose ancestor-closure it relies on.
-    """
-    restore_masked_fields(
-        request_dict,
-        existing,
-        fields_set,
-        sensitive_paths=_sensitive_fields(provider),
-    )
 
 
 def _credentials_from_payload(config: TelephonyConfigRequest) -> dict:
@@ -661,6 +617,7 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 [n for n in active if n.telephony_trunk_id is None]
             ),
         )
+        supports_outbound = _provider_supports_outbound(row.provider)
         items.append(
             TelephonyConfigurationListItem(
                 id=row.id,
@@ -672,8 +629,9 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 inactive_since=row.inactive_since,
                 inactive_reason=row.inactive_reason,
                 phone_number_count=len(active),
+                supports_outbound=supports_outbound,
                 is_ready_for_outbound=(
-                    checklist.ready_for_outbound if checklist else True
+                    checklist.ready_for_outbound if checklist else supports_outbound
                 ),
                 outbound_blocked_reason=(
                     checklist.outbound_blocked_reason if checklist else None
@@ -693,6 +651,14 @@ async def create_telephony_configuration(
     """Create a new telephony configuration for the org."""
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
+
+    if request.is_default_outbound and not _provider_supports_outbound(
+        request.config.provider
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="This provider receives calls only; it cannot be the outbound default.",
+        )
 
     credentials = _credentials_from_payload(request.config)
     credentials = await _run_preprocess_hook(request.config.provider, credentials)
@@ -728,15 +694,6 @@ async def create_telephony_configuration(
             "config_id": row.id,
         },
     )
-
-    sync_result = await sync_available_phone_numbers_for_config(
-        row.id, user.selected_organization_id
-    )
-    if not sync_result.ok:
-        logger.warning(
-            f"Phone-number sync failed for telephony config {row.id}: "
-            f"{sync_result.message}"
-        )
 
     return await _detail_response(row)
 
@@ -783,12 +740,8 @@ async def update_telephony_configuration(
                 detail="Provider cannot be changed; create a new configuration instead.",
             )
         credentials = _credentials_from_payload(request.config)
-        fields_set = _get_model_fields_set_paths(request.config)
         preserve_masked_fields(
-            existing.provider,
-            credentials,
-            existing.credentials or {},
-            fields_set=fields_set,
+            existing.provider, credentials, existing.credentials or {}
         )
         credentials = await _run_preprocess_hook(
             existing.provider,
@@ -821,38 +774,7 @@ async def update_telephony_configuration(
         credentials=credentials,
     )
 
-    sync_result = await sync_available_phone_numbers_for_config(
-        row.id, user.selected_organization_id
-    )
-    if not sync_result.ok:
-        logger.warning(
-            f"Phone-number sync failed for telephony config {row.id}: "
-            f"{sync_result.message}"
-        )
-
     return await _detail_response(row)
-
-
-@router.post(
-    "/telephony-configs/{config_id}/sync-phone-numbers",
-    response_model=ProviderSyncStatus,
-)
-async def sync_telephony_configuration_phone_numbers(
-    config_id: int, user: UserModel = Depends(get_user)
-):
-    if not user.selected_organization_id:
-        raise HTTPException(status_code=400, detail="No organization selected")
-
-    await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
-    result = await sync_available_phone_numbers_for_config(
-        config_id, user.selected_organization_id
-    )
-    if not result.ok:
-        raise HTTPException(
-            status_code=502,
-            detail=result.message or "Phone-number sync failed",
-        )
-    return result
 
 
 @router.post(
@@ -862,6 +784,17 @@ async def sync_telephony_configuration_phone_numbers(
 async def set_default_outbound(config_id: int, user: UserModel = Depends(get_user)):
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
+
+    existing = await db_client.get_telephony_configuration_for_org(
+        config_id, user.selected_organization_id
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Telephony configuration not found")
+    if not _provider_supports_outbound(existing.provider):
+        raise HTTPException(
+            status_code=400,
+            detail="This provider receives calls only; it cannot be the outbound default.",
+        )
 
     row = await db_client.set_default_telephony_configuration(
         config_id, user.selected_organization_id
@@ -944,6 +877,7 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
         sip_connectivity=get_sip_connectivity_details(
             row.provider, row.credentials or {}
         ),
+        supports_outbound=_provider_supports_outbound(row.provider),
         # Built from the stored (unmasked) credentials: the checklist reports
         # whether a field is set, never what it is.
         setup_checklist=get_setup_checklist(
@@ -976,6 +910,12 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
 def _provider_supports_trunks(provider: str) -> bool:
     spec = telephony_registry.get_optional(provider)
     return bool(spec and spec.supports_trunks)
+
+
+def _provider_supports_outbound(provider: str) -> bool:
+    """Unknown providers count as outbound-capable so a stale row keeps its UI."""
+    spec = telephony_registry.get_optional(provider)
+    return spec.supports_outbound if spec else True
 
 
 async def _list_trunks_if_supported(provider: str, config_id: int):

@@ -14,11 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
-from api.db.models import (
-    CampaignModel,
-    TelephonyConfigurationModel,
-    TelephonyPhoneNumberModel,
-)
+from api.db.models import CampaignModel, TelephonyConfigurationModel
 
 
 class TelephonyConfigurationInUseError(Exception):
@@ -188,72 +184,30 @@ class TelephonyConfigurationClient(BaseDBClient):
     async def get_whatsapp_configuration_by_phone_number_id(
         self, phone_number_id: str
     ) -> Optional[TelephonyConfigurationModel]:
-        """Look up an active WhatsApp telephony configuration by phone_number_id.
+        """The active WhatsApp configuration whose credentials name this Meta phone number.
 
-        Matches either the phone_number_id stored directly in configuration
-        credentials or the phone_number_id stored in attached active phone
-        number extra_metadata (supporting WABA-level account setups).
+        Meta's webhook carries no tenant, so this is the only thing that routes
+        a call to an organization. Two active configurations claiming the same
+        number is therefore refused rather than guessed between.
         """
         async with self.async_session() as session:
-            # 1. Direct match on configuration credentials
-            stmt = select(TelephonyConfigurationModel).where(
-                TelephonyConfigurationModel.provider == "whatsapp",
-                TelephonyConfigurationModel.credentials.op("->>")("phone_number_id")
-                == phone_number_id,
-                TelephonyConfigurationModel.inactive.is_(False),
+            result = await session.execute(
+                select(TelephonyConfigurationModel).where(
+                    TelephonyConfigurationModel.provider == "whatsapp",
+                    TelephonyConfigurationModel.credentials.op("->>")("phone_number_id")
+                    == phone_number_id,
+                    TelephonyConfigurationModel.inactive.is_(False),
+                )
             )
-            result = await session.execute(stmt)
             rows = result.scalars().all()
             if len(rows) > 1:
                 ids = ", ".join(str(r.id) for r in rows)
                 logger.error(
-                    f"[WhatsApp] Ambiguous phone_number_id={phone_number_id!r}: "
-                    f"matches {len(rows)} active configurations ({ids}). "
-                    f"Rejecting inbound call to prevent wrong-tenant routing."
-                )
-                return None  # caller will reject the call
-            config = rows[0] if rows else None
-            if config:
-                return config
-
-            # 2. Match via attached phone number extra_metadata
-            stmt_phone = (
-                select(TelephonyConfigurationModel)
-                .join(
-                    TelephonyPhoneNumberModel,
-                    TelephonyPhoneNumberModel.telephony_configuration_id
-                    == TelephonyConfigurationModel.id,
-                )
-                .where(
-                    TelephonyConfigurationModel.provider == "whatsapp",
-                    TelephonyConfigurationModel.inactive.is_(False),
-                    TelephonyPhoneNumberModel.is_active.is_(True),
-                    (
-                        TelephonyPhoneNumberModel.extra_metadata.op("->>")(
-                            "phone_number_id"
-                        )
-                        == phone_number_id
-                    )
-                    | (
-                        TelephonyPhoneNumberModel.extra_metadata.op("->>")(
-                            "meta_phone_number_id"
-                        )
-                        == phone_number_id
-                    ),
-                )
-            )
-            result_phone = await session.execute(stmt_phone)
-            rows_phone = result_phone.scalars().all()
-            unique_configs = {r.id: r for r in rows_phone}
-            if len(unique_configs) > 1:
-                ids = ", ".join(str(cid) for cid in unique_configs.keys())
-                logger.error(
-                    f"[WhatsApp] Ambiguous phone_number_id={phone_number_id!r} via extra_metadata: "
-                    f"matches {len(unique_configs)} active configurations ({ids}). "
-                    f"Rejecting inbound call."
+                    f"[WhatsApp] phone_number_id={phone_number_id!r} matches "
+                    f"{len(rows)} active configurations ({ids}); refusing to route."
                 )
                 return None
-            return next(iter(unique_configs.values())) if unique_configs else None
+            return rows[0] if rows else None
 
     async def get_whatsapp_configuration_by_verify_token(
         self, verify_token: str

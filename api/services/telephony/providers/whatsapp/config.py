@@ -1,62 +1,25 @@
-"""WhatsApp telephony configuration schemas.
+"""WhatsApp telephony configuration schema."""
 
-This module defines Pydantic models for WhatsApp Business API configuration,
-following Dograh's telephony provider configuration pattern.
-"""
-
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
 class WhatsAppConfigurationRequest(BaseModel):
-    """Request schema for WhatsApp configuration.
+    """Credentials for one WhatsApp Business phone number on the Cloud API.
 
-    This schema validates incoming configuration save requests and
-    integrates with Dograh's metadata-driven UI forms.
-
-    Attributes:
-        provider: Literal discriminator for union typing
-        access_token: WhatsApp Business API access token
-        phone_number_id: Business phone number ID from Meta
-        webhook_verify_token: Token for webhook verification
-        app_secret: App secret for webhook signature validation
-        business_initiated_calls_enabled: Enable outbound calling
-        call_icon_visibility: Control call icon display in WhatsApp
+    The webhook verify token is deliberately not declared here: it is minted
+    by the provider's save hook and carried forward on update, never read from
+    a request (see ``_preprocess_credentials_on_save`` in the package).
     """
 
     provider: Literal["whatsapp"] = Field(default="whatsapp")
     access_token: str = Field(
-        ..., min_length=1, description="WhatsApp Business API access token"
+        ..., min_length=1, description="System user access token from Meta"
     )
     phone_number_id: str = Field(
-        ..., min_length=1, description="Business phone number ID"
-    )
-    webhook_verify_token: str = Field(
-        ..., min_length=1, description="Webhook verification token"
+        ..., min_length=1, description="Phone Number ID from the app's API Setup page"
     )
     app_secret: str = Field(
-        ..., min_length=1, description="App secret for webhook signature validation"
+        ..., min_length=1, description="App secret used to verify webhook signatures"
     )
-    business_initiated_calls_enabled: bool = Field(
-        default=False, description="Enable business-initiated calls to WhatsApp users"
-    )
-    call_icon_visibility: Literal["enabled", "disabled", "business_hours"] = Field(
-        default="enabled", description="Control when call icon appears to users"
-    )
-
-
-class WhatsAppConfigurationResponse(BaseModel):
-    """Response schema for WhatsApp configuration.
-
-    This schema defines the masked response returned to the UI,
-    ensuring sensitive credentials are never exposed unmasked.
-    """
-
-    provider: Literal["whatsapp"] = Field(default="whatsapp")
-    phone_number_id: str
-    access_token: Optional[str] = None
-    app_secret: Optional[str] = None
-    webhook_verify_token: Optional[str] = None
-    business_initiated_calls_enabled: bool = False
-    call_icon_visibility: Literal["enabled", "disabled", "business_hours"] = "enabled"

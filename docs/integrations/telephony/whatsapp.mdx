@@ -44,6 +44,13 @@ Dograh AI answers voice calls that WhatsApp users place to your WhatsApp Busines
 1. In your app, open **App settings** → **Basic**
 2. Click **Show** next to **App secret** and copy it
 
+<Frame caption="Meta App Dashboard — App settings > Basic (App ID and App secret)">
+  <img
+    src="/images/whatsapp-meta-app-secret.png"
+    alt="Meta App Dashboard Basic settings showing App ID and App secret"
+  />
+</Frame>
+
 ## Step 3: Configure in Dograh AI
 
 1. Navigate to **/telephony-configurations**, click **Add configuration**, and select **WhatsApp**
@@ -51,6 +58,21 @@ Dograh AI answers voice calls that WhatsApp users place to your WhatsApp Busines
 3. Open the new configuration. Under **Webhook for your Meta app**, copy the **Callback URL** and the **Verify token** — you'll paste both into Meta in Step 4
 4. In **Phone numbers**, click **Refresh numbers**. Dograh imports the numbers Meta lists on the account. The result names any number it had to skip, so check it before assigning workflows.
 5. Edit each number that should take calls and set its **Inbound workflow** to the agent that should answer. A number with no workflow rejects calls.
+
+<CardGroup cols={2}>
+  <Frame caption="Meta App Dashboard — WhatsApp > API Setup">
+    <img
+      src="/images/whatsapp-meta-credentials.png"
+      alt="Meta WhatsApp API Setup showing Test number, Phone Number ID, Messaging account ID, and Access token"
+    />
+  </Frame>
+  <Frame caption="Dograh AI — Add telephony configuration (WhatsApp)">
+    <img
+      src="/images/whatsapp-dograh-credentials.png"
+      alt="Dograh Add telephony configuration modal showing Access Token, WhatsApp Business Account ID, and App Secret fields"
+    />
+  </Frame>
+</CardGroup>
 
 <Note>
   On self-hosted Dograh, the Callback URL must be your backend's public HTTPS
@@ -70,11 +92,42 @@ Dograh AI answers voice calls that WhatsApp users place to your WhatsApp Busines
 2. Paste the **Callback URL** and **Verify token** from Step 3, then click **Verify and save**
 3. In the **Webhook fields** list that appears, turn on **Subscribe** for `calls`
 
+<CardGroup cols={2}>
+  <Frame caption="Dograh AI — Webhook for your Meta app">
+    <img
+      src="/images/whatsapp-dograh-webhook.png"
+      alt="Dograh configuration page showing Callback URL and Verify token"
+    />
+  </Frame>
+  <Frame caption="Meta App Dashboard — Configure a webhook">
+    <img
+      src="/images/whatsapp-meta-webhook.png"
+      alt="Meta Configure a webhook modal showing Callback URL and Verify token"
+    />
+  </Frame>
+</CardGroup>
+
 ## Step 5: Turn On Calling
 
 1. Open [WhatsApp Manager](https://business.facebook.com/latest/whatsapp_manager/) → **Account tools** → **Phone numbers**
 2. Click the gear icon next to each number and open **Call settings**
 3. Turn on **Allow voice calls**
+
+Alternatively, turn on calling via the Graph API (useful when testing with a Meta test phone number):
+
+```bash
+curl -X POST "https://graph.facebook.com/v26.0/<PHONE_NUMBER_ID>/settings" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "calling": {
+      "status": "ENABLED",
+      "call_icon_visibility": "DEFAULT"
+    }
+  }'
+```
+
+A successful call returns `{"success": true}`.
 
 ## Step 6: Test
 

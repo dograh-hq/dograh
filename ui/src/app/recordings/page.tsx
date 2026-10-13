@@ -3,8 +3,8 @@
 import { ExternalLink, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { PageLayout, PageSection } from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
@@ -26,28 +26,22 @@ export default function RecordingsPage() {
 
     if (loading || !user) {
         return (
-            <div className="container mx-auto px-4 py-8">
+            <PageLayout title="Recordings">
                 <div className="space-y-4">
                     <Skeleton className="h-12 w-64" />
                     <Skeleton className="h-64 w-full" />
                 </div>
-            </div>
+            </PageLayout>
         );
     }
 
     return (
-        <div className="container mx-auto px-4 py-8">
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold mb-2">Recordings</h1>
-                <p className="text-muted-foreground">
-                    Manage audio recordings for your organization. Use{" "}
-                    <code className="rounded bg-muted px-1 text-xs">@</code> in prompt fields to insert them,
-                    or as transition messages in tool calls.{" "}
-                    <a href="https://docs.dograh.com/voice-agent/pre-recorded-audio" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
-                        Learn more <ExternalLink className="h-3 w-3" />
-                    </a>
-                </p>
-            </div>
+        <PageLayout title="Recordings" description={<>Manage audio recordings for your organization. Use{" "}
+            <code className="rounded bg-muted px-1 text-xs">@</code> in prompt fields to insert them,
+            or as transition messages in tool calls.{" "}
+            <a href="https://docs.dograh.com/voice-agent/pre-recorded-audio" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
+                Learn more <ExternalLink className="h-3 w-3" />
+            </a></>}>
 
             <Tabs defaultValue="recordings" key={`${user.id}:${"selectedTeam" in user ? user.selectedTeam?.id : user.organizationId}`}>
                 <TabsList className="mb-4">
@@ -55,38 +49,20 @@ export default function RecordingsPage() {
                     <TabsTrigger value="tts-cache">TTS cache</TabsTrigger>
                 </TabsList>
                 <TabsContent value="recordings">
-                    <Card>
-                        <CardHeader>
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <CardTitle>All Recordings</CardTitle>
-                                    <CardDescription>
-                                        Audio recordings shared across all agents in your organization
-                                    </CardDescription>
-                                </div>
-                                <Button onClick={() => setIsUploadOpen(true)}>
-                                    <Upload className="w-4 h-4 mr-2" />
-                                    Upload Recording
-                                </Button>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            <RecordingsList refreshKey={refreshKey} />
-                        </CardContent>
-                    </Card>
+                    <PageSection title="All Recordings"
+                        description="Audio recordings shared across all agents in your organization"
+                        actions={<Button onClick={() => setIsUploadOpen(true)}>
+                            <Upload className="w-4 h-4 mr-2" />
+                            Upload Recording
+                        </Button>}>
+                        <RecordingsList refreshKey={refreshKey} />
+                    </PageSection>
                 </TabsContent>
                 <TabsContent value="tts-cache">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Cached speech</CardTitle>
-                            <CardDescription>
-                                Speech reused across your organization’s workflows. Listen to a phrase and invalidate it to generate fresh audio on its next request.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <TtsCacheList />
-                        </CardContent>
-                    </Card>
+                    <PageSection title="Cached speech"
+                        description="Speech reused across your organization’s workflows. Listen to a phrase and invalidate it to generate fresh audio on its next request.">
+                        <TtsCacheList />
+                    </PageSection>
                 </TabsContent>
             </Tabs>
 
@@ -95,6 +71,6 @@ export default function RecordingsPage() {
                 onOpenChange={setIsUploadOpen}
                 onUploadComplete={() => setRefreshKey((k) => k + 1)}
             />
-        </div>
+        </PageLayout>
     );
 }

@@ -197,12 +197,12 @@ web:
   # time to finish.
   # Ceiling on how long the kubelet waits for drain before SIGKILL. For truly
   # call-safe scale-down it must be >= the longest call. Calls are bounded by
-  # the 20-min stale timeout (rate_limiter.stale_call_timeout=1200s), so 1260s
-  # (21m) covers a max-length call plus SIGTERM handling. The drain exits the
-  # instant active_calls hits 0, so idle/short-call pods still terminate fast —
+  # the 20-min stale timeout (rate_limiter.stale_call_timeout=1200s), so 1275s
+  # covers a max-length call, initial delay, and 60s of shutdown headroom.
+  # The drain exits the instant active_calls hits 0, so idle/short-call pods still terminate fast —
   # this only stretches termination when a long call is genuinely still live.
   # Lower it if you know your calls are shorter.
-  terminationGracePeriodSeconds: 1260
+  terminationGracePeriodSeconds: 1275
   # preStop initial delay (DRAIN_INITIAL_DELAY): long enough for the gateway /
   # load balancer to observe the pod leave the Service endpoints and stop
   # sending new connections. 15s is conservative for most controllers.
@@ -210,8 +210,9 @@ web:
   # Max seconds scripts/drain_web.sh waits for in-flight calls to finish before
   # releasing SIGTERM. MUST stay below terminationGracePeriodSeconds (leave
   # headroom for the 15s initial delay + SIGTERM handling) or the kubelet
-  # SIGKILLs mid-drain. 1200s matches the 20-min max call; with 1260s grace and
-  # the 15s initial delay this leaves ~45s of headroom.
+  # SIGKILLs mid-drain. 1200s matches the 20-min max call; with 1275s grace and
+  # the 15s initial delay this leaves 60s for text-chat finalization and
+  # resource shutdown.
   drainMaxWaitSeconds: 1200
 
   resources:

@@ -1,125 +1,102 @@
 "use client";
 
 import { ChevronDown, Loader2, Search, Volume2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { getVoicesApiV1UserConfigurationsVoicesProviderGet } from "@/client/sdk.gen";
-import { VoiceInfo } from "@/client/types.gen";
+import type { GetVoicesApiV1UserConfigurationsVoicesProviderGetData, VoiceInfo } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { detailFromError } from "@/lib/apiError";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-// Providers that have MPS voice endpoints
-type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh" | "rime";
-const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"];
+type VoiceCatalogProvider = GetVoicesApiV1UserConfigurationsVoicesProviderGetData["path"]["provider"];
 const ALL_FILTER_VALUE = "__all__";
 
 interface VoiceSelectorProps {
+    id?: string;
     provider: string;
+    providerConnectionUuid?: string;
     value: string;
     onChange: (voiceId: string) => void;
     model?: string;
     language?: string;
     showFilters?: boolean;
-    allowManualInput?: boolean;
     className?: string;
 }
 
 export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
+    id,
     provider,
+    providerConnectionUuid,
     value,
     onChange,
     model,
     language,
     showFilters = false,
-    allowManualInput = true,
     className,
 }) => {
+    const { user, loading: authLoading } = useAuth();
+    const userId = user?.id;
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [genderFilter, setGenderFilter] = useState(ALL_FILTER_VALUE);
     const [languageFilter, setLanguageFilter] = useState(ALL_FILTER_VALUE);
     const [accentFilter, setAccentFilter] = useState(ALL_FILTER_VALUE);
-    const [isManualInput, setIsManualInput] = useState(false);
-    const [manualVoiceId, setManualVoiceId] = useState(value || "");
     const [voices, setVoices] = useState<VoiceInfo[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [reload, setReload] = useState(0);
     const [playingPreview, setPlayingPreview] = useState<string | null>(null);
     const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
 
-    // Check if provider has MPS voice endpoint
-    const hasMPSVoiceEndpoint = useCallback((providerName: string): boolean => {
-        return MPS_VOICE_PROVIDERS.includes(providerName.toLowerCase() as TTSProviderWithVoices);
-    }, []);
-
-    // Map provider names to API-compatible provider names
-    const getProviderKey = useCallback((providerName: string): TTSProviderWithVoices | null => {
-        const providerMap: Record<string, TTSProviderWithVoices> = {
-            elevenlabs: "elevenlabs",
-            deepgram: "deepgram",
-            sarvam: "sarvam",
-            cartesia: "cartesia",
-            dograh: "dograh",
-            rime: "rime",
-        };
-        return providerMap[providerName.toLowerCase()] || null;
-    }, []);
-
-    const fetchVoices = useCallback(async () => {
-        const providerKey = getProviderKey(provider);
-        if (!providerKey) {
-            setVoices([]);
+    useEffect(() => {
+        setVoices([]);
+        setError(null);
+        setIsLoading(false);
+        if (authLoading || !userId) return;
+        // The backend's voice_catalog field metadata opts providers into this control.
+        const providerKey = provider as VoiceCatalogProvider;
+        if (providerKey !== "dograh" && !providerConnectionUuid) {
+            setError("Select a provider connection to load voices.");
             return;
         }
-
+        let active = true;
+        const controller = new AbortController();
         setIsLoading(true);
-        setError(null);
-
-        try {
-            const query: { model?: string; language?: string } = {};
-            if (model) query.model = model;
-            if (language) query.language = language;
-            const response = await getVoicesApiV1UserConfigurationsVoicesProviderGet({
-                path: { provider: providerKey },
-                query: Object.keys(query).length > 0 ? query : undefined,
-            });
-
-            if (response.data?.voices) {
-                setVoices(response.data.voices);
+        (async () => {
+            try {
+                const response = await getVoicesApiV1UserConfigurationsVoicesProviderGet({
+                    path: { provider: providerKey },
+                    query: {
+                        ...(model ? { model } : {}),
+                        ...(language ? { language } : {}),
+                        ...(providerKey !== "dograh" ? { provider_connection_uuid: providerConnectionUuid } : {}),
+                    },
+                    signal: controller.signal,
+                });
+                if (!active) return;
+                if (response.error) {
+                    setError(detailFromError(response.error, "Failed to load voices"));
+                } else {
+                    setVoices(response.data?.voices || []);
+                }
+            } catch {
+                if (!active) return;
+                setError("Failed to load voices");
+                setVoices([]);
+            } finally {
+                if (active) setIsLoading(false);
             }
-        } catch (err) {
-            console.error("Failed to fetch voices:", err);
-            setError("Failed to load voices");
-            setVoices([]);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [provider, model, language, getProviderKey]);
-
-    useEffect(() => {
-        if (provider) {
-            fetchVoices();
-        }
-    }, [provider, fetchVoices]);
-
-    // Check if the current value exists in the voices list
-    useEffect(() => {
-        if (value && voices.length > 0) {
-            const voiceExists = voices.some((v) => v.voice_id === value);
-            if (!voiceExists && allowManualInput) {
-                // If the value doesn't exist in the list, switch to manual input mode
-                setIsManualInput(true);
-                setManualVoiceId(value);
-            } else if (voiceExists) {
-                setIsManualInput(false);
-            }
-        }
-    }, [value, voices, allowManualInput]);
+        })();
+        return () => {
+            active = false;
+            controller.abort();
+        };
+    }, [provider, providerConnectionUuid, model, language, authLoading, userId, reload]);
 
     // Cleanup audio on unmount or when popover closes
     useEffect(() => {
@@ -173,30 +150,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         setSearchTerm("");
     };
 
-    const handleManualInputToggle = (checked: boolean) => {
-        if (!allowManualInput) return;
-        setIsManualInput(checked);
-        if (checked) {
-            setManualVoiceId(value || "");
-        } else {
-            // When switching back to dropdown, try to find the current value in voices
-            const existingVoice = voices.find((v) => v.voice_id === value);
-            if (!existingVoice && voices.length > 0) {
-                // If current value not in list, select the first voice
-                onChange(voices[0].voice_id);
-            }
-        }
-    };
-
-    const handleManualVoiceIdChange = (newValue: string) => {
-        setManualVoiceId(newValue);
-        onChange(newValue);
-    };
-
     const getSelectedVoiceName = () => {
-        if (isManualInput && value) {
-            return value;
-        }
         const voice = voices.find((v) => v.voice_id === value);
         return voice?.name || value || "Select a voice";
     };
@@ -232,51 +186,14 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         });
     };
 
-    // For providers without MPS voice endpoint, show simple input
-    if (!hasMPSVoiceEndpoint(provider)) {
-        return (
-            <div className={cn("space-y-2", className)}>
-                <Input
-                    type="text"
-                    placeholder="Enter voice ID"
-                    value={value || ""}
-                    onChange={(e) => onChange(e.target.value)}
-                />
-            </div>
-        );
-    }
-
-    if (isManualInput && allowManualInput) {
-        return (
-            <div className={cn("space-y-2", className)}>
-                <Input
-                    type="text"
-                    placeholder="Enter voice ID"
-                    value={manualVoiceId}
-                    onChange={(e) => handleManualVoiceIdChange(e.target.value)}
-                />
-                <div className="flex items-center space-x-2">
-                    <Checkbox
-                        id="manual-voice-input"
-                        checked={isManualInput}
-                        onCheckedChange={(checked) => handleManualInputToggle(checked as boolean)}
-                    />
-                    <Label
-                        htmlFor="manual-voice-input"
-                        className="text-sm font-normal cursor-pointer"
-                    >
-                        Add Voice ID Manually
-                    </Label>
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div className={cn("space-y-2", className)}>
             <Popover open={isOpen} onOpenChange={setIsOpen}>
                 <PopoverTrigger asChild>
                     <Button
+                        id={id}
+                        type="button"
                         variant="outline"
                         role="combobox"
                         aria-expanded={isOpen}
@@ -284,7 +201,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                             "w-full justify-between",
                             !value && "text-muted-foreground"
                         )}
-                        disabled={isLoading}
+                        disabled={isLoading || authLoading || !userId}
                     >
                         <span className="truncate">
                             {isLoading ? "Loading voices..." : getSelectedVoiceName()}
@@ -356,9 +273,10 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
 
                         <div className="max-h-[300px] overflow-auto space-y-1">
                             {error ? (
-                                <p className="text-sm text-red-500 text-center py-4">
-                                    {error}
-                                </p>
+                                <div className="py-4 text-center">
+                                    <p role="alert" className="text-sm text-red-500">{error}</p>
+                                    <Button type="button" variant="ghost" size="sm" onClick={() => setReload(value => value + 1)}>Retry</Button>
+                                </div>
                             ) : isLoading ? (
                                 <div className="flex items-center justify-center py-4">
                                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -430,29 +348,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                             )}
                         </div>
 
-                        <div className="pt-2 border-t flex items-center justify-between">
-                            {allowManualInput ? (
-                                <div className="flex items-center space-x-2">
-                                    <Checkbox
-                                        id="manual-voice-input-popup"
-                                        checked={isManualInput}
-                                        onCheckedChange={(checked) => {
-                                            handleManualInputToggle(checked as boolean);
-                                            if (checked) {
-                                                setIsOpen(false);
-                                            }
-                                        }}
-                                    />
-                                    <Label
-                                        htmlFor="manual-voice-input-popup"
-                                        className="text-sm font-normal cursor-pointer"
-                                    >
-                                        Add Voice ID Manually
-                                    </Label>
-                                </div>
-                            ) : (
-                                <span />
-                            )}
+                        <div className="pt-2 border-t flex justify-end">
                             <p className="text-xs text-muted-foreground">
                                 {filteredVoices.length} of {voices.length} voices
                             </p>

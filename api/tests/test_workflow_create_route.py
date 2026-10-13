@@ -21,6 +21,51 @@ def _make_test_app() -> FastAPI:
     return app
 
 
+def test_update_workflow_drops_retired_inline_model_keys_before_db_write():
+    """Old clients may echo inline model keys; the catalog binding is the only
+    model setting a save may carry."""
+    published = SimpleNamespace(
+        workflow_json={},
+        workflow_configurations={"max_call_duration": 60},
+        template_context_variables={},
+        version_number=1,
+        status="published",
+    )
+    workflow = SimpleNamespace(
+        id=33,
+        name="Agent",
+        status="active",
+        created_at=datetime.now(UTC),
+        current_definition_id=None,
+        call_disposition_codes={},
+        released_definition=published,
+    )
+    client = TestClient(_make_test_app())
+    with (
+        patch("api.routes.workflow.db_client") as mock_db,
+        patch(
+            "api.routes.workflow.apply_external_pbx_mapping_policy",
+            AsyncMock(side_effect=lambda incoming, **kwargs: incoming),
+        ),
+    ):
+        mock_db.get_draft_version = AsyncMock(return_value=None)
+        mock_db.update_workflow = AsyncMock(return_value=workflow)
+        response = client.put(
+            "/workflow/33",
+            json={
+                "workflow_configurations": {
+                    "max_call_duration": 60,
+                    "model_overrides": {"llm": {"model": "anthropic/claude-sonnet-4"}},
+                    "model_configuration_v2_override": {"mode": "dograh"},
+                },
+            },
+        )
+    assert response.status_code == 200
+    assert mock_db.update_workflow.await_args.kwargs["workflow_configurations"] == {
+        "max_call_duration": 60
+    }
+
+
 def test_create_workflow_rejects_invalid_trigger_path_before_db_write():
     app = _make_test_app()
     client = TestClient(app)

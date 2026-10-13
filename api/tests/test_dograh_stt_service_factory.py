@@ -1,11 +1,12 @@
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import parse_qs
 
 import pytest
 from pipecat.services.settings import NOT_GIVEN
 from pipecat.transcriptions.language import Language
 
-from api.services.configuration.registry import ServiceProviders, DograhSTTService
+from api.services.configuration.registry import DograhSTTService, ServiceProviders
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.service_factory import (
     create_stt_service,
@@ -96,11 +97,36 @@ def test_create_dograh_supported_language_uses_flux_service_with_hint(language, 
     assert kwargs["settings"].keyterm == ["Dograh"]
 
 
+@pytest.mark.parametrize(
+    ("language", "hints"),
+    [("multi", ["en", "es"]), ("en-GB", ["EN-US", "es", "es-419"])],
+)
+def test_dograh_flux_sends_combined_language_hints_to_proxy(language, hints):
+    config = SimpleNamespace(
+        stt=DograhSTTService(api_key="mps-key", language=language, language_hints=hints)
+    )
+    service = create_stt_service(config, _audio_config(), correlation_id="corr-123")
+
+    query = parse_qs(service._build_dograh_query_string())
+    assert query["model"] == ["flux-general-multi"]
+    assert query["language_hint"] == ["en", "es"]
+    assert query["correlation_id"] == ["corr-123"]
+
+
+def test_dograh_stt_rejects_unsupported_language_hints():
+    with pytest.raises(
+        ValueError, match="Unsupported Flux multilingual language hints: ta"
+    ):
+        DograhSTTService(api_key="mps-key", language_hints=["en", "ta"])
+
+
 @pytest.mark.parametrize("language", ["ar", "ar-SA", "zh-CN", "ko-KR"])
 def test_create_dograh_unsupported_language_falls_back_to_standard_stt_service(
     language,
 ):
     user_config = _dograh_config(language)
+    # Saved Flux hints must not change routing for a non-Flux language.
+    user_config.stt.language_hints = ["en", "es"]
 
     with (
         patch(

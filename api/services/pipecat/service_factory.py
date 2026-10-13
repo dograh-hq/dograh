@@ -1,5 +1,8 @@
+import hashlib
+import json
+import re
 from functools import wraps
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import aiohttp
@@ -20,17 +23,17 @@ from api.services.configuration.options import (
 )
 from api.services.configuration.registry import (
     ATLASCLOUD_API_BASE_URL,
+    ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN,
     HOPPER_API_BASE_URL,
+    REGISTRY,
     ServiceProviders,
+    ServiceType,
 )
+from api.services.configuration.temperature import resolve_temperature
+from api.services.pipecat.fallback_llm import FallbackLLMProcessor, FallbackRoute
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
-from api.services.pipecat.minimax_tts import (
-    MiniMaxCachingTTSService,
-    MiniMaxOwnedSessionTTSService,
-)
-from api.services.pipecat.tts_cache.runtime import get_speech_cache
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
@@ -54,6 +57,10 @@ from pipecat.services.dograh.flux.stt import DograhFluxSTTService
 from pipecat.services.dograh.llm import DograhLLMService
 from pipecat.services.dograh.stt import DograhSTTService, DograhSTTSettings
 from pipecat.services.dograh.tts import DograhTTSService, DograhTTSSettings
+from pipecat.services.elevenlabs.dialogue.tts import (
+    ElevenLabsDialogueTTSService,
+    ElevenLabsDialogueTTSSettings,
+)
 from pipecat.services.elevenlabs.stt import (
     CommitStrategy,
     ElevenLabsRealtimeSTTService,
@@ -79,7 +86,7 @@ from pipecat.services.huggingface.stt import (
 )
 from pipecat.services.inworld.tts import InworldTTSService, InworldTTSSettings
 from pipecat.services.minimax.llm import MiniMaxLLMService
-from pipecat.services.minimax.tts import MiniMaxTTSSettings
+from pipecat.services.minimax.tts import MiniMaxTTSService, MiniMaxTTSSettings
 from pipecat.services.openai._constants import OPENAI_SAMPLE_RATE
 from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
@@ -110,6 +117,7 @@ from pipecat.services.speechmatics.stt import (
 from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
+from pipecat.utils.types import NOT_GIVEN, NotGiven
 
 if TYPE_CHECKING:
     from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
@@ -155,12 +163,20 @@ def _report_service_factory_failures(
                 )
                 raise
 
-            return annotate_failure_metadata(
+            service = annotate_failure_metadata(
                 service,
                 source=source,
                 provider=provider,
                 error_owner=error_owner,
             )
+            from api.services.campaign.circuit_breaker import (
+                register_campaign_provider_error_handler,
+            )
+
+            register_campaign_provider_error_handler(
+                service, provider=provider, source=source
+            )
+            return service
 
         return wrapped
 
@@ -185,6 +201,20 @@ def _resolve_deepgram_flux_language_hint(language: str | None) -> Language | Non
     """Resolve a supported BCP-47 language or locale to its Flux base language."""
     base_language = (language or "").split("-", 1)[0].lower()
     return DEEPGRAM_FLUX_LANGUAGE_HINTS.get(base_language)
+
+
+def _resolve_deepgram_flux_language_hints(
+    language: str | None, hints: list[str] | None
+) -> list[Language]:
+    return list(
+        dict.fromkeys(
+            hint
+            for hint in map(
+                _resolve_deepgram_flux_language_hint, [language, *(hints or [])]
+            )
+            if hint
+        )
+    )
 
 
 def dograh_stt_uses_flux_language(language: str | None) -> bool:
@@ -370,16 +400,9 @@ def create_stt_service(
             }
 
             if user_config.stt.model == "flux-general-multi":
-                codes = [
+                language_hints = _resolve_deepgram_flux_language_hints(
                     getattr(user_config.stt, "language", None),
-                    *(getattr(user_config.stt, "language_hints", None) or []),
-                ]
-                language_hints = list(
-                    dict.fromkeys(
-                        hint
-                        for hint in map(_resolve_deepgram_flux_language_hint, codes)
-                        if hint
-                    )
+                    getattr(user_config.stt, "language_hints", None),
                 )
                 if language_hints:
                     settings_kwargs["language_hints"] = language_hints
@@ -470,9 +493,11 @@ def create_stt_service(
                 "eager_eot_threshold": getattr(user_config.stt, "eager_eot_threshold", 0.5),
                 "keyterm": keyterms or [],
             }
-            language_hint = _resolve_deepgram_flux_language_hint(language)
-            if language_hint:
-                settings_kwargs["language_hints"] = [language_hint]
+            language_hints = _resolve_deepgram_flux_language_hints(
+                language, getattr(user_config.stt, "language_hints", None)
+            )
+            if language_hints:
+                settings_kwargs["language_hints"] = language_hints
             return DograhFluxSTTService(
                 base_url=base_url,
                 api_key=user_config.stt.api_key,
@@ -691,7 +716,8 @@ def create_tts_service(
         audio_config: Pipeline and transport audio configuration.
         correlation_id: Managed model services correlation ID.
         organization_id: Trusted tenant scope for TTS caching.
-        tts_cache_enabled: Whether the workflow enables caching for supported providers.
+        tts_cache_enabled: Whether the workflow enables the speech cache. No provider
+            uses it at present; MiniMax logs a warning when it is set.
     """
     # Synthesis carries the same residency question as transcription - the text
     # sent for speaking is drawn from the conversation - so the endpoint is
@@ -701,7 +727,8 @@ def create_tts_service(
 
     logger.info(
         f"Creating TTS service: provider={user_config.tts.provider}, "
-        f"model={user_config.tts.model}"
+        f"model={user_config.tts.model}, "
+        f"voice={getattr(user_config.tts, 'voice', None)}"
         + (f", endpoint={deepgram_base_url}" if deepgram_base_url else "")
     )
 
@@ -712,7 +739,10 @@ def create_tts_service(
             api_key=user_config.tts.api_key,
             # Wants wss://host with no path; it appends /v1/speak itself.
             base_url=_deepgram_websocket_url(deepgram_base_url),
-            settings=DeepgramTTSSettings(voice=user_config.tts.voice),
+            settings=DeepgramTTSSettings(
+                voice=user_config.tts.voice,
+                speed=getattr(user_config.tts, "speed", None),
+            ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
@@ -767,17 +797,27 @@ def create_tts_service(
         # scheme-less base_url contract.
         _validate_runtime_service_url(user_config.tts.base_url, "base_url")
         elevenlabs_url = _elevenlabs_websocket_url(user_config.tts.base_url)
-        return ElevenLabsTTSService(
-            reconnect_on_error=False,
-            api_key=user_config.tts.api_key,
-            url=elevenlabs_url,
-            settings=ElevenLabsTTSSettings(
+        if re.match(ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN, user_config.tts.model):
+            tts_service_cls = ElevenLabsDialogueTTSService
+            tts_settings = ElevenLabsDialogueTTSSettings(
+                voice=voice_id,
+                model=user_config.tts.model,
+                stability=0.8,
+            )
+        else:
+            tts_service_cls = ElevenLabsTTSService
+            tts_settings = ElevenLabsTTSSettings(
                 voice=voice_id,
                 model=user_config.tts.model,
                 stability=0.8,
                 speed=user_config.tts.speed,
                 similarity_boost=0.75,
-            ),
+            )
+        return tts_service_cls(
+            reconnect_on_error=False,
+            api_key=user_config.tts.api_key,
+            url=elevenlabs_url,
+            settings=tts_settings,
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
@@ -955,20 +995,18 @@ def create_tts_service(
             base_url = f"{base_url}/t2a_v2"
         _validate_runtime_service_url(base_url, "base_url")
 
-        cache = get_speech_cache(organization_id, enabled=tts_cache_enabled)
-        service_type = (
-            MiniMaxCachingTTSService if cache else MiniMaxOwnedSessionTTSService
-        )
-        cache_kwargs = (
-            {"speech_cache": cache, "organization_id": organization_id} if cache else {}
-        )
-        session = aiohttp.ClientSession()
-        return service_type(
+        if tts_cache_enabled:
+            logger.warning(
+                "MiniMax TTS runs over the WebSocket API and does not use the speech "
+                "cache; every reply is synthesized"
+            )
+        # One bidirectional WebSocket session serves the whole call: synthesis stops
+        # when the caller interrupts, and word timestamps keep the spoken part of an
+        # interrupted reply in the transcript. It is served from the same host as
+        # /v1/t2a_v2.
+        return MiniMaxTTSService(
             api_key=user_config.tts.api_key,
-            group_id=group_id,
-            base_url=base_url,
-            aiohttp_session=session,
-            **cache_kwargs,
+            url=f"wss://{urlparse(base_url).netloc}/ws/v1/t2a_v2_bidi",
             settings=MiniMaxTTSSettings(
                 model=user_config.tts.model,
                 voice=voice,
@@ -1126,7 +1164,8 @@ def create_llm_service_from_provider(
     project_id: str | None = None,
     location: str | None = None,
     credentials: str | None = None,
-    temperature: float | None = None,
+    enable_direct_mode: bool = False,
+    temperature: float | None | NotGiven = NOT_GIVEN,
     bill_to: str | None = None,
     provider_order: list[str] | None = None,
     usage_context: str | None = None,
@@ -1153,6 +1192,21 @@ def create_llm_service_from_provider(
         + (f", location={vertex_location}" if vertex_location else "")
     )
 
+    config_cls = REGISTRY[ServiceType.LLM].get(provider)
+    if config_cls is None:
+        raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
+    if isinstance(temperature, NotGiven):
+        temperature = config_cls.model_fields["temperature"].default
+    try:
+        temperature = resolve_temperature(
+            provider, model, temperature, base_url=base_url
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # None means omit the parameter, not send JSON null. This matters for
+    # reasoning models and for providers with their own sampling defaults.
+    sampling_settings = {} if temperature is None else {"temperature": temperature}
+
     if provider in (
         ServiceProviders.OPENAI.value,
         ServiceProviders.ATLASCLOUD.value,
@@ -1167,6 +1221,7 @@ def create_llm_service_from_provider(
             kwargs["base_url"] = base_url
         if "gpt-5" in model:
             return OpenAILLMService(
+                enable_direct_mode=enable_direct_mode,
                 api_key=api_key,
                 settings=OpenAILLMSettings(
                     model=model,
@@ -1175,20 +1230,23 @@ def create_llm_service_from_provider(
                 **kwargs,
             )
         return OpenAILLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
-            settings=OpenAILLMSettings(model=model, temperature=0.1),
+            settings=OpenAILLMSettings(model=model, **sampling_settings),
             **kwargs,
         )
     elif provider == ServiceProviders.GROQ.value:
         return GroqLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
-            settings=GroqLLMSettings(model=model, temperature=0.1),
+            settings=GroqLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.HOPPER.value:
         return OpenAILLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             base_url=HOPPER_API_BASE_URL,
-            settings=OpenAILLMSettings(model=model, temperature=0.1),
+            settings=OpenAILLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.OPENROUTER.value:
         kwargs = {}
@@ -1201,92 +1259,122 @@ def create_llm_service_from_provider(
             # OpenAI client does not know, so they travel in extra_body.
             extra["extra_body"] = {"provider": {"order": provider_order}}
         return OpenRouterLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
-            settings=OpenRouterLLMSettings(model=model, temperature=0.1, extra=extra),
+            settings=OpenRouterLLMSettings(
+                model=model, extra=extra, **sampling_settings
+            ),
             **kwargs,
         )
-    elif provider == ServiceProviders.GOOGLE.value:
-        model = _migrate_deprecated_google_model(model)
-        return DograhGoogleLLMService(
-            api_key=api_key,
-            settings=GoogleLLMSettings(
+    elif provider in (
+        ServiceProviders.GOOGLE.value,
+        ServiceProviders.GOOGLE_VERTEX.value,
+    ):
+        is_vertex = provider == ServiceProviders.GOOGLE_VERTEX.value
+        if not is_vertex:
+            model = _migrate_deprecated_google_model(model)
+        service_class = (
+            DograhGoogleVertexLLMService if is_vertex else DograhGoogleLLMService
+        )
+        settings_class = GoogleVertexLLMSettings if is_vertex else GoogleLLMSettings
+
+        connection: dict[str, Any] = (
+            {
+                "credentials": credentials,
+                "project_id": project_id,
+                "location": vertex_location,
+            }
+            if is_vertex
+            else {"api_key": api_key}
+        )
+        # The provider selects a matching service and settings class together.
+        service_options: dict[str, Any] = {
+            **connection,
+            "enable_direct_mode": enable_direct_mode,
+            "settings": settings_class(
                 model=model,
-                temperature=0.1,
-                # Pipecat executes tools; the SDK should return their calls.
+                temperature=temperature if temperature is not None else NOT_GIVEN,
+                # Pipecat owns tools; the SDK must return calls without executing them.
                 extra={"automatic_function_calling": {"disable": True}},
             ),
-        )
-    elif provider == ServiceProviders.GOOGLE_VERTEX.value:
-        return DograhGoogleVertexLLMService(
-            credentials=credentials,
-            project_id=project_id,
-            location=vertex_location,
-            settings=GoogleVertexLLMSettings(
-                model=model,
-                temperature=0.1,
-                extra={"automatic_function_calling": {"disable": True}},
-            ),
-        )
+        }
+        service = service_class(**service_options)
+        # Gemini's opaque signatures may not transfer between platforms,
+        # projects or models. Scope provider-specific context to this target;
+        # standard text and tool history remains available to every adapter.
+        adapter = cast(DograhGeminiJSONSchemaAdapter, service.get_llm_adapter())
+        adapter.signature_scope = hashlib.sha256(
+            json.dumps([provider, connection], sort_keys=True).encode()
+        ).hexdigest()
+        adapter.signature_settings = service._settings
+        return service
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:
             _validate_runtime_service_url(endpoint, "endpoint")
         return AzureLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             endpoint=endpoint,
-            settings=AzureLLMSettings(model=model, temperature=0.1),
+            settings=AzureLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.DOGRAH.value:
         return DograhLLMService(
             base_url=f"{MPS_API_URL}/api/v1/llm",
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             correlation_id=correlation_id,
             usage_context=usage_context,
-            settings=OpenAILLMSettings(model=model),
+            settings=OpenAILLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.AWS_BEDROCK.value:
         return AWSBedrockLLMService(
+            enable_direct_mode=enable_direct_mode,
             aws_access_key=aws_access_key,
             aws_secret_key=aws_secret_key,
             aws_region=aws_region,
-            settings=AWSBedrockLLMSettings(model=model),
+            settings=AWSBedrockLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.SPEACHES.value:
         base_url = base_url or "http://localhost:11434/v1"
         _validate_runtime_service_url(base_url, "base_url")
         return SpeachesLLMService(
             base_url=base_url,
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key or "none",
-            settings=SpeachesLLMSettings(model=model),
+            settings=SpeachesLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.HUGGINGFACE.value:
         base_url = base_url or "https://router.huggingface.co/v1"
         _validate_runtime_service_url(base_url, "base_url")
         return HuggingFaceLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             base_url=base_url,
             bill_to=bill_to,
-            settings=HuggingFaceLLMSettings(model=model, temperature=0.1),
+            settings=HuggingFaceLLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.MINIMAX.value:
         base_url = base_url or "https://api.minimax.io/v1"
         _validate_runtime_service_url(base_url, "base_url")
         return MiniMaxLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             base_url=base_url,
             settings=MiniMaxLLMService.Settings(
                 model=model,
-                temperature=temperature if temperature is not None else 1.0,
+                **sampling_settings,
             ),
         )
     elif provider == ServiceProviders.SARVAM.value:
         base_url = base_url or "https://api.sarvam.ai/v1"
         _validate_runtime_service_url(base_url, "base_url")
         return SarvamLLMService(
+            enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             base_url=base_url,
             settings=SarvamLLMSettings(
                 model=model,
-                temperature=temperature if temperature is not None else 0.5,
+                **sampling_settings,
             ),
         )
     else:
@@ -1408,6 +1496,7 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 model=model,
                 voice=voice,
                 output_medium="voice",
+                temperature=realtime_config.temperature,
             ),
             settings=DograhUltravoxRealtimeLLMService.Settings(
                 model=model,
@@ -1539,10 +1628,81 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         )
 
 
+def get_llm_runtime_configuration(user_config) -> dict:
+    """Describe the resolved policy without credentials or credential pins."""
+    llm = user_config.llm
+    configuration = {"llm_provider": llm.provider, "llm_model": llm.model}
+    if llm.provider == ServiceProviders.GOOGLE_VERTEX.value:
+        configuration["llm_location"] = llm.location
+    policy = getattr(user_config, "llm_fallback", None)
+    configuration["llm_fallback"] = {
+        "version": 1,
+        "rules": (
+            [
+                {
+                    "condition": rule.condition.model_dump(mode="json"),
+                    "target": {
+                        "provider": rule.target.provider,
+                        "model": rule.target.model,
+                        **(
+                            {"location": rule.target.location}
+                            if hasattr(rule.target, "location")
+                            else {}
+                        ),
+                    },
+                }
+                for rule in policy.rules
+            ]
+            if policy
+            else []
+        ),
+    }
+    return configuration
+
+
 def create_llm_service(
     user_config,
     correlation_id: str | None = None,
     usage_context: str | None = None,
+):
+    """Compose independently configured text LLM connections under one policy."""
+    policy = getattr(user_config, "llm_fallback", None)
+    if policy is None:
+        return _create_single_llm_service(user_config, correlation_id, usage_context)
+    primary = _create_single_llm_service(
+        user_config,
+        correlation_id,
+        usage_context,
+        enable_direct_mode=bool(policy.rules),
+    )
+    if not policy.rules:
+        return primary
+    services = {}
+    routes = []
+    for rule in policy.rules:
+        # Reuse the request when both triggers select the same connection/model.
+        # Resolved credentials stay in memory; never log this identity.
+        identity = rule.target.model_dump_json(exclude_computed_fields=True)
+        if identity not in services:
+            target_config = user_config.model_copy(update={"llm": rule.target})
+            services[identity] = _create_single_llm_service(
+                target_config,
+                correlation_id,
+                usage_context,
+                enable_direct_mode=True,
+            )
+        routes.append(
+            FallbackRoute(condition=rule.condition, service=services[identity])
+        )
+    return FallbackLLMProcessor(primary, routes=routes)
+
+
+def _create_single_llm_service(
+    user_config,
+    correlation_id: str | None = None,
+    usage_context: str | None = None,
+    *,
+    enable_direct_mode: bool = False,
 ):
     """Create and return appropriate LLM service based on user configuration."""
     provider = user_config.llm.provider
@@ -1575,10 +1735,8 @@ def create_llm_service(
         kwargs["credentials"] = user_config.llm.credentials
     elif provider == ServiceProviders.MINIMAX.value:
         kwargs["base_url"] = user_config.llm.base_url
-        kwargs["temperature"] = user_config.llm.temperature
     elif provider == ServiceProviders.SARVAM.value:
         kwargs["base_url"] = getattr(user_config.llm, "base_url", None)
-        kwargs["temperature"] = user_config.llm.temperature
 
     return create_llm_service_from_provider(
         provider,
@@ -1586,6 +1744,8 @@ def create_llm_service(
         api_key,
         correlation_id=correlation_id,
         usage_context=usage_context,
+        temperature=getattr(user_config.llm, "temperature", NOT_GIVEN),
+        enable_direct_mode=enable_direct_mode,
         **kwargs,
     )
 

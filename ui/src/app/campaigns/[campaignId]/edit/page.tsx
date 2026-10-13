@@ -13,6 +13,7 @@ import {
     updateCampaignApiV1CampaignCampaignIdPatch
 } from '@/client/sdk.gen';
 import type { CampaignResponse, TrafficVariantRequest } from '@/client/types.gen';
+import { PageShell } from '@/components/layout/PageShell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -296,25 +297,25 @@ export default function EditCampaignPage() {
 
     if (isLoading) {
         return (
-            <div className="container mx-auto p-6 space-y-6 max-w-2xl">
+            <PageShell width="narrow" className="space-y-6">
                 <div className="animate-pulse">
                     <div className="h-8 bg-muted rounded w-1/4 mb-4"></div>
                     <div className="h-64 bg-muted rounded"></div>
                 </div>
-            </div>
+            </PageShell>
         );
     }
 
     if (!campaign) {
         return (
-            <div className="container mx-auto p-6 space-y-6 max-w-2xl">
+            <PageShell width="narrow" className="space-y-6">
                 <p className="text-center text-muted-foreground">Campaign not found</p>
-            </div>
+            </PageShell>
         );
     }
 
     return (
-        <div className="container mx-auto p-6 pb-12 space-y-6 max-w-2xl">
+        <PageShell width="narrow" className="space-y-6 pb-12">
             <div>
                 <Button
                     variant="ghost"
@@ -416,6 +417,6 @@ export default function EditCampaignPage() {
                     </form>
                 </CardContent>
             </Card>
-        </div>
+        </PageShell>
     );
 }

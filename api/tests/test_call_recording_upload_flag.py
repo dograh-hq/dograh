@@ -81,6 +81,7 @@ async def _run_pipeline_finished(
         record_context=lambda ctx: None,
         get_gathered_context=AsyncMock(return_value=gathered_context or {}),
         cleanup=AsyncMock(),
+        finish_tool_calls=AsyncMock(),
     )
     if logs_buffer is None:
         logs_buffer = SimpleNamespace(

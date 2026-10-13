@@ -9,6 +9,7 @@ from pipecat.turns.user_mute import (
 )
 
 from api.services.pipecat.event_handlers import register_event_handlers
+from api.services.pipecat.pre_call_fetch import PreCallFetchResult
 from api.services.pipecat.run_pipeline import _create_user_mute_strategies
 from api.services.pipecat.termination_funnel_processor import TerminationFunnelProcessor
 from api.services.workflow import answer_classification_service
@@ -67,26 +68,35 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
     engine = SimpleNamespace(
         active_agent=SimpleNamespace(workflow=SimpleNamespace(start_node_id="start")),
         _call_context_vars={},
+        hold_audio_sample_rate=16000,
         set_node=AsyncMock(),
         queue_node_opening=AsyncMock(),
         handle_answer_supervision=AsyncMock(side_effect=permission.wait),
         call_monitor=Mock(),
         # Readiness now also waits for the agent this call starts on.
         start_initial_agent=AsyncMock(return_value=True),
+        finalize_initial_agent=Mock(),
+        record_context=Mock(),
         is_call_disposed=Mock(return_value=False),
     )
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
     )
+    monkeypatch.setattr(
+        "api.services.pipecat.event_handlers.db_client.update_workflow_run",
+        AsyncMock(),
+    )
 
     async def fetch():
         await fetched.wait()
-        return {}
+        return PreCallFetchResult()
 
     async def ring(*, stop_event, **kwargs):
         await stop_event.wait()
 
-    monkeypatch.setattr("api.services.pipecat.event_handlers.play_audio_loop", ring)
+    monkeypatch.setattr(
+        "api.services.pipecat.audio_playback.play_hold_audio_loop", ring
+    )
     fetch_task = asyncio.create_task(fetch())
     register_event_handlers(
         task=task,
@@ -153,6 +163,10 @@ async def test_no_supervisor_activates_monitor_before_the_opening(monkeypatch):
     engine.queue_node_opening = AsyncMock(side_effect=opening)
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "api.services.pipecat.event_handlers.db_client.update_workflow_run",
+        AsyncMock(),
     )
     register_event_handlers(
         task=task,
@@ -224,6 +238,10 @@ async def test_initial_response_respects_call_disposal(
     monkeypatch.setattr("api.services.pipecat.event_handlers.logger", logger)
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "api.services.pipecat.event_handlers.db_client.update_workflow_run",
+        AsyncMock(),
     )
     register_event_handlers(
         task=task,

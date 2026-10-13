@@ -18,3 +18,7 @@ class ConcurrentSlotAcquisitionError(Exception):
 
 class CampaignRateLimitTimeout(Exception):
     """Temporary dial-rate contention; return the undispatched contact to the queue."""
+
+
+class CampaignDispatchPaused(Exception):
+    """Campaign stopped before dialing; keep the contact queued for resume."""

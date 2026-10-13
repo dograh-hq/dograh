@@ -7,15 +7,24 @@ import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
+import type { ToolCallStatus } from "./types";
 import { formatConversationValue } from "./utils";
 
 interface ToolCallCardProps {
     functionName: string;
-    status: "running" | "completed";
+    status: ToolCallStatus;
     argumentsValue?: unknown;
     resultValue?: unknown;
     reasoningDurationMs?: number;
 }
+
+const STATUS_LABELS: Record<ToolCallStatus, string> = {
+    running: "Running",
+    completed: "Completed",
+    timeout: "Timeout",
+    failed: "Failed",
+    cancelled: "Cancelled",
+};
 
 export function ToolCallCard({
     functionName,
@@ -57,10 +66,12 @@ export function ToolCallCard({
                                         "h-5 px-1.5 text-[10px] uppercase tracking-[0.14em]",
                                         status === "running"
                                             ? "border-amber-400/60 text-amber-700 dark:text-amber-300"
-                                            : "border-emerald-500/30 text-emerald-700 dark:text-emerald-300",
+                                            : status === "completed"
+                                                ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                                                : "border-destructive/40 text-destructive",
                                     )}
                                 >
-                                    {status === "running" ? "Running" : "Completed"}
+                                    {STATUS_LABELS[status]}
                                 </Badge>
                             </div>
                             {hasDetails ? (

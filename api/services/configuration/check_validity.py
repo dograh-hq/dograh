@@ -104,6 +104,11 @@ class UserConfigurationValidator:
         status_list = []
 
         status_list.extend(self._validate_service(configuration.llm, "llm"))
+        if configuration.llm_fallback is not None:
+            for index, rule in enumerate(configuration.llm_fallback.rules):
+                status_list.extend(
+                    self._validate_service(rule.target, f"llm_fallback_{index + 1}")
+                )
         if configuration.is_realtime:
             status_list.extend(
                 self._validate_service(
@@ -124,6 +129,37 @@ class UserConfigurationValidator:
             raise ValueError(status_list)
 
         return {"status": [{"model": "all", "message": "ok"}]}
+
+    def validate_connection(
+        self,
+        service_config: ServiceConfig,
+        organization_id: int | None = None,
+        created_by: str | None = None,
+    ) -> None:
+        """Validate a saved connection, checking every key in its pool.
+
+        The existing provider checks are synchronous; callers must run this
+        method in a worker thread rather than block an async request handler.
+        """
+        self._dograh_service_key_validation_cache.clear()
+        self._auth_context = {
+            "organization_id": organization_id,
+            "created_by": created_by,
+        }
+        keys = service_config.get_all_api_keys()
+        selections = (
+            [service_config.model_copy(update={"api_key": key}) for key in keys]
+            if keys
+            else [service_config]
+        )
+        errors = []
+        for index, selection in enumerate(selections):
+            errors.extend(
+                f"Key {index + 1}: {error['message']}"
+                for error in self._validate_service(selection, "connection")
+            )
+        if errors:
+            raise ValueError("; ".join(errors))
 
     def _validate_service(
         self,

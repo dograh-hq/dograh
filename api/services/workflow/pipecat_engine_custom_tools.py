@@ -29,6 +29,11 @@ from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
 )
+from api.services.workflow.tool_messages import (
+    first_start_message,
+    speech_source,
+    tool_messages,
+)
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
@@ -108,21 +113,16 @@ class CustomToolManager:
         self._engine = engine
         self._agent = agent or engine.active_agent
 
-    async def _play_config_message(
-        self, config: dict, *, append_to_context: bool = False
+    async def _play_tool_message(
+        self, definition: dict, *, append_to_context: bool = False
     ) -> SpeechPlayback | None:
-        """Queue configured text or audio, returning its playback operation."""
-        message_type = config.get("messageType", "none")
-        if message_type == "audio" and config.get("audioRecordingId"):
-            return await self._engine.queue_speech(
-                recording_pk=int(config["audioRecordingId"]),
-                append_to_context=append_to_context,
-            )
-        if message_type == "custom" and config.get("customMessage"):
-            return await self._engine.queue_speech(
-                config["customMessage"], append_to_context=append_to_context
-            )
-        return None
+        """Control tools retain their playback policy using the shared format."""
+        message = first_start_message(definition)
+        if message is None:
+            return None
+        return await self._engine.queue_speech(
+            **speech_source(message), append_to_context=append_to_context
+        )
 
     async def get_organization_id(self) -> Optional[int]:
         """Get the organization ID from the engine (shared cache)."""
@@ -258,7 +258,10 @@ class CustomToolManager:
                         self._agent.llm.register_function(
                             fs.name,
                             self._agent.bind_tool(
-                                self._engine, self._create_mcp_handler(session, fs.name)
+                                self._engine,
+                                self._create_mcp_handler(session, fs.name),
+                                timeout_secs=session.call_timeout_secs,
+                                messages=tool_messages(tool.definition),
                             ),
                             timeout_secs=session.call_timeout_secs,
                         )
@@ -284,7 +287,15 @@ class CustomToolManager:
                 }
                 self._agent.llm.register_function(
                     function_name,
-                    self._agent.bind_tool(self._engine, handler),
+                    self._agent.bind_tool(
+                        self._engine,
+                        handler,
+                        is_node_transition=is_node_transition,
+                        timeout_secs=timeout_secs,
+                        messages=tool_messages(tool.definition)
+                        if not is_node_transition
+                        else None,
+                    ),
                     timeout_secs=timeout_secs,
                     is_node_transition=is_node_transition,
                 )
@@ -398,25 +409,6 @@ class CustomToolManager:
             logger.info(f"Arguments: {function_call_params.arguments}")
 
             try:
-                # Queue custom message before executing the API call
-                # Queue custom message (text or audio) before executing the API call
-                config = tool.definition.get("config", {}) if tool.definition else {}
-                custom_msg_type = config.get("customMessageType", "text")
-                custom_message = config.get("customMessage", "")
-                if custom_msg_type == "audio":
-                    recording_pk = config.get("customMessageRecordingId")
-                    if recording_pk and self._engine._fetch_recording_audio:
-                        logger.info(
-                            f"Playing audio message before HTTP tool: pk={recording_pk}"
-                        )
-                        await self._engine.queue_speech(
-                            recording_pk=int(recording_pk), mute_user=True
-                        )
-                elif custom_message:
-                    await self._engine.queue_text_message(
-                        custom_message, mute_user=True
-                    )
-
                 result = await execute_http_tool(
                     tool=tool,
                     arguments=function_call_params.arguments,
@@ -504,7 +496,7 @@ class CustomToolManager:
                     properties=properties,
                 )
 
-                speech = await self._play_config_message(config)
+                speech = await self._play_tool_message(tool.definition)
                 if speech is not None and speech.outcome not in (
                     PlaybackOutcome.FAILED,
                     PlaybackOutcome.SKIPPED,
@@ -576,7 +568,8 @@ class CustomToolManager:
                 )
                 return
 
-            announcement = config.get("message")
+            message = first_start_message(tool.definition)
+            announcement = message.text if message and message.type == "text" else None
             announcement = (
                 engine._format_prompt(str(announcement)) if announcement else None
             )
@@ -763,7 +756,7 @@ class CustomToolManager:
                 if resolved_transfer.message:
                     speech = await self._engine.queue_speech(resolved_transfer.message)
                 else:
-                    speech = await self._play_config_message(config)
+                    speech = await self._play_tool_message(tool.definition)
 
                 if external_pbx_call:
                     transfer_disposition = (

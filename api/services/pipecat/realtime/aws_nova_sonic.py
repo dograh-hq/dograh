@@ -93,7 +93,6 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         self._opening_after_prerecorded_greeting: bool = False
         self._pending_initial_prompt: str | None = None
         self._pending_message_batches: list[tuple[list[tuple[Role, str]], bool]] = []
-        self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._awaiting_node_transition_context = False
 
     # ------------------------------------------------------------------
@@ -416,35 +415,21 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
     # ------------------------------------------------------------------
 
     async def run_function_calls(self, function_calls: Sequence[FunctionCallFromLLM]):
-        has_node_transition = any(
-            self._function_is_node_transition(call.function_name)
-            for call in function_calls
+        await self._workflow_tool_deferral.submit(
+            function_calls,
+            speaking=self._assistant_is_responding or self._workflow_bot_is_speaking,
+            dispatch=super().run_function_calls,
         )
-        if self._assistant_is_responding and has_node_transition:
-            self._deferred_node_transition_function_calls.extend(function_calls)
-            logger.debug(
-                f"{self}: deferring {len(function_calls)} workflow-control "
-                "call(s) until the Nova audio turn ends"
-            )
-            return
-        await super().run_function_calls(function_calls)
 
     async def _report_assistant_response_ended(self):
         await super()._report_assistant_response_ended()
-        await self._run_deferred_node_transition_function_calls()
+        if self._workflow_playback_stopped:
+            await self._run_deferred_node_transition_function_calls()
 
     async def _handle_completion_end_event(self, event_json):
         await super()._handle_completion_end_event(event_json)
-        if not self._assistant_is_responding:
+        if not self._assistant_is_responding and self._workflow_playback_stopped:
             await self._run_deferred_node_transition_function_calls()
 
     async def _run_deferred_node_transition_function_calls(self):
-        if not self._deferred_node_transition_function_calls:
-            return
-        function_calls = self._deferred_node_transition_function_calls
-        self._deferred_node_transition_function_calls = []
-        logger.debug(
-            f"{self}: executing {len(function_calls)} deferred workflow-control "
-            "call(s) after the Nova audio turn ended"
-        )
-        await super().run_function_calls(function_calls)
+        await self._workflow_tool_deferral.release()

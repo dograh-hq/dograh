@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from fastapi import HTTPException
 from loguru import logger
 
 from api.constants import DEPLOYMENT_MODE
@@ -24,6 +25,9 @@ from api.services.configuration.ai_model_configuration import (
     get_effective_ai_model_configuration_for_workflow,
 )
 from api.services.configuration.registry import ServiceProviders
+from api.services.configuration.run_model_configuration import (
+    resolve_run_model_configuration,
+)
 from api.services.managed_model_services import (
     MPS_CORRELATION_ID_CONTEXT_KEY,
     get_dograh_service_api_key,
@@ -71,6 +75,7 @@ class QuotaCheckResult:
     has_quota: bool
     error_message: str = ""
     error_code: str = ""
+    status_code: int = 402
 
 
 def _log_mps_exception(
@@ -773,10 +778,17 @@ async def authorize_workflow_run_start(
                 )
             workflow_configurations = definition.workflow_configurations
 
-        user_config = await get_effective_ai_model_configuration_for_workflow(
-            organization_id=organization_id,
-            workflow_configurations=workflow_configurations,
-        )
+        if workflow_run_id is not None:
+            # Pins the call-scoped setup the run will execute, so the key
+            # authorized here is the key the pipeline uses.
+            user_config = await resolve_run_model_configuration(
+                organization_id=organization_id, workflow_run=workflow_run
+            )
+        else:
+            user_config = await get_effective_ai_model_configuration_for_workflow(
+                organization_id=organization_id,
+                workflow_configurations=workflow_configurations,
+            )
 
         if DEPLOYMENT_MODE != "oss":
             return await _authorize_hosted_workflow_run_start(
@@ -827,6 +839,17 @@ async def authorize_workflow_run_start(
             user_config=user_config,
         )
 
+    except HTTPException as exc:
+        return QuotaCheckResult(
+            has_quota=False,
+            error_code="invalid_model_configuration",
+            error_message=(
+                exc.detail
+                if isinstance(exc.detail, str)
+                else "Invalid run model configuration."
+            ),
+            status_code=exc.status_code,
+        )
     except Exception as e:
         log_failure(
             classify_exception(e, source=ErrorSource.PLATFORM),

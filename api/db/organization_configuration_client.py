@@ -15,6 +15,22 @@ LEASE_COMPLETED = "completed"
 
 
 class OrganizationConfigurationClient(BaseDBClient):
+    async def get_configuration_values(
+        self, organization_id: int, keys: list[str]
+    ) -> dict:
+        """Read selected organization state in one round trip."""
+        async with self.async_session() as session:
+            rows = await session.execute(
+                select(
+                    OrganizationConfigurationModel.key,
+                    OrganizationConfigurationModel.value,
+                ).where(
+                    OrganizationConfigurationModel.organization_id == organization_id,
+                    OrganizationConfigurationModel.key.in_(keys),
+                )
+            )
+            return dict(rows.all())
+
     async def get_configuration(
         self, organization_id: int, key: str
     ) -> Optional[OrganizationConfigurationModel]:
@@ -45,7 +61,6 @@ class OrganizationConfigurationClient(BaseDBClient):
         organization_id: int,
         key: str,
         value: Any,
-        last_validated_at: datetime | None = None,
     ) -> OrganizationConfigurationModel:
         """Create or update a configuration for an organization."""
         async with self.async_session() as session:
@@ -63,7 +78,6 @@ class OrganizationConfigurationClient(BaseDBClient):
                 # Update existing configuration
                 config.value = value
                 config.updated_at = now
-                config.last_validated_at = last_validated_at
             else:
                 # Create new configuration
                 config = OrganizationConfigurationModel(
@@ -71,34 +85,9 @@ class OrganizationConfigurationClient(BaseDBClient):
                     key=key,
                     value=value,
                     updated_at=now,
-                    last_validated_at=last_validated_at,
                 )
                 session.add(config)
 
-            try:
-                await session.commit()
-            except Exception as e:
-                await session.rollback()
-                raise e
-            await session.refresh(config)
-            return config
-
-    async def mark_configuration_validated(
-        self, organization_id: int, key: str
-    ) -> Optional[OrganizationConfigurationModel]:
-        """Update the validation timestamp for an existing organization configuration."""
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(OrganizationConfigurationModel).where(
-                    OrganizationConfigurationModel.organization_id == organization_id,
-                    OrganizationConfigurationModel.key == key,
-                )
-            )
-            config = result.scalars().first()
-            if not config:
-                return None
-
-            config.last_validated_at = datetime.now(UTC)
             try:
                 await session.commit()
             except Exception as e:

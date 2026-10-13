@@ -63,6 +63,7 @@ from api.tasks.campaign_tasks import (
 )
 from api.tasks.knowledge_base_processing import process_knowledge_base_document
 from api.tasks.run_integrations import run_integrations_post_workflow_run
+from api.tasks.text_chat_completion import finalize_completed_text_chat
 from api.tasks.text_chat_inactivity import (
     complete_inactive_text_chat_session,
     sweep_inactive_text_chat_sessions,
@@ -80,6 +81,7 @@ class WorkerSettings:
         process_knowledge_base_document,
         deliver_webhook,
         complete_inactive_text_chat_session,
+        finalize_completed_text_chat,
     ]
     cron_jobs = [
         # Safety net for webhook deliveries whose ARQ job was lost (worker

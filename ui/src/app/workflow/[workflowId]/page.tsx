@@ -15,7 +15,6 @@ import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
 import { WorkflowConfigurations } from '@/types/workflow-configurations';
 
-import WorkflowLayout from '../WorkflowLayout';
 
 export default function WorkflowDetailPage() {
     const params = useParams();
@@ -114,18 +113,14 @@ export default function WorkflowDetailPage() {
 
     if (authLoading || loading || (!error && loaded?.key !== requestKey)) {
         return (
-            <WorkflowLayout>
-                <SpinLoader />
-            </WorkflowLayout>
+            <SpinLoader />
         );
     }
     else if (error || !workflow) {
         return (
-            <WorkflowLayout showFeaturesNav={false}>
-                <div className="flex items-center justify-center min-h-screen">
-                    <div className="text-lg text-destructive">{error || 'Workflow not found'}</div>
-                </div>
-            </WorkflowLayout>
+            <div className="flex items-center justify-center min-h-screen">
+                <div className="text-lg text-destructive">{error || 'Workflow not found'}</div>
+            </div>
         );
     }
     else {

@@ -37,6 +37,9 @@ from api.services.telephony.providers.vobiz.config import (
 from api.services.telephony.providers.vonage.config import (
     VonageConfigurationRequest,
 )
+from api.services.telephony.providers.whatsapp.config import (
+    WhatsAppConfigurationRequest,
+)
 from api.services.telephony.registry import (
     ProviderConnectivity,
     ProviderSetupChecklist,
@@ -55,6 +58,7 @@ TelephonyConfigRequest = Annotated[
         TwilioConfigurationRequest,
         VobizConfigurationRequest,
         VonageConfigurationRequest,
+        WhatsAppConfigurationRequest,
     ],
     Field(discriminator="provider"),
 ]
@@ -103,6 +107,10 @@ class TelephonyConfigurationListItem(BaseModel):
     inactive_since: datetime | None = None
     inactive_reason: str | None = None
     phone_number_count: int = 0
+    # Whether the provider can place calls at all. False for an inbound-only
+    # channel, so the UI hides every outbound affordance instead of reporting
+    # a setup step the customer can never complete.
+    supports_outbound: bool = True
     # Whether this configuration can actually place an outbound call, as
     # reported by the provider's setup-checklist hook. Providers without one
     # are ready as soon as their credentials are stored, hence the default.
@@ -162,6 +170,7 @@ class TelephonyConfigurationDetail(BaseModel):
     inactive_reason: str | None = None
     credentials: dict
     sip_connectivity: SIPConnectivityDetails | None = None
+    supports_outbound: bool = True
     setup_checklist: ProviderSetupChecklist | None = None
     # Whether the provider's Dograh integration models trunks at all. Distinct
     # from ``trunks`` being empty, which is equally the state of a trunk-capable
@@ -193,4 +202,5 @@ __all__ = [
     "TwilioConfigurationRequest",
     "VobizConfigurationRequest",
     "VonageConfigurationRequest",
+    "WhatsAppConfigurationRequest",
 ]

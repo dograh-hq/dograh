@@ -104,7 +104,9 @@ def terminal_call(monkeypatch, no_disposition_mapping):
         "campaign_call_dispatcher",
         SimpleNamespace(release_call_slot=release),
     )
-    monkeypatch.setattr(status_processor, "circuit_breaker", breaker)
+    monkeypatch.setattr(
+        "api.services.campaign.circuit_breaker.circuit_breaker", breaker
+    )
     monkeypatch.setattr(
         status_processor,
         "schedule_campaign_retry",
@@ -270,7 +272,7 @@ async def test_duplicate_destroyed_events_do_not_duplicate_terminal_side_effects
     assert len(call.run.logs["telephony_status_callbacks"]) == 1
     call.release.assert_awaited_once_with(RUN_ID)
     call.retry.assert_awaited_once()
-    call.breaker.record_and_evaluate.assert_awaited_once()
+    call.breaker.record_and_evaluate.assert_not_awaited()
     call.enqueue.assert_awaited_once()
     assert call.mappings == {}
 

@@ -206,6 +206,16 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
         if status.call_id:
             gathered_context["call_id"] = status.call_id
 
+        # Surface the Twilio failure detail so webhooks can tell an invalid
+        # number from a temporarily-unavailable one. Twilio puts these on the
+        # terminal callback; providers that don't simply omit them.
+        sip_code = status.extra.get("SipResponseCode")
+        error_code = status.extra.get("ErrorCode")
+        if sip_code:
+            gathered_context["telephony_sip_code"] = str(sip_code)
+        if error_code:
+            gathered_context["telephony_error_code"] = str(error_code)
+
         should_run_post_call_integrations = (
             workflow_run.state == WorkflowRunState.INITIALIZED.value
             and not workflow_run.is_completed

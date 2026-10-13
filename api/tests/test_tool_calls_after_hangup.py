@@ -15,7 +15,9 @@ from pipecat.processors.frame_processor import FrameProcessorSetup
 from pipecat.services.llm_service import FunctionCallFromLLM, FunctionCallParams
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.utils.asyncio.task_manager import TaskManager
+from pydantic import TypeAdapter
 
+from api.schemas.tool import ToolMessages
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.services.workflow.tools import custom_tool
@@ -65,6 +67,42 @@ def params(engine, name="save_booking", call_id="booking-1"):
         pipeline_worker=SimpleNamespace(app_resources=None),
         result_callback=AsyncMock(),
     )
+
+
+@pytest.mark.asyncio
+async def test_message_owner_is_selected_in_llm_batch_order(running_engine):
+    engine, llm = running_engine
+    engine.queue_speech = AsyncMock()
+    release = asyncio.Event()
+    entered = asyncio.Queue()
+
+    async def handler(params):
+        entered.put_nowait(params.function_name)
+        await release.wait()
+        await params.result_callback({"ok": True})
+
+    for name in ["silent", "second", "third"]:
+        messages = (
+            None
+            if name == "silent"
+            else TypeAdapter(ToolMessages).validate_python(
+                [{"event": "start", "type": "text", "text": name}]
+            )
+        )
+        llm.register_function(
+            name, engine.active_agent.bind_tool(engine, handler, messages=messages)
+        )
+    try:
+        await llm.run_function_calls(
+            [call(engine, name, name) for name in ["silent", "second", "third"]]
+        )
+        for _ in range(3):
+            await asyncio.wait_for(entered.get(), 1)
+        assert engine.queue_speech.await_count == 1
+        assert engine.queue_speech.call_args.kwargs["text"] == "second"
+    finally:
+        release.set()
+        await engine.finish_tool_calls()
 
 
 @pytest.mark.asyncio

@@ -96,6 +96,8 @@ class PresetToolParameter(BaseModel):
 class HttpApiConfig(BaseModel):
     """Configuration for HTTP API tools."""
 
+    model_config = ConfigDict(extra="forbid")
+
     method: HttpMethod = Field(
         description="HTTP method to use for the request.",
         json_schema_extra=_llm_hint("Use one of GET, POST, PUT, PATCH, DELETE."),
@@ -139,19 +141,6 @@ class HttpApiConfig(BaseModel):
         ge=1,
         description="Request timeout in milliseconds.",
     )
-    customMessage: str | None = Field(
-        default=None,
-        description=(
-            "Custom message to play before the tool executes, while the "
-            "request is in flight."
-        ),
-    )
-    customMessageType: Literal["text", "audio"] | None = Field(
-        default=None, description="Type of custom message."
-    )
-    customMessageRecordingId: str | None = Field(
-        default=None, description="Recording ID for an audio custom message."
-    )
     body_template: dict[str, Any] | None = Field(
         default=None,
         description="Optional JSON body template for POST, PUT, and PATCH requests.",
@@ -190,15 +179,8 @@ class HttpApiConfig(BaseModel):
 class EndCallConfig(BaseModel):
     """Configuration for End Call tools."""
 
-    messageType: Literal["none", "custom", "audio"] = Field(
-        default="none", description="Type of goodbye message."
-    )
-    customMessage: str | None = Field(
-        default=None, description="Custom message to play before ending the call."
-    )
-    audioRecordingId: str | None = Field(
-        default=None, description="Recording ID for audio goodbye message."
-    )
+    model_config = ConfigDict(extra="forbid")
+
     endCallReason: bool = Field(
         default=False,
         description=(
@@ -388,6 +370,8 @@ class ContextDestinationMappingConfig(BaseModel):
 class TransferCallConfig(BaseModel):
     """Configuration for Transfer Call tools."""
 
+    model_config = ConfigDict(extra="forbid")
+
     introduction_enabled: bool = Field(
         default=False,
         description=(
@@ -415,15 +399,6 @@ class TransferCallConfig(BaseModel):
             "Phone number, SIP endpoint, or template to transfer the call to, e.g. "
             "+1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}."
         ),
-    )
-    messageType: Literal["none", "custom", "audio"] = Field(
-        default="none", description="Type of message to play before transfer."
-    )
-    customMessage: str | None = Field(
-        default=None, description="Custom message to play before transferring."
-    )
-    audioRecordingId: str | None = Field(
-        default=None, description="Recording ID for audio message before transfer."
     )
     timeout: int = Field(
         default=30,
@@ -541,26 +516,109 @@ class McpToolConfig(BaseModel):
         return v
 
 
-class HttpApiToolDefinition(BaseModel):
-    """Tool definition for HTTP API tools."""
+class ToolMessageText(BaseModel):
+    """A literal phrase spoken by the agent's TTS voice."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    type: Literal["text"]
+    text: str = Field(min_length=1)
+
+
+class ToolMessageAudio(BaseModel):
+    """An organization-owned recording, referenced by its immutable primary key."""
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["audio"]
+    recording_id: int = Field(gt=0)
+
+
+class ToolStartTextMessage(ToolMessageText):
+    event: Literal["start"]
+
+
+class ToolStartAudioMessage(ToolMessageAudio):
+    event: Literal["start"]
+
+
+class ToolDelayedTextMessage(ToolMessageText):
+    event: Literal["delayed"]
+    after_ms: int = Field(gt=0, le=120000)
+
+
+class ToolDelayedAudioMessage(ToolMessageAudio):
+    event: Literal["delayed"]
+    after_ms: int = Field(gt=0, le=120000)
+
+
+ToolMessage = (
+    ToolStartTextMessage
+    | ToolStartAudioMessage
+    | ToolDelayedTextMessage
+    | ToolDelayedAudioMessage
+)
+ToolMessages = list[ToolMessage]
+
+
+class ToolDefinitionBase(BaseModel):
+    """Shared message format; supported events depend on the tool's behavior."""
 
     schema_version: int = Field(default=1, description="Schema version.")
+    messages: ToolMessages = Field(
+        default_factory=list,
+        max_length=220,
+        description=(
+            "Configured speech. An empty list disables announcements. HTTP/MCP "
+            "choose one start entry and one entry per delayed timing at random. "
+            "End-call and transfer tools support one start entry only."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_messages(self):
+        tool_type = self.type
+        if tool_type == "calculator" and self.messages:
+            raise ValueError("Calculator tools do not support messages")
+        if tool_type in {"end_call", "transfer_call", "transfer_agent"}:
+            if len(self.messages) > 1 or any(m.event != "start" for m in self.messages):
+                raise ValueError("This tool supports at most one start message")
+            if tool_type == "transfer_agent" and any(
+                m.type != "text" for m in self.messages
+            ):
+                raise ValueError("Agent transfer supports text messages only")
+            if tool_type == "transfer_agent" and any(
+                len(m.text) > 500 for m in self.messages
+            ):
+                raise ValueError(
+                    "Agent-transfer messages must be at most 500 characters"
+                )
+        counts: dict[int, int] = {}
+        for message in self.messages:
+            timing = message.after_ms if message.event == "delayed" else 0
+            counts[timing] = counts.get(timing, 0) + 1
+        if any(count > 20 for count in counts.values()):
+            raise ValueError("Each event and timing supports at most 20 variants")
+        if len(counts.keys() - {0}) > 10:
+            raise ValueError("At most 10 delayed timings are supported")
+        return self
+
+
+class HttpApiToolDefinition(ToolDefinitionBase):
+    """Tool definition for HTTP API tools."""
+
     type: Literal["http_api"] = Field(description="Tool type.")
     config: HttpApiConfig = Field(description="HTTP API configuration.")
 
 
-class EndCallToolDefinition(BaseModel):
+class EndCallToolDefinition(ToolDefinitionBase):
     """Tool definition for End Call tools."""
 
-    schema_version: int = Field(default=1, description="Schema version.")
     type: Literal["end_call"] = Field(description="Tool type.")
     config: EndCallConfig = Field(description="End Call configuration.")
 
 
-class TransferCallToolDefinition(BaseModel):
+class TransferCallToolDefinition(ToolDefinitionBase):
     """Tool definition for Transfer Call tools."""
 
-    schema_version: int = Field(default=1, description="Schema version.")
     type: Literal["transfer_call"] = Field(description="Tool type.")
     config: TransferCallConfig = Field(description="Transfer Call configuration.")
 
@@ -581,6 +639,8 @@ class TransferAgentConfig(BaseModel):
     callers on its own number should not re-introduce itself mid-conversation.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     workflow_id: int = Field(
         description=(
             "Id of the Dograh agent to transfer to. Must be in the same "
@@ -589,15 +649,6 @@ class TransferAgentConfig(BaseModel):
         json_schema_extra=_llm_hint(
             "Name the tool after this agent, e.g. 'Transfer to Billing', and "
             "describe when to use it -- that is what the model routes on."
-        ),
-    )
-    message: str = Field(
-        default="Let me connect you with the right person. One moment please.",
-        max_length=500,
-        description=(
-            "Spoken by the current agent, in its own voice, before the caller "
-            "is handed over. Supports template variables. Leave empty to hand "
-            "over without saying anything."
         ),
     )
     play_greeting: bool = Field(
@@ -611,25 +662,36 @@ class TransferAgentConfig(BaseModel):
     )
 
 
-class TransferAgentToolDefinition(BaseModel):
+class TransferAgentToolDefinition(ToolDefinitionBase):
     """Tool definition for Transfer Agent tools."""
 
-    schema_version: int = Field(default=1, description="Schema version.")
     type: Literal["transfer_agent"] = Field(description="Tool type.")
     config: TransferAgentConfig = Field(description="Transfer Agent configuration.")
+    messages: ToolMessages = Field(
+        default_factory=lambda: [
+            ToolStartTextMessage(
+                event="start",
+                type="text",
+                text="Let me connect you with the right person. One moment please.",
+            )
+        ],
+        max_length=220,
+        description=(
+            "One start text message, with template variables supported. Omit to "
+            "use the default handover line, or send an empty list for a silent handoff."
+        ),
+    )
 
 
-class CalculatorToolDefinition(BaseModel):
+class CalculatorToolDefinition(ToolDefinitionBase):
     """Tool definition for Calculator tools."""
 
-    schema_version: int = Field(default=1, description="Schema version.")
     type: Literal["calculator"] = Field(description="Tool type.")
 
 
-class McpToolDefinition(BaseModel):
+class McpToolDefinition(ToolDefinitionBase):
     """Persisted MCP tool definition."""
 
-    schema_version: int = Field(default=1, description="Schema version.")
     type: Literal["mcp"] = Field(description="Tool type.")
     config: McpToolConfig = Field(description="MCP server configuration.")
 

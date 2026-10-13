@@ -141,6 +141,22 @@ async def validate_tool_references(
                 status_code=404,
             )
 
+    recording_ids = {
+        message["recording_id"]
+        for message in definition.get("messages", [])
+        if message.get("type") == "audio"
+    }
+    if recording_ids:
+        accessible_ids = await db_client.get_active_recording_ids(
+            recording_ids, organization_id
+        )
+        if recording_ids != accessible_ids:
+            raise ToolManagementError(
+                "recording_not_found",
+                "A tool message recording was not found in this organization.",
+                status_code=404,
+            )
+
 
 async def populate_discovered_tools(
     definition: dict[str, Any], *, organization_id: int

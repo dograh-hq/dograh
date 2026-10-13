@@ -32,10 +32,13 @@ from pipecat.turns.user_mute import CallbackUserMuteStrategy
 from pipecat.turns.user_start import ExternalUserTurnStartStrategy
 from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pydantic import TypeAdapter
 
+from api.schemas.tool import ToolMessages
 from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.tool_execution import ToolExecutionOwner
 
 
 class ControlledTTS(MockTTSService):
@@ -562,5 +565,63 @@ async def test_cancelling_recording_preparation_releases_playback(playback, gree
     finally:
         preparation.cancel()
         await asyncio.gather(preparation, return_exceptions=True)
+    assert not playback.engine.speech_playback.pending
+    assert not playback.output.writing.is_set()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_cancels_recording_preparation_without_blocking_request(
+    playback,
+):
+    fetching, executing, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def fetch(**_):
+        fetching.set()
+        await asyncio.Event().wait()
+
+    async def handler(params):
+        executing.set()
+        await release.wait()
+        await params.result_callback({"saved": True})
+
+    engine = playback.engine
+    engine.set_fetch_recording_audio(AsyncMock(side_effect=fetch))
+    owner = ToolExecutionOwner(engine, engine.active_agent)
+    execution = owner.start(
+        handler,
+        SimpleNamespace(tool_call_id="save-1", function_name="save", arguments={}),
+        1,
+        TypeAdapter(ToolMessages).validate_python(
+            [{"event": "start", "type": "audio", "recording_id": 42}]
+        ),
+    )
+    try:
+        await asyncio.wait_for(fetching.wait(), 1)
+        await asyncio.wait_for(executing.wait(), 1)
+        assert engine.speech_playback.pending
+        release.set()
+        await asyncio.wait_for(owner.finish(), 1)
+        assert execution.result == {"saved": True}
+        assert not engine.speech_playback.pending
+        assert not playback.output.writing.is_set()
+    finally:
+        release.set()
+        await owner.finish()
+
+
+@pytest.mark.asyncio
+async def test_announcement_rechecks_eligibility_after_audio_preparation(playback):
+    eligible = True
+
+    async def fetch(**_):
+        nonlocal eligible
+        eligible = False
+        return SimpleNamespace(audio=b"\x01\x00" * 1280, transcript="Still checking.")
+
+    playback.engine.set_fetch_recording_audio(AsyncMock(side_effect=fetch))
+    speech = await playback.engine.queue_speech(
+        recording_pk=42, mute_user=True, can_queue=lambda: eligible
+    )
+    assert speech.outcome is PlaybackOutcome.SKIPPED
     assert not playback.engine.speech_playback.pending
     assert not playback.output.writing.is_set()

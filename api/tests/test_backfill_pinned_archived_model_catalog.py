@@ -837,7 +837,14 @@ async def fallback_pin(test_engine):
                 status="archived",
                 workflow_configurations={},
             )
-            session.add_all([partial, full])
+            dograh = WorkflowModel(
+                organization_id=organization.id,
+                user_id=user.id,
+                name="Dograh primary",
+                status="archived",
+                workflow_configurations={},
+            )
+            session.add_all([partial, full, dograh])
             await session.flush()
             partial_def = WorkflowDefinitionModel(
                 workflow_id=partial.id,
@@ -855,13 +862,26 @@ async def fallback_pin(test_engine):
                 status="published",
                 is_current=True,
             )
-            session.add_all([partial_def, full_def])
+            dograh_def = WorkflowDefinitionModel(
+                workflow_id=dograh.id,
+                workflow_json={},
+                workflow_configurations={
+                    "model_overrides": {
+                        "llm": {"provider": "dograh", "api_key": "managed-key"}
+                    }
+                },
+                status="published",
+                is_current=True,
+            )
+            session.add_all([partial_def, full_def, dograh_def])
             await session.flush()
             partial.released_definition_id = partial_def.id
             full.released_definition_id = full_def.id
+            dograh.released_definition_id = dograh_def.id
             for name, owner, definition in (
                 ("partial-pin", partial, partial_def),
                 ("full-pin", full, full_def),
+                ("dograh-pin", dograh, dograh_def),
             ):
                 session.add(
                     CampaignModel(
@@ -881,6 +901,7 @@ async def fallback_pin(test_engine):
                 "user": user.id,
                 "partial": partial_def.id,
                 "full": full_def.id,
+                "dograh": dograh_def.id,
             }
         yield factory, ids
     finally:
@@ -962,7 +983,7 @@ async def test_partial_override_keeps_the_current_default_fallback(
 
     summary = await _migrate(test_engine, follow_up.migrate)
     assert summary["inherited"] == []
-    assert summary["bindings"] == 2
+    assert summary["bindings"] == 3
 
     configurations, definitions, _, _ = await _snapshot(factory, organization_id)
     partial_binding = definitions[ids["partial"]]["model_configuration_override"]
@@ -983,6 +1004,18 @@ async def test_partial_override_keeps_the_current_default_fallback(
     full_spec = configurations[full_binding["model_configuration_uuid"]].configuration
     assert "llm_fallback" not in full_spec
     assert full_spec["tts"]["settings"]["voice"] == "aura-2-thalia-en"
+
+    dograh_binding = definitions[ids["dograh"]]["model_configuration_override"]
+    dograh_spec = configurations[
+        dograh_binding["model_configuration_uuid"]
+    ].configuration
+    assert "llm_fallback" not in dograh_spec
+    dograh_resolved = await get_effective_ai_model_configuration_for_workflow(
+        organization_id=organization_id,
+        workflow_configurations=definitions[ids["dograh"]],
+    )
+    assert dograh_resolved.llm.provider == "dograh"
+    assert dograh_resolved.llm_fallback is None
 
     again = await _migrate(test_engine, follow_up.migrate)
     assert again["bindings"] == 0

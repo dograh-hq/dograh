@@ -20,7 +20,9 @@ and failed campaigns are left alone.
 
 A partial override is layered on the organization's current catalog default,
 including that default's llm_fallback policy, because the new binding
-replaces the default rather than inheriting from it. The older
+replaces the default rather than inheriting from it. A Dograh primary
+cannot carry those rules: call start rejects the binding, so the copied
+policy is left off when the resolved LLM provider is dograh. The older
 MODEL_CONFIGURATION_V2 row is used only when that default was never
 created; otherwise a default the organization changed later would be
 replaced by the stale credential. A JSON null model_configuration_override
@@ -332,6 +334,19 @@ def _organization_services(connection, organization_id):
     return mode, sections, None
 
 
+def _fallback_compatible_with_primary(fallback, sections):
+    """Drop backup rules a Dograh primary cannot run.
+
+    A pipeline fallback has to travel with a compatible primary, because the
+    binding replaces the organization default. Dograh rejects any non-empty
+    fallback policy at call start.
+    """
+    llm = sections.get("llm")
+    if isinstance(llm, dict) and llm.get("provider") == "dograh":
+        return None
+    return fallback
+
+
 def _sections(configuration, organization_services):
     full = _obj(configuration.get(_v3.FULL_OVERRIDE_KEY))
     partial = _obj(configuration.get(_v3.PARTIAL_OVERRIDE_KEY))
@@ -345,7 +360,7 @@ def _sections(configuration, organization_services):
             raise _v3.Unconvertible("partial_override_without_organization_default")
         base_mode, base_sections, fallback = organization_services
         mode, sections = _v3.apply_partial_overrides(base_mode, base_sections, partial)
-        return mode, sections, fallback
+        return mode, sections, _fallback_compatible_with_primary(fallback, sections)
     return None
 
 

@@ -93,18 +93,23 @@ datamodel-codegen \
     --wrap-string-literal
 
 # openapi-typescript treats a component property that declares "default" as
-# required. Python codegen has already turned that default into a model
-# default, so an omitted rate limit dumps as 1 rather than JSON null.
-# Strip it only for the TypeScript types.
+# required under --root-types. Python codegen has already turned that
+# default into a model default, so an omitted field still dumps as the
+# server value rather than JSON null. Strip defaults from optional request
+# properties only, before the TypeScript types are generated. Required
+# properties, such as schedule slots, keep their schema and stay required.
 python - <<PY
 import json
 path = "$OPENAPI_JSON"
 with open(path) as f:
     spec = json.load(f)
-prop = spec["components"]["schemas"]["CreateCampaignRequest"]["properties"][
-    "rate_limit_per_second"
-]
-prop.pop("default", None)
+for name, schema in spec.get("components", {}).get("schemas", {}).items():
+    if not name.endswith("Request") or not isinstance(schema, dict):
+        continue
+    required = set(schema.get("required") or [])
+    for prop_name, prop in (schema.get("properties") or {}).items():
+        if prop_name not in required and isinstance(prop, dict):
+            prop.pop("default", None)
 with open(path, "w") as f:
     json.dump(spec, f)
 PY

@@ -758,26 +758,14 @@ export interface components {
         };
         /** CircuitBreakerConfigRequest */
         CircuitBreakerConfigRequest: {
-            /**
-             * Enabled
-             * @default true
-             */
-            enabled: boolean;
-            /**
-             * Failure Threshold
-             * @default 0.5
-             */
-            failure_threshold: number;
-            /**
-             * Window Seconds
-             * @default 120
-             */
-            window_seconds: number;
-            /**
-             * Min Calls In Window
-             * @default 5
-             */
-            min_calls_in_window: number;
+            /** Enabled */
+            enabled?: boolean;
+            /** Failure Threshold */
+            failure_threshold?: number;
+            /** Window Seconds */
+            window_seconds?: number;
+            /** Min Calls In Window */
+            min_calls_in_window?: number;
         };
         /** CircuitBreakerConfigResponse */
         CircuitBreakerConfigResponse: {
@@ -908,22 +896,19 @@ export interface components {
             /**
              * Category
              * @description Tool category. Must match definition.type.
-             * @default http_api
              * @enum {string}
              */
-            category: "http_api" | "end_call" | "transfer_call" | "transfer_agent" | "calculator" | "native" | "integration" | "mcp";
+            category?: "http_api" | "end_call" | "transfer_call" | "transfer_agent" | "calculator" | "native" | "integration" | "mcp";
             /**
              * Icon
              * @description Lucide icon identifier.
-             * @default globe
              */
-            icon: string | null;
+            icon?: string | null;
             /**
              * Icon Color
              * @description Hex color for the tool icon.
-             * @default #3B82F6
              */
-            icon_color: string | null;
+            icon_color?: string | null;
             /**
              * Definition
              * @description Typed tool definition.
@@ -1709,36 +1694,18 @@ export interface components {
         };
         /** RetryConfigRequest */
         RetryConfigRequest: {
-            /**
-             * Enabled
-             * @default true
-             */
-            enabled: boolean;
-            /**
-             * Max Retries
-             * @default 2
-             */
-            max_retries: number;
-            /**
-             * Retry Delay Seconds
-             * @default 120
-             */
-            retry_delay_seconds: number;
-            /**
-             * Retry On Busy
-             * @default true
-             */
-            retry_on_busy: boolean;
-            /**
-             * Retry On No Answer
-             * @default true
-             */
-            retry_on_no_answer: boolean;
-            /**
-             * Retry On Voicemail
-             * @default true
-             */
-            retry_on_voicemail: boolean;
+            /** Enabled */
+            enabled?: boolean;
+            /** Max Retries */
+            max_retries?: number;
+            /** Retry Delay Seconds */
+            retry_delay_seconds?: number;
+            /** Retry On Busy */
+            retry_on_busy?: boolean;
+            /** Retry On No Answer */
+            retry_on_no_answer?: boolean;
+            /** Retry On Voicemail */
+            retry_on_voicemail?: boolean;
         };
         /** RetryConfigResponse */
         RetryConfigResponse: {
@@ -1757,16 +1724,10 @@ export interface components {
         };
         /** ScheduleConfigRequest */
         ScheduleConfigRequest: {
-            /**
-             * Enabled
-             * @default true
-             */
-            enabled: boolean;
-            /**
-             * Timezone
-             * @default UTC
-             */
-            timezone: string;
+            /** Enabled */
+            enabled?: boolean;
+            /** Timezone */
+            timezone?: string;
             /** Slots */
             slots: components["schemas"]["TimeSlotRequest"][];
         };

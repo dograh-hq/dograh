@@ -85,6 +85,37 @@ async def _get_redis() -> Optional[aioredis.Redis]:
     return _redis_client
 
 
+# How long a connect claim outlives the delivery that won it. Meta retries a
+# connect it believes unanswered within seconds; long before this lapses the
+# run exists and the database check catches any straggler.
+CALL_CLAIM_TTL_SECONDS = 600
+
+
+async def _claim_call(call_id: str) -> bool:
+    """Claim a connect atomically across workers; the first delivery wins.
+
+    Meta delivers connect at least once, so two deliveries of one call can
+    overlap before either has created its run. The database check alone then
+    lets both through and the call is answered twice. Without Redis the claim
+    is granted and that check is the only guard.
+    """
+    try:
+        redis = await _get_redis()
+        if redis is None:
+            return True
+        return bool(
+            await redis.set(
+                f"whatsapp:call:{call_id}:claim",
+                _WORKER_ID,
+                nx=True,
+                ex=CALL_CLAIM_TTL_SECONDS,
+            )
+        )
+    except Exception as e:
+        logger.warning(f"[WhatsApp] Call claim unavailable for {call_id}: {e}")
+        return True
+
+
 def _ensure_redis_subscriber() -> None:
     global _redis_subscriber_task
     if _redis_subscriber_task is None or _redis_subscriber_task.done():
@@ -110,7 +141,7 @@ async def _listen_for_remote_terminates() -> None:
                     await _dispatch_terminate(
                         phone_number_id=str(data.get("phone_number_id") or ""),
                         payload=data.get("payload") or {},
-                        call_ids=list(data.get("call_ids") or []),
+                        call_id=str(data.get("call_id") or ""),
                     )
                 except Exception as e:
                     logger.warning(
@@ -213,6 +244,10 @@ def _get_or_create_whatsapp_client(
         client.update_whatsapp_token(access_token)
         if app_secret:
             client.update_whatsapp_secret(app_secret)
+        # TURN credentials are time-limited, so a client cached across calls
+        # must not keep the ICE servers it was created with. Only new
+        # connections pick these up; calls in progress are unaffected.
+        client.update_ice_servers(_build_whatsapp_ice_servers())
 
     return client
 
@@ -261,17 +296,16 @@ async def _terminate_whatsapp_call(
 
 
 async def _dispatch_terminate(
-    phone_number_id: str, payload: Dict[str, Any], call_ids: list[str]
+    phone_number_id: str, payload: Dict[str, Any], call_id: str
 ) -> None:
-    """Give a terminate webhook to this worker's client for the number.
+    """Give one call's terminate webhook to this worker's client for the number.
 
-    The client closes the peer connections it holds for those calls, which
-    ends their pipelines, and ignores calls it never answered. A worker with
-    no client for the number has nothing to close.
+    The client closes the peer connection it holds for that call, which ends
+    its pipeline, and ignores a call it never answered. A worker with no
+    client for the number has nothing to close.
     """
-    for call_id in call_ids:
-        if call_id in _owned_calls:
-            _terminated_by_meta.add(call_id)
+    if call_id in _owned_calls:
+        _terminated_by_meta.add(call_id)
 
     client = _clients.get(phone_number_id)
     if client is None:
@@ -281,9 +315,7 @@ async def _dispatch_terminate(
             WhatsAppWebhookRequest.model_validate(payload)
         )
     except Exception as e:
-        logger.warning(
-            f"[WhatsApp] Terminate handling failed for calls {call_ids}: {e}"
-        )
+        logger.warning(f"[WhatsApp] Terminate handling failed for call {call_id}: {e}")
 
 
 @router.get("/webhook")
@@ -348,6 +380,22 @@ def _verify_whatsapp_signature(
             f"[WhatsApp] Webhook signature verification failed for phone_number_id={phone_number_id}"
         )
         raise HTTPException(status_code=403, detail="Invalid webhook signature")
+
+
+def _payload_for_call(
+    payload: Dict[str, Any],
+    entry: Dict[str, Any],
+    change: Dict[str, Any],
+    call_data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Meta's webhook payload narrowed to a single call.
+
+    Pipecat's client acts on the first connect or terminate it finds and
+    returns, so a webhook that batches several calls is handed over one call
+    at a time.
+    """
+    value = {**(change.get("value") or {}), "calls": [call_data]}
+    return {**payload, "entry": [{**entry, "changes": [{**change, "value": value}]}]}
 
 
 @router.post("/webhook")
@@ -416,29 +464,28 @@ async def handle_whatsapp_webhook(request: Request):
                     phone_number_id=phone_number_id,
                 )
 
-                terminated: list[str] = []
                 for call_data in calls:
                     event = call_data.get("event")
                     call_id = call_data.get("id")
+                    call_payload = _payload_for_call(payload, entry, change, call_data)
 
                     if event == "connect":
                         await _handle_inbound_call_connect(
                             call_data=call_data,
                             metadata=metadata,
                             phone_number_id=phone_number_id,
-                            payload=payload,
+                            payload=call_payload,
                             config=config,
                         )
                     elif event == "terminate":
                         if call_id:
-                            terminated.append(call_id)
+                            await _handle_call_terminate(
+                                phone_number_id, call_payload, call_id
+                            )
                     else:
                         logger.info(
                             f"[WhatsApp] Received call event {event!r} for call {call_id}"
                         )
-
-                if terminated:
-                    await _handle_call_terminate(phone_number_id, payload, terminated)
 
         return {"status": "success"}
 
@@ -483,6 +530,12 @@ async def _handle_inbound_call_connect(
     # 1. Check for duplicate or active call
     if not call_id:
         logger.warning("[WhatsApp] Missing call_id in connect event")
+        return
+
+    if not await _claim_call(call_id):
+        logger.warning(
+            f"[WhatsApp] Call {call_id} is already being answered, ignoring duplicate connect"
+        )
         return
 
     existing_run = await db_client.get_workflow_run_by_call_id(call_id)
@@ -707,11 +760,16 @@ async def _run_whatsapp_pipeline(
         )
         # Best-effort by contract; a run the pipeline already completed is left
         # as it is, so a teardown error cannot rewrite a finished call.
-        run = await db_client.get_workflow_run(
-            workflow_run_id, organization_id=organization_id
-        )
-        if run and not run.is_completed:
-            await mark_workflow_run_failed(workflow_run_id, str(e))
+        try:
+            run = await db_client.get_workflow_run(
+                workflow_run_id, organization_id=organization_id
+            )
+            if run and not run.is_completed:
+                await mark_workflow_run_failed(workflow_run_id, str(e))
+        except Exception as mark_error:
+            logger.warning(
+                f"[WhatsApp] Could not mark workflow_run {workflow_run_id} failed: {mark_error}"
+            )
     finally:
         _owned_calls.discard(call_id)
         if call_id in _terminated_by_meta:
@@ -727,16 +785,16 @@ async def _run_whatsapp_pipeline(
 
 
 async def _handle_call_terminate(
-    phone_number_id: str, payload: Dict[str, Any], call_ids: list[str]
+    phone_number_id: str, payload: Dict[str, Any], call_id: str
 ) -> None:
-    """Close the calls Meta reports ended, on whichever worker holds them.
+    """Close a call Meta reports ended, on whichever worker holds it.
 
     This worker tries first; the broadcast reaches the others. The pipeline
     behind a closed connection winds down on its own and completes the run,
     so nothing is written to the run here.
     """
-    logger.info(f"[WhatsApp] Processing terminate for calls {call_ids}")
-    await _dispatch_terminate(phone_number_id, payload, call_ids)
+    logger.info(f"[WhatsApp] Processing terminate for call {call_id}")
+    await _dispatch_terminate(phone_number_id, payload, call_id)
 
     try:
         redis = await _get_redis()
@@ -747,7 +805,7 @@ async def _handle_call_terminate(
                     {
                         "worker_id": _WORKER_ID,
                         "phone_number_id": phone_number_id,
-                        "call_ids": call_ids,
+                        "call_id": call_id,
                         "payload": payload,
                     }
                 ),

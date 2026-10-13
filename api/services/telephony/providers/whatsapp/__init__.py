@@ -26,14 +26,17 @@ async def _preprocess_credentials_on_save(
     credentials: Dict[str, Any],
     existing_credentials: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    """Check the credentials with Meta, then own the webhook verify token.
+    """Check the credentials with Meta, keep the number unique, own the verify token.
 
     Meta is asked which number sits behind the Phone Number ID, using the
     access token being saved. A typo or a token without access to the number
-    fails here rather than on the first call. It also means no organization
-    can register a Phone Number ID it holds no token for: inbound routing
-    refuses to choose between two active configurations claiming one number,
-    so an unchecked claim would have silenced the rightful owner's calls.
+    fails here rather than on the first call, and no organization can
+    register a Phone Number ID it holds no token for.
+
+    The Phone Number ID must also be held by exactly one active
+    configuration. Meta's webhook carries no tenant, so inbound routing
+    refuses to choose between two configurations claiming one number; a
+    second save, even by the rightful owner, would silence the first.
 
     The verify token is minted on create and carried on update. Meta stores
     the token the customer pasted and replays it on every verification
@@ -44,15 +47,49 @@ async def _preprocess_credentials_on_save(
     try:
         await WhatsAppProvider(credentials).get_available_phone_numbers()
     except ProviderPhoneNumberLookupError as e:
+        if _meta_rejected(e.status_code):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Meta did not accept these credentials: {e}",
+            ) from e
         raise HTTPException(
-            status_code=400 if e.status_code else 502,
-            detail=f"Meta did not accept these credentials: {e}",
+            status_code=502,
+            detail=f"Could not verify these credentials with Meta: {e}",
         ) from e
+
+    phone_number_id = str(credentials.get("phone_number_id") or "")
+    previous_phone_number_id = str(
+        (existing_credentials or {}).get("phone_number_id") or ""
+    )
+    if phone_number_id != previous_phone_number_id:
+        # Imported here so the provider package, like every other one, stays
+        # free of the database layer at import time.
+        from api.db import db_client
+
+        if await db_client.list_active_whatsapp_configurations_by_phone_number_id(
+            phone_number_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Another active WhatsApp configuration already uses this "
+                    "Phone Number ID. Each Meta number can be configured once."
+                ),
+            )
 
     credentials = dict(credentials)
     existing_token = (existing_credentials or {}).get("webhook_verify_token")
     credentials["webhook_verify_token"] = existing_token or secrets.token_urlsafe(32)
     return credentials
+
+
+def _meta_rejected(status_code: int | None) -> bool:
+    """Meta turned the request down, as opposed to failing or throttling it."""
+    return (
+        status_code is not None
+        and 400 <= status_code < 500
+        and status_code not in (408, 429)
+    )
 
 
 def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:

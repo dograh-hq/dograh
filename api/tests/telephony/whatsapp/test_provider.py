@@ -5,12 +5,13 @@ import hmac
 import json
 from typing import Any, Dict
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 from fastapi.responses import Response
 from pydantic import ValidationError
 
+from api.db import db_client
 from api.services.telephony.base import ProviderPhoneNumberLookupError
 from api.services.telephony.providers.whatsapp import (
     SPEC,
@@ -54,6 +55,28 @@ def _calls_webhook(call: Dict[str, Any], phone_number_id: str = "test_phone_id")
             }
         ],
     }
+
+
+def _meta_accepts():
+    return patch.object(
+        WhatsAppProvider,
+        "get_available_phone_numbers",
+        AsyncMock(return_value=["+15551234567"]),
+    )
+
+
+def _meta_fails(error: ProviderPhoneNumberLookupError):
+    return patch.object(
+        WhatsAppProvider, "get_available_phone_numbers", AsyncMock(side_effect=error)
+    )
+
+
+def _number_held_by(*configs: Any):
+    return patch.object(
+        db_client,
+        "list_active_whatsapp_configurations_by_phone_number_id",
+        AsyncMock(return_value=list(configs)),
+    )
 
 
 class _DummyResponse:
@@ -165,6 +188,8 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         self.assertFalse(await verify({"x-hub-signature-256": "sha256=bad"}))
         self.assertFalse(await verify({"x-hub-signature-256": digest}))
         self.assertFalse(await verify({}))
+        # Non-ASCII header: rejected, not a TypeError turned into a 500.
+        self.assertFalse(await verify({"x-hub-signature-256": f"sha256=é{digest[1:]}"}))
 
     def test_can_handle_webhook_recognises_meta_payloads_only(self):
         self.assertTrue(
@@ -273,11 +298,7 @@ class TestWhatsAppConfigurationSave(IsolatedAsyncioTestCase):
         self.assertEqual(request_dict["app_secret"], "secret_app_secret_value")
 
     async def test_verify_token_is_minted_on_create_and_carried_on_update(self):
-        with patch.object(
-            WhatsAppProvider,
-            "get_available_phone_numbers",
-            AsyncMock(return_value=["+15551234567"]),
-        ):
+        with _meta_accepts(), _number_held_by():
             created = await _preprocess_credentials_on_save(
                 {"access_token": "t", "phone_number_id": "p", "app_secret": "s"}, None
             )
@@ -293,14 +314,10 @@ class TestWhatsAppConfigurationSave(IsolatedAsyncioTestCase):
 
     async def test_save_is_refused_when_meta_rejects_the_credentials(self):
         """A number nobody holds a token for cannot be claimed, and typos fail at save."""
-        with patch.object(
-            WhatsAppProvider,
-            "get_available_phone_numbers",
-            AsyncMock(
-                side_effect=ProviderPhoneNumberLookupError(
-                    "Meta Graph API 401: bad token", status_code=401
-                )
-            ),
+        with _meta_fails(
+            ProviderPhoneNumberLookupError(
+                "Meta Graph API 401: bad token", status_code=401
+            )
         ):
             with self.assertRaises(HTTPException) as ctx:
                 await _preprocess_credentials_on_save(
@@ -310,18 +327,49 @@ class TestWhatsAppConfigurationSave(IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("bad token", ctx.exception.detail)
 
-    async def test_save_reports_meta_being_unreachable_as_upstream_failure(self):
-        with patch.object(
-            WhatsAppProvider,
-            "get_available_phone_numbers",
-            AsyncMock(side_effect=ProviderPhoneNumberLookupError("connection reset")),
+    async def test_save_reports_meta_trouble_as_upstream_failure(self):
+        """Only a refusal is the customer's fault; outages and throttling are not."""
+        for error in (
+            ProviderPhoneNumberLookupError("connection reset"),
+            ProviderPhoneNumberLookupError("Meta Graph API 500", status_code=500),
+            ProviderPhoneNumberLookupError("Meta Graph API 429", status_code=429),
         ):
+            with self.subTest(error=str(error)), _meta_fails(error):
+                with self.assertRaises(HTTPException) as ctx:
+                    await _preprocess_credentials_on_save(
+                        {
+                            "access_token": "t",
+                            "phone_number_id": "p",
+                            "app_secret": "s",
+                        },
+                        None,
+                    )
+                self.assertEqual(ctx.exception.status_code, 502)
+
+    async def test_save_is_refused_when_another_configuration_holds_the_number(self):
+        """Two active configurations on one number would route its calls nowhere."""
+        with _meta_accepts(), _number_held_by(MagicMock(id=7)):
             with self.assertRaises(HTTPException) as ctx:
                 await _preprocess_credentials_on_save(
                     {"access_token": "t", "phone_number_id": "p", "app_secret": "s"},
                     None,
                 )
-        self.assertEqual(ctx.exception.status_code, 502)
+        self.assertEqual(ctx.exception.status_code, 409)
+
+    async def test_update_keeping_its_number_does_not_conflict_with_itself(self):
+        existing = {
+            "access_token": "t",
+            "phone_number_id": "p",
+            "app_secret": "s",
+            "webhook_verify_token": "v",
+        }
+        with _meta_accepts(), _number_held_by(MagicMock(id=7)) as lookup:
+            updated = await _preprocess_credentials_on_save(
+                {"access_token": "t2", "phone_number_id": "p", "app_secret": "s"},
+                existing,
+            )
+        lookup.assert_not_called()
+        self.assertEqual(updated["webhook_verify_token"], "v")
 
     def test_request_requires_every_credential(self):
         with self.assertRaises(ValidationError) as ctx:

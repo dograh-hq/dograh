@@ -786,7 +786,7 @@ async def set_default_outbound(config_id: int, user: UserModel = Depends(get_use
         raise HTTPException(status_code=400, detail="No organization selected")
 
     existing = await db_client.get_telephony_configuration_for_org(
-        config_id, user.selected_organization_id
+        config_id, user.selected_organization_id, active_only=False
     )
     if not existing:
         raise HTTPException(status_code=404, detail="Telephony configuration not found")

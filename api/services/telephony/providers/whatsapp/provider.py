@@ -45,7 +45,10 @@ def signature_matches(
         return False
     body = raw_body.encode("utf-8") if isinstance(raw_body, str) else raw_body
     expected = hmac.new(app_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature_header[len("sha256=") :])
+    # Compared as bytes: ``compare_digest`` raises on a non-ASCII str, and the
+    # header is whatever the sender put there.
+    received = signature_header[len("sha256=") :].encode("utf-8")
+    return hmac.compare_digest(expected.encode("ascii"), received)
 
 
 def _canonical(address: Optional[str]) -> str:

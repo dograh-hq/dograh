@@ -16,6 +16,7 @@ from api.services.telephony.providers.whatsapp import routes
 from api.services.telephony.providers.whatsapp.routes import (
     _clients,
     _dispatch_terminate,
+    _get_or_create_whatsapp_client,
     _owned_calls,
     _run_whatsapp_pipeline,
     _terminated_by_meta,
@@ -154,6 +155,9 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
         _clients.clear()
         _owned_calls.clear()
         _terminated_by_meta.clear()
+        # No Redis here: the connect claim is granted and the database
+        # duplicate check is the guard, as in a deployment without Redis.
+        self.enterContext(patch(f"{ROUTES}._get_redis", AsyncMock(return_value=None)))
 
     async def test_connect_creates_workflow_run_and_answers_through_the_client(self):
         phone_number_id = "106540352242922"
@@ -288,6 +292,113 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
         self.assertEqual(response, {"status": "success"})
         mock_acquire.assert_not_called()
 
+    async def test_connect_lost_to_another_worker_is_ignored(self):
+        """Two deliveries of one connect overlap; only the claim winner answers."""
+        phone_number_id = "106540352242922"
+        app_secret = "test_app_secret"
+        payload = _build_webhook_payload(
+            [_call("connect", "call_raced")], phone_number_id=phone_number_id
+        )
+        request = _build_request(payload, app_secret=app_secret)
+        mock_redis = AsyncMock()
+        mock_redis.set = AsyncMock(return_value=None)  # NX: another worker holds it
+
+        with (
+            _config_lookup(
+                _build_mock_config(
+                    phone_number_id=phone_number_id, app_secret=app_secret
+                )
+            ),
+            patch(f"{ROUTES}._get_redis", AsyncMock(return_value=mock_redis)),
+            patch.object(
+                db_client, "get_workflow_run_by_call_id", AsyncMock()
+            ) as dup_check,
+            patch.object(db_client, "create_workflow_run", AsyncMock()) as create_run,
+            patch(f"{CONCURRENCY}.acquire_org_slot", AsyncMock()) as mock_acquire,
+        ):
+            response = await handle_whatsapp_webhook(request)
+
+        self.assertEqual(response, {"status": "success"})
+        mock_redis.set.assert_awaited_once()
+        self.assertEqual(
+            mock_redis.set.await_args.args[0], "whatsapp:call:call_raced:claim"
+        )
+        self.assertTrue(mock_redis.set.await_args.kwargs["nx"])
+        dup_check.assert_not_called()
+        create_run.assert_not_called()
+        mock_acquire.assert_not_called()
+
+    async def test_batched_connects_are_answered_one_call_at_a_time(self):
+        """Pipecat's client stops at the first call it sees, so each gets its own payload."""
+        phone_number_id = "106540352242922"
+        app_secret = "test_app_secret"
+        payload = _build_webhook_payload(
+            [_call("connect", "call_a"), _call("connect", "call_b")],
+            phone_number_id=phone_number_id,
+        )
+        request = _build_request(payload, app_secret=app_secret)
+        mock_config = _build_mock_config(
+            phone_number_id=phone_number_id, app_secret=app_secret
+        )
+        mock_workflow = MagicMock(id=99, user_id=5, organization_id=10)
+
+        handed_over: List[List[str]] = []
+
+        async def fake_handle_webhook_request(request, connection_callback, **kwargs):
+            calls = request.entry[0].changes[0].value.calls
+            handed_over.append([c.id for c in calls])
+            await connection_callback(MagicMock(), MagicMock(id=calls[0].id))
+
+        mock_client = AsyncMock()
+        mock_client.handle_webhook_request = AsyncMock(
+            side_effect=fake_handle_webhook_request
+        )
+
+        with (
+            _config_lookup(mock_config),
+            patch.object(
+                db_client, "get_workflow_run_by_call_id", AsyncMock(return_value=None)
+            ),
+            patch.object(
+                db_client,
+                "list_phone_numbers_for_config",
+                AsyncMock(return_value=[_build_mock_phone()]),
+            ),
+            patch.object(
+                db_client, "get_workflow", AsyncMock(return_value=mock_workflow)
+            ),
+            patch.object(
+                db_client,
+                "create_workflow_run",
+                AsyncMock(side_effect=[MagicMock(id=101), MagicMock(id=102)]),
+            ),
+            patch(f"{CONCURRENCY}.acquire_org_slot", AsyncMock(return_value="slot1")),
+            patch(f"{CONCURRENCY}.bind_workflow_run", AsyncMock()),
+            patch(
+                f"{ROUTES}.prepare_workflow_run_inputs",
+                AsyncMock(return_value=MagicMock(definition_id=1)),
+            ),
+            patch(
+                f"{ROUTES}.authorize_workflow_run_start",
+                AsyncMock(return_value=MagicMock(has_quota=True)),
+            ),
+            patch(f"{ROUTES}._get_or_create_whatsapp_client", return_value=mock_client),
+            patch(f"{ROUTES}._ensure_redis_subscriber"),
+            patch(f"{ROUTES}._run_whatsapp_pipeline", AsyncMock()) as run_pipeline,
+        ):
+            response = await handle_whatsapp_webhook(request)
+
+        self.assertEqual(response, {"status": "success"})
+        self.assertEqual(handed_over, [["call_a"], ["call_b"]])
+        self.assertEqual(
+            [c.kwargs["call_id"] for c in run_pipeline.call_args_list],
+            ["call_a", "call_b"],
+        )
+        self.assertEqual(
+            [c.kwargs["workflow_run_id"] for c in run_pipeline.call_args_list],
+            [101, 102],
+        )
+
     async def test_connect_releases_the_slot_when_run_creation_fails(self):
         phone_number_id = "106540352242922"
         call_id = "call_fail_init"
@@ -377,6 +488,26 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 404)
 
 
+class TestWhatsAppClientCache(IsolatedAsyncioTestCase):
+    def setUp(self):
+        _clients.clear()
+
+    def test_cached_client_gets_fresh_ice_servers(self):
+        """TURN credentials expire; a client reused across calls must not keep the old ones."""
+        cached = MagicMock()
+        _clients["123"] = cached
+        fresh = [MagicMock()]
+
+        with patch(f"{ROUTES}._build_whatsapp_ice_servers", return_value=fresh):
+            client = _get_or_create_whatsapp_client(
+                phone_number_id="123", access_token="tok", app_secret=None
+            )
+
+        self.assertIs(client, cached)
+        cached.update_whatsapp_token.assert_called_once_with("tok")
+        cached.update_ice_servers.assert_called_once_with(fresh)
+
+
 class TestWhatsAppTerminate(IsolatedAsyncioTestCase):
     def setUp(self):
         _clients.clear()
@@ -448,7 +579,7 @@ class TestWhatsAppTerminate(IsolatedAsyncioTestCase):
         data = json.loads(message)
         self.assertEqual(data["worker_id"], routes._WORKER_ID)
         self.assertEqual(data["phone_number_id"], phone_number_id)
-        self.assertEqual(data["call_ids"], [call_id])
+        self.assertEqual(data["call_id"], call_id)
         self.assertEqual(data["payload"], payload)
         mock_update.assert_not_called()
         self.assertNotIn(call_id, _terminated_by_meta)
@@ -464,10 +595,44 @@ class TestWhatsAppTerminate(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
 
-        await _dispatch_terminate(phone_number_id, payload, [call_id])
+        await _dispatch_terminate(phone_number_id, payload, call_id)
 
         mock_client.handle_webhook_request.assert_awaited_once()
         self.assertIn(call_id, _terminated_by_meta)
+
+    async def test_batched_terminates_close_each_call(self):
+        """The client stops at the first terminate it sees, so each call gets its own."""
+        phone_number_id = "123"
+        app_secret = "test_app_secret"
+        mock_client = AsyncMock()
+        _clients[phone_number_id] = mock_client
+        _owned_calls.update({"call_a", "call_b"})
+
+        payload = _build_webhook_payload(
+            [
+                _call("terminate", "call_a", status="COMPLETED"),
+                _call("terminate", "call_b", status="COMPLETED"),
+            ],
+            phone_number_id=phone_number_id,
+        )
+        request = _build_request(payload, app_secret=app_secret)
+
+        with (
+            _config_lookup(
+                _build_mock_config(
+                    phone_number_id=phone_number_id, app_secret=app_secret
+                )
+            ),
+            patch(f"{ROUTES}._get_redis", AsyncMock(return_value=None)),
+        ):
+            await handle_whatsapp_webhook(request)
+
+        handed_over = [
+            [c.id for c in call.args[0].entry[0].changes[0].value.calls]
+            for call in mock_client.handle_webhook_request.await_args_list
+        ]
+        self.assertEqual(handed_over, [["call_a"], ["call_b"]])
+        self.assertEqual(_terminated_by_meta, {"call_a", "call_b"})
 
     async def test_terminate_rejects_missing_signature(self):
         call_id = "call_to_terminate"
@@ -547,3 +712,36 @@ class TestWhatsAppPipelineTeardown(IsolatedAsyncioTestCase):
         terminate.assert_not_called()
         release.assert_awaited_once_with(101)
         self.assertNotIn("call_caller_hangup", _terminated_by_meta)
+
+    async def test_teardown_survives_a_failed_run_lookup(self):
+        """A database error while marking the run must still end the call and free the slot."""
+        _owned_calls.add("call_db_down")
+
+        with (
+            patch(
+                f"{ROUTES}.run_pipeline_smallwebrtc",
+                AsyncMock(side_effect=RuntimeError("pipeline died")),
+            ),
+            patch.object(
+                db_client,
+                "get_workflow_run",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch(f"{ROUTES}.mark_workflow_run_failed", AsyncMock()) as mark_failed,
+            patch(f"{ROUTES}._terminate_whatsapp_call", AsyncMock()) as terminate,
+            patch(f"{CONCURRENCY}.release_workflow_run_slot", AsyncMock()) as release,
+        ):
+            await _run_whatsapp_pipeline(
+                connection=MagicMock(),
+                workflow_id=99,
+                workflow_run_id=101,
+                user_id=5,
+                organization_id=10,
+                call_id="call_db_down",
+                phone_number_id="123",
+                access_token="valid_token",
+            )
+
+        mark_failed.assert_not_called()
+        terminate.assert_awaited_once_with("123", "call_db_down", "valid_token")
+        release.assert_awaited_once_with(101)

@@ -457,8 +457,9 @@ export default function TelephonyConfigurationDetailPage() {
           <div className="space-y-1">
             <CardTitle>Phone numbers</CardTitle>
             <CardDescription>
-              Numbers used as caller ID for outbound and accepted for inbound matching.
-              SIP URIs and extensions are supported alongside PSTN numbers.{" "}
+              {config.supports_outbound === false
+                ? "Numbers this configuration answers calls on."
+                : "Numbers used as caller ID for outbound and accepted for inbound matching. SIP URIs and extensions are supported alongside PSTN numbers."}{" "}
               <a
                 href="https://docs.dograh.com/integrations/telephony/inbound"
                 target="_blank"
@@ -476,8 +477,11 @@ export default function TelephonyConfigurationDetailPage() {
         <CardContent>
           {phoneNumbers.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No phone numbers yet. Add one to start placing or receiving calls on this
-              configuration.
+              No phone numbers yet. Add one to start{" "}
+              {config.supports_outbound === false
+                ? "receiving"
+                : "placing or receiving"}{" "}
+              calls on this configuration.
             </p>
           ) : (
             <Table>

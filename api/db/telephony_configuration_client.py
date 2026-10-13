@@ -181,15 +181,10 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return list(result.scalars().all())
 
-    async def get_whatsapp_configuration_by_phone_number_id(
+    async def list_active_whatsapp_configurations_by_phone_number_id(
         self, phone_number_id: str
-    ) -> Optional[TelephonyConfigurationModel]:
-        """The active WhatsApp configuration whose credentials name this Meta phone number.
-
-        Meta's webhook carries no tenant, so this is the only thing that routes
-        a call to an organization. Two active configurations claiming the same
-        number is therefore refused rather than guessed between.
-        """
+    ) -> list[TelephonyConfigurationModel]:
+        """Every active WhatsApp configuration whose credentials name this Meta phone number."""
         async with self.async_session() as session:
             result = await session.execute(
                 select(TelephonyConfigurationModel).where(
@@ -199,15 +194,28 @@ class TelephonyConfigurationClient(BaseDBClient):
                     TelephonyConfigurationModel.inactive.is_(False),
                 )
             )
-            rows = result.scalars().all()
-            if len(rows) > 1:
-                ids = ", ".join(str(r.id) for r in rows)
-                logger.error(
-                    f"[WhatsApp] phone_number_id={phone_number_id!r} matches "
-                    f"{len(rows)} active configurations ({ids}); refusing to route."
-                )
-                return None
-            return rows[0] if rows else None
+            return list(result.scalars().all())
+
+    async def get_whatsapp_configuration_by_phone_number_id(
+        self, phone_number_id: str
+    ) -> Optional[TelephonyConfigurationModel]:
+        """The active WhatsApp configuration whose credentials name this Meta phone number.
+
+        Meta's webhook carries no tenant, so this is the only thing that routes
+        a call to an organization. Two active configurations claiming the same
+        number is therefore refused rather than guessed between.
+        """
+        rows = await self.list_active_whatsapp_configurations_by_phone_number_id(
+            phone_number_id
+        )
+        if len(rows) > 1:
+            ids = ", ".join(str(r.id) for r in rows)
+            logger.error(
+                f"[WhatsApp] phone_number_id={phone_number_id!r} matches "
+                f"{len(rows)} active configurations ({ids}); refusing to route."
+            )
+            return None
+        return rows[0] if rows else None
 
     async def get_whatsapp_configuration_by_verify_token(
         self, verify_token: str

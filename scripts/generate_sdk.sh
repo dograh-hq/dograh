@@ -95,21 +95,82 @@ datamodel-codegen \
 # openapi-typescript treats a component property that declares "default" as
 # required under --root-types. Python codegen has already turned that
 # default into a model default, so an omitted field still dumps as the
-# server value rather than JSON null. Strip defaults from optional request
-# properties only, before the TypeScript types are generated. Required
-# properties, such as schedule slots, keep their schema and stay required.
-python - <<PY
+# server value rather than JSON null. Strip defaults from optional
+# properties on every schema a request body can reach, including nested
+# configs such as HttpApiConfig, before the TypeScript types are generated.
+# Required properties, such as schedule slots, keep their schema.
+OPENAPI_JSON="$OPENAPI_JSON" python - <<'PY'
 import json
-path = "$OPENAPI_JSON"
+import os
+
+path = os.environ["OPENAPI_JSON"]
 with open(path) as f:
     spec = json.load(f)
-for name, schema in spec.get("components", {}).get("schemas", {}).items():
-    if not name.endswith("Request") or not isinstance(schema, dict):
-        continue
+schemas = spec.get("components", {}).get("schemas", {})
+
+
+def iter_refs(node):
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+            yield ref.rsplit("/", 1)[-1]
+        for value in node.values():
+            yield from iter_refs(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from iter_refs(item)
+
+
+def strip_optional_defaults(schema):
+    if not isinstance(schema, dict):
+        return
     required = set(schema.get("required") or [])
-    for prop_name, prop in (schema.get("properties") or {}).items():
-        if prop_name not in required and isinstance(prop, dict):
-            prop.pop("default", None)
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for name, prop in properties.items():
+            if not isinstance(prop, dict):
+                continue
+            if name not in required:
+                prop.pop("default", None)
+            strip_optional_defaults(prop)
+            strip_optional_defaults(prop.get("items"))
+    for key in ("allOf", "anyOf", "oneOf"):
+        for branch in schema.get(key) or []:
+            strip_optional_defaults(branch)
+    additional = schema.get("additionalProperties")
+    if isinstance(additional, dict):
+        strip_optional_defaults(additional)
+
+
+bodies = []
+for path_item in spec.get("paths", {}).values():
+    if not isinstance(path_item, dict):
+        continue
+    for operation in path_item.values():
+        if not isinstance(operation, dict):
+            continue
+        content = (operation.get("requestBody") or {}).get("content") or {}
+        if not isinstance(content, dict):
+            continue
+        for media in content.values():
+            schema = (media or {}).get("schema")
+            if isinstance(schema, dict):
+                bodies.append(schema)
+
+reachable = set()
+stack = []
+for body in bodies:
+    strip_optional_defaults(body)
+    stack.extend(iter_refs(body))
+while stack:
+    name = stack.pop()
+    if name in reachable or name not in schemas:
+        continue
+    reachable.add(name)
+    schema = schemas[name]
+    stack.extend(iter_refs(schema))
+    strip_optional_defaults(schema)
+
 with open(path, "w") as f:
     json.dump(spec, f)
 PY

@@ -576,16 +576,10 @@ export interface components {
     schemas: {
         /** AmbientNoiseConfigurationDefaults */
         AmbientNoiseConfigurationDefaults: {
-            /**
-             * Enabled
-             * @default false
-             */
-            enabled: boolean;
-            /**
-             * Volume
-             * @default 0.3
-             */
-            volume: number;
+            /** Enabled */
+            enabled?: boolean;
+            /** Volume */
+            volume?: number;
         } & {
             [key: string]: unknown;
         };
@@ -597,9 +591,8 @@ export interface components {
             /**
              * Schema Version
              * @description Schema version.
-             * @default 1
              */
-            schema_version: number;
+            schema_version?: number;
             /**
              * Messages
              * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
@@ -1062,9 +1055,8 @@ export interface components {
             /**
              * Endcallreason
              * @description When enabled, the model must provide a reason for ending the call. The reason is set as call disposition and added to call tags.
-             * @default false
              */
-            endCallReason: boolean;
+            endCallReason?: boolean;
             /**
              * Endcallreasondescription
              * @description Description shown to the model for the reason parameter. Used only when endCallReason is enabled.
@@ -1079,9 +1071,8 @@ export interface components {
             /**
              * Schema Version
              * @description Schema version.
-             * @default 1
              */
-            schema_version: number;
+            schema_version?: number;
             /**
              * Messages
              * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
@@ -1117,10 +1108,9 @@ export interface components {
         FallbackPolicy_ServiceSelection_: {
             /**
              * Version
-             * @default 1
              * @constant
              */
-            version: 1;
+            version?: 1;
             /** Rules */
             rules?: components["schemas"]["FallbackRule_ServiceSelection_"][];
         };
@@ -1206,9 +1196,8 @@ export interface components {
             /**
              * Timeout Ms
              * @description Request timeout in milliseconds.
-             * @default 5000
              */
-            timeout_ms: number | null;
+            timeout_ms?: number | null;
             /**
              * Body Template
              * @description Optional JSON body template for POST, PUT, and PATCH requests.
@@ -1219,10 +1208,9 @@ export interface components {
             /**
              * Body Format
              * @description Encoding of the POST, PUT, and PATCH request body: 'json' sends application/json, 'form' sends application/x-www-form-urlencoded.
-             * @default json
              * @enum {string}
              */
-            body_format: "json" | "form";
+            body_format?: "json" | "form";
         };
         /**
          * HttpApiToolDefinition
@@ -1232,9 +1220,8 @@ export interface components {
             /**
              * Schema Version
              * @description Schema version.
-             * @default 1
              */
-            schema_version: number;
+            schema_version?: number;
             /**
              * Messages
              * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
@@ -1256,10 +1243,9 @@ export interface components {
             /**
              * Type
              * @description Resolver type.
-             * @default http
              * @constant
              */
-            type: "http";
+            type?: "http";
             /**
              * Url
              * @description HTTP or HTTPS endpoint for transfer resolution.
@@ -1280,9 +1266,8 @@ export interface components {
             /**
              * Timeout Ms
              * @description Resolver request timeout in milliseconds.
-             * @default 3000
              */
-            timeout_ms: number;
+            timeout_ms?: number;
             /**
              * Wait Message
              * @description Optional short message played while Dograh resolves routing.
@@ -1325,10 +1310,9 @@ export interface components {
             /**
              * Transport
              * @description MCP transport protocol.
-             * @default streamable_http
              * @constant
              */
-            transport: "streamable_http";
+            transport?: "streamable_http";
             /**
              * Url
              * @description MCP server URL. Must use http:// or https://.
@@ -1347,15 +1331,13 @@ export interface components {
             /**
              * Timeout Secs
              * @description Connection timeout in seconds.
-             * @default 30
              */
-            timeout_secs: number;
+            timeout_secs?: number;
             /**
              * Sse Read Timeout Secs
              * @description SSE read timeout in seconds.
-             * @default 300
              */
-            sse_read_timeout_secs: number;
+            sse_read_timeout_secs?: number;
             /**
              * Discovered Tools
              * @description Server-managed cache of the MCP server's tool catalog [{name, description}]. Populated best-effort by the backend.
@@ -1372,9 +1354,8 @@ export interface components {
             /**
              * Schema Version
              * @description Schema version.
-             * @default 1
              */
-            schema_version: number;
+            schema_version?: number;
             /**
              * Messages
              * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
@@ -1408,11 +1389,8 @@ export interface components {
              * @enum {string}
              */
             type: "no_output";
-            /**
-             * After Ms
-             * @default 1500
-             */
-            after_ms: number;
+            /** After Ms */
+            after_ms?: number;
         };
         /**
          * NodeCategory
@@ -1515,9 +1493,8 @@ export interface components {
             /**
              * Required
              * @description Whether the parameter must resolve to a non-empty value.
-             * @default true
              */
-            required: boolean;
+            required?: boolean;
         };
         /**
          * PropertyLayoutOptions
@@ -1837,9 +1814,8 @@ export interface components {
             /**
              * Required
              * @description Whether this parameter is required when the tool is called.
-             * @default true
              */
-            required: boolean;
+            required?: boolean;
         };
         /**
          * ToolResponse
@@ -1966,9 +1942,8 @@ export interface components {
             /**
              * Play Greeting
              * @description Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
-             * @default true
              */
-            play_greeting: boolean;
+            play_greeting?: boolean;
         };
         /**
          * TransferAgentToolDefinition
@@ -1978,9 +1953,8 @@ export interface components {
             /**
              * Schema Version
              * @description Schema version.
-             * @default 1
              */
-            schema_version: number;
+            schema_version?: number;
             /**
              * Messages
              * @description One start text message, with template variables supported. Omit to use the default handover line, or send an empty list for a silent handoff.
@@ -2002,34 +1976,29 @@ export interface components {
             /**
              * Introduction Enabled
              * @description Play a generated introduction in the agent's voice to both parties before connecting them. Supported for Twilio calls with a TTS provider. Realtime speech-to-speech agents and synthesis failures skip the introduction.
-             * @default false
              */
-            introduction_enabled: boolean;
+            introduction_enabled?: boolean;
             /**
              * Introduction Prompt
              * @description Instructions for the transfer introduction, including language.
-             * @default Briefly introduce this caller to the person receiving the transfer. Include their reason for calling, essential details, and any explicit language preference. Use the caller's preferred language. Keep it to one sentence, at most 25 words. Do not invent details.
              */
-            introduction_prompt: string;
+            introduction_prompt?: string;
             /**
              * Destination Source
              * @description Whether the destination is static/template, resolved by HTTP, or selected by ordered gathered/initial-context mapping rules.
-             * @default static
              * @enum {string}
              */
-            destination_source: "static" | "dynamic" | "context_mapping";
+            destination_source?: "static" | "dynamic" | "context_mapping";
             /**
              * Destination
              * @description Phone number, SIP endpoint, or template to transfer the call to, e.g. +1234567890, PJSIP/1234, or {{initial_context.transfer_destination}}.
-             * @default
              */
-            destination: string;
+            destination?: string;
             /**
              * Timeout
              * @description Maximum seconds to wait for the destination to answer.
-             * @default 30
              */
-            timeout: number;
+            timeout?: number;
             /**
              * Call Disposition
              * @description Optional disposition to record after a successful transfer. When omitted, Dograh records its provider-specific transfer default.
@@ -2053,9 +2022,8 @@ export interface components {
             /**
              * Schema Version
              * @description Schema version.
-             * @default 1
              */
-            schema_version: number;
+            schema_version?: number;
             /**
              * Messages
              * @description Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
@@ -2125,64 +2093,40 @@ export interface components {
         WorkflowConfigurationDefaults: {
             model_configuration_override?: components["schemas"]["ModelConfigurationOverride"] | null;
             ambient_noise_configuration?: components["schemas"]["AmbientNoiseConfigurationDefaults"];
-            /**
-             * Max Call Duration
-             * @default 300
-             */
-            max_call_duration: number;
-            /**
-             * Max User Idle Timeout
-             * @default 10
-             */
-            max_user_idle_timeout: number;
-            /**
-             * Smart Turn Stop Secs
-             * @default 2
-             */
-            smart_turn_stop_secs: number;
+            /** Max Call Duration */
+            max_call_duration?: number;
+            /** Max User Idle Timeout */
+            max_user_idle_timeout?: number;
+            /** Smart Turn Stop Secs */
+            smart_turn_stop_secs?: number;
             /**
              * Turn Start Strategy
-             * @default min_words
              * @enum {string}
              */
-            turn_start_strategy: "default" | "min_words";
-            /**
-             * Turn Start Min Words
-             * @default 2
-             */
-            turn_start_min_words: number;
+            turn_start_strategy?: "default" | "min_words";
+            /** Turn Start Min Words */
+            turn_start_min_words?: number;
             /**
              * Turn Stop Strategy
-             * @default transcription
              * @enum {string}
              */
-            turn_stop_strategy: "transcription" | "turn_analyzer";
-            /**
-             * Dictionary
-             * @default
-             */
-            dictionary: string;
-            /**
-             * Context Compaction Enabled
-             * @default false
-             */
-            context_compaction_enabled: boolean;
+            turn_stop_strategy?: "transcription" | "turn_analyzer";
+            /** Dictionary */
+            dictionary?: string;
+            /** Context Compaction Enabled */
+            context_compaction_enabled?: boolean;
             /**
              * Tts Cache Enabled
              * @description Reuse generated speech for repeated phrases. Supports MiniMax TTS.
-             * @default false
              */
-            tts_cache_enabled: boolean;
+            tts_cache_enabled?: boolean;
             /**
              * Call Dispositions
              * @description Allowed business outcomes for terminal call classification. Each entry defines the exact stored code and the criteria for selecting it.
              */
             call_dispositions?: components["schemas"]["CallDispositionOption"][];
-            /**
-             * Text Chat Inactivity Timeout Seconds
-             * @default 1800
-             */
-            text_chat_inactivity_timeout_seconds: number;
+            /** Text Chat Inactivity Timeout Seconds */
+            text_chat_inactivity_timeout_seconds?: number;
             /** External Pbx Field Mappings */
             external_pbx_field_mappings?: components["schemas"]["ExternalPBXFieldMapping"][];
             /** External Pbx Lead Headers */

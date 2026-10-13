@@ -78,3 +78,12 @@ def test_typescript_campaign_request_defaults_stay_optional():
         "min_calls_in_window",
     ):
         assert f"{field}?:" in breaker
+    http = _schema_body(source, "HttpApiConfig")
+    assert "timeout_ms?:" in http
+    assert "body_format?:" in http
+    assert "method:" in http
+    assert "method?:" not in http
+    assert "url:" in http
+    mcp = _schema_body(source, "McpToolConfig")
+    assert "timeout_secs?:" in mcp
+    assert "sse_read_timeout_secs?:" in mcp

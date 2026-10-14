@@ -1,8 +1,11 @@
 """WhatsApp telephony provider package.
 
-Inbound only: a WhatsApp user calls the business number, Meta announces the
-call on the webhook in ``routes.py`` with an SDP offer, and media runs over
-WebRTC. Nothing here can dial out, and the spec says so.
+Inbound only: a WhatsApp user calls one of the business's numbers, Meta
+announces the call on the webhook in ``routes.py`` with an SDP offer, and
+media runs over WebRTC. Nothing here can dial out, and the spec says so.
+
+A configuration is one WhatsApp Business Account. Its numbers are imported
+from Meta through the shared phone-number sync rather than typed in.
 """
 
 import secrets
@@ -19,24 +22,29 @@ from api.services.telephony.registry import (
 )
 
 from .config import WhatsAppConfigurationRequest
-from .provider import WhatsAppProvider
+from .provider import MetaGraphError, WhatsAppProvider
 
 
 async def _preprocess_credentials_on_save(
     credentials: Dict[str, Any],
     existing_credentials: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    """Check the credentials with Meta, keep the number unique, own the verify token.
+    """Check the credentials with Meta, keep the account unique, subscribe the
+    app, own the verify token.
 
-    Meta is asked which number sits behind the Phone Number ID, using the
-    access token being saved. A typo or a token without access to the number
+    Meta is asked to list the Business Account's numbers with the access
+    token being saved. A wrong account ID or a token without access to it
     fails here rather than on the first call, and no organization can
-    register a Phone Number ID it holds no token for.
+    register an account it holds no token for.
 
-    The Phone Number ID must also be held by exactly one active
-    configuration. Meta's webhook carries no tenant, so inbound routing
-    refuses to choose between two configurations claiming one number; a
-    second save, even by the rightful owner, would silence the first.
+    The account must be held by exactly one active configuration. Meta's
+    webhook carries no tenant, so inbound routing refuses to choose between
+    two configurations claiming one account; a second save, even by the
+    rightful owner, would silence the first.
+
+    The token's app is then subscribed to the account, which is what makes
+    Meta deliver its ``calls`` events at all. Meta treats the call as
+    idempotent, so repeating it on every save costs nothing.
 
     The verify token is minted on create and carried on update. Meta stores
     the token the customer pasted and replays it on every verification
@@ -44,43 +52,61 @@ async def _preprocess_credentials_on_save(
     would silently stop verifying. The value is always written from here and
     never read from the request.
     """
+    provider = WhatsAppProvider(credentials)
     try:
-        await WhatsAppProvider(credentials).get_available_phone_numbers()
+        await provider.list_provider_phone_numbers()
     except ProviderPhoneNumberLookupError as e:
-        if _meta_rejected(e.status_code):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Meta did not accept these credentials: {e}",
-            ) from e
-        raise HTTPException(
-            status_code=502,
-            detail=f"Could not verify these credentials with Meta: {e}",
+        raise _meta_failure(
+            e.status_code,
+            rejected="Meta did not accept these credentials",
+            unavailable="Could not verify these credentials with Meta",
+            error=e,
         ) from e
 
-    phone_number_id = str(credentials.get("phone_number_id") or "")
-    previous_phone_number_id = str(
-        (existing_credentials or {}).get("phone_number_id") or ""
-    )
-    if phone_number_id != previous_phone_number_id:
+    waba_id = str(credentials.get("waba_id") or "")
+    previous_waba_id = str((existing_credentials or {}).get("waba_id") or "")
+    if waba_id != previous_waba_id:
         # Imported here so the provider package, like every other one, stays
         # free of the database layer at import time.
         from api.db import db_client
 
-        if await db_client.list_active_whatsapp_configurations_by_phone_number_id(
-            phone_number_id
-        ):
+        if await db_client.list_active_whatsapp_configurations_by_waba_id(waba_id):
             raise HTTPException(
                 status_code=409,
                 detail=(
                     "Another active WhatsApp configuration already uses this "
-                    "Phone Number ID. Each Meta number can be configured once."
+                    "WhatsApp Business Account. Each account can be configured "
+                    "once."
                 ),
             )
+
+    try:
+        await provider.subscribe_app()
+    except MetaGraphError as e:
+        raise _meta_failure(
+            e.status_code,
+            rejected=(
+                "Meta did not let this app subscribe to the WhatsApp Business Account"
+            ),
+            unavailable=(
+                "Could not subscribe the app to the WhatsApp Business Account"
+            ),
+            error=e,
+        ) from e
 
     credentials = dict(credentials)
     existing_token = (existing_credentials or {}).get("webhook_verify_token")
     credentials["webhook_verify_token"] = existing_token or secrets.token_urlsafe(32)
     return credentials
+
+
+def _meta_failure(
+    status_code: int | None, *, rejected: str, unavailable: str, error: Exception
+) -> HTTPException:
+    """A refusal is the customer's to fix (400); anything else is upstream (502)."""
+    if _meta_rejected(status_code):
+        return HTTPException(status_code=400, detail=f"{rejected}: {error}")
+    return HTTPException(status_code=502, detail=f"{unavailable}: {error}")
 
 
 def _meta_rejected(status_code: int | None) -> bool:
@@ -96,7 +122,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "provider": "whatsapp",
         "access_token": value.get("access_token"),
-        "phone_number_id": value.get("phone_number_id"),
+        "waba_id": value.get("waba_id"),
         "app_secret": value.get("app_secret"),
         "from_numbers": value.get("from_numbers", []),
     }
@@ -119,10 +145,13 @@ _UI_METADATA = ProviderUIMetadata(
             description="System user access token from Meta Business settings",
         ),
         ProviderUIField(
-            name="phone_number_id",
-            label="Phone Number ID",
+            name="waba_id",
+            label="WhatsApp Business Account ID",
             type="text",
-            description="From your Meta app: WhatsApp → API Setup",
+            description=(
+                "From your Meta app: WhatsApp → API Setup, under the From "
+                "dropdown. Its numbers are imported with Refresh numbers."
+            ),
         ),
         ProviderUIField(
             name="app_secret",
@@ -153,15 +182,17 @@ SPEC = ProviderSpec(
     transport_sample_rate=16000,
     config_request_cls=WhatsAppConfigurationRequest,
     ui_metadata=_UI_METADATA,
-    # Meta's webhook names the business number by this ID.
-    account_id_credential_field="phone_number_id",
+    # Meta's webhook names the Business Account in ``entry[].id``.
+    account_id_credential_field="waba_id",
     # Assigns webhook_verify_token. Deliberately not listed in
     # server_managed_credential_fields: those are dropped from the
     # configuration response, and this one has to stay readable so the customer
     # can paste it into Meta.
     preprocess_credentials_on_save=_preprocess_credentials_on_save,
-    # Meta only delivers calls placed *to* the business number.
+    # Meta only delivers calls placed *to* the business's numbers.
     supports_outbound=False,
+    # The account's numbers are read from Meta, not typed in.
+    supports_phone_number_sync=True,
 )
 
 

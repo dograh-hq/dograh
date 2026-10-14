@@ -180,6 +180,9 @@ class TelephonyConfigurationDetail(BaseModel):
     # Empty unless the provider's Dograh integration models trunks; the
     # call-control integrations route through the account itself.
     trunks: List[TrunkResponse] = Field(default_factory=list)
+    # Whether the provider can list the numbers its account holds, so the UI
+    # can offer "refresh numbers" next to (not instead of) manual entry.
+    supports_phone_number_sync: bool = False
     created_at: datetime
     updated_at: datetime
 

@@ -3345,6 +3345,51 @@ export type PhoneNumberResponse = {
 };
 
 /**
+ * PhoneNumberSyncResponse
+ *
+ * Outcome of importing the provider account's numbers into a configuration.
+ *
+ * Rows are only ever added or refreshed. A number the provider no longer
+ * reports is listed under ``missing_at_provider`` for the operator to act
+ * on; the sync never deactivates or deletes it, because a transient listing
+ * gap must not silence a live number.
+ */
+export type PhoneNumberSyncResponse = {
+    /**
+     * Created
+     */
+    created: Array<PhoneNumberResponse>;
+    /**
+     * Updated
+     */
+    updated: Array<PhoneNumberResponse>;
+    /**
+     * Skipped
+     */
+    skipped: Array<PhoneNumberSyncSkipped>;
+    /**
+     * Missing At Provider
+     */
+    missing_at_provider: Array<PhoneNumberResponse>;
+};
+
+/**
+ * PhoneNumberSyncSkipped
+ *
+ * A provider number the sync could not import, and why.
+ */
+export type PhoneNumberSyncSkipped = {
+    /**
+     * Address
+     */
+    address: string;
+    /**
+     * Reason
+     */
+    reason: string;
+};
+
+/**
  * PhoneNumberUpdateRequest
  *
  * Partial update. ``address`` is intentionally immutable — to change a
@@ -4738,6 +4783,10 @@ export type TelephonyConfigurationDetail = {
      * Trunks
      */
     trunks?: Array<TrunkResponse>;
+    /**
+     * Supports Phone Number Sync
+     */
+    supports_phone_number_sync?: boolean;
     /**
      * Created At
      */
@@ -6392,11 +6441,13 @@ export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic
 /**
  * WhatsAppConfigurationRequest
  *
- * Credentials for one WhatsApp Business phone number on the Cloud API.
+ * Credentials for one WhatsApp Business Account on the Cloud API.
  *
- * The webhook verify token is deliberately not declared here: it is minted
- * by the provider's save hook and carried forward on update, never read from
- * a request (see ``_preprocess_credentials_on_save`` in the package).
+ * The account, not a single number, is the unit of configuration: its
+ * numbers are imported from Meta rather than typed in. The webhook verify
+ * token is deliberately not declared here: it is minted by the provider's
+ * save hook and carried forward on update, never read from a request (see
+ * ``_preprocess_credentials_on_save`` in the package).
  */
 export type WhatsAppConfigurationRequest = {
     /**
@@ -6410,11 +6461,11 @@ export type WhatsAppConfigurationRequest = {
      */
     access_token: string;
     /**
-     * Phone Number Id
+     * Waba Id
      *
-     * Phone Number ID from the app's API Setup page
+     * WhatsApp Business Account ID from the app's API Setup page
      */
-    phone_number_id: string;
+    waba_id: string;
     /**
      * App Secret
      *
@@ -11963,6 +12014,50 @@ export type CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumb
 };
 
 export type CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponse = CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponses[keyof CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponses];
+
+export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/phone-numbers/sync';
+};
+
+export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostError = SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostErrors[keyof SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostErrors];
+
+export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PhoneNumberSyncResponse;
+};
+
+export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponse = SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponses[keyof SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponses];
 
 export type DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteData = {
     body?: never;

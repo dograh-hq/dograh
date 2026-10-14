@@ -291,6 +291,11 @@ class ProviderSpec:
             True for every carrier. Campaign uploads are checked against it, so
             a provider that reaches extensions or SIP URIs opts out rather than
             having those rows rejected as malformed numbers.
+        supports_phone_number_sync: Whether the provider can list the phone
+            numbers its account holds. Pairs with
+            ``TelephonyProvider.list_provider_phone_numbers``; the shared
+            sync route imports that inventory into ``telephony_phone_numbers``
+            so customers refresh numbers instead of typing them.
         trunk_settings_cls: Schema for a trunk's provider-specific settings.
             Providing it declares that this provider's calls travel over named
             carrier paths, which phone numbers are then assigned to. Paired
@@ -346,6 +351,11 @@ class ProviderSpec:
     # extension, a SIP URI, a dial string naming a trunk -- where demanding
     # E.164 rejects the addresses the customer actually dials.
     requires_e164_destinations: bool = True
+    # Whether ``TelephonyProvider.list_provider_phone_numbers`` is implemented,
+    # so the shared "refresh numbers" route can import the account's inventory
+    # and the UI can offer the button. Off by default: a provider with no
+    # listing must say so rather than report an empty account.
+    supports_phone_number_sync: bool = False
     # Schema for a trunk's provider-specific settings. Setting it is what
     # declares that this provider has trunks at all: the trunk endpoints,
     # the checklist's trunk step and the number-to-trunk picker all key off it.

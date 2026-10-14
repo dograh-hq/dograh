@@ -68,6 +68,37 @@ def test_response_body_detail_handles_other_body_shapes(body, expected):
     assert response_body_detail(_rejected_handshake(502, body)) == expected
 
 
+def test_unreadable_response_attribute_never_masks_the_original_error():
+    class Flaky(Exception):
+        @property
+        def response(self):
+            raise RuntimeError("connection already closed")
+
+    exc = Flaky("boom")
+
+    assert response_body_detail(exc) is None
+    assert describe_exception(exc) == "boom"
+    failure = classify_exception(exc, source=ErrorSource.TTS, provider="deepgram")
+    assert "boom" in failure.internal_message
+
+
+def test_response_body_detail_is_redacted_before_it_leaves_the_server():
+    # The detail reaches the browser and the log sinks, so a proxy or provider
+    # that echoes credentials back must not leak them.
+    exc = _rejected_handshake(
+        401,
+        b'{"err_msg": "Authorization: Bearer abc.def-123 rejected; api_key=sk-live-999 revoked"}',
+    )
+
+    detail = response_body_detail(exc)
+
+    assert detail is not None
+    assert "abc.def-123" not in detail
+    assert "sk-live-999" not in detail
+    assert "[REDACTED]" in detail
+    assert "rejected" in detail
+
+
 def test_describe_exception_without_a_response_is_plain_str():
     exc = RuntimeError("boom")
 

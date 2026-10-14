@@ -214,7 +214,11 @@ _RESPONSE_DETAIL_MAX_CHARS = 300
 
 def _response_body_text(exc: BaseException) -> str | None:
     """Return the body of an HTTP response attached to ``exc``, if there is one."""
-    response = getattr(exc, "response", None)
+    # Best effort throughout: a detail is never worth masking the original error.
+    try:
+        response = getattr(exc, "response", None)
+    except Exception:
+        return None
     if response is None:
         return None
     for attr in ("body", "content", "text"):
@@ -239,6 +243,7 @@ def response_body_detail(exc: BaseException) -> str | None:
     gave sits unread in the attached response body. A JSON body yields its
     message field; other text is returned whitespace-collapsed and capped.
     Markup is skipped because an HTML error page explains nothing in one line.
+    The result is redacted, since it reaches the browser and the log sinks.
     """
     text = _response_body_text(exc)
     if text is None:
@@ -259,7 +264,7 @@ def response_body_detail(exc: BaseException) -> str | None:
                 text = value
                 break
     text = " ".join(text.split())
-    return text[:_RESPONSE_DETAIL_MAX_CHARS] or None
+    return redact_failure_message(text[:_RESPONSE_DETAIL_MAX_CHARS]) or None
 
 
 def describe_exception(exc: BaseException) -> str:

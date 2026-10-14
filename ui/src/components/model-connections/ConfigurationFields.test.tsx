@@ -220,6 +220,23 @@ describe("compact density", () => {
         return <ConfigurationFields catalog={catalog} connections={connections} configuration={configuration} onChange={setConfiguration} density="compact" fields={["model", "voice"]} />;
     }
 
+    it("resets a hidden dependent field when a quick field it depends on changes", () => {
+        // The reset must consult the provider's whole schema, not just the fields this editor shows.
+        const deepgram = { credential_fields: {}, connection_fields: {}, title: "Deepgram", settings_schema: { properties: {
+            model: { type: "string", title: "Model", default: "aura-2", enum: ["aura-2", "flux"] },
+            voice: { type: "string", title: "Voice", default: "aura-2-helena-en", reset_on_change: ["model"] },
+        } } };
+        const partial: ModelConnectionCatalog = { services: { llm: { openai: provider }, stt: { openai: provider }, tts: { deepgram }, embeddings: { openai: provider }, realtime: { openai: provider } } };
+        const available = [connection("OpenAI", "openai"), connection("Deepgram", "deepgram")];
+        const onChange = vi.fn();
+        const configuration = emptyConfiguration(partial, available);
+        configuration.tts = { provider_connection_uuid: available[1].uuid, settings: { model: "aura-2", voice: "aura-2-helena-en" } };
+        render(<ConfigurationFields catalog={partial} connections={available} configuration={configuration} onChange={onChange} density="compact" fields={["model"]} />);
+        const panel = servicePanel("TTS");
+        expect(within(panel).queryByLabelText("Voice")).toBeNull();
+        selectOption(within(panel).getByLabelText("Model"), "flux");
+        expect(onChange.mock.lastCall?.[0].tts.settings).toEqual({ model: "flux", voice: null });
+    });
     it("shows only the quick fields and leaves out embeddings", () => {
         render(<CompactEditor />);
         expect(selectedMode()).toBe("Dograh");

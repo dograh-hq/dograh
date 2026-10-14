@@ -403,7 +403,7 @@ async def test_realtime_requires_text_llm(catalog):
 
 
 @pytest.mark.asyncio
-async def test_computed_tts_model_is_not_an_input_setting(catalog):
+async def test_tts_model_is_inferred_from_the_voice_and_must_agree_with_it(catalog):
     dograh = connection()
     config = pipeline(dograh)
     deepgram = catalog(connection("deepgram"))
@@ -411,11 +411,19 @@ async def test_computed_tts_model_is_not_an_input_setting(catalog):
     catalog(dograh, default=True, configuration=config)
     result = await service.resolve_model_configuration(1)
     assert result.effective.tts.model == "aura-2"
-    assert "model" not in result.snapshot["services"]["tts"]["settings"]
+    # Saved settings predate the field; the snapshot pins what was inferred.
+    assert result.snapshot["services"]["tts"]["settings"]["model"] == "aura-2"
+    # A model switch layered over the saved voice contradicts it.
     with pytest.raises(HTTPException):
         await service.resolve_model_configuration(
-            1, api_override={"tts": {"settings": {"model": "aura-1"}}}
+            1, api_override={"tts": {"settings": {"model": "flux"}}}
         )
+    switched = await service.resolve_model_configuration(
+        1,
+        api_override={"tts": {"settings": {"model": "flux", "voice": "flux-maeve-en"}}},
+    )
+    assert switched.effective.tts.model == "flux"
+    assert switched.effective.tts.voice == "flux-maeve-en"
 
 
 def test_catalog_separates_credentials_connection_and_model_fields():

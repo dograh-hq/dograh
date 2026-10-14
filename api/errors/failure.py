@@ -7,6 +7,7 @@ record that later phases can consume without changing runtime behaviour.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -207,6 +208,77 @@ def extract_http_status(exc: BaseException) -> int | None:
     return status
 
 
+_RESPONSE_MESSAGE_KEYS = ("err_msg", "error_message", "message", "detail", "error")
+_RESPONSE_DETAIL_MAX_CHARS = 300
+
+
+def _response_body_text(exc: BaseException) -> str | None:
+    """Return the body of an HTTP response attached to ``exc``, if there is one."""
+    # Best effort throughout: a detail is never worth masking the original error.
+    try:
+        response = getattr(exc, "response", None)
+    except Exception:
+        return None
+    if response is None:
+        return None
+    for attr in ("body", "content", "text"):
+        try:
+            value = getattr(response, attr, None)
+        except Exception:
+            continue
+        if callable(value):
+            continue
+        if isinstance(value, bytes | bytearray):
+            value = bytes(value).decode("utf-8", errors="replace")
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def response_body_detail(exc: BaseException) -> str | None:
+    """Read the server's own explanation out of a rejected HTTP exchange.
+
+    Client libraries that fail an HTTP request or a WebSocket handshake tend to
+    stringify to little more than the status code, while the reason the server
+    gave sits unread in the attached response body. A JSON body yields its
+    message field; other text is returned whitespace-collapsed and capped.
+    Markup is skipped because an HTML error page explains nothing in one line.
+    The result is redacted, since it reaches the browser and the log sinks.
+    """
+    text = _response_body_text(exc)
+    if text is None:
+        return None
+    text = text.strip()
+    if text.startswith("<"):
+        return None
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        for key in _RESPONSE_MESSAGE_KEYS:
+            value = payload.get(key)
+            if isinstance(value, dict):
+                value = value.get("message")
+            if isinstance(value, str) and value.strip():
+                text = value
+                break
+    text = " ".join(text.split())
+    return redact_failure_message(text[:_RESPONSE_DETAIL_MAX_CHARS]) or None
+
+
+def describe_exception(exc: BaseException) -> str:
+    """``str(exc)``, followed by the server's reason when the exception carries one."""
+    try:
+        text = str(exc)
+    except Exception:
+        text = ""
+    detail = response_body_detail(exc)
+    if detail and detail not in text:
+        text = f"{text} ({detail})" if text else detail
+    return text
+
+
 def extract_provider_error_code(
     exc: BaseException, *, http_status: int | None = None
 ) -> str | None:
@@ -381,10 +453,7 @@ def classify_exception(
             "exception_traceback", "\n".join(traceback_frames[-20:])
         )
 
-    try:
-        detail = str(exc)
-    except Exception:
-        detail = ""
+    detail = describe_exception(exc)
     internal_message = redact_failure_message(
         f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
     )

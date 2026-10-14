@@ -142,6 +142,17 @@ export function cleanSettings(settings: Record<string, unknown>, schema?: FieldS
     }));
 }
 
+/** Clear fields whose value was scoped to the sibling that just changed. The value
+ *  is set to null rather than removed so the form does not show the schema default,
+ *  which belongs to the previous choice; the server picks the new choice's default. */
+export function resetDependentFields(settings: Record<string, unknown>, schema: FieldSchema | undefined, changed: string): Record<string, unknown> {
+    const dependents = Object.entries(schema?.properties || {})
+        .filter(([name, field]) => name !== changed && resolveFieldSchema(field, schema).reset_on_change?.includes(changed))
+        .map(([name]) => name);
+    if (!dependents.length) return settings;
+    return { ...settings, ...Object.fromEntries(dependents.map(name => [name, null])) };
+}
+
 export function cleanFallbackPolicy(policy: FallbackPolicy, catalog: ModelConnectionCatalog, connections: ProviderConnection[]): FallbackPolicy {
     return { ...policy, rules: policy.rules.map(rule => {
         const connection = connections.find(item => item.uuid === rule.target.provider_connection_uuid);

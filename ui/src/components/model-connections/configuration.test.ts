@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cleanConfiguration, cleanSettings, compatibleConnections, configurationForMode, configurationMode, fieldForModel, selectionForConnection } from "./configuration";
+import { cleanConfiguration, cleanSettings, compatibleConnections, configurationForMode, configurationMode, fieldForModel, resetDependentFields, selectionForConnection } from "./configuration";
 import type { ConfigurationSpec, ModelConnectionCatalog, ProviderConnection } from "./types";
 
 const connection = (uuid: string, provider: string): ProviderConnection => ({ uuid, provider, name: uuid, connection_settings: {}, configured_credentials: ["api_key"], revision: 1, is_active: true });
@@ -61,6 +61,14 @@ describe("model connection editor settings", () => {
         expect(selectionForConnection(catalog, "llm", connections[2], base.llm, connections)).toEqual({ provider_connection_uuid: "google", settings: { model: "gemini-3.5-flash", temperature: 0.7 } });
     });
 
+    it("clears a field whose value was scoped to the sibling that changed", () => {
+        const schema = { properties: { model: { enum: ["aura-2", "flux"] }, voice: { default: "aura-2-helena-en", reset_on_change: ["model"] }, speed: {} } };
+        expect(resetDependentFields({ model: "flux", voice: "aura-2-helena-en", speed: 1.2 }, schema, "model")).toEqual({ model: "flux", voice: null, speed: 1.2 });
+        // Null, not absent: an absent voice would show the schema default, which belongs to the old model.
+        expect(resetDependentFields({ model: "flux" }, schema, "model")).toEqual({ model: "flux", voice: null });
+        const settings = { model: "flux", voice: "flux-maeve-en" };
+        expect(resetDependentFields(settings, schema, "speed")).toBe(settings);
+    });
     it("removes hidden, computed, and credential fields without dropping valid settings", () => {
         const schema = { properties: { ...catalog.services.llm!.openai.settings_schema.properties, output: { readOnly: true } } };
         expect(cleanSettings({ temperature: 0.8, output: "computed", api_key: "secret" }, schema, { model: "gpt-5-mini" })).toEqual({});

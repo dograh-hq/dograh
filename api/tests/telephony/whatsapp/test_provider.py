@@ -228,13 +228,21 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         self.assertIsNone(second[2]["params"])
         self.assertEqual(first[2]["headers"], {"Authorization": "Bearer test_token"})
 
-    async def test_listing_refuses_an_answer_without_a_data_list(self):
-        """A 200 with no list is not an empty account; the sync would report
-        every number as gone."""
-        session = _DummySession({f"/{WABA}/phone_numbers": (200, {"paging": {}})})
-        with patch("aiohttp.ClientSession", return_value=session):
-            with self.assertRaises(ProviderPhoneNumberLookupError):
-                await _provider().list_provider_phone_numbers()
+    async def test_listing_refuses_a_malformed_answer(self):
+        """A 200 that is not a listing is not an empty account; the sync would
+        report every number as gone, or the handler would crash past the
+        lookup-error mapping."""
+        for name, payload in (
+            ("no data list", {"paging": {}}),
+            ("data not a list", {"data": {"id": "1"}}),
+            ("paging not an object", {"data": [], "paging": "junk"}),
+            ("next not a link", {"data": [], "paging": {"next": 7}}),
+        ):
+            with self.subTest(name):
+                session = _DummySession({f"/{WABA}/phone_numbers": (200, payload)})
+                with patch("aiohttp.ClientSession", return_value=session):
+                    with self.assertRaises(ProviderPhoneNumberLookupError):
+                        await _provider().list_provider_phone_numbers()
 
     async def test_listing_refuses_to_stop_short_of_the_last_page(self):
         """A truncated listing must fail, not pass for the whole account."""

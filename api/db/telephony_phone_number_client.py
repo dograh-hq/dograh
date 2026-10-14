@@ -374,10 +374,25 @@ class TelephonyPhoneNumberClient(BaseDBClient):
     ) -> Optional[TelephonyPhoneNumberModel]:
         """Partial update. ``address`` is intentionally immutable — create a new
         row instead. Set ``clear_inbound_workflow``/``clear_trunk`` to null out
-        the respective FK."""
+        the respective FK.
+
+        ``extra_metadata`` replaces the operator's keys but keeps the
+        provider-owned ``PROVIDER_METADATA_KEY`` entry unless the caller sets
+        one, and the row is locked while it is rewritten, so an operator save
+        cannot undo a provider refresh that landed in between.
+        """
         async with self.async_session() as session:
-            row = await session.get(TelephonyPhoneNumberModel, phone_number_id)
-            if not row or row.telephony_configuration_id != telephony_configuration_id:
+            result = await session.execute(
+                select(TelephonyPhoneNumberModel)
+                .where(
+                    TelephonyPhoneNumberModel.id == phone_number_id,
+                    TelephonyPhoneNumberModel.telephony_configuration_id
+                    == telephony_configuration_id,
+                )
+                .with_for_update()
+            )
+            row = result.scalars().first()
+            if not row:
                 return None
 
             if label is not None:
@@ -395,7 +410,11 @@ class TelephonyPhoneNumberClient(BaseDBClient):
             if country_code is not None:
                 row.country_code = country_code
             if extra_metadata is not None:
-                row.extra_metadata = extra_metadata
+                merged = dict(extra_metadata)
+                provider_details = (row.extra_metadata or {}).get(PROVIDER_METADATA_KEY)
+                if provider_details is not None and PROVIDER_METADATA_KEY not in merged:
+                    merged[PROVIDER_METADATA_KEY] = provider_details
+                row.extra_metadata = merged
 
             await session.commit()
             await session.refresh(row)

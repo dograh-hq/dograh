@@ -224,7 +224,17 @@ class WhatsAppProvider(TelephonyProvider):
                     numbers.append(number)
             # Meta's ``next`` link already carries the query, so it is
             # followed as-is.
-            url = (payload.get("paging") or {}).get("next") or ""
+            paging = payload.get("paging")
+            next_url = paging.get("next") if isinstance(paging, dict) else None
+            if paging is not None and not isinstance(paging, dict):
+                raise ProviderPhoneNumberLookupError(
+                    "Meta answered the phone-number listing with invalid paging"
+                )
+            if next_url is not None and not isinstance(next_url, str):
+                raise ProviderPhoneNumberLookupError(
+                    "Meta answered the phone-number listing with an invalid next link"
+                )
+            url = next_url or ""
             params = None
             if not url:
                 return numbers

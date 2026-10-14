@@ -195,6 +195,16 @@ class TestPhoneNumberSync(IsolatedAsyncioTestCase):
             await _sync(_FakeDB(), [], config=_config(provider="twilio"))
 
 
+def _sql(session: AsyncMock) -> str:
+    """The one statement the session ran, rendered with its literal values."""
+    statement = session.execute.await_args.args[0]
+    return str(
+        statement.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+
+
 def _session_with(row: MagicMock | None):
     """An ``async_session`` whose one query returns ``row``."""
     result = MagicMock()
@@ -225,10 +235,7 @@ class TestProviderRefreshOnTheRow(IsolatedAsyncioTestCase):
         )
         self.assertEqual(row.label, "Boston")
         session.commit.assert_awaited_once()
-        statement = session.execute.await_args.args[0]
-        self.assertIn(
-            "FOR UPDATE", str(statement.compile(dialect=postgresql.dialect()))
-        )
+        self.assertIn("FOR UPDATE", _sql(session))
 
     async def test_fills_in_a_label_only_while_the_row_has_none(self):
         row = _row(
@@ -260,6 +267,7 @@ class TestProviderRefreshOnTheRow(IsolatedAsyncioTestCase):
         session.commit.assert_not_awaited()
 
     async def test_ignores_a_row_of_another_configuration(self):
+        """Ownership is part of the query, not a check after the fact."""
         session, patched = _session_with(None)
         with patched:
             updated = await db_client.refresh_phone_number_from_provider(
@@ -267,3 +275,45 @@ class TestProviderRefreshOnTheRow(IsolatedAsyncioTestCase):
             )
         self.assertIsNone(updated)
         session.commit.assert_not_awaited()
+        sql = _sql(session)
+        self.assertIn("telephony_phone_numbers.id = 1", sql)
+        self.assertIn("telephony_phone_numbers.telephony_configuration_id = 5", sql)
+
+
+class TestOperatorUpdateKeepsProviderDetails(IsolatedAsyncioTestCase):
+    """The operator's edit path is the other side of the same race: it must
+    not replace what a refresh wrote, and it must read the row under the lock."""
+
+    async def test_replaces_operator_keys_but_keeps_the_provider_entry(self):
+        row = _row(
+            "+15551234567",
+            extra={"note": "old", PROVIDER_METADATA_KEY: {"phone_number_id": "1"}},
+            row_id=7,
+        )
+        session, patched = _session_with(row)
+        with patched:
+            updated = await db_client.update_phone_number(
+                7, 5, extra_metadata={"note": "new"}
+            )
+
+        self.assertIs(updated, row)
+        self.assertEqual(
+            row.extra_metadata,
+            {"note": "new", PROVIDER_METADATA_KEY: {"phone_number_id": "1"}},
+        )
+        sql = _sql(session)
+        self.assertIn("FOR UPDATE", sql)
+        self.assertIn("telephony_phone_numbers.telephony_configuration_id = 5", sql)
+
+    async def test_a_caller_that_sets_the_provider_entry_wins(self):
+        row = _row(
+            "+15551234567", extra={PROVIDER_METADATA_KEY: {"phone_number_id": "1"}}
+        )
+        session, patched = _session_with(row)
+        with patched:
+            await db_client.update_phone_number(
+                1, 5, extra_metadata={PROVIDER_METADATA_KEY: {"phone_number_id": "2"}}
+            )
+        self.assertEqual(
+            row.extra_metadata, {PROVIDER_METADATA_KEY: {"phone_number_id": "2"}}
+        )

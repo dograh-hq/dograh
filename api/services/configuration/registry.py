@@ -65,6 +65,7 @@ from api.services.configuration.options import (
     SONIOX_STT_LANGUAGES,
     SONIOX_STT_MODELS,
     SPEECHMATICS_STT_LANGUAGES,
+    is_deepgram_flux_voice,
 )
 from api.services.configuration.options.google import (
     GOOGLE_VERTEX_DEFAULT_LOCATION,
@@ -1267,7 +1268,10 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
     voice: str = Field(
         default="aura-2-helena-en",
-        description="Deepgram voice ID (model is inferred from the 'aura-N' prefix).",
+        description=(
+            "Deepgram voice ID. Aura voices (aura-2-...) and Flux voices "
+            "(flux-...) are both accepted; the model is inferred from the prefix."
+        ),
         json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
     )
     speed: float | None = Field(
@@ -1276,9 +1280,17 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
         le=1.5,
         description=(
             "Speaking rate multiplier (1.0 is normal speed). Leave blank to use "
-            "Deepgram's default. Supported by Aura-2 English and Spanish voices; "
-            "0.9–1.5 is recommended for Spanish."
+            "Deepgram's default. Supported by Flux voices and by Aura-2 English "
+            "and Spanish voices; 0.9–1.5 is recommended for Spanish."
         ),
+    )
+    expressivity: Literal[-2, -1, 0, 1, 2] | None = Field(
+        default=None,
+        description=(
+            "Expressive range for Flux voices, from -2 (calm) to 2 (animated). "
+            "Leave blank to use Deepgram's default. Ignored by Aura voices."
+        ),
+        json_schema_extra={"option_labels": {"-2": "-2 (calm)", "2": "2 (animated)"}},
     )
     base_url: str = Field(
         default=DEEPGRAM_DEFAULT_BASE_URL,
@@ -1297,15 +1309,13 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
     @computed_field
     @property
     def model(self) -> str:
-        # Deepgram model's name is inferred using the voice name.
-        # It can either contain aura-2 or aura-1
-        if "aura-2" in self.voice:
-            return "aura-2"
-        elif "aura-1" in self.voice:
+        # Deepgram has no separate TTS model setting: the voice id carries the
+        # model family as its prefix.
+        if is_deepgram_flux_voice(self.voice):
+            return "flux"
+        if "aura-1" in self.voice:
             return "aura-1"
-        else:
-            # Default fallback
-            return "aura-2"
+        return "aura-2"
 
 
 ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN = r"^eleven_v[34]"

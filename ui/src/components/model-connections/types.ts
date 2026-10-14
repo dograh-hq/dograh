@@ -18,7 +18,7 @@ export interface FieldSchema {
     docs_label?: string;
     anyOf?: FieldSchema[];
     items?: FieldSchema;
-    enum?: string[];
+    enum?: (string | number)[];
     examples?: string[];
     minimum?: number;
     maximum?: number;

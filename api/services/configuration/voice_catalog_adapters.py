@@ -63,8 +63,12 @@ class VoiceCatalog(ABC):
             else {}
         )
 
-    async def get(self, client: httpx.AsyncClient, params=None) -> Any:
-        response = await client.get(self.url, headers=self.headers, params=params)
+    async def get(
+        self, client: httpx.AsyncClient, params=None, url: str | None = None
+    ) -> Any:
+        response = await client.get(
+            url or self.url, headers=self.headers, params=params
+        )
         response.raise_for_status()
         return response.json()
 
@@ -191,42 +195,61 @@ class DeepgramVoiceCatalog(VoiceCatalog):
     path = "/v1/models"
     auth_header = "Authorization"
     auth_prefix = "Token "
+    # Aura voices are listed by /v1/models and Flux voices by /v2/models, and
+    # neither listing includes the other family. Each listing's architecture
+    # names are mapped onto the configuration's model values.
+    listings: ClassVar[tuple[tuple[str, dict[str, str]], ...]] = (
+        ("/v1/models", {"aura": "aura-1", "aura-2": "aura-2"}),
+        ("/v2/models", {"flux-tts": "flux"}),
+    )
+
+    def __init__(self, api_key: str | None, base_url: str | None):
+        super().__init__(api_key, base_url)
+        self.listing_urls = [
+            (_catalog_url(base_url or self.base_url, path), models)
+            for path, models in self.listings
+        ]
 
     async def voices(self, client, query):
         # https://developers.deepgram.com/guides/fundamentals/model-metadata
-        data = await self.get(client)
         voices = []
-        for entry in data["tts"]:
-            voice_id = entry["canonical_name"]
-            architecture = entry.get("architecture")
-            model = "aura" if query.model == "aura-1" else query.model
-            if not architecture:
-                architecture = "aura-2" if voice_id.startswith("aura-2-") else "aura"
-            if model and architecture != model:
+        for url, models in self.listing_urls:
+            if query.model and query.model not in models.values():
                 continue
-            languages = entry.get("languages") or []
-            if query.language and query.language not in languages:
-                continue
-            metadata = entry.get("metadata") or {}
-            tags = metadata.get("tags") or []
-            voices.append(
-                VoiceInfo(
-                    voice_id=voice_id,
-                    name=metadata.get("display_name") or entry["name"].title(),
-                    description=", ".join(tags) or None,
-                    accent=metadata.get("accent"),
-                    gender=next(
-                        (
-                            {"feminine": "female", "masculine": "male"}[tag]
-                            for tag in tags
-                            if tag in {"feminine", "masculine"}
+            data = await self.get(client, url=url)
+            for entry in data["tts"]:
+                voice_id = entry["canonical_name"]
+                architecture = entry.get("architecture")
+                if not architecture:
+                    architecture = (
+                        "aura-2" if voice_id.startswith("aura-2-") else "aura"
+                    )
+                model = models.get(architecture, architecture)
+                if query.model and model != query.model:
+                    continue
+                languages = entry.get("languages") or []
+                if query.language and query.language not in languages:
+                    continue
+                metadata = entry.get("metadata") or {}
+                tags = metadata.get("tags") or []
+                voices.append(
+                    VoiceInfo(
+                        voice_id=voice_id,
+                        name=metadata.get("display_name") or entry["name"].title(),
+                        description=", ".join(tags) or None,
+                        accent=metadata.get("accent"),
+                        gender=next(
+                            (
+                                {"feminine": "female", "masculine": "male"}[tag]
+                                for tag in tags
+                                if tag in {"feminine", "masculine"}
+                            ),
+                            None,
                         ),
-                        None,
-                    ),
-                    language=query.language or next(iter(languages), None),
-                    preview_url=metadata.get("sample"),
+                        language=query.language or next(iter(languages), None),
+                        preview_url=metadata.get("sample"),
+                    )
                 )
-            )
         return voices
 
 

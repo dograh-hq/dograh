@@ -12,6 +12,17 @@ DEEPGRAM_BASE_URLS = (
 )
 
 DEEPGRAM_FLUX_MODELS = ("flux-general-en", "flux-general-multi")
+
+# Deepgram serves Aura voices from /v1/speak and Flux voices from /v2/speak,
+# and a TTS configuration carries only the voice id, so the prefix decides
+# which service and endpoint synthesize a call.
+DEEPGRAM_FLUX_TTS_VOICE_PREFIX = "flux-"
+
+
+def is_deepgram_flux_voice(voice: str | None) -> bool:
+    return bool(voice) and voice.startswith(DEEPGRAM_FLUX_TTS_VOICE_PREFIX)
+
+
 DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES = (
     "de",
     "en",

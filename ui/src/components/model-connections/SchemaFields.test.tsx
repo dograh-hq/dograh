@@ -61,6 +61,18 @@ describe("provider field controls", () => {
         expect(onSave).toHaveBeenLastCalledWith({ model: "custom-again" });
     });
 
+    it("offers numeric enum values as labelled choices and saves them as numbers", () => {
+        const onSave = vi.fn();
+        const schema: FieldSchema = { properties: {
+            expressivity: { title: "Expressivity", default: null, anyOf: [{ enum: [-2, -1, 0, 1, 2], type: "integer" }, { type: "null" }], option_labels: { "-2": "-2 (calm)", "2": "2 (animated)" } },
+        } };
+        render(<Editor schema={schema} initial={{}} onSave={onSave} />);
+        expect(screen.getByLabelText("Expressivity").getAttribute("data-slot")).toBe("select-trigger");
+        expect(selectOptions("Expressivity")).toEqual(["Provider default", "-2 (calm)", "-1", "0", "1", "2 (animated)"]);
+        selectOption("Expressivity", "1");
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+        expect(onSave).toHaveBeenLastCalledWith({ expressivity: 1 });
+    });
     it("shows model-specific language options with display names and documentation", () => {
         render(<Editor schema={{ properties: {
             model: { type: "string", title: "Model", examples: ["flux", "nova"] },

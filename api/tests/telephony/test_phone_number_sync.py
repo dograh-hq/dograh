@@ -2,9 +2,15 @@
 
 from typing import Any, Dict, Iterable
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from api.db.telephony_phone_number_client import TelephonyPhoneNumberConflictError
+from sqlalchemy.dialects import postgresql
+
+from api.db import db_client
+from api.db.telephony_phone_number_client import (
+    PROVIDER_METADATA_KEY,
+    TelephonyPhoneNumberConflictError,
+)
 from api.services.telephony.base import ProviderPhoneNumber
 from api.services.telephony.phone_number_sync import (
     PhoneNumberSyncUnsupportedError,
@@ -61,7 +67,7 @@ class _FakeDB:
         self.conflicts = list(conflicts)
         self.taken_elsewhere = set(taken_elsewhere)
         self.created: list[Dict[str, Any]] = []
-        self.updated: list[tuple[int, Dict[str, Any]]] = []
+        self.refreshed: list[tuple[int, Dict[str, Any]]] = []
 
     async def list_phone_numbers_for_config(self, config_id: int):
         return list(self.rows)
@@ -80,11 +86,13 @@ class _FakeDB:
             row_id=100 + len(self.created),
         )
 
-    async def update_phone_number(
+    async def refresh_phone_number_from_provider(
         self, phone_number_id: int, configuration_id: int, **kwargs: Any
     ):
-        self.updated.append((phone_number_id, kwargs))
-        return _row("updated", row_id=phone_number_id)
+        """Records the call; the merge itself is the real client's and is
+        tested below against a session."""
+        self.refreshed.append((phone_number_id, kwargs))
+        return _row("refreshed", row_id=phone_number_id)
 
 
 def _provider(numbers: Iterable[ProviderPhoneNumber]) -> MagicMock:
@@ -119,11 +127,14 @@ class TestPhoneNumberSync(IsolatedAsyncioTestCase):
         self.assertEqual(first["telephony_configuration_id"], 5)
         self.assertEqual(first["address"], "+15551234567")
         self.assertEqual(first["label"], "Example")
-        self.assertEqual(first["extra_metadata"], {"phone_number_id": "1"})
+        # Provider details live under their own key; the rest of the column
+        # is the operator's.
+        self.assertEqual(
+            first["extra_metadata"], {PROVIDER_METADATA_KEY: {"phone_number_id": "1"}}
+        )
         self.assertIsNone(second["label"])
 
-    async def test_refreshes_metadata_on_rows_it_already_has(self):
-        """Merged, not replaced: whatever an operator stored on the row survives."""
+    async def test_refreshes_rows_it_already_has_through_the_locked_merge(self):
         kept = _row("+15551234567", label="Boston", extra={"note": "ops"}, row_id=7)
         db = _FakeDB(rows=[kept])
 
@@ -131,32 +142,10 @@ class TestPhoneNumberSync(IsolatedAsyncioTestCase):
 
         self.assertEqual(db.created, [])
         self.assertEqual(len(outcome.updated), 1)
-        row_id, kwargs = db.updated[0]
+        row_id, kwargs = db.refreshed[0]
         self.assertEqual(row_id, 7)
-        self.assertEqual(
-            kwargs["extra_metadata"], {"note": "ops", "phone_number_id": "1"}
-        )
-        # The operator's label is theirs.
-        self.assertIsNone(kwargs["label"])
-
-    async def test_fills_in_a_label_only_when_the_row_has_none(self):
-        unlabeled = _row("+15551234567", extra={"phone_number_id": "1"}, row_id=7)
-        db = _FakeDB(rows=[unlabeled])
-
-        await _sync(db, [_number("+15551234567", "1", label="Example")])
-
-        self.assertEqual(db.updated[0][1]["label"], "Example")
-
-    async def test_leaves_an_up_to_date_row_alone(self):
-        current = _row(
-            "+15551234567", label="Boston", extra={"phone_number_id": "1"}, row_id=7
-        )
-        db = _FakeDB(rows=[current])
-
-        outcome = await _sync(db, [_number("+15551234567", "1")])
-
-        self.assertEqual(db.updated, [])
-        self.assertEqual(outcome.updated, [])
+        self.assertEqual(kwargs["provider_metadata"], {"phone_number_id": "1"})
+        self.assertEqual(kwargs["label"], "Example")
 
     async def test_reports_numbers_the_provider_no_longer_lists_without_touching_them(
         self,
@@ -167,7 +156,7 @@ class TestPhoneNumberSync(IsolatedAsyncioTestCase):
         outcome = await _sync(db, [_number("+15551234567", "1")])
 
         self.assertEqual(outcome.missing_at_provider, [gone])
-        self.assertEqual(db.updated, [])
+        self.assertEqual(db.refreshed, [])
         self.assertEqual(len(outcome.created), 1)
 
     async def test_skips_a_number_already_routed_under_the_same_account(self):
@@ -204,3 +193,77 @@ class TestPhoneNumberSync(IsolatedAsyncioTestCase):
     async def test_refuses_a_provider_without_a_listing(self):
         with self.assertRaises(PhoneNumberSyncUnsupportedError):
             await _sync(_FakeDB(), [], config=_config(provider="twilio"))
+
+
+def _session_with(row: MagicMock | None):
+    """An ``async_session`` whose one query returns ``row``."""
+    result = MagicMock()
+    result.scalars.return_value.first.return_value = row
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=result)
+    ctx = AsyncMock()
+    ctx.__aenter__.return_value = session
+    return session, patch.object(db_client, "async_session", return_value=ctx)
+
+
+class TestProviderRefreshOnTheRow(IsolatedAsyncioTestCase):
+    """The merge runs against the row's live state, under a lock, so a refresh
+    cannot undo an operator edit made after the sync listed the row."""
+
+    async def test_locks_the_row_and_replaces_only_the_provider_key(self):
+        row = _row("+15551234567", label="Boston", extra={"note": "ops"}, row_id=7)
+        session, patched = _session_with(row)
+        with patched:
+            updated = await db_client.refresh_phone_number_from_provider(
+                7, 5, provider_metadata={"phone_number_id": "1"}, label="Example"
+            )
+
+        self.assertIs(updated, row)
+        self.assertEqual(
+            row.extra_metadata,
+            {"note": "ops", PROVIDER_METADATA_KEY: {"phone_number_id": "1"}},
+        )
+        self.assertEqual(row.label, "Boston")
+        session.commit.assert_awaited_once()
+        statement = session.execute.await_args.args[0]
+        self.assertIn(
+            "FOR UPDATE", str(statement.compile(dialect=postgresql.dialect()))
+        )
+
+    async def test_fills_in_a_label_only_while_the_row_has_none(self):
+        row = _row(
+            "+15551234567", extra={PROVIDER_METADATA_KEY: {"phone_number_id": "1"}}
+        )
+        session, patched = _session_with(row)
+        with patched:
+            updated = await db_client.refresh_phone_number_from_provider(
+                1, 5, provider_metadata={"phone_number_id": "1"}, label="Example"
+            )
+
+        self.assertIs(updated, row)
+        self.assertEqual(row.label, "Example")
+        session.commit.assert_awaited_once()
+
+    async def test_leaves_a_current_row_alone(self):
+        row = _row(
+            "+15551234567",
+            label="Boston",
+            extra={PROVIDER_METADATA_KEY: {"phone_number_id": "1"}},
+        )
+        session, patched = _session_with(row)
+        with patched:
+            updated = await db_client.refresh_phone_number_from_provider(
+                1, 5, provider_metadata={"phone_number_id": "1"}, label="Example"
+            )
+
+        self.assertIsNone(updated)
+        session.commit.assert_not_awaited()
+
+    async def test_ignores_a_row_of_another_configuration(self):
+        session, patched = _session_with(None)
+        with patched:
+            updated = await db_client.refresh_phone_number_from_provider(
+                1, 5, provider_metadata={"phone_number_id": "1"}
+            )
+        self.assertIsNone(updated)
+        session.commit.assert_not_awaited()

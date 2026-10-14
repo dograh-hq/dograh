@@ -196,12 +196,14 @@ class WhatsAppProvider(TelephonyProvider):
         Also the credential check at save time: a token that cannot read the
         account's numbers cannot answer its calls either.
         """
-        url: Optional[str] = f"{GRAPH_API_BASE_URL}/{self.waba_id}/phone_numbers"
+        url: str = f"{GRAPH_API_BASE_URL}/{self.waba_id}/phone_numbers"
         params: Optional[Dict[str, Any]] = {"fields": PHONE_NUMBER_FIELDS}
         numbers: List[ProviderPhoneNumber] = []
+        visited: set[str] = set()
+        # An incomplete listing must never pass for a complete one: the sync
+        # reports every row it did not see as gone from the account.
         for _ in range(MAX_PHONE_NUMBER_PAGES):
-            if not url:
-                break
+            visited.add(url)
             try:
                 payload = await _graph_request(
                     "get", url, self.access_token, params=params
@@ -211,15 +213,28 @@ class WhatsAppProvider(TelephonyProvider):
                     f"WhatsApp phone-number listing failed: {e}",
                     status_code=e.status_code,
                 ) from e
-            for item in payload.get("data") or []:
+            data = payload.get("data")
+            if not isinstance(data, list):
+                raise ProviderPhoneNumberLookupError(
+                    "Meta answered the phone-number listing without a data list"
+                )
+            for item in data:
                 number = self._provider_phone_number(item)
                 if number is not None:
                     numbers.append(number)
             # Meta's ``next`` link already carries the query, so it is
             # followed as-is.
-            url = (payload.get("paging") or {}).get("next")
+            url = (payload.get("paging") or {}).get("next") or ""
             params = None
-        return numbers
+            if not url:
+                return numbers
+            if url in visited:
+                raise ProviderPhoneNumberLookupError(
+                    "Meta's phone-number listing repeated a page"
+                )
+        raise ProviderPhoneNumberLookupError(
+            f"Meta's phone-number listing ran past {MAX_PHONE_NUMBER_PAGES} pages"
+        )
 
     @staticmethod
     def _provider_phone_number(item: Dict[str, Any]) -> Optional[ProviderPhoneNumber]:

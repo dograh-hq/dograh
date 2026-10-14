@@ -20,6 +20,11 @@ from api.db.models import (
 )
 from api.utils.telephony_address import normalize_telephony_address
 
+# The key under which provider-reported details live in
+# ``telephony_phone_numbers.extra_metadata``. Everything else in that column is
+# the operator's, and a provider refresh only ever replaces this one key.
+PROVIDER_METADATA_KEY = "provider"
+
 
 class TelephonyPhoneNumberConflictError(Exception):
     """Raised when a phone number violates a DB constraint."""
@@ -391,6 +396,53 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 row.country_code = country_code
             if extra_metadata is not None:
                 row.extra_metadata = extra_metadata
+
+            await session.commit()
+            await session.refresh(row)
+            return row
+
+    async def refresh_phone_number_from_provider(
+        self,
+        phone_number_id: int,
+        telephony_configuration_id: int,
+        *,
+        provider_metadata: Dict[str, Any],
+        label: Optional[str] = None,
+    ) -> Optional[TelephonyPhoneNumberModel]:
+        """Fold the provider's current details into a row, against its live state.
+
+        The row is locked and re-read inside the transaction, so an operator
+        edit that landed after the caller listed the row is kept: provider
+        data only ever replaces the ``PROVIDER_METADATA_KEY`` entry of
+        ``extra_metadata``, and ``label`` is applied only while the row still
+        has none. Returns the row when something changed, ``None`` when it
+        was already current or does not belong to the configuration.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(TelephonyPhoneNumberModel)
+                .where(
+                    TelephonyPhoneNumberModel.id == phone_number_id,
+                    TelephonyPhoneNumberModel.telephony_configuration_id
+                    == telephony_configuration_id,
+                )
+                .with_for_update()
+            )
+            row = result.scalars().first()
+            if not row:
+                return None
+
+            changed = False
+            current = dict(row.extra_metadata or {})
+            if current.get(PROVIDER_METADATA_KEY) != provider_metadata:
+                current[PROVIDER_METADATA_KEY] = dict(provider_metadata)
+                row.extra_metadata = current
+                changed = True
+            if label and not row.label:
+                row.label = label
+                changed = True
+            if not changed:
+                return None
 
             await session.commit()
             await session.refresh(row)

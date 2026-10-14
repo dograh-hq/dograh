@@ -228,6 +228,66 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         self.assertIsNone(second[2]["params"])
         self.assertEqual(first[2]["headers"], {"Authorization": "Bearer test_token"})
 
+    async def test_listing_refuses_an_answer_without_a_data_list(self):
+        """A 200 with no list is not an empty account; the sync would report
+        every number as gone."""
+        session = _DummySession({f"/{WABA}/phone_numbers": (200, {"paging": {}})})
+        with patch("aiohttp.ClientSession", return_value=session):
+            with self.assertRaises(ProviderPhoneNumberLookupError):
+                await _provider().list_provider_phone_numbers()
+
+    async def test_listing_refuses_to_stop_short_of_the_last_page(self):
+        """A truncated listing must fail, not pass for the whole account."""
+        from api.services.telephony.providers.whatsapp import provider as module
+
+        base = f"{GRAPH_API_BASE_URL}/{WABA}/phone_numbers"
+        endless = _DummySession(
+            {
+                "after=1": (
+                    200,
+                    _page(
+                        _meta_item("+1 555-000-0002", "2"), next_url=f"{base}?after=2"
+                    ),
+                ),
+                "after=2": (
+                    200,
+                    _page(
+                        _meta_item("+1 555-000-0003", "3"), next_url=f"{base}?after=3"
+                    ),
+                ),
+                f"/{WABA}/phone_numbers": (
+                    200,
+                    _page(
+                        _meta_item("+1 555-000-0001", "1"), next_url=f"{base}?after=1"
+                    ),
+                ),
+            }
+        )
+        looping = _DummySession(
+            {
+                "after=1": (
+                    200,
+                    _page(
+                        _meta_item("+1 555-000-0002", "2"), next_url=f"{base}?after=1"
+                    ),
+                ),
+                f"/{WABA}/phone_numbers": (
+                    200,
+                    _page(
+                        _meta_item("+1 555-000-0001", "1"), next_url=f"{base}?after=1"
+                    ),
+                ),
+            }
+        )
+        for name, session in (("past the cap", endless), ("repeating a page", looping)):
+            with self.subTest(name):
+                with (
+                    patch("aiohttp.ClientSession", return_value=session),
+                    patch.object(module, "MAX_PHONE_NUMBER_PAGES", 3),
+                ):
+                    with self.assertRaises(ProviderPhoneNumberLookupError):
+                        await _provider().list_provider_phone_numbers()
+
     async def test_get_available_phone_numbers_are_the_accounts_numbers(self):
         session = _DummySession(
             {f"/{WABA}/phone_numbers": (200, _page(_meta_item("+1 555-123-4567", "1")))}

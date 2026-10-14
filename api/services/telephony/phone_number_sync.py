@@ -2,8 +2,9 @@
 
 The "refresh numbers" counterpart to typing a number in: the provider is asked
 what its account holds, and each number becomes a ``telephony_phone_numbers``
-row on the configuration, or refreshes the row it already has. Rows are never
-removed here. A number the provider stops reporting is handed back as missing
+row on the configuration, or refreshes the row it already has. Provider
+details live under one key of the row's metadata and never touch the rest. Rows
+are never removed here. A number the provider stops reporting is handed back as missing
 for the operator to decide on, because a listing gap must not silence a live
 number.
 """
@@ -13,9 +14,12 @@ from typing import Any, List
 
 from api.db import db_client as default_db_client
 from api.db.models import TelephonyConfigurationModel, TelephonyPhoneNumberModel
-from api.db.telephony_phone_number_client import TelephonyPhoneNumberConflictError
+from api.db.telephony_phone_number_client import (
+    PROVIDER_METADATA_KEY,
+    TelephonyPhoneNumberConflictError,
+)
 from api.services.telephony import registry
-from api.services.telephony.base import ProviderPhoneNumber, TelephonyProvider
+from api.services.telephony.base import TelephonyProvider
 from api.services.telephony.inbound_routing import (
     InboundRoutingConflictError,
     assert_no_inbound_routing_conflict,
@@ -73,7 +77,14 @@ async def sync_phone_numbers_from_provider(
 
         row = by_address.get(canonical)
         if row is not None:
-            refreshed = await _refresh_row(db, configuration.id, row, number)
+            # Applied against the row's live state under a lock, so an
+            # operator edit made since the listing above is not undone.
+            refreshed = await db.refresh_phone_number_from_provider(
+                row.id,
+                configuration.id,
+                provider_metadata=dict(number.metadata),
+                label=number.label,
+            )
             if refreshed is not None:
                 outcome.updated.append(refreshed)
             continue
@@ -97,7 +108,7 @@ async def sync_phone_numbers_from_provider(
                 telephony_configuration_id=configuration.id,
                 address=number.address,
                 label=number.label,
-                extra_metadata=dict(number.metadata),
+                extra_metadata={PROVIDER_METADATA_KEY: dict(number.metadata)},
             )
         except TelephonyPhoneNumberConflictError:
             outcome.skipped.append(
@@ -116,27 +127,3 @@ async def sync_phone_numbers_from_provider(
         row for row in existing if row.address_normalized not in seen
     ]
     return outcome
-
-
-async def _refresh_row(
-    db: Any,
-    configuration_id: int,
-    row: TelephonyPhoneNumberModel,
-    number: ProviderPhoneNumber,
-) -> TelephonyPhoneNumberModel | None:
-    """Fold the provider's current details into an existing row.
-
-    Metadata is merged, never replaced, so anything an operator stored on the
-    row survives. A label is only filled in when the row has none: it is the
-    operator's name for the number, not the provider's.
-    """
-    merged = {**(row.extra_metadata or {}), **number.metadata}
-    label = number.label if not row.label and number.label else None
-    if merged == (row.extra_metadata or {}) and label is None:
-        return None
-    return await db.update_phone_number(
-        row.id,
-        configuration_id,
-        label=label,
-        extra_metadata=merged,
-    )

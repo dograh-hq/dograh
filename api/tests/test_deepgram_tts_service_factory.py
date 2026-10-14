@@ -180,6 +180,25 @@ def test_model_without_a_voice_takes_the_family_default(model, voice, cleared):
     assert config.voice == voice
 
 
+@pytest.mark.parametrize(
+    "settings,field",
+    [
+        ({"voice": 123}, "voice"),
+        ({"voice": ["aura-2-helena-en"]}, "voice"),
+        ({"model": ["aura-2"]}, "model"),
+        ({"model": []}, "model"),
+        ({"model": 2}, "model"),
+        ({"model": "aura-3"}, "model"),
+        ({"model": "", "voice": "aura-2-helena-en"}, "model"),
+    ],
+)
+def test_malformed_input_is_a_field_error_not_a_crash(settings, field):
+    # The before-validator completes well-typed halves only; anything else must
+    # surface as a 422 naming the field, never as an exception escaping it.
+    with pytest.raises(ValidationError, match=field):
+        DeepgramTTSConfiguration(api_key="test-key", **settings)
+
+
 def test_voice_from_another_family_is_rejected():
     with pytest.raises(ValidationError, match="voice"):
         DeepgramTTSConfiguration(

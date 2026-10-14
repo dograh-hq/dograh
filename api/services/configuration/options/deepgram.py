@@ -32,7 +32,7 @@ _DEEPGRAM_TTS_VOICE_PREFIXES = (
 def deepgram_tts_model_for_voice(voice: str | None) -> str | None:
     """The voice family a Deepgram voice id names, or None for an unknown shape."""
     for prefix, model in _DEEPGRAM_TTS_VOICE_PREFIXES:
-        if voice and voice.startswith(prefix):
+        if isinstance(voice, str) and voice.startswith(prefix):
             return model
     return None
 

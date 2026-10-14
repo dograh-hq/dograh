@@ -1333,11 +1333,25 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
         if not isinstance(data, dict):
             return data
         model, voice = data.get("model"), data.get("voice")
-        if voice and not model:
-            return {**data, "model": deepgram_tts_model_for_voice(voice) or "aura-2"}
-        if not voice and (model or "aura-2") in DEEPGRAM_TTS_DEFAULT_VOICES:
-            model = model or "aura-2"
-            return {**data, "model": model, "voice": DEEPGRAM_TTS_DEFAULT_VOICES[model]}
+        # Only well-typed halves complete each other; anything else is left for
+        # field validation to reject with a field error.
+        if model is not None and not isinstance(model, str):
+            return data
+        if isinstance(voice, str) and voice:
+            if model is None:
+                return {
+                    **data,
+                    "model": deepgram_tts_model_for_voice(voice) or "aura-2",
+                }
+            return data
+        if voice is None or voice == "":
+            model = "aura-2" if model is None else model
+            if model in DEEPGRAM_TTS_DEFAULT_VOICES:
+                return {
+                    **data,
+                    "model": model,
+                    "voice": DEEPGRAM_TTS_DEFAULT_VOICES[model],
+                }
         return data
 
     @field_validator("voice")

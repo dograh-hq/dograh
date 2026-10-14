@@ -152,11 +152,14 @@ export function SchemaFields({ schema, values, onChange, secret = false, configu
             const suggestions = field.model_options?.[String(resolvedValues.model || "")];
             const label = field.title || name.replaceAll("_", " ");
             const fullWidth = field.multiline || field.type === "array" || field.anyOf?.some(option => option.type === "array") || (role === "tts" && name === "voice");
+            // Remount a dependent input when what it depends on changes, so local
+            // control state such as manual entry does not outlive the old choice.
+            const resetKey = field.reset_on_change?.map(dependency => `${dependency}=${String(resolvedValues[dependency] ?? "")}`).join("|");
             return <div key={name} className={`space-y-1.5 ${fullWidth ? "sm:col-span-2" : ""}`}>
                 <div className="flex min-h-6 items-center justify-between gap-2">
                     <Label id={`${id}-label`} htmlFor={id} className="capitalize">{label}</Label>
                 </div>
-                {editing ? <ValueInput id={id} name={name} provider={provider} providerConnectionUuid={providerConnectionUuid} model={String(resolvedValues.model || "") || undefined}
+                {editing ? <ValueInput key={resetKey} id={id} name={name} provider={provider} providerConnectionUuid={providerConnectionUuid} model={String(resolvedValues.model || "") || undefined}
                     language={String(resolvedValues.language || "") || undefined}
                     schema={suggestions ? { ...field, examples: suggestions, enum: field.enum ? suggestions : undefined } : field}
                     value={Object.hasOwn(values, name) ? values[name] : field.default} secret={secret}

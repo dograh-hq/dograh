@@ -73,6 +73,17 @@ describe("provider field controls", () => {
         fireEvent.click(screen.getByRole("button", { name: "Save" }));
         expect(onSave).toHaveBeenLastCalledWith({ expressivity: 1 });
     });
+    it("drops manual entry on a dependent field when what it depends on changes", () => {
+        const schema: FieldSchema = { properties: {
+            model: { type: "string", title: "Model", examples: ["aura-2", "flux"] },
+            voice: { type: "string", title: "Voice", examples: ["v1", "v2"], allow_custom_input: true, reset_on_change: ["model"] },
+        } };
+        render(<Editor schema={schema} initial={{ model: "aura-2", voice: "v1" }} />);
+        fireEvent.click(screen.getByLabelText("Enter Custom Value"));
+        expect(screen.getByLabelText("Voice").getAttribute("data-slot")).not.toBe("select-trigger");
+        selectOption("Model", "flux");
+        expect(screen.getByLabelText("Voice").getAttribute("data-slot")).toBe("select-trigger");
+    });
     it("shows model-specific language options with display names and documentation", () => {
         render(<Editor schema={{ properties: {
             model: { type: "string", title: "Model", examples: ["flux", "nova"] },

@@ -179,10 +179,11 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
     const dograhValue = dograhConnections.some(item => item.uuid === configuration.llm.provider_connection_uuid) ? configuration.llm.provider_connection_uuid : "";
     const dograhPanel = <div className={cn("grid grid-cols-1 gap-4 rounded-lg border bg-card sm:grid-cols-2", compact ? "p-4" : "p-5")}>
         {DOGRAH_FIELDS.map(([role, names]) => {
-            const schema = restrictSchema(catalog.services[role]?.dograh?.settings_schema, names.filter(name => !fields || fields.includes(name)));
+            const fullSchema = catalog.services[role]?.dograh?.settings_schema;
+            const schema = restrictSchema(fullSchema, names.filter(name => !fields || fields.includes(name)));
             if (!hasFields(schema)) return null;
             return <SchemaFields key={role} className="contents" provider="dograh" role={role} schema={schema}
-                values={configuration[role]?.settings || {}} onChange={(name, value) => changeSetting(role, name, value, schema)} />;
+                values={configuration[role]?.settings || {}} onChange={(name, value) => changeSetting(role, name, value, fullSchema)} />;
         })}
         <div className="space-y-1.5">
             <Label htmlFor="dograh-provider-connection">Dograh account</Label>
@@ -196,7 +197,9 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
         const selection = configuration[role];
         const options = serviceOptions(role);
         const connection = options.find(item => item.uuid === selection?.provider_connection_uuid);
-        const schema = restrictSchema(connection ? catalog.services[role]?.[connection.provider]?.settings_schema : undefined, fields);
+        // A partial editor may hide a dependent field; it still has to reset.
+        const fullSchema = connection ? catalog.services[role]?.[connection.provider]?.settings_schema : undefined;
+        const schema = restrictSchema(fullSchema, fields);
         const isEmbedding = role === "embeddings";
         return <div className="space-y-4">
             {role === "llm" && mode === "realtime" && <p className="text-xs text-muted-foreground">The realtime model holds the conversation. This text LLM handles variable extraction and other background tasks.</p>}
@@ -216,7 +219,7 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
                         }} />
                 </div>
                 {schema && selection && <SchemaFields key={`${connection?.uuid}:${connection?.revision}`} className="contents" provider={connection?.provider} providerConnectionUuid={connection?.uuid} role={role} schema={schema}
-                    values={selection.settings} context={connection?.connection_settings} onChange={(name, value) => changeSetting(role, name, value, schema)} />}
+                    values={selection.settings} context={connection?.connection_settings} onChange={(name, value) => changeSetting(role, name, value, fullSchema)} />}
             </div>}
             {isEmbedding && <p className="text-xs text-muted-foreground">Use the embedding model that indexed this workflow’s knowledge base. Changing it does not reindex documents.</p>}
             {role === "llm" && llmActions && connection?.provider !== "dograh" && <div className="flex justify-end border-t pt-4">{llmActions}</div>}

@@ -24,4 +24,4 @@ def test_sarvam_tts_offers_only_languages_sarvam_can_speak():
     offered = SarvamTTSConfiguration.model_json_schema()["properties"]["language"][
         "examples"
     ]
-    assert set(offered) <= SARVAM_TTS_SUPPORTED
+    assert offered and set(offered) <= SARVAM_TTS_SUPPORTED

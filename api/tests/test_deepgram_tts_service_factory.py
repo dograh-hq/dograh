@@ -150,10 +150,87 @@ def test_deepgram_rejects_invalid_expressivity(expressivity):
 
 @pytest.mark.parametrize(
     "voice,model",
-    [("flux-maeve-en", "flux"), ("aura-2-helena-en", "aura-2")],
+    [
+        ("flux-maeve-en", "flux"),
+        ("aura-2-helena-en", "aura-2"),
+        ("aura-asteria-en", "aura-1"),
+        # Saved settings predate the model field and carry only the voice.
+        ("custom-voice", "aura-2"),
+    ],
 )
 def test_model_is_inferred_from_the_voice_prefix(voice, model):
     assert DeepgramTTSConfiguration(api_key="test-key", voice=voice).model == model
+
+
+@pytest.mark.parametrize(
+    "model,voice",
+    [
+        ("flux", "flux-heather-en"),
+        ("aura-1", "aura-asteria-en"),
+        ("aura-2", "aura-2-helena-en"),
+    ],
+)
+@pytest.mark.parametrize("cleared", [None, ""])
+def test_model_without_a_voice_takes_the_family_default(model, voice, cleared):
+    # The form clears the voice when the model changes; saving straight away
+    # must still produce a voice the chosen endpoint accepts.
+    kwargs = {} if cleared is None else {"voice": cleared}
+    config = DeepgramTTSConfiguration(api_key="test-key", model=model, **kwargs)
+
+    assert config.voice == voice
+
+
+def test_voice_from_another_family_is_rejected():
+    with pytest.raises(ValidationError, match="voice"):
+        DeepgramTTSConfiguration(
+            api_key="test-key", model="flux", voice="aura-2-helena-en"
+        )
+
+
+def test_unrecognised_custom_voice_keeps_the_chosen_model():
+    config = DeepgramTTSConfiguration(
+        api_key="test-key", model="flux", voice="my-cloned-voice"
+    )
+
+    assert config.model == "flux"
+    assert config.voice == "my-cloned-voice"
+
+
+@pytest.mark.parametrize(
+    "voice,supported",
+    [
+        ("aura-2-helena-en", True),
+        ("aura-2-estrella-es", True),
+        ("flux-maeve-en", True),
+        ("aura-2-leda-nl", False),
+        ("aura-asteria-en", False),
+    ],
+)
+def test_speed_is_only_accepted_where_the_provider_supports_it(voice, supported):
+    # Deepgram rejects the handshake outright for other voices, so a saved
+    # value would only ever fail at call time.
+    def build():
+        return DeepgramTTSConfiguration(api_key="test-key", voice=voice, speed=1.2)
+
+    if supported:
+        assert build().speed == 1.2
+    else:
+        with pytest.raises(ValidationError, match="speed"):
+            build()
+        assert DeepgramTTSConfiguration(api_key="test-key", voice=voice).speed is None
+
+
+def test_model_is_the_primary_field_and_gates_the_other_settings():
+    schema = DeepgramTTSConfiguration.model_json_schema()
+    fields = [f for f in schema["properties"] if f not in ("provider", "api_key")]
+
+    assert fields[0] == "model"
+    assert schema["properties"]["model"]["enum"] == ["aura-2", "aura-1", "flux"]
+    assert schema["properties"]["voice"]["reset_on_change"] == ["model"]
+    assert schema["properties"]["expressivity"]["visible_for_models"] == ["flux"]
+    assert schema["properties"]["speed"]["model_constraints"] == [
+        {"pattern": "^aura-1$", "supported": False}
+    ]
 
 
 def test_deepgram_expressivity_is_exposed_as_optional_choice_in_form_schema():

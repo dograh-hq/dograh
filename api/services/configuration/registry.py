@@ -34,6 +34,7 @@ from api.services.configuration.options import (
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
+    DEEPGRAM_TTS_DEFAULT_VOICES,
     ELEVENLABS_STT_LANGUAGES,
     ELEVENLABS_STT_MODELS,
     GLADIA_STT_LANGUAGES,
@@ -65,7 +66,7 @@ from api.services.configuration.options import (
     SONIOX_STT_LANGUAGES,
     SONIOX_STT_MODELS,
     SPEECHMATICS_STT_LANGUAGES,
-    is_deepgram_flux_voice,
+    deepgram_tts_model_for_voice,
 )
 from api.services.configuration.options.google import (
     GOOGLE_VERTEX_DEFAULT_LOCATION,
@@ -1266,13 +1267,25 @@ RealtimeConfig = Annotated[
 @register_tts(provider=DEEPGRAM_PROVIDER)
 class DeepgramTTSConfiguration(BaseServiceConfiguration):
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
+    model: Literal["aura-2", "aura-1", "flux"] = Field(
+        default="aura-2",
+        description=(
+            "Voice family. Aura-2 and Aura-1 voices are served from Deepgram's v1 "
+            "endpoint; Flux voices stream from the v2 endpoint and support "
+            "expressivity. Changing the model clears the voice."
+        ),
+        json_schema_extra={
+            "option_labels": {"aura-2": "Aura-2", "aura-1": "Aura-1", "flux": "Flux"}
+        },
+    )
     voice: str = Field(
         default="aura-2-helena-en",
-        description=(
-            "Deepgram voice ID. Aura voices (aura-2-...) and Flux voices "
-            "(flux-...) are both accepted; the model is inferred from the prefix."
-        ),
-        json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
+        description="Deepgram voice ID from the selected family.",
+        json_schema_extra={
+            "voice_catalog": "dropdown",
+            "allow_custom_input": True,
+            "reset_on_change": ["model"],
+        },
     )
     speed: float | None = Field(
         default=None,
@@ -1283,14 +1296,20 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
             "Deepgram's default. Supported by Flux voices and by Aura-2 English "
             "and Spanish voices; 0.9–1.5 is recommended for Spanish."
         ),
+        json_schema_extra={
+            "model_constraints": [{"pattern": "^aura-1$", "supported": False}]
+        },
     )
     expressivity: Literal[-2, -1, 0, 1, 2] | None = Field(
         default=None,
         description=(
             "Expressive range for Flux voices, from -2 (calm) to 2 (animated). "
-            "Leave blank to use Deepgram's default. Ignored by Aura voices."
+            "Leave blank to use Deepgram's default."
         ),
-        json_schema_extra={"option_labels": {"-2": "-2 (calm)", "2": "2 (animated)"}},
+        json_schema_extra={
+            "option_labels": {"-2": "-2 (calm)", "2": "2 (animated)"},
+            "visible_for_models": ["flux"],
+        },
     )
     base_url: str = Field(
         default=DEEPGRAM_DEFAULT_BASE_URL,
@@ -1306,16 +1325,47 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
         },
     )
 
-    @computed_field
-    @property
-    def model(self) -> str:
-        # Deepgram has no separate TTS model setting: the voice id carries the
-        # model family as its prefix.
-        if is_deepgram_flux_voice(self.voice):
-            return "flux"
-        if "aura-1" in self.voice:
-            return "aura-1"
-        return "aura-2"
+    @model_validator(mode="before")
+    @classmethod
+    def complete_model_or_voice(cls, data):
+        # Stored settings predate the model field and carry only the voice, and
+        # a model switch arrives without a voice; either half names the other.
+        if not isinstance(data, dict):
+            return data
+        model, voice = data.get("model"), data.get("voice")
+        if voice and not model:
+            return {**data, "model": deepgram_tts_model_for_voice(voice) or "aura-2"}
+        if not voice and (model or "aura-2") in DEEPGRAM_TTS_DEFAULT_VOICES:
+            model = model or "aura-2"
+            return {**data, "model": model, "voice": DEEPGRAM_TTS_DEFAULT_VOICES[model]}
+        return data
+
+    @field_validator("voice")
+    @classmethod
+    def voice_belongs_to_model(cls, voice, info):
+        family = deepgram_tts_model_for_voice(voice)
+        model = info.data.get("model")
+        if family is not None and model is not None and family != model:
+            raise ValueError(
+                f"{voice} is a {family} voice; pick a voice from the {model} "
+                "family or change the model"
+            )
+        return voice
+
+    @field_validator("speed")
+    @classmethod
+    def speed_supported_by_voice(cls, speed, info):
+        # Deepgram rejects the parameter outright for every other voice, so a
+        # saved value would only fail at call time.
+        model, voice = info.data.get("model"), info.data.get("voice") or ""
+        if speed is None or model == "flux":
+            return speed
+        if model == "aura-2" and voice.endswith(("-en", "-es")):
+            return speed
+        raise ValueError(
+            "Speed is only supported by Flux voices and by Aura-2 English and "
+            f"Spanish voices; leave it blank for {voice}"
+        )
 
 
 ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN = r"^eleven_v[34]"

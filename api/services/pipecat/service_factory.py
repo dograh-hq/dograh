@@ -20,7 +20,6 @@ from api.services.configuration.options import (
     DEEPGRAM_DEFAULT_BASE_URL,
     DEEPGRAM_FLUX_MODELS,
     GOOGLE_VERTEX_DEFAULT_LOCATION,
-    is_deepgram_flux_voice,
 )
 from api.services.configuration.registry import (
     ATLASCLOUD_API_BASE_URL,
@@ -743,7 +742,7 @@ def create_tts_service(
     if is_deepgram:
         voice = user_config.tts.voice
         speed = getattr(user_config.tts, "speed", None)
-        if is_deepgram_flux_voice(voice):
+        if getattr(user_config.tts, "model", None) == "flux":
             return DeepgramFluxTTSService(
                 api_key=user_config.tts.api_key,
                 # Flux takes a fully-qualified socket URL, not a host.

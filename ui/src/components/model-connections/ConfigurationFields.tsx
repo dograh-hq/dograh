@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-import { compatibleConnections, configurationForMode, configurationMode, dograhConfiguration, selectionForConnection } from "./configuration";
+import { compatibleConnections, configurationForMode, configurationMode, dograhConfiguration, resetDependentFields, selectionForConnection } from "./configuration";
 import { AddProviderDialog, type ProviderOption, ProviderSelect } from "./ProviderSelect";
 import { SchemaFields } from "./SchemaFields";
 import type { ConfigurationEditorMode, ConfigurationSpec, FieldSchema, ModelConnectionCatalog, ProviderConnection, ServiceRole, ServiceSelection } from "./types";
@@ -131,10 +131,10 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
     const changeSelection = (role: ServiceRole, selection: ServiceSelection | null) => {
         onChange({ ...configuration, [role]: selection });
     };
-    const changeSetting = (role: ServiceRole, field: string, value: unknown) => {
+    const changeSetting = (role: ServiceRole, field: string, value: unknown, schema?: FieldSchema) => {
         const selection = configuration[role];
         if (!selection) return;
-        const settings = { ...selection.settings, [field]: value };
+        const settings = resetDependentFields({ ...selection.settings, [field]: value }, schema, field);
         if (value === undefined) delete settings[field];
         onChange({ ...configuration, [role]: { ...selection, settings } });
     };
@@ -182,7 +182,7 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
             const schema = restrictSchema(catalog.services[role]?.dograh?.settings_schema, names.filter(name => !fields || fields.includes(name)));
             if (!hasFields(schema)) return null;
             return <SchemaFields key={role} className="contents" provider="dograh" role={role} schema={schema}
-                values={configuration[role]?.settings || {}} onChange={(name, value) => changeSetting(role, name, value)} />;
+                values={configuration[role]?.settings || {}} onChange={(name, value) => changeSetting(role, name, value, schema)} />;
         })}
         <div className="space-y-1.5">
             <Label htmlFor="dograh-provider-connection">Dograh account</Label>
@@ -216,7 +216,7 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
                         }} />
                 </div>
                 {schema && selection && <SchemaFields key={`${connection?.uuid}:${connection?.revision}`} className="contents" provider={connection?.provider} providerConnectionUuid={connection?.uuid} role={role} schema={schema}
-                    values={selection.settings} context={connection?.connection_settings} onChange={(name, value) => changeSetting(role, name, value)} />}
+                    values={selection.settings} context={connection?.connection_settings} onChange={(name, value) => changeSetting(role, name, value, schema)} />}
             </div>}
             {isEmbedding && <p className="text-xs text-muted-foreground">Use the embedding model that indexed this workflow’s knowledge base. Changing it does not reindex documents.</p>}
             {role === "llm" && llmActions && connection?.provider !== "dograh" && <div className="flex justify-end border-t pt-4">{llmActions}</div>}

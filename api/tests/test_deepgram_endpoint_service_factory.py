@@ -15,6 +15,7 @@ import pytest
 from api.services.configuration.options import (
     DEEPGRAM_BASE_URLS,
     DEEPGRAM_DEFAULT_BASE_URL,
+    deepgram_tts_model_for_voice,
 )
 from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
@@ -55,7 +56,7 @@ def _tts_config(
     tts = SimpleNamespace(
         provider=ServiceProviders.DEEPGRAM.value,
         api_key="test-key",
-        model="aura-2",
+        model=deepgram_tts_model_for_voice(voice),
         voice=voice,
     )
     if base_url is not None:
@@ -171,7 +172,7 @@ def test_endpoint_is_offered_in_the_configuration_schema(config_cls):
 
 @pytest.mark.parametrize(
     "config_cls,primary",
-    [(DeepgramSTTConfiguration, "model"), (DeepgramTTSConfiguration, "voice")],
+    [(DeepgramSTTConfiguration, "model"), (DeepgramTTSConfiguration, "model")],
 )
 def test_endpoint_does_not_displace_the_primary_field(config_cls, primary):
     # The form promotes the first non-secret property into the slot beside the

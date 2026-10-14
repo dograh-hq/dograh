@@ -40,6 +40,8 @@ from api.schemas.telephony_phone_number import (
     PhoneNumberCreateRequest,
     PhoneNumberListResponse,
     PhoneNumberResponse,
+    PhoneNumberSyncResponse,
+    PhoneNumberSyncSkipped,
     PhoneNumberUpdateRequest,
     ProviderSyncStatus,
 )
@@ -75,6 +77,10 @@ from api.services.telephony.inbound_routing import (
     InboundRoutingConflictError,
     assert_no_inbound_routing_conflict,
     canonical_address,
+)
+from api.services.telephony.phone_number_sync import (
+    PhoneNumberSyncUnsupportedError,
+    sync_phone_numbers_from_provider,
 )
 from api.services.telephony.registry import ProviderConnectivity, TrunkDesiredState
 from api.services.worker_sync.manager import get_worker_sync_manager
@@ -897,6 +903,7 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
             _trunk_to_response(trunk, numbers_per_trunk.get(trunk.id, 0))
             for trunk in trunks
         ],
+        supports_phone_number_sync=_provider_supports_phone_number_sync(row.provider),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -916,6 +923,11 @@ def _provider_supports_outbound(provider: str) -> bool:
     """Unknown providers count as outbound-capable so a stale row keeps its UI."""
     spec = telephony_registry.get_optional(provider)
     return spec.supports_outbound if spec else True
+
+
+def _provider_supports_phone_number_sync(provider: str) -> bool:
+    spec = telephony_registry.get_optional(provider)
+    return bool(spec and spec.supports_phone_number_sync)
 
 
 async def _list_trunks_if_supported(provider: str, config_id: int):
@@ -1180,6 +1192,63 @@ async def list_phone_numbers(config_id: int, user: UserModel = Depends(get_user)
     rows = await db_client.list_phone_numbers_with_workflow_name_for_config(config_id)
     return PhoneNumberListResponse(
         phone_numbers=[_phone_number_to_response(r, name) for r, name in rows]
+    )
+
+
+@router.post(
+    "/telephony-configs/{config_id}/phone-numbers/sync",
+    response_model=PhoneNumberSyncResponse,
+)
+async def sync_phone_numbers(config_id: int, user: UserModel = Depends(get_user)):
+    """Import the provider account's numbers onto this configuration.
+
+    Adds rows for numbers the account holds and refreshes the ones already
+    here. Nothing is removed: numbers the provider no longer lists come back
+    as ``missing_at_provider`` for the operator to act on.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    cfg = await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
+
+    provider = None
+    try:
+        provider = await get_telephony_provider_by_id(
+            config_id, user.selected_organization_id
+        )
+        outcome = await sync_phone_numbers_from_provider(
+            configuration=cfg,
+            organization_id=user.selected_organization_id,
+            provider=provider,
+        )
+    except PhoneNumberSyncUnsupportedError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ProviderPhoneNumberLookupError as e:
+        # The listing runs against the org's own provider account, so whatever
+        # failed — their credentials or their provider — routes to the user.
+        log_failure(
+            classify_exception(
+                e.__cause__ or e,
+                source=ErrorSource.TELEPHONY,
+                provider=getattr(provider, "PROVIDER_NAME", None),
+                error_owner="user",
+            ),
+            organization_id=user.selected_organization_id,
+            telephony_configuration_id=config_id,
+        )
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    return PhoneNumberSyncResponse(
+        created=[_phone_number_to_response(r) for r in outcome.created],
+        updated=[_phone_number_to_response(r) for r in outcome.updated],
+        skipped=[
+            PhoneNumberSyncSkipped(address=s.address, reason=s.reason)
+            for s in outcome.skipped
+        ],
+        missing_at_provider=[
+            _phone_number_to_response(r) for r in outcome.missing_at_provider
+        ],
     )
 
 

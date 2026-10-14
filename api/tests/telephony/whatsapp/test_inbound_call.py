@@ -47,6 +47,7 @@ def _build_webhook_payload(
     calls: List[Dict[str, Any]],
     phone_number_id: str = "106540352242922",
     display_phone_number: str = "+15551234567",
+    waba_id: str = "waba_123",
 ) -> Dict[str, Any]:
     value: Dict[str, Any] = {
         "messaging_product": "whatsapp",
@@ -60,7 +61,7 @@ def _build_webhook_payload(
         value["contacts"] = [{"profile": {"name": "Caller"}, "wa_id": "15559876543"}]
     return {
         "object": "whatsapp_business_account",
-        "entry": [{"id": "waba_123", "changes": [{"field": "calls", "value": value}]}],
+        "entry": [{"id": waba_id, "changes": [{"field": "calls", "value": value}]}],
     }
 
 
@@ -90,17 +91,17 @@ def _build_request(
 
 
 def _build_mock_config(
-    phone_number_id: str = "106540352242922",
     app_secret: Optional[str] = "test_app_secret",
     access_token: str = "valid_token",
     org_id: int = 10,
     config_id: int = 1,
+    waba_id: str = "waba_123",
 ) -> MagicMock:
     config = MagicMock()
     config.id = config_id
     config.organization_id = org_id
     config.credentials = {
-        "phone_number_id": phone_number_id,
+        "waba_id": waba_id,
         "access_token": access_token,
         "app_secret": app_secret,
     }
@@ -124,14 +125,14 @@ def _build_mock_phone(
 def _config_lookup(config: Optional[MagicMock]):
     return patch.object(
         db_client,
-        "get_whatsapp_configuration_by_phone_number_id",
+        "get_whatsapp_configuration_by_waba_id",
         AsyncMock(return_value=config),
     )
 
 
 class TestWhatsAppConfigurationLookup(IsolatedAsyncioTestCase):
-    async def test_ambiguous_phone_number_id_routes_nowhere(self):
-        """Two active configurations on one Meta number: refuse rather than guess the tenant."""
+    async def test_ambiguous_business_account_routes_nowhere(self):
+        """Two active configurations on one account: refuse rather than guess the tenant."""
         result = MagicMock()
         result.scalars.return_value.all.return_value = [
             MagicMock(id=10),
@@ -143,9 +144,7 @@ class TestWhatsAppConfigurationLookup(IsolatedAsyncioTestCase):
         session_ctx.__aenter__.return_value = session
 
         with patch.object(db_client, "async_session", return_value=session_ctx):
-            config = await db_client.get_whatsapp_configuration_by_phone_number_id(
-                "12345"
-            )
+            config = await db_client.get_whatsapp_configuration_by_waba_id("12345")
 
         self.assertIsNone(config)
 
@@ -168,9 +167,7 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
             [_call("connect", call_id)], phone_number_id=phone_number_id
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(
-            phone_number_id=phone_number_id, app_secret=app_secret
-        )
+        mock_config = _build_mock_config(app_secret=app_secret)
 
         mock_workflow = MagicMock(id=99, user_id=5, organization_id=10)
         mock_workflow_run = MagicMock(id=101)
@@ -243,9 +240,7 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
             display_phone_number="+15559999999",
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(
-            phone_number_id=phone_number_id, app_secret=app_secret
-        )
+        mock_config = _build_mock_config(app_secret=app_secret)
 
         with (
             _config_lookup(mock_config),
@@ -274,9 +269,7 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
             [_call("connect", call_id)], phone_number_id=phone_number_id
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(
-            phone_number_id=phone_number_id, app_secret=app_secret
-        )
+        mock_config = _build_mock_config(app_secret=app_secret)
 
         with (
             _config_lookup(mock_config),
@@ -304,11 +297,7 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
         mock_redis.set = AsyncMock(return_value=None)  # NX: another worker holds it
 
         with (
-            _config_lookup(
-                _build_mock_config(
-                    phone_number_id=phone_number_id, app_secret=app_secret
-                )
-            ),
+            _config_lookup(_build_mock_config(app_secret=app_secret)),
             patch(f"{ROUTES}._get_redis", AsyncMock(return_value=mock_redis)),
             patch.object(
                 db_client, "get_workflow_run_by_call_id", AsyncMock()
@@ -340,11 +329,7 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
         mock_redis.set = AsyncMock(return_value=True)
 
         with (
-            _config_lookup(
-                _build_mock_config(
-                    phone_number_id=phone_number_id, app_secret=app_secret
-                )
-            ),
+            _config_lookup(_build_mock_config(app_secret=app_secret)),
             patch(f"{ROUTES}._get_redis", AsyncMock(return_value=mock_redis)),
             patch.object(
                 db_client,
@@ -373,9 +358,7 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
             phone_number_id=phone_number_id,
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(
-            phone_number_id=phone_number_id, app_secret=app_secret
-        )
+        mock_config = _build_mock_config(app_secret=app_secret)
         mock_workflow = MagicMock(id=99, user_id=5, organization_id=10)
 
         handed_over: List[List[str]] = []
@@ -444,9 +427,7 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
             [_call("connect", call_id)], phone_number_id=phone_number_id
         )
         request = _build_request(payload, app_secret=app_secret)
-        mock_config = _build_mock_config(
-            phone_number_id=phone_number_id, app_secret=app_secret
-        )
+        mock_config = _build_mock_config(app_secret=app_secret)
 
         with (
             _config_lookup(mock_config),
@@ -513,15 +494,27 @@ class TestWhatsAppInboundConnect(IsolatedAsyncioTestCase):
             "Webhook signature verification failed: app_secret not configured",
         )
 
-    async def test_unknown_phone_number_id_is_not_served(self):
+    async def test_unknown_business_account_is_not_served(self):
         payload = _build_webhook_payload([_call("connect", "c1")])
         request = _build_request(payload, app_secret="secret123")
 
-        with _config_lookup(None):
+        with _config_lookup(None) as lookup:
             with self.assertRaises(HTTPException) as ctx:
                 await handle_whatsapp_webhook(request)
 
         self.assertEqual(ctx.exception.status_code, 404)
+        lookup.assert_awaited_once_with("waba_123")
+
+    async def test_entry_without_a_business_account_is_rejected(self):
+        payload = _build_webhook_payload([_call("connect", "c1")], waba_id="")
+        request = _build_request(payload, app_secret="secret123")
+
+        with _config_lookup(_build_mock_config()) as lookup:
+            with self.assertRaises(HTTPException) as ctx:
+                await handle_whatsapp_webhook(request)
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        lookup.assert_not_awaited()
 
 
 class TestWhatsAppClientCache(IsolatedAsyncioTestCase):
@@ -566,11 +559,7 @@ class TestWhatsAppTerminate(IsolatedAsyncioTestCase):
         request = _build_request(payload, app_secret=app_secret)
 
         with (
-            _config_lookup(
-                _build_mock_config(
-                    phone_number_id=phone_number_id, app_secret=app_secret
-                )
-            ),
+            _config_lookup(_build_mock_config(app_secret=app_secret)),
             patch.object(db_client, "update_workflow_run", AsyncMock()) as mock_update,
             patch(f"{ROUTES}._get_redis", AsyncMock(return_value=None)),
         ):
@@ -598,11 +587,7 @@ class TestWhatsAppTerminate(IsolatedAsyncioTestCase):
         mock_redis = AsyncMock()
 
         with (
-            _config_lookup(
-                _build_mock_config(
-                    phone_number_id=phone_number_id, app_secret=app_secret
-                )
-            ),
+            _config_lookup(_build_mock_config(app_secret=app_secret)),
             patch(f"{ROUTES}._get_redis", AsyncMock(return_value=mock_redis)),
             patch.object(db_client, "update_workflow_run", AsyncMock()) as mock_update,
         ):
@@ -654,11 +639,7 @@ class TestWhatsAppTerminate(IsolatedAsyncioTestCase):
         request = _build_request(payload, app_secret=app_secret)
 
         with (
-            _config_lookup(
-                _build_mock_config(
-                    phone_number_id=phone_number_id, app_secret=app_secret
-                )
-            ),
+            _config_lookup(_build_mock_config(app_secret=app_secret)),
             patch(f"{ROUTES}._get_redis", AsyncMock(return_value=None)),
         ):
             await handle_whatsapp_webhook(request)
@@ -681,7 +662,7 @@ class TestWhatsAppTerminate(IsolatedAsyncioTestCase):
         )
         request = _build_request(payload)
 
-        with _config_lookup(_build_mock_config(phone_number_id=phone_number_id)):
+        with _config_lookup(_build_mock_config()):
             with self.assertRaises(HTTPException) as ctx:
                 await handle_whatsapp_webhook(request)
 
@@ -699,7 +680,7 @@ class TestWhatsAppTerminate(IsolatedAsyncioTestCase):
         )
         request = _build_request(payload, signature="sha256=forged_signature_digest")
 
-        with _config_lookup(_build_mock_config(phone_number_id=phone_number_id)):
+        with _config_lookup(_build_mock_config()):
             with self.assertRaises(HTTPException) as ctx:
                 await handle_whatsapp_webhook(request)
 

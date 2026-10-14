@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Pencil,
   Plus,
+  RefreshCw,
   RotateCcw,
   Star,
   Trash2,
@@ -23,6 +24,7 @@ import {
   reactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePost,
   setDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPost,
   setDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPost,
+  syncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPost,
 } from "@/client/sdk.gen";
 import type {
   PhoneNumberResponse,
@@ -102,6 +104,7 @@ export default function TelephonyConfigurationDetailPage() {
   const providerWebhookUrl = `${webhookBaseUrl}/api/v1/telephony/${config?.provider}/webhook`;
   const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumberResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncingNumbers, setSyncingNumbers] = useState(false);
   const [editConfigOpen, setEditConfigOpen] = useState(false);
 
   const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
@@ -207,6 +210,49 @@ export default function TelephonyConfigurationDetailPage() {
       fetchAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to set default caller");
+    }
+  };
+
+  // Import the provider account's numbers. Nothing is removed on our side:
+  // numbers the provider no longer lists are reported so the operator decides.
+  const onSyncPhoneNumbers = async () => {
+    if (!config) return;
+    setSyncingNumbers(true);
+    try {
+      const token = await getAccessToken();
+      const res = await syncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPost(
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          path: { config_id: config.id },
+        },
+      );
+      if (res.error) throw new Error(detailFromError(res.error));
+      const outcome = res.data;
+      const created = outcome?.created.length ?? 0;
+      const updated = outcome?.updated.length ?? 0;
+      const skipped = outcome?.skipped ?? [];
+      const missing = outcome?.missing_at_provider ?? [];
+      const parts = [
+        `${created} added`,
+        `${updated} refreshed`,
+        ...(skipped.length > 0 ? [`${skipped.length} skipped`] : []),
+      ];
+      toast.success(`Numbers refreshed: ${parts.join(", ")}`);
+      for (const s of skipped) {
+        toast.warning(`${s.address} skipped: ${s.reason}`);
+      }
+      if (missing.length > 0) {
+        toast.warning(
+          `${missing.length} number${missing.length === 1 ? " is" : "s are"} no longer listed by the provider: ${missing
+            .map((n) => n.address)
+            .join(", ")}`,
+        );
+      }
+      fetchAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to refresh numbers");
+    } finally {
+      setSyncingNumbers(false);
     }
   };
 
@@ -470,14 +516,33 @@ export default function TelephonyConfigurationDetailPage() {
               </a>
             </CardDescription>
           </div>
-          <Button size="sm" onClick={() => openPhoneDialog(null)}>
-            <Plus className="h-4 w-4 mr-2" /> Add phone number
-          </Button>
+          <div className="flex shrink-0 gap-2">
+            {config.supports_phone_number_sync && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onSyncPhoneNumbers}
+                disabled={syncingNumbers}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 mr-2 ${syncingNumbers ? "animate-spin" : ""}`}
+                />
+                Refresh numbers
+              </Button>
+            )}
+            <Button size="sm" onClick={() => openPhoneDialog(null)}>
+              <Plus className="h-4 w-4 mr-2" /> Add phone number
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {phoneNumbers.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No phone numbers yet. Add one to start{" "}
+              No phone numbers yet.{" "}
+              {config.supports_phone_number_sync
+                ? "Click Refresh numbers to import the numbers on your account, or add one"
+                : "Add one"}{" "}
+              to start{" "}
               {config.supports_outbound === false
                 ? "receiving"
                 : "placing or receiving"}{" "}

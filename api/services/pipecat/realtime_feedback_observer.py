@@ -28,8 +28,10 @@ from loguru import logger
 from api.errors.failure import (
     classify_exception,
     classify_message,
+    describe_exception,
     failure_metadata_for_processor,
     log_failure,
+    response_body_detail,
 )
 from api.services.observability.call_events.metrics import ttfb_kind
 from api.services.pipecat.agent_bridge import AgentWorker
@@ -298,10 +300,16 @@ class RealtimeFeedbackObserver(BaseObserver):
                 fatal=fatal,
             )
 
+            error_text = frame.error
             if exc is not None:
                 exc_type = type(exc).__name__
                 extra_payload["exception_type"] = exc_type
-                extra_payload["exception_message"] = str(exc)
+                extra_payload["exception_message"] = describe_exception(exc)
+                # A rejected handshake stringifies to just the status code; the
+                # server's reason is what makes the error actionable.
+                detail = response_body_detail(exc)
+                if detail and detail not in error_text:
+                    error_text = f"{error_text} ({detail})"
                 for attr in ("code", "status", "message", "details"):
                     value = getattr(exc, attr, None)
                     if value is None or attr in extra_payload:
@@ -315,7 +323,7 @@ class RealtimeFeedbackObserver(BaseObserver):
                         extra_payload[attr] = str(value)
             await self._send_message(
                 build_pipeline_error_event(
-                    error=frame.error,
+                    error=error_text,
                     fatal=fatal,
                     processor=processor_name,
                     extra_payload=extra_payload or None,

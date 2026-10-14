@@ -61,7 +61,6 @@ SARVAM_LANGUAGES = (
     "pa-IN",
     "ta-IN",
     "te-IN",
-    "as-IN",
 )
 SARVAM_STT_MODELS = ("saarika:v2.5", "saaras:v3")
 # saarika:v2.5 language codes (unknown = auto-detect)

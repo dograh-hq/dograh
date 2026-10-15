@@ -248,7 +248,7 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
         reserved_param_names = {"template_id", "template_name", "recipient_phone_number", "parameters"}
 
         for p_name, p_desc in all_llm_vars.items():
-            final_name = f"var_{p_name}" if p_name in reserved_param_names else p_name
+            final_name = f"param_{p_name}" if p_name in reserved_param_names else p_name
             properties[final_name] = {
                 "type": "string",
                 "description": p_desc,
@@ -258,7 +258,7 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
 
         # Context fallback vars are exposed as optional parameters (never required)
         for p_name, p_desc in all_context_fallback_vars.items():
-            final_name = f"var_{p_name}" if p_name in reserved_param_names else p_name
+            final_name = f"param_{p_name}" if p_name in reserved_param_names else p_name
             if final_name not in properties:
                 properties[final_name] = {
                     "type": "string",

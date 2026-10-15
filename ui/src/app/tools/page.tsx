@@ -115,7 +115,7 @@ export default function ToolsPage() {
                     },
                 });
                 if (teleRes.error || !teleRes.data) {
-                    setHasWhatsAppTelephony(false);
+                    setHasWhatsAppTelephony(null);
                 } else {
                     const configs = teleRes.data.configurations || [];
                     const hasActiveWa = configs.some(

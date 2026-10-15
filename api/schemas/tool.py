@@ -774,6 +774,15 @@ class WhatsAppTemplateConfig(BaseModel):
             raise ValueError(
                 "Variable mapping indexes must be contiguous and 1-indexed (1, 2, ...)."
             )
+        names = [m.name.strip() for m in mappings if m.name and m.name.strip()]
+        if len(names) != len(set(names)):
+            raise ValueError("Duplicate variable mapping names are not allowed within a template.")
+        reserved_names = {"template_id", "template_name", "recipient_phone_number", "parameters"}
+        for m in mappings:
+            if m.name and m.name.strip().lower() in reserved_names:
+                raise ValueError(
+                    f"Variable mapping name '{m.name}' is reserved by the tool. Please choose a different parameter name."
+                )
         return mappings
 
 

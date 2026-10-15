@@ -1281,30 +1281,27 @@ async def list_whatsapp_templates_for_config(
         phone_numbers: list[WhatsAppPhoneNumberItem] = []
         try:
             raw_numbers = await provider.list_provider_phone_numbers()
-            phone_numbers = [
-                WhatsAppPhoneNumberItem(
-                    phone_number_id=p.metadata.get("phone_number_id") or p.external_id or p.address,
-                    display_phone_number=p.address,
-                    verified_name=p.metadata.get("verified_name") or p.label,
+            for p in raw_numbers:
+                p_meta = p.metadata if isinstance(p.metadata, dict) else {}
+                phone_numbers.append(
+                    WhatsAppPhoneNumberItem(
+                        phone_number_id=p_meta.get("phone_number_id") or p.external_id or p.address,
+                        display_phone_number=p.address,
+                        verified_name=p_meta.get("verified_name") or p.label,
+                    )
                 )
-                for p in raw_numbers
-            ]
         except Exception:
             db_numbers = await db_client.list_phone_numbers_for_config(config_id)
-            phone_numbers = [
-                WhatsAppPhoneNumberItem(
-                    phone_number_id=(
-                        ((n.extra_metadata or {}).get("provider") or {}).get("phone_number_id")
-                        or n.address
-                    ),
-                    display_phone_number=n.address,
-                    verified_name=(
-                        ((n.extra_metadata or {}).get("provider") or {}).get("verified_name")
-                        or n.label
-                    ),
+            for n in db_numbers:
+                extra = n.extra_metadata if isinstance(n.extra_metadata, dict) else {}
+                prov_meta = extra.get("provider") if isinstance(extra.get("provider"), dict) else {}
+                phone_numbers.append(
+                    WhatsAppPhoneNumberItem(
+                        phone_number_id=prov_meta.get("phone_number_id") or n.address,
+                        display_phone_number=n.address,
+                        verified_name=prov_meta.get("verified_name") or n.label,
+                    )
                 )
-                for n in db_numbers
-            ]
 
         return WhatsAppTemplatesResponse(
             templates=templates,
@@ -1324,8 +1321,13 @@ async def list_whatsapp_templates_for_config(
             telephony_configuration_id=config_id,
         )
         safe_detail = "Failed to fetch WhatsApp templates"
+        status_code = getattr(e, "status_code", None)
         err_str = str(e)
-        if "Authentication" in err_str or "unauthorized" in err_str.lower():
+        if (
+            status_code in (401, 402, 403)
+            or "Authentication" in err_str
+            or "unauthorized" in err_str.lower()
+        ):
             safe_detail = "Failed to fetch WhatsApp templates: Authentication failed with Meta Graph API"
         raise HTTPException(
             status_code=502, detail=safe_detail

@@ -11,7 +11,7 @@ vi.mock("@/client/sdk.gen", () => ({
     listWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGet: vi.fn(),
 }));
 
-const mockGetAccessToken = vi.fn().mockResolvedValue("test-token");
+const mockGetAccessToken = vi.hoisted(() => vi.fn().mockResolvedValue("test-token"));
 vi.mock("@/lib/auth", () => ({
     useAuth: () => ({
         getAccessToken: mockGetAccessToken,
@@ -224,4 +224,26 @@ describe("WhatsAppToolConfig", () => {
         expect(fallbackInput).toBeTruthy();
         expect(fallbackInput.value).toBe("+15559876543");
     });
+
+    it("calls onTelephonyConfigIdChange when config_id is returned and none is set", async () => {
+        const onConfigChange = vi.fn();
+        render(
+            <WhatsAppToolConfig
+                name="Tool"
+                onNameChange={vi.fn()}
+                description=""
+                onDescriptionChange={vi.fn()}
+                executionMode="async"
+                onExecutionModeChange={vi.fn()}
+                templates={[]}
+                onTemplatesChange={vi.fn()}
+                onTelephonyConfigIdChange={onConfigChange}
+            />
+        );
+
+        await waitFor(() => {
+            expect(onConfigChange).toHaveBeenCalledWith(1);
+        });
+    });
 });
+

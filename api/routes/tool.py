@@ -376,7 +376,7 @@ async def update_tool(
         validate_status(request.status)
         if request.status == ToolStatus.ACTIVE.value:
             existing = await db_client.get_tool_by_uuid(
-                tool_uuid, user.selected_organization_id
+                tool_uuid, user.selected_organization_id, include_archived=True
             )
             if existing and existing.category == ToolCategory.WHATSAPP.value:
                 active_wa_tools = await db_client.get_tools_for_organization(

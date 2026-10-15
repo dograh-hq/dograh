@@ -58,6 +58,7 @@ export interface WhatsAppToolConfigProps {
     templates: WhatsAppTemplateConfig[];
     onTemplatesChange: (templates: WhatsAppTemplateConfig[]) => void;
     telephonyConfigId?: number | null;
+    onTelephonyConfigIdChange?: (id: number | null) => void;
 }
 
 export function WhatsAppToolConfig({
@@ -72,6 +73,7 @@ export function WhatsAppToolConfig({
     templates,
     onTemplatesChange,
     telephonyConfigId,
+    onTelephonyConfigIdChange,
 }: WhatsAppToolConfigProps) {
     const { getAccessToken, user, loading } = useAuth();
     const [availableTemplates, setAvailableTemplates] = useState<WhatsAppTemplateItem[]>([]);
@@ -99,6 +101,9 @@ export function WhatsAppToolConfig({
                 },
             });
             if (res.data) {
+                if (res.data.config_id && !telephonyConfigId) {
+                    onTelephonyConfigIdChange?.(res.data.config_id);
+                }
                 if (res.data.templates) {
                     setAvailableTemplates(res.data.templates);
                 }

@@ -47,6 +47,9 @@ async def execute_whatsapp_tool(
     config = definition.get("config", {})
 
     initial_context = dict(call_context_vars or {})
+    call_direction = str(
+        initial_context.get("direction") or initial_context.get("call_direction") or ""
+    ).lower()
     gathered_context = dict(gathered_context_vars or {})
     render_context: dict[str, Any] = {
         **initial_context,
@@ -116,8 +119,7 @@ async def execute_whatsapp_tool(
     )
 
     if not raw_recipient:
-        direction = str(initial_context.get("direction", "")).lower()
-        if direction == "outbound":
+        if call_direction == "outbound":
             # Outbound call: the lead is called_number
             raw_recipient = (
                 initial_context.get("called_number")
@@ -172,7 +174,14 @@ async def execute_whatsapp_tool(
                 elif fallback_val is not None and str(fallback_val).strip():
                     param_list.append(str(fallback_val).strip())
                 else:
-                    llm_arg_val = arguments.get(param_name) or arguments.get(f"var_{param_name}", "")
+                    if param_name in ("template_id", "template_name", "recipient_phone_number", "parameters"):
+                        llm_arg_val = arguments.get(f"param_{param_name}") or arguments.get(f"var_{param_name}", "")
+                    else:
+                        llm_arg_val = (
+                            arguments.get(param_name)
+                            or arguments.get(f"param_{param_name}")
+                            or arguments.get(f"var_{param_name}", "")
+                        )
                     if str(llm_arg_val or "").strip():
                         param_list.append(str(llm_arg_val).strip())
                     else:
@@ -193,13 +202,22 @@ async def execute_whatsapp_tool(
                     logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
                     return {"status": "error", "error": err_msg}
             elif source == "lead_phone":
-                caller_phone = _clean_phone_number(
-                    initial_context.get("caller_number")
-                    or initial_context.get("from_number")
-                    or initial_context.get("phone_number")
-                )
-                if caller_phone:
-                    param_list.append(caller_phone)
+                target_lead_phone = None
+                if call_direction == "outbound":
+                    target_lead_phone = _clean_phone_number(
+                        initial_context.get("called_number")
+                        or initial_context.get("to")
+                        or initial_context.get("to_number")
+                        or initial_context.get("customer_phone_number")
+                    )
+                else:
+                    target_lead_phone = _clean_phone_number(
+                        initial_context.get("caller_number")
+                        or initial_context.get("from_number")
+                        or initial_context.get("phone_number")
+                    )
+                if target_lead_phone:
+                    param_list.append(target_lead_phone)
                 elif fallback_val is not None and str(fallback_val).strip():
                     param_list.append(str(fallback_val).strip())
                 elif clean_recipient:
@@ -209,7 +227,14 @@ async def execute_whatsapp_tool(
                     logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
                     return {"status": "error", "error": err_msg}
             else:  # "llm"
-                llm_arg_val = arguments.get(param_name) or arguments.get(f"var_{param_name}", "")
+                if param_name in ("template_id", "template_name", "recipient_phone_number", "parameters"):
+                    llm_arg_val = arguments.get(f"param_{param_name}") or arguments.get(f"var_{param_name}", "")
+                else:
+                    llm_arg_val = (
+                        arguments.get(param_name)
+                        or arguments.get(f"param_{param_name}")
+                        or arguments.get(f"var_{param_name}", "")
+                    )
                 if str(llm_arg_val or "").strip():
                     param_list.append(str(llm_arg_val).strip())
                 elif fallback_val is not None and str(fallback_val).strip():

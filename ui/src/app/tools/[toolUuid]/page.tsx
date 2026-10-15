@@ -1243,6 +1243,7 @@ const data = await response.json();`;
                         templates={whatsAppTemplates}
                         onTemplatesChange={setWhatsAppTemplates}
                         telephonyConfigId={whatsAppTelephonyConfigId}
+                        onTelephonyConfigIdChange={setWhatsAppTelephonyConfigId}
                     />
                 ) : (
                     <HttpApiToolConfig

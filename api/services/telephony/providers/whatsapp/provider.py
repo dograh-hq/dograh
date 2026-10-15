@@ -349,7 +349,7 @@ class WhatsAppProvider(TelephonyProvider):
                         break
                 elif c_type == "BUTTONS":
                     for btn in comp.get("buttons", []):
-                        if "{{" in btn.get("url", ""):
+                        if btn.get("type") == "OTP" or "{{" in btn.get("url", ""):
                             has_unsupported_params = True
                             break
             if has_unsupported_params:

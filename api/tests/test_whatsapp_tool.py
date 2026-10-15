@@ -520,8 +520,12 @@ async def test_delete_telephony_configuration_blocks_when_active_whatsapp_tool_e
     mock_campaign_result = MagicMock()
     mock_campaign_result.first = MagicMock(return_value=None)
 
+    mock_active_tool = MagicMock()
+    mock_active_tool.name = "Send WhatsApp Message"
+    mock_active_tool.definition = {"config": {"telephony_configuration_id": 55}}
+
     mock_tool_result = MagicMock()
-    mock_tool_result.scalar_one_or_none = MagicMock(return_value="Send WhatsApp Message")
+    mock_tool_result.scalars.return_value.all.return_value = [mock_active_tool]
 
     mock_session.execute = AsyncMock(side_effect=[mock_campaign_result, mock_tool_result])
 
@@ -532,9 +536,24 @@ async def test_delete_telephony_configuration_blocks_when_active_whatsapp_tool_e
         assert "Telephony configuration is in use by active tool 'Send WhatsApp Message'" in str(exc_info.value)
         assert "Please archive or delete the tool first" in str(exc_info.value)
 
-    # 2. When no active WhatsApp tool exists, deletion proceeds
+    # 2. When active WhatsApp tool has no pinned telephony_configuration_id (None), deletion must also be blocked
+    mock_unpinned_tool = MagicMock()
+    mock_unpinned_tool.name = "Unpinned WhatsApp Tool"
+    mock_unpinned_tool.definition = {"config": {}}
+
+    mock_unpinned_result = MagicMock()
+    mock_unpinned_result.scalars.return_value.all.return_value = [mock_unpinned_tool]
+    mock_session.execute = AsyncMock(side_effect=[mock_campaign_result, mock_unpinned_result])
+
+    with patch.object(client, "async_session", return_value=mock_session):
+        mock_session.__aenter__.return_value = mock_session
+        with pytest.raises(TelephonyConfigurationInUseError) as exc_info:
+            await client.delete_telephony_configuration(55, 10)
+        assert "Telephony configuration is in use by active tool 'Unpinned WhatsApp Tool'" in str(exc_info.value)
+
+    # 3. When no active WhatsApp tool exists, deletion proceeds
     mock_tool_result_empty = MagicMock()
-    mock_tool_result_empty.scalar_one_or_none = MagicMock(return_value=None)
+    mock_tool_result_empty.scalars.return_value.all.return_value = []
 
     mock_session.execute = AsyncMock(side_effect=[mock_campaign_result, mock_tool_result_empty])
     mock_session.delete = AsyncMock()
@@ -798,5 +817,123 @@ def test_whatsapp_tool_schema_omits_context_vars_with_configured_fallback():
     assert "customer_name" not in parameters
     # booking_date is LLM sourced, so it must be present
     assert "booking_date" in parameters
+
+
+@pytest.mark.asyncio
+async def test_execute_whatsapp_tool_lead_phone_respects_call_direction():
+    from api.services.workflow.tools.whatsapp_tool import execute_whatsapp_tool
+
+    config = {
+        "execution_mode": "sync",
+        "telephony_configuration_id": 42,
+        "templates": [
+            {
+                "id": "tpl1",
+                "name": "Notice",
+                "template_name": "lead_notice",
+                "language_code": "en_US",
+                "variable_mappings": [
+                    {
+                        "index": 1,
+                        "name": "customer_phone",
+                        "source": "lead_phone",
+                    }
+                ],
+            }
+        ],
+    }
+    tool = MockTool("WhatsApp Tool", config)
+    mock_provider = AsyncMock()
+    mock_provider.send_template_message = AsyncMock(return_value={"id": "msg_123"})
+
+    # 1. Outbound call: lead_phone must be called_number, NOT caller_number (which is the business)
+    context_outbound = {
+        "call_direction": "outbound",
+        "caller_number": "+15550001111",  # Business caller ID
+        "called_number": "+15559992222",  # Customer/lead
+    }
+    with patch(
+        "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
+        AsyncMock(return_value=mock_provider),
+    ):
+        res = await execute_whatsapp_tool(
+            tool=tool,
+            arguments={},
+            call_context_vars=context_outbound,
+            organization_id=10,
+        )
+        assert res["status"] == "delivered"
+        mock_provider.send_template_message.assert_awaited_with(
+            to_number="15559992222",
+            template_name="lead_notice",
+            language_code="en_US",
+            parameters=["15559992222"],
+            from_phone_number_id=None,
+        )
+
+    # 2. Inbound call: lead_phone must be caller_number
+    context_inbound = {
+        "call_direction": "inbound",
+        "caller_number": "+15553334444",  # Customer
+        "called_number": "+15550001111",  # Business DID
+    }
+    with patch(
+        "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
+        AsyncMock(return_value=mock_provider),
+    ):
+        res = await execute_whatsapp_tool(
+            tool=tool,
+            arguments={},
+            call_context_vars=context_inbound,
+            organization_id=10,
+        )
+        assert res["status"] == "delivered"
+        mock_provider.send_template_message.assert_awaited_with(
+            to_number="15553334444",
+            template_name="lead_notice",
+            language_code="en_US",
+            parameters=["15553334444"],
+            from_phone_number_id=None,
+        )
+
+
+def test_whatsapp_variable_mappings_reject_duplicate_names():
+    from pydantic import ValidationError
+    from api.schemas.tool import WhatsAppTemplateConfig
+
+    with pytest.raises(ValidationError) as exc_info:
+        WhatsAppTemplateConfig(
+            id="1",
+            name="Template 1",
+            template_name="tpl_1",
+            language_code="en_US",
+            variable_mappings=[
+                {"index": 1, "name": "order_id", "source": "llm"},
+                {"index": 2, "name": "order_id", "source": "llm"},
+            ],
+        )
+    assert "Duplicate variable mapping names are not allowed" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_validate_tool_references_auto_populates_whatsapp_telephony_id():
+    from api.services.tool_management import validate_tool_references
+
+    mock_cfg = MagicMock()
+    mock_cfg.id = 77
+
+    definition = {
+        "type": "whatsapp",
+        "config": {},
+    }
+
+    with patch(
+        "api.services.tool_management.db_client.list_telephony_configurations_by_provider",
+        AsyncMock(return_value=[mock_cfg]),
+    ):
+        await validate_tool_references(definition, organization_id=10)
+
+    assert definition["config"]["telephony_configuration_id"] == 77
+
 
 

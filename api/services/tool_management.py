@@ -173,6 +173,9 @@ async def validate_tool_references(
                     "WhatsApp is not configured in Telephony settings. Please configure your WhatsApp Business Account in Telephony first.",
                     status_code=400,
                 )
+            if not isinstance(definition.get("config"), dict):
+                definition["config"] = {}
+            definition["config"]["telephony_configuration_id"] = wa_configs[0].id
 
     recording_ids = {
         message["recording_id"]

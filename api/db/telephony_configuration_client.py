@@ -380,52 +380,16 @@ class TelephonyConfigurationClient(BaseDBClient):
                         ToolModel.status == ToolStatus.ACTIVE.value,
                     )
                 )
-                active_tools = []
-                if hasattr(tool_ref, "scalars"):
-                    res = tool_ref.scalars()
-                    if hasattr(res, "all"):
-                        try:
-                            candidates = res.all()
-                            if isinstance(candidates, (list, tuple)):
-                                active_tools = candidates
-                        except Exception:
-                            active_tools = []
-
-                if not active_tools and hasattr(tool_ref, "scalar_one_or_none"):
-                    single_val = tool_ref.scalar_one_or_none()
-                    if isinstance(single_val, str):
-                        raise TelephonyConfigurationInUseError(
-                            f"Telephony configuration is in use by active tool '{single_val}'. "
-                            "Please archive or delete the tool first before removing this telephony configuration."
-                        )
+                active_tools = tool_ref.scalars().all()
 
                 for tool in active_tools:
                     cfg = (tool.definition or {}).get("config", {}) or {}
                     pinned_id = cfg.get("telephony_configuration_id")
-                    if pinned_id is not None:
-                        if pinned_id == config_id:
-                            raise TelephonyConfigurationInUseError(
-                                f"Telephony configuration is in use by active tool '{tool.name}'. "
-                                "Please archive or delete the tool first before removing this telephony configuration."
-                            )
-                    else:
-                        # Tool has no pinned config and relies on the default/fallback config.
-                        # Block only if this is the only active WhatsApp configuration.
-                        other_active = await session.execute(
-                            select(TelephonyConfigurationModel.id)
-                            .where(
-                                TelephonyConfigurationModel.organization_id == organization_id,
-                                TelephonyConfigurationModel.provider == "whatsapp",
-                                TelephonyConfigurationModel.inactive.is_(False),
-                                TelephonyConfigurationModel.id != config_id,
-                            )
-                            .limit(1)
+                    if pinned_id == config_id or pinned_id is None:
+                        raise TelephonyConfigurationInUseError(
+                            f"Telephony configuration is in use by active tool '{tool.name}'. "
+                            "Please archive or delete the tool first before removing this telephony configuration."
                         )
-                        if not other_active.scalar_one_or_none():
-                            raise TelephonyConfigurationInUseError(
-                                f"Telephony configuration is in use by active tool '{tool.name}' as its default WhatsApp account. "
-                                "Please archive or delete the tool first before removing this telephony configuration."
-                            )
 
             await session.delete(row)
             await session.commit()

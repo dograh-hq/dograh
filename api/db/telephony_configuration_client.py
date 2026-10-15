@@ -14,11 +14,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
-from api.db.models import CampaignModel, TelephonyConfigurationModel
+from api.db.models import CampaignModel, TelephonyConfigurationModel, ToolModel
+from api.enums import ToolCategory, ToolStatus
 
 
 class TelephonyConfigurationInUseError(Exception):
-    """Raised when deleting a config that is still referenced by a campaign."""
+    """Raised when deleting a config that is still referenced by a campaign or tool."""
 
 
 class TelephonyConfigurationConflictError(Exception):
@@ -369,6 +370,23 @@ class TelephonyConfigurationClient(BaseDBClient):
                     f"Telephony configuration {config_id} is referenced by one or "
                     f"more campaigns and cannot be deleted."
                 )
+
+            if row.provider == "whatsapp":
+                tool_ref = await session.execute(
+                    select(ToolModel.name)
+                    .where(
+                        ToolModel.organization_id == organization_id,
+                        ToolModel.category == ToolCategory.WHATSAPP.value,
+                        ToolModel.status == ToolStatus.ACTIVE.value,
+                    )
+                    .limit(1)
+                )
+                tool_name = tool_ref.scalar_one_or_none()
+                if tool_name:
+                    raise TelephonyConfigurationInUseError(
+                        f"Telephony configuration is in use by active tool '{tool_name}'. "
+                        "Please archive or delete the tool first before removing this telephony configuration."
+                    )
 
             await session.delete(row)
             await session.commit()

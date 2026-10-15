@@ -191,6 +191,37 @@ class TelephonyConfigurationListResponse(BaseModel):
     configurations: List[TelephonyConfigurationListItem]
 
 
+class WhatsAppTemplateVariable(BaseModel):
+    index: int
+    name: str
+    example: Optional[str] = None
+    component: str = "body"
+
+
+class WhatsAppTemplateItem(BaseModel):
+    id: str
+    name: str
+    status: str
+    category: str
+    language: str
+    body_text: str = ""
+    components: List[dict] = Field(default_factory=list)
+    variables: List[WhatsAppTemplateVariable] = Field(default_factory=list)
+
+
+class WhatsAppPhoneNumberItem(BaseModel):
+    phone_number_id: str
+    display_phone_number: str
+    verified_name: Optional[str] = None
+
+
+class WhatsAppTemplatesResponse(BaseModel):
+    templates: List[WhatsAppTemplateItem] = Field(default_factory=list)
+    phone_numbers: List[WhatsAppPhoneNumberItem] = Field(default_factory=list)
+    waba_id: Optional[str] = None
+    config_id: Optional[int] = None
+
+
 __all__ = [
     "ARIConfigurationRequest",
     "CloudonixConfigurationRequest",
@@ -206,4 +237,8 @@ __all__ = [
     "VobizConfigurationRequest",
     "VonageConfigurationRequest",
     "WhatsAppConfigurationRequest",
+    "WhatsAppPhoneNumberItem",
+    "WhatsAppTemplateItem",
+    "WhatsAppTemplateVariable",
+    "WhatsAppTemplatesResponse",
 ]

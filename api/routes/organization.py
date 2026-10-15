@@ -1,7 +1,7 @@
 from copy import deepcopy
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
@@ -35,6 +35,8 @@ from api.schemas.telephony_config import (
     TrunkListResponse,
     TrunkResponse,
     TrunkUpdateRequest,
+    WhatsAppPhoneNumberItem,
+    WhatsAppTemplatesResponse,
 )
 from api.schemas.telephony_phone_number import (
     PhoneNumberCreateRequest,
@@ -1250,6 +1252,107 @@ async def sync_phone_numbers(config_id: int, user: UserModel = Depends(get_user)
             _phone_number_to_response(r) for r in outcome.missing_at_provider
         ],
     )
+
+
+@router.get(
+    "/telephony-configs/{config_id}/whatsapp/templates",
+    response_model=WhatsAppTemplatesResponse,
+)
+async def list_whatsapp_templates_for_config(
+    config_id: int, user: UserModel = Depends(get_user)
+):
+    """Fetch approved WhatsApp message templates from Meta for a specific WhatsApp configuration."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    cfg = await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
+    if cfg.provider != "whatsapp":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Configuration {config_id} is not a WhatsApp provider (found '{cfg.provider}')",
+        )
+
+    try:
+        provider = await get_telephony_provider_by_id(
+            config_id, user.selected_organization_id
+        )
+        templates = await provider.list_message_templates(status="APPROVED")
+        waba_id = (cfg.credentials or {}).get("waba_id")
+
+        phone_numbers: list[WhatsAppPhoneNumberItem] = []
+        try:
+            raw_numbers = await provider.list_provider_phone_numbers()
+            phone_numbers = [
+                WhatsAppPhoneNumberItem(
+                    phone_number_id=p.extra_data.get("phone_number_id") or p.address,
+                    display_phone_number=p.address,
+                    verified_name=p.extra_data.get("verified_name"),
+                )
+                for p in raw_numbers
+            ]
+        except Exception:
+            db_numbers = await db_client.list_phone_numbers_for_config(config_id)
+            phone_numbers = [
+                WhatsAppPhoneNumberItem(
+                    phone_number_id=n.address,
+                    display_phone_number=n.address,
+                    verified_name=n.label,
+                )
+                for n in db_numbers
+            ]
+
+        return WhatsAppTemplatesResponse(
+            templates=templates,
+            phone_numbers=phone_numbers,
+            waba_id=waba_id,
+            config_id=config_id,
+        )
+    except Exception as e:
+        log_failure(
+            classify_exception(
+                e,
+                source=ErrorSource.TELEPHONY,
+                provider="whatsapp",
+                error_owner="user",
+            ),
+            organization_id=user.selected_organization_id,
+            telephony_configuration_id=config_id,
+        )
+        raise HTTPException(
+            status_code=502, detail=f"Failed to fetch WhatsApp templates: {e}"
+        ) from e
+
+
+@router.get(
+    "/whatsapp/templates",
+    response_model=WhatsAppTemplatesResponse,
+)
+async def list_whatsapp_templates(
+    config_id: Optional[int] = Query(None, description="Optional WhatsApp config ID"),
+    user: UserModel = Depends(get_user),
+):
+    """Fetch approved WhatsApp message templates for the organization.
+
+    If config_id is omitted, the first active WhatsApp configuration is used.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    cfg = None
+    if config_id is not None:
+        cfg = await _ensure_config_belongs_to_org(
+            config_id, user.selected_organization_id
+        )
+    else:
+        configs = await db_client.list_telephony_configurations_by_provider(
+            user.selected_organization_id, "whatsapp", active_only=True
+        )
+        if configs:
+            cfg = configs[0]
+
+    if not cfg:
+        return WhatsAppTemplatesResponse(templates=[])
+
+    return await list_whatsapp_templates_for_config(cfg.id, user)
 
 
 @router.post(

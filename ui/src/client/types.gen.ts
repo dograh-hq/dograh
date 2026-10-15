@@ -1104,7 +1104,7 @@ export type CreateToolRequest = {
      *
      * Tool category. Must match definition.type.
      */
-    category?: 'http_api' | 'end_call' | 'transfer_call' | 'transfer_agent' | 'calculator' | 'native' | 'integration' | 'mcp';
+    category?: 'http_api' | 'end_call' | 'transfer_call' | 'transfer_agent' | 'calculator' | 'native' | 'integration' | 'mcp' | 'whatsapp';
     /**
      * Icon
      *
@@ -1134,7 +1134,9 @@ export type CreateToolRequest = {
         type: 'calculator';
     } & CalculatorToolDefinition) | ({
         type: 'mcp';
-    } & McpToolDefinition);
+    } & McpToolDefinition) | ({
+        type: 'whatsapp';
+    } & WhatsAppToolDefinition);
 };
 
 /**
@@ -5996,7 +5998,9 @@ export type UpdateToolRequest = {
         type: 'calculator';
     } & CalculatorToolDefinition) | ({
         type: 'mcp';
-    } & McpToolDefinition) | null;
+    } & McpToolDefinition) | ({
+        type: 'whatsapp';
+    } & WhatsAppToolDefinition) | null;
     /**
      * Status
      */
@@ -6472,6 +6476,276 @@ export type WhatsAppConfigurationRequest = {
      * App secret used to verify webhook signatures
      */
     app_secret: string;
+};
+
+/**
+ * WhatsAppPhoneNumberItem
+ */
+export type WhatsAppPhoneNumberItem = {
+    /**
+     * Phone Number Id
+     */
+    phone_number_id: string;
+    /**
+     * Display Phone Number
+     */
+    display_phone_number: string;
+    /**
+     * Verified Name
+     */
+    verified_name?: string | null;
+};
+
+/**
+ * WhatsAppTemplateConfig
+ *
+ * Configuration for one approved WhatsApp template within the tool.
+ */
+export type WhatsAppTemplateConfig = {
+    /**
+     * Id
+     *
+     * Unique identifier / key for this template in the tool, e.g. 'booking_confirmation' or 'brochure_link'.
+     */
+    id: string;
+    /**
+     * Name
+     *
+     * Display name or label for this template configuration.
+     */
+    name: string;
+    /**
+     * Description
+     *
+     * Guidance for the LLM on when to choose and send this specific template.
+     */
+    description?: string;
+    /**
+     * Template Name
+     *
+     * Approved Meta WhatsApp template name.
+     */
+    template_name: string;
+    /**
+     * Template Id
+     *
+     * Optional Meta template ID.
+     */
+    template_id?: string | null;
+    /**
+     * Language Code
+     *
+     * Language code of the template, e.g. 'en_US'.
+     */
+    language_code?: string;
+    /**
+     * From Phone Number Id
+     *
+     * Specific sender Phone Number ID for this template (selected from available WABA numbers). If omitted, default account number is used.
+     */
+    from_phone_number_id?: string | null;
+    /**
+     * Fallback Recipient Phone Number
+     *
+     * Optional template-specific fallback recipient phone number in E.164 format.
+     */
+    fallback_recipient_phone_number?: string | null;
+    /**
+     * Variable Mappings
+     *
+     * Mappings for template placeholder variables ({{1}}, {{2}}).
+     */
+    variable_mappings?: Array<WhatsAppVariableMapping>;
+};
+
+/**
+ * WhatsAppTemplateItem
+ */
+export type WhatsAppTemplateItem = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Category
+     */
+    category: string;
+    /**
+     * Language
+     */
+    language: string;
+    /**
+     * Body Text
+     */
+    body_text?: string;
+    /**
+     * Components
+     */
+    components?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Variables
+     */
+    variables?: Array<WhatsAppTemplateVariable>;
+};
+
+/**
+ * WhatsAppTemplateVariable
+ */
+export type WhatsAppTemplateVariable = {
+    /**
+     * Index
+     */
+    index: number;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Example
+     */
+    example?: string | null;
+    /**
+     * Component
+     */
+    component?: string;
+};
+
+/**
+ * WhatsAppTemplatesResponse
+ */
+export type WhatsAppTemplatesResponse = {
+    /**
+     * Templates
+     */
+    templates?: Array<WhatsAppTemplateItem>;
+    /**
+     * Phone Numbers
+     */
+    phone_numbers?: Array<WhatsAppPhoneNumberItem>;
+    /**
+     * Waba Id
+     */
+    waba_id?: string | null;
+    /**
+     * Config Id
+     */
+    config_id?: number | null;
+};
+
+/**
+ * WhatsAppToolConfig
+ *
+ * Configuration for WhatsApp template message tools supporting multiple templates.
+ */
+export type WhatsAppToolConfig = {
+    /**
+     * Execution Mode
+     *
+     * Execution mode: 'async' queues delivery immediately with zero dead air, 'sync' waits for Meta confirmation.
+     */
+    execution_mode?: 'async' | 'sync';
+    /**
+     * Telephony Configuration Id
+     *
+     * Specific WhatsApp telephony configuration ID. If omitted, organization's active WhatsApp config is used.
+     */
+    telephony_configuration_id?: number | null;
+    /**
+     * Fallback Recipient Phone Number
+     *
+     * Fallback recipient phone number in E.164 format (e.g. +1234567890) used when testing or if caller phone number cannot be determined from call context.
+     */
+    fallback_recipient_phone_number?: string | null;
+    /**
+     * Test Recipient Phone Number
+     *
+     * Alias for fallback_recipient_phone_number.
+     */
+    test_recipient_phone_number?: string | null;
+    /**
+     * Templates
+     *
+     * List of configured templates available to the agent for this tool.
+     */
+    templates?: Array<WhatsAppTemplateConfig>;
+};
+
+/**
+ * WhatsAppToolDefinition
+ *
+ * Tool definition for WhatsApp template messaging tools.
+ */
+export type WhatsAppToolDefinition = {
+    /**
+     * Schema Version
+     *
+     * Schema version.
+     */
+    schema_version?: number;
+    /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
+    /**
+     * Type
+     *
+     * Tool type.
+     */
+    type: 'whatsapp';
+    /**
+     * WhatsApp tool configuration.
+     */
+    config: WhatsAppToolConfig;
+};
+
+/**
+ * WhatsAppVariableMapping
+ *
+ * Mapping for one template variable placeholder like {{1}}.
+ */
+export type WhatsAppVariableMapping = {
+    /**
+     * Index
+     *
+     * 1-based placeholder index in the template (e.g. 1 for {{1}}).
+     */
+    index: number;
+    /**
+     * Name
+     *
+     * Name of the parameter, shown to the LLM or used for identification.
+     */
+    name: string;
+    /**
+     * Source
+     *
+     * Source of this variable: 'context' (e.g. {{initial_context.name}}), 'llm' (filled by model), 'static'/'literal' (fixed value), or 'lead_phone'.
+     */
+    source?: 'context' | 'llm' | 'static' | 'literal' | 'lead_phone';
+    /**
+     * Value
+     *
+     * Template string for 'context', static string for 'static', or description instruction for 'llm'.
+     */
+    value?: string | null;
+    /**
+     * Fallback Value
+     *
+     * Optional fallback value to use if the source is empty or missing at runtime.
+     */
+    fallback_value?: string | null;
 };
 
 /**
@@ -12058,6 +12332,96 @@ export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbe
 };
 
 export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponse = SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponses[keyof SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponses];
+
+export type ListWhatsappTemplatesForConfigApiV1OrganizationsTelephonyConfigsConfigIdWhatsappTemplatesGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/whatsapp/templates';
+};
+
+export type ListWhatsappTemplatesForConfigApiV1OrganizationsTelephonyConfigsConfigIdWhatsappTemplatesGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListWhatsappTemplatesForConfigApiV1OrganizationsTelephonyConfigsConfigIdWhatsappTemplatesGetError = ListWhatsappTemplatesForConfigApiV1OrganizationsTelephonyConfigsConfigIdWhatsappTemplatesGetErrors[keyof ListWhatsappTemplatesForConfigApiV1OrganizationsTelephonyConfigsConfigIdWhatsappTemplatesGetErrors];
+
+export type ListWhatsappTemplatesForConfigApiV1OrganizationsTelephonyConfigsConfigIdWhatsappTemplatesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: WhatsAppTemplatesResponse;
+};
+
+export type ListWhatsappTemplatesForConfigApiV1OrganizationsTelephonyConfigsConfigIdWhatsappTemplatesGetResponse = ListWhatsappTemplatesForConfigApiV1OrganizationsTelephonyConfigsConfigIdWhatsappTemplatesGetResponses[keyof ListWhatsappTemplatesForConfigApiV1OrganizationsTelephonyConfigsConfigIdWhatsappTemplatesGetResponses];
+
+export type ListWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Config Id
+         *
+         * Optional WhatsApp config ID
+         */
+        config_id?: number | null;
+    };
+    url: '/api/v1/organizations/whatsapp/templates';
+};
+
+export type ListWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGetError = ListWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGetErrors[keyof ListWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGetErrors];
+
+export type ListWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: WhatsAppTemplatesResponse;
+};
+
+export type ListWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGetResponse = ListWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGetResponses[keyof ListWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGetResponses];
 
 export type DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteData = {
     body?: never;

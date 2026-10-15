@@ -13,6 +13,7 @@ read from Meta rather than typed in, and each call names its number by the
 import hashlib
 import hmac
 import json
+import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
@@ -101,14 +102,17 @@ async def _graph_request(
     access_token: str,
     *,
     params: Optional[Dict[str, Any]] = None,
+    json_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """One Graph API request with the bearer token; any non-200 is an error."""
+    """One Graph API request with the bearer token; any non-200/201 is an error."""
     headers = {"Authorization": f"Bearer {access_token}"}
     try:
         async with aiohttp.ClientSession() as session:
             request = getattr(session, method)
-            async with request(url, headers=headers, params=params) as response:
-                if response.status != 200:
+            async with request(
+                url, headers=headers, params=params, json=json_data
+            ) as response:
+                if response.status not in (200, 201):
                     body = await response.text()
                     raise MetaGraphError(
                         f"Meta Graph API {response.status}: {body}",
@@ -295,6 +299,114 @@ class WhatsAppProvider(TelephonyProvider):
             raise MetaGraphError(
                 f"Meta did not confirm the app subscription: {json.dumps(payload)}"
             )
+
+    # ------------------------------------------------------------------
+    # Message Templates & Messaging
+    # ------------------------------------------------------------------
+
+    async def list_message_templates(
+        self, status: Optional[str] = "APPROVED"
+    ) -> List[Dict[str, Any]]:
+        """Fetch message templates from the Business Account with extracted variables."""
+        url = f"{GRAPH_API_BASE_URL}/{self.waba_id}/message_templates"
+        params: Dict[str, Any] = {"limit": 100}
+        if status:
+            params["status"] = status
+        payload = await _graph_request("get", url, self.access_token, params=params)
+        items = payload.get("data", []) or []
+
+        parsed_templates = []
+        for item in items:
+            components = item.get("components") or []
+            body_comp = next((c for c in components if c.get("type") == "BODY"), {})
+            body_text = body_comp.get("text", "")
+            examples = (body_comp.get("example") or {}).get("body_text", [[]])[0]
+
+            var_indices = re.findall(r"\{\{(\d+)\}\}", body_text)
+            variables = []
+            for idx_str in sorted(set(var_indices), key=lambda x: int(x)):
+                idx = int(idx_str)
+                ex = examples[idx - 1] if idx - 1 < len(examples) else None
+                variables.append(
+                    {
+                        "index": idx,
+                        "name": f"variable_{idx}",
+                        "example": ex,
+                        "component": "body",
+                    }
+                )
+
+            parsed_templates.append(
+                {
+                    "id": str(item.get("id") or ""),
+                    "name": item.get("name"),
+                    "status": item.get("status"),
+                    "category": item.get("category"),
+                    "language": item.get("language"),
+                    "body_text": body_text,
+                    "components": components,
+                    "variables": variables,
+                }
+            )
+        return parsed_templates
+
+    async def send_template_message(
+        self,
+        to_number: str,
+        template_name: str,
+        language_code: str = "en_US",
+        parameters: Optional[List[str]] = None,
+        from_phone_number_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Send an approved WhatsApp template message via Meta Cloud API.
+
+        Args:
+            to_number: Recipient's phone number in E.164 (with or without '+').
+            template_name: Approved Meta WhatsApp template name.
+            language_code: Language code of the template (e.g. 'en_US').
+            parameters: Ordered list of body parameter strings for {{1}}, {{2}}, etc.
+            from_phone_number_id: Meta Phone Number ID to send from.
+                If omitted, the first available number on the account is used.
+        """
+        clean_to = re.sub(r"\D", "", to_number)
+        if not clean_to:
+            raise ValueError(f"Invalid recipient phone number: {to_number}")
+
+        sender_id = from_phone_number_id
+        if not sender_id:
+            numbers = await self.list_provider_phone_numbers()
+            if not numbers or not numbers[0].external_id:
+                raise ValueError(
+                    f"No sender phone number configured for WABA {self.waba_id}"
+                )
+            sender_id = numbers[0].external_id
+
+        components = []
+        if parameters:
+            components.append(
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": str(p)} for p in parameters
+                    ],
+                }
+            )
+
+        payload: Dict[str, Any] = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": clean_to,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": language_code},
+            },
+        }
+        if components:
+            payload["template"]["components"] = components
+
+        url = f"{GRAPH_API_BASE_URL}/{sender_id}/messages"
+        return await _graph_request("post", url, self.access_token, json_data=payload)
 
     # ------------------------------------------------------------------
     # Webhook signatures

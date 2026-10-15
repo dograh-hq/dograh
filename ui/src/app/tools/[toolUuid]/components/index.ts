@@ -8,3 +8,5 @@ export {
     type TransferAgentWorkflowOption,
 } from "./TransferAgentToolConfig";
 export { TransferCallToolConfig, type TransferCallToolConfigProps } from "./TransferCallToolConfig";
+export { WhatsAppToolConfig, type WhatsAppToolConfigProps } from "./WhatsAppToolConfig";
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, Calculator, Cog, Globe, type LucideIcon, PhoneForwarded, PhoneOff, Puzzle } from "lucide-react";
+import { ArrowLeftRight, Calculator, Cog, Globe, type LucideIcon, MessageSquare, PhoneForwarded, PhoneOff, Puzzle } from "lucide-react";
 import { type ReactNode } from "react";
 
 import type {
@@ -16,10 +16,13 @@ import type {
     TransferAgentToolDefinition,
     TransferCallConfig,
     TransferCallToolDefinition,
+    WhatsAppToolConfig,
+    WhatsAppToolDefinition,
 } from "@/client/types.gen";
 import { createUuid } from "@/lib/uuid";
 
-export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "transfer_agent" | "calculator" | "native" | "integration" | "mcp";
+export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "transfer_agent" | "calculator" | "native" | "integration" | "mcp" | "whatsapp";
+
 
 export type EndCallMessageType = "none" | "custom" | "audio";
 export type TransferDestinationSource = "static" | "dynamic" | "context_mapping";
@@ -159,6 +162,18 @@ export const TOOL_CATEGORIES: ToolCategoryConfig[] = [
         iconColor: "#8B5CF6",
     },
     {
+        value: "whatsapp",
+        label: "WhatsApp Message",
+        description: "Send WhatsApp template messages during a call",
+        icon: MessageSquare,
+        iconName: "message-square",
+        iconColor: "#25D366",
+        autoFill: {
+            name: "Send WhatsApp Message",
+            description: "Send a WhatsApp template message to the caller/lead with details or confirmation",
+        },
+    },
+    {
         value: "native",
         label: "Native (Coming Soon)",
         description: "Built-in tools like call transfer, DTMF input",
@@ -209,6 +224,8 @@ export function getToolTypeLabel(category: string): string {
             return "HTTP API Tool";
         case "calculator":
             return "Calculator Tool";
+        case "whatsapp":
+            return "WhatsApp Tool";
         case "native":
             return "Native Tool";
         case "integration":
@@ -249,7 +266,8 @@ export type ToolDefinition =
     | TransferCallToolDefinition
     | TransferAgentToolDefinition
     | CalculatorToolDefinition
-    | McpToolDefinition;
+    | McpToolDefinition
+    | WhatsAppToolDefinition;
 
 export function createEndCallDefinition(config: EndCallConfig): EndCallToolDefinition {
     return {
@@ -308,6 +326,24 @@ export function createCalculatorDefinition(): CalculatorToolDefinition {
     };
 }
 
+export const DEFAULT_WHATSAPP_CONFIG: WhatsAppToolConfig = {
+    execution_mode: "async",
+    telephony_configuration_id: null,
+    templates: [],
+};
+
+export function createWhatsAppDefinition(config?: Partial<WhatsAppToolConfig>): WhatsAppToolDefinition {
+    return {
+        schema_version: 1,
+        type: "whatsapp",
+        messages: [],
+        config: {
+            ...DEFAULT_WHATSAPP_CONFIG,
+            ...config,
+        },
+    };
+}
+
 export const MCP_URL_PATTERN = /^https?:\/\//i;
 
 export function createMcpDefinition(
@@ -339,6 +375,8 @@ export function createToolDefinition(category: ToolCategory): ToolDefinition {
             return createTransferCallDefinition(DEFAULT_TRANSFER_CALL_CONFIG);
         case "calculator":
             return createCalculatorDefinition();
+        case "whatsapp":
+            return createWhatsAppDefinition();
         case "http_api":
         default:
             return createHttpApiDefinition();

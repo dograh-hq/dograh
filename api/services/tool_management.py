@@ -14,7 +14,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import PostHogEvent, ToolCategory
+from api.enums import PostHogEvent, ToolCategory, ToolStatus
 from api.schemas.tool import (
     CreatedByResponse,
     CreateToolRequest,
@@ -205,6 +205,31 @@ async def create_tool_for_user(
             "No organization selected for the user",
             status_code=400,
         )
+
+    if request.category == ToolCategory.WHATSAPP.value:
+        existing_wa = await db_client.get_tools_for_organization(
+            organization_id=user.selected_organization_id,
+            status=ToolStatus.ACTIVE.value,
+            category=ToolCategory.WHATSAPP.value,
+        )
+        if existing_wa:
+            raise ToolManagementError(
+                "whatsapp_tool_already_exists",
+                "A WhatsApp Messaging tool already exists for this organization. You can configure multiple templates within that tool.",
+                status_code=400,
+            )
+
+        wa_configs = await db_client.list_telephony_configurations_by_provider(
+            organization_id=user.selected_organization_id,
+            provider="whatsapp",
+            active_only=True,
+        )
+        if not wa_configs:
+            raise ToolManagementError(
+                "whatsapp_telephony_not_configured",
+                "WhatsApp is not configured in Telephony settings. Please configure your WhatsApp Business Account in Telephony first.",
+                status_code=400,
+            )
 
     definition = request.definition.model_dump()
     await validate_tool_references(

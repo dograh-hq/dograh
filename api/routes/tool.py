@@ -453,6 +453,35 @@ async def unarchive_tool(
             status_code=400, detail="No organization selected for the user"
         )
 
+    tool_to_restore = await db_client.get_tool_by_uuid(
+        tool_uuid, user.selected_organization_id, include_archived=True
+    )
+    if not tool_to_restore:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    if tool_to_restore.category == ToolCategory.WHATSAPP.value:
+        existing_wa = await db_client.get_tools_for_organization(
+            organization_id=user.selected_organization_id,
+            status=ToolStatus.ACTIVE.value,
+            category=ToolCategory.WHATSAPP.value,
+        )
+        if existing_wa:
+            raise HTTPException(
+                status_code=400,
+                detail="An active WhatsApp Messaging tool already exists for this organization. You can configure multiple templates within that tool.",
+            )
+
+        wa_configs = await db_client.list_telephony_configurations_by_provider(
+            organization_id=user.selected_organization_id,
+            provider="whatsapp",
+            active_only=True,
+        )
+        if not wa_configs:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot unarchive WhatsApp tool because WhatsApp is not configured in Telephony settings. Please configure your WhatsApp Business Account in Telephony first.",
+            )
+
     tool = await db_client.unarchive_tool(tool_uuid, user.selected_organization_id)
 
     if not tool:

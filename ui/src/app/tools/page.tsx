@@ -1,6 +1,7 @@
 "use client";
 
-import { ExternalLink, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { AlertCircle, ExternalLink, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -8,6 +9,7 @@ import {
     createToolApiV1ToolsPost,
     deleteToolApiV1ToolsToolUuidDelete,
     getWorkflowsSummaryApiV1WorkflowSummaryGet,
+    listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
     listToolsApiV1ToolsGet,
     unarchiveToolApiV1ToolsToolUuidUnarchivePost,
 } from "@/client/sdk.gen";
@@ -54,6 +56,10 @@ export default function ToolsPage() {
     const router = useRouter();
 
     const [tools, setTools] = useState<ToolResponse[]>([]);
+    const hasActiveWhatsAppTool = tools.some(
+        (t) => t.category === "whatsapp" && t.status !== "archived"
+    );
+    const [hasWhatsAppTelephony, setHasWhatsAppTelephony] = useState<boolean | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
     const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -100,6 +106,22 @@ export default function ToolsPage() {
 
             if (response.data) {
                 setTools(response.data);
+            }
+
+            try {
+                const teleRes = await listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet({
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                    },
+                });
+                if (teleRes.data) {
+                    const hasActiveWa = teleRes.data.some(
+                        (c) => c.provider === "whatsapp" && !c.inactive
+                    );
+                    setHasWhatsAppTelephony(hasActiveWa);
+                }
+            } catch {
+                // Non-fatal if telephony check fails
             }
         } catch (err) {
             setError("Failed to fetch tools");
@@ -160,6 +182,21 @@ export default function ToolsPage() {
         if (newToolCategory === "mcp" && !MCP_URL_PATTERN.test(mcpUrl.trim())) {
             setCreateError("MCP server URL must start with http:// or https://");
             return;
+        }
+
+        if (newToolCategory === "whatsapp") {
+            if (hasActiveWhatsAppTool) {
+                setCreateError(
+                    "A WhatsApp Messaging tool already exists for this organization. You can configure multiple templates within that tool."
+                );
+                return;
+            }
+            if (hasWhatsAppTelephony === false) {
+                setCreateError(
+                    "WhatsApp is not configured in Telephony settings. Please configure your WhatsApp Business Account in Telephony first."
+                );
+                return;
+            }
         }
 
         try {
@@ -267,7 +304,7 @@ export default function ToolsPage() {
             setError(null);
             const accessToken = await getAccessToken();
 
-            await unarchiveToolApiV1ToolsToolUuidUnarchivePost({
+            const res = await unarchiveToolApiV1ToolsToolUuidUnarchivePost({
                 path: {
                     tool_uuid: toolUuid,
                 },
@@ -275,6 +312,11 @@ export default function ToolsPage() {
                     Authorization: `Bearer ${accessToken}`,
                 },
             });
+
+            if (res.error) {
+                setError(detailFromError(res.error, "Failed to restore tool"));
+                return;
+            }
 
             fetchTools();
         } catch (err) {
@@ -306,6 +348,8 @@ export default function ToolsPage() {
                 return <Badge variant="outline">Integration</Badge>;
             case "mcp":
                 return <Badge variant="outline">MCP</Badge>;
+            case "whatsapp":
+                return <Badge className="bg-emerald-600 hover:bg-emerald-600/90 text-white">WhatsApp</Badge>;
             default:
                 return <Badge variant="outline">{category}</Badge>;
         }
@@ -343,8 +387,18 @@ export default function ToolsPage() {
                 </a></>}>
 
                 {error && (
-                    <div className="mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
-                        {error}
+                    <div className="mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                            <AlertCircle className="w-5 h-5 shrink-0" />
+                            <span>{error}</span>
+                        </div>
+                        {error.toLowerCase().includes("telephony") && (
+                            <Button asChild variant="outline" size="sm" className="w-fit shrink-0">
+                                <Link href="/telephony-configurations">
+                                    Go to Telephony Settings <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
+                                </Link>
+                            </Button>
+                        )}
                     </div>
                 )}
 
@@ -553,20 +607,51 @@ export default function ToolsPage() {
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {TOOL_CATEGORIES.map((category) => (
-                                        <SelectItem
-                                            key={category.value}
-                                            value={category.value}
-                                            disabled={category.disabled}
-                                        >
-                                            {category.label}
-                                        </SelectItem>
-                                    ))}
+                                    {TOOL_CATEGORIES.map((category) => {
+                                        const isWaAlreadyExists = category.value === "whatsapp" && hasActiveWhatsAppTool;
+                                        const isWaMissingTelephony = category.value === "whatsapp" && hasWhatsAppTelephony === false;
+                                        const isWaDisabled = isWaAlreadyExists || isWaMissingTelephony;
+                                        return (
+                                            <SelectItem
+                                                key={category.value}
+                                                value={category.value}
+                                                disabled={category.disabled || isWaDisabled}
+                                            >
+                                                {category.label}
+                                                {isWaAlreadyExists
+                                                    ? " (Already exists)"
+                                                    : isWaMissingTelephony
+                                                    ? " (Telephony setup required)"
+                                                    : ""}
+                                            </SelectItem>
+                                        );
+                                    })}
                                 </SelectContent>
                             </Select>
-                            <p className="text-xs text-muted-foreground">
-                                {getCategoryConfig(newToolCategory)?.description}
-                            </p>
+                            {newToolCategory === "whatsapp" && hasActiveWhatsAppTool ? (
+                                <p className="text-xs text-amber-600 dark:text-amber-400">
+                                    Your organization already has an active WhatsApp Messaging tool. You can configure multiple templates inside your existing tool.
+                                </p>
+                            ) : newToolCategory === "whatsapp" && hasWhatsAppTelephony === false ? (
+                                <div className="flex flex-col gap-2 p-3 text-xs rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                    <div className="flex items-center gap-1.5 font-medium">
+                                        <AlertCircle className="w-4 h-4 shrink-0" />
+                                        WhatsApp Telephony Setup Required
+                                    </div>
+                                    <p className="text-muted-foreground">
+                                        To send WhatsApp messages, you must first connect your WhatsApp Business Account in Telephony settings.
+                                    </p>
+                                    <Button asChild size="sm" variant="outline" className="w-fit">
+                                        <Link href="/telephony-configurations">
+                                            Configure WhatsApp in Telephony <ExternalLink className="w-3 h-3 ml-1.5" />
+                                        </Link>
+                                    </Button>
+                                </div>
+                            ) : (
+                                <p className="text-xs text-muted-foreground">
+                                    {getCategoryConfig(newToolCategory)?.description}
+                                </p>
+                            )}
                         </div>
                         <div className="grid gap-2">
                             <Label htmlFor="name">Tool Name</Label>
@@ -675,7 +760,14 @@ export default function ToolsPage() {
                         >
                             Cancel
                         </Button>
-                        <Button onClick={handleCreateTool} disabled={isCreating}>
+                        <Button
+                            onClick={handleCreateTool}
+                            disabled={
+                                isCreating ||
+                                (newToolCategory === "whatsapp" &&
+                                    (hasActiveWhatsAppTool || hasWhatsAppTelephony === false))
+                            }
+                        >
                             {isCreating ? "Creating..." : "Create Tool"}
                         </Button>
                     </DialogFooter>

@@ -163,6 +163,7 @@ async def test_webhook_failure_logs_only_when_delivery_dead_letters(
 
     with (
         patch("api.tasks.webhook_delivery.db_client", db),
+        patch("api.services.credential_resolution.db_client", db),
         patch(
             "api.tasks.webhook_delivery.httpx.AsyncClient",
             _async_client(error=httpx.ConnectError("connection refused")),

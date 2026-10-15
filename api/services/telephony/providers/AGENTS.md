@@ -39,6 +39,7 @@ If you find yourself editing anything else, re-read the registry plumbing first:
 | "Can this config actually dial out yet?"         | `ProviderSpec.requires_caller_id`, or `setup_checklist_resolver` for richer rules (see below)                                                          |
 | Carrier account vs bring-your-own-SIP framing    | `ProviderSpec.connectivity` (see *Connectivity* below)                                                                                                |
 | Carrier paths a number can dial out over         | `ProviderSpec.trunk_settings_cls` (see *Trunks* below)                                                                                                |
+| "Refresh numbers" from the provider account      | `ProviderSpec.supports_phone_number_sync` + `TelephonyProvider.list_provider_phone_numbers` (imported by `services/telephony/phone_number_sync.py`)   |
 | HTTP routes (answer URL, status callbacks)       | `providers/<name>/routes.py` (auto-mounted via `importlib`)                                                                                           |
 
 ## ProviderSpec — minimum viable shape

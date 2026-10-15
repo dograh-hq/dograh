@@ -90,6 +90,22 @@ class ProviderPhoneNumberLookupError(Exception):
         self.status_code = status_code
 
 
+@dataclass(frozen=True)
+class ProviderPhoneNumber:
+    """One phone number the provider account holds, as the provider reports it.
+
+    ``address`` is canonical (E.164 for PSTN) so callers can match it against
+    ``telephony_phone_numbers.address_normalized`` directly. ``external_id`` is
+    the provider's own identifier for the number when it has one, and
+    ``metadata`` carries whatever else is worth keeping on the row.
+    """
+
+    address: str
+    external_id: str | None = None
+    label: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class NormalizedInboundData:
     """Standardized inbound call data across all providers."""
@@ -498,6 +514,22 @@ class TelephonyProvider(ABC):
         bypass validation.
         """
         raise NotImplementedError
+
+    async def list_provider_phone_numbers(self) -> List[ProviderPhoneNumber]:
+        """Every phone number the provider account holds.
+
+        Backs the "refresh numbers" sync, which imports the account's inventory
+        instead of asking the customer to type each number. Providers opt in by
+        setting ``supports_phone_number_sync=True`` on their spec and overriding
+        this; the default refuses so the shared route never reports an empty
+        inventory for a provider that simply has no listing.
+
+        Raises ``ProviderPhoneNumberLookupError`` when the provider could not
+        be asked, with the provider's HTTP status when it answered.
+        """
+        raise NotImplementedError(
+            f"Phone-number listing not supported for provider {self.PROVIDER_NAME}"
+        )
 
     @staticmethod
     @abstractmethod

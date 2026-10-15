@@ -440,6 +440,9 @@ async def handle_whatsapp_webhook(request: Request):
             return {"status": "success"}
 
         for entry in entry_list:
+            # The Business Account the events belong to; the configuration is
+            # keyed on it. Each call then names its number by phone_number_id.
+            waba_id = str(entry.get("id") or "")
             changes = entry.get("changes") or []
             for change in changes:
                 field = change.get("field")
@@ -464,19 +467,29 @@ async def handle_whatsapp_webhook(request: Request):
                         status_code=400,
                         detail="Missing phone_number_id in webhook metadata",
                     )
+                if not waba_id:
+                    logger.error(
+                        "[WhatsApp] Webhook entry missing the WhatsApp Business "
+                        "Account ID"
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Missing WhatsApp Business Account ID in webhook entry",
+                    )
 
-                # Look up active configuration for this phone_number_id
-                config = await db_client.get_whatsapp_configuration_by_phone_number_id(
-                    phone_number_id
-                )
+                config = await db_client.get_whatsapp_configuration_by_waba_id(waba_id)
 
                 if not config:
                     logger.error(
-                        f"[WhatsApp] No active configuration found for phone_number_id {phone_number_id}"
+                        f"[WhatsApp] No active configuration found for WhatsApp "
+                        f"Business Account {waba_id}"
                     )
                     raise HTTPException(
                         status_code=404,
-                        detail=f"No active configuration for phone_number_id {phone_number_id}",
+                        detail=(
+                            f"No active configuration for WhatsApp Business "
+                            f"Account {waba_id}"
+                        ),
                     )
 
                 # Require a valid HMAC-SHA256 signature BEFORE dispatching any calling event
@@ -531,7 +544,7 @@ async def _handle_inbound_call_connect(
 ) -> None:
     """Process an incoming WhatsApp call connect event (SDP offer).
 
-    The caller has already matched ``config`` to ``phone_number_id`` and
+    The caller has already matched ``config`` to the Business Account and
     verified the payload signature against its app secret.
     """
     call_id = call_data.get("id") or ""

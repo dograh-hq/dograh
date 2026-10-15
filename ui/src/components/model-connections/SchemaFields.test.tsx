@@ -61,6 +61,29 @@ describe("provider field controls", () => {
         expect(onSave).toHaveBeenLastCalledWith({ model: "custom-again" });
     });
 
+    it("offers numeric enum values as labelled choices and saves them as numbers", () => {
+        const onSave = vi.fn();
+        const schema: FieldSchema = { properties: {
+            expressivity: { title: "Expressivity", default: null, anyOf: [{ enum: [-2, -1, 0, 1, 2], type: "integer" }, { type: "null" }], option_labels: { "-2": "-2 (calm)", "2": "2 (animated)" } },
+        } };
+        render(<Editor schema={schema} initial={{}} onSave={onSave} />);
+        expect(screen.getByLabelText("Expressivity").getAttribute("data-slot")).toBe("select-trigger");
+        expect(selectOptions("Expressivity")).toEqual(["Provider default", "-2 (calm)", "-1", "0", "1", "2 (animated)"]);
+        selectOption("Expressivity", "1");
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+        expect(onSave).toHaveBeenLastCalledWith({ expressivity: 1 });
+    });
+    it("drops manual entry on a dependent field when what it depends on changes", () => {
+        const schema: FieldSchema = { properties: {
+            model: { type: "string", title: "Model", examples: ["aura-2", "flux"] },
+            voice: { type: "string", title: "Voice", examples: ["v1", "v2"], allow_custom_input: true, reset_on_change: ["model"] },
+        } };
+        render(<Editor schema={schema} initial={{ model: "aura-2", voice: "v1" }} />);
+        fireEvent.click(screen.getByLabelText("Enter Custom Value"));
+        expect(screen.getByLabelText("Voice").getAttribute("data-slot")).not.toBe("select-trigger");
+        selectOption("Model", "flux");
+        expect(screen.getByLabelText("Voice").getAttribute("data-slot")).toBe("select-trigger");
+    });
     it("shows model-specific language options with display names and documentation", () => {
         render(<Editor schema={{ properties: {
             model: { type: "string", title: "Model", examples: ["flux", "nova"] },

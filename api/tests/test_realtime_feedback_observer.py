@@ -15,6 +15,9 @@ from pipecat.observers.base_observer import FramePushed
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import TransportParams
+from websockets.datastructures import Headers
+from websockets.exceptions import InvalidStatus
+from websockets.http11 import Response
 
 from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.realtime_feedback_observer import (
@@ -205,6 +208,43 @@ async def test_observer_classifies_each_distinct_error_frame(monkeypatch):
     assert failures[0][0].code == "deepgram-401"
     assert failures[0][1] == {"fatal": False}
     assert failures[1][1] == {"fatal": True}
+
+
+@pytest.mark.asyncio
+async def test_rejected_handshake_reason_reaches_the_pipeline_error_event(monkeypatch):
+    messages = []
+
+    async def ws_sender(message):
+        messages.append(message)
+
+    monkeypatch.setattr(
+        "api.services.pipecat.realtime_feedback_observer.log_failure",
+        lambda failure, **context: None,
+    )
+    processor = type("DeepgramTTSService", (), {})()
+    observer = RealtimeFeedbackObserver(ws_sender=ws_sender)
+    exc = InvalidStatus(
+        Response(
+            400,
+            "Bad Request",
+            Headers(),
+            b'{"err_code":"Bad Request","err_msg":"Requested model does not support'
+            b" the 'speed' parameter.\"}",
+        )
+    )
+    frame = ErrorFrame(
+        f"DeepgramTTSService#0 error: {exc}",
+        fatal=True,
+        processor=processor,
+        exception=exc,
+    )
+
+    await observer.on_push_frame(_frame_pushed(frame, FrameDirection.UPSTREAM))
+
+    payload = messages[0]["payload"]
+    reason = "Requested model does not support the 'speed' parameter."
+    assert payload["error"] == f"DeepgramTTSService#0 error: {exc} ({reason})"
+    assert payload["exception_message"] == f"{exc} ({reason})"
 
 
 @pytest.mark.asyncio

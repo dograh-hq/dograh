@@ -51,6 +51,10 @@ from pipecat.services.deepgram.flux.stt import (
     DeepgramFluxSTTService,
     DeepgramFluxSTTSettings,
 )
+from pipecat.services.deepgram.flux.tts import (
+    DeepgramFluxTTSService,
+    DeepgramFluxTTSSettings,
+)
 from pipecat.services.deepgram.stt import DeepgramSTTService, DeepgramSTTSettings
 from pipecat.services.deepgram.tts import DeepgramTTSService, DeepgramTTSSettings
 from pipecat.services.dograh.flux.stt import DograhFluxSTTService
@@ -114,6 +118,7 @@ from pipecat.services.speechmatics.stt import (
     SpeechmaticsSTTService,
     SpeechmaticsSTTSettings,
 )
+from pipecat.services.tts_service import TextAggregationMode
 from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
@@ -322,9 +327,10 @@ def _deepgram_websocket_url(base_url: str, path: str = "") -> str:
 
     Each Deepgram service in pipecat wants a different shape of the same host:
     ``DeepgramSTTService`` takes the base URL and derives both schemes itself,
-    ``DeepgramFluxSTTService`` wants a full ``wss://host/v2/listen``, and
-    ``DeepgramTTSService`` wants ``wss://host`` and appends its own path.
-    Deriving all three from one configured value keeps a single source of truth
+    the Flux services want a full ``wss://host/v2/listen`` or
+    ``wss://host/v2/speak``, and ``DeepgramTTSService`` wants ``wss://host``
+    and appends its own path. Deriving them all from one configured value keeps
+    a single source of truth
     for where audio goes. Expects the output of :func:`_deepgram_base_url`,
     which guarantees a scheme.
     """
@@ -734,14 +740,31 @@ def create_tts_service(
     # Create function call filter to prevent TTS from speaking function call tags
     xml_function_tag_filter = XMLFunctionTagFilter()
     if is_deepgram:
+        voice = user_config.tts.voice
+        speed = getattr(user_config.tts, "speed", None)
+        if getattr(user_config.tts, "model", None) == "flux":
+            return DeepgramFluxTTSService(
+                api_key=user_config.tts.api_key,
+                # Flux takes a fully-qualified socket URL, not a host.
+                url=_deepgram_websocket_url(deepgram_base_url, "/v2/speak"),
+                settings=DeepgramFluxTTSSettings(
+                    voice=voice,
+                    speed=speed,
+                    expressivity=getattr(user_config.tts, "expressivity", None),
+                ),
+                # Flux can take raw LLM tokens, but the function-tag filter only
+                # matches a complete tag, so text is aggregated into sentences
+                # first like every other TTS service here.
+                text_aggregation_mode=TextAggregationMode.SENTENCE,
+                text_filters=[xml_function_tag_filter],
+                skip_aggregator_types=["recording_router", "recording"],
+                silence_time_s=1.0,
+            )
         return DeepgramTTSService(
             api_key=user_config.tts.api_key,
             # Wants wss://host with no path; it appends /v1/speak itself.
             base_url=_deepgram_websocket_url(deepgram_base_url),
-            settings=DeepgramTTSSettings(
-                voice=user_config.tts.voice,
-                speed=getattr(user_config.tts, "speed", None),
-            ),
+            settings=DeepgramTTSSettings(voice=voice, speed=speed),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,

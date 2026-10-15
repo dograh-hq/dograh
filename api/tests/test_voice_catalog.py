@@ -521,6 +521,69 @@ async def test_deepgram_uses_regional_connection_and_filters_tts_models(
     assert [voice.voice_id for voice in legacy.voices] == ["aura-asteria-en"]
 
 
+@pytest.mark.asyncio
+async def test_deepgram_lists_flux_voices_from_the_v2_catalog(connection, upstream):
+    # Flux voices are absent from /v1/models and Aura voices from /v2/models, so
+    # a configuration whose voice is a Flux voice would otherwise see an empty
+    # dropdown.
+    connection.provider = "deepgram"
+    connection.credentials = {"api_key": "deepgram-key"}
+    connection.connection_settings = {"base_url": "https://api.eu.deepgram.com"}
+    listings = {
+        "/v1/models": {
+            "stt": [],
+            "tts": [
+                {
+                    "canonical_name": "aura-2-helena-en",
+                    "name": "helena",
+                    "architecture": "aura-2",
+                    "languages": ["en"],
+                }
+            ],
+        },
+        "/v2/models": {
+            "stt": [{"canonical_name": "flux-general-en", "architecture": "flux"}],
+            "tts": [
+                {
+                    "canonical_name": "flux-maeve-en",
+                    "name": "maeve",
+                    "architecture": "flux-tts",
+                    "languages": ["en", "en-US"],
+                    "metadata": {
+                        "display_name": "Maeve",
+                        "accent": "Irish",
+                        "tags": ["feminine", "warm"],
+                        "sample": "https://audio.example/maeve.wav",
+                    },
+                }
+            ],
+        },
+    }
+    requests = upstream(
+        lambda request: httpx.Response(200, json=listings[request.url.path])
+    )
+
+    flux = await voice_catalog.get_connection_voices(
+        "deepgram", 42, connection.uuid, model="flux"
+    )
+    assert [voice.voice_id for voice in flux.voices] == ["flux-maeve-en"]
+    assert flux.voices[0].name == "Maeve"
+    assert flux.voices[0].accent == "Irish"
+    assert flux.voices[0].gender == "female"
+    assert flux.voices[0].preview_url == "https://audio.example/maeve.wav"
+    assert [str(r.url) for r in requests] == ["https://api.eu.deepgram.com/v2/models"]
+    assert requests[0].headers["Authorization"] == "Token deepgram-key"
+
+    everything = await voice_catalog.get_connection_voices(
+        "deepgram", 42, connection.uuid
+    )
+    assert [voice.voice_id for voice in everything.voices] == [
+        "aura-2-helena-en",
+        "flux-maeve-en",
+    ]
+    assert [r.url.path for r in requests[1:]] == ["/v1/models", "/v2/models"]
+
+
 @pytest.mark.parametrize(
     "model,language,expected",
     [

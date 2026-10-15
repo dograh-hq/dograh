@@ -1281,16 +1281,19 @@ async def list_whatsapp_templates_for_config(
         phone_numbers: list[WhatsAppPhoneNumberItem] = []
         try:
             raw_numbers = await provider.list_provider_phone_numbers()
+            provider_numbers: list[WhatsAppPhoneNumberItem] = []
             for p in raw_numbers:
                 p_meta = p.metadata if isinstance(p.metadata, dict) else {}
-                phone_numbers.append(
+                provider_numbers.append(
                     WhatsAppPhoneNumberItem(
                         phone_number_id=p_meta.get("phone_number_id") or p.external_id or p.address,
                         display_phone_number=p.address,
                         verified_name=p_meta.get("verified_name") or p.label,
                     )
                 )
+            phone_numbers = provider_numbers
         except Exception:
+            phone_numbers = []
             db_numbers = await db_client.list_phone_numbers_for_config(config_id)
             for n in db_numbers:
                 extra = n.extra_metadata if isinstance(n.extra_metadata, dict) else {}

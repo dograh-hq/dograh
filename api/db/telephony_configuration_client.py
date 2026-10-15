@@ -109,6 +109,10 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             if active_only:
                 query = query.where(TelephonyConfigurationModel.inactive.is_(False))
+            query = query.order_by(
+                TelephonyConfigurationModel.is_default_outbound.desc(),
+                TelephonyConfigurationModel.id.asc(),
+            )
             result = await session.execute(query)
             return list(result.scalars().all())
 

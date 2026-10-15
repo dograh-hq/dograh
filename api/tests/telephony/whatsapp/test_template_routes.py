@@ -224,3 +224,52 @@ class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 502)
         self.assertIn("Authentication failed with Meta Graph API", ctx.exception.detail)
 
+    async def test_list_templates_provider_loop_failure_does_not_duplicate_phone_numbers(self):
+        cfg = MagicMock(spec=TelephonyConfigurationModel)
+        cfg.id = 10
+        cfg.provider = "whatsapp"
+        cfg.credentials = {"waba_id": "test_waba"}
+
+        # First item is valid, second item raises AttributeError / TypeError during iteration/access
+        class BadItem:
+            @property
+            def metadata(self):
+                raise RuntimeError("Corrupt metadata payload mid-loop")
+
+        valid_item = MagicMock()
+        valid_item.metadata = {"phone_number_id": "num_prov_1", "verified_name": "Prov Num 1"}
+        valid_item.external_id = None
+        valid_item.address = "+15551111"
+        valid_item.label = "Prov Num 1"
+
+        mock_provider = MagicMock()
+        mock_provider.list_message_templates = AsyncMock(return_value=[])
+        mock_provider.list_provider_phone_numbers = AsyncMock(return_value=[valid_item, BadItem()])
+
+        mock_db_num = MagicMock()
+        mock_db_num.address = "+15552222"
+        mock_db_num.label = "DB Num"
+        mock_db_num.extra_metadata = {"provider": {"phone_number_id": "num_db_1", "verified_name": "DB Num"}}
+
+        with (
+            patch(
+                "api.routes.organization._ensure_config_belongs_to_org",
+                AsyncMock(return_value=cfg),
+            ),
+            patch(
+                "api.routes.organization.get_telephony_provider_by_id",
+                AsyncMock(return_value=mock_provider),
+            ),
+            patch(
+                "api.routes.organization.db_client.list_phone_numbers_for_config",
+                AsyncMock(return_value=[mock_db_num]),
+            ),
+        ):
+            res = await list_whatsapp_templates_for_config(config_id=10, user=self.user)
+
+        # Must only contain the fallback database numbers, NOT the partial provider list
+        self.assertEqual(len(res.phone_numbers), 1)
+        self.assertEqual(res.phone_numbers[0].phone_number_id, "num_db_1")
+        self.assertEqual(res.phone_numbers[0].display_phone_number, "+15552222")
+
+

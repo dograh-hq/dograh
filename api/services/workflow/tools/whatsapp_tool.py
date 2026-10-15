@@ -123,6 +123,7 @@ async def execute_whatsapp_tool(
             # Outbound call: the lead is called_number
             raw_recipient = (
                 initial_context.get("called_number")
+                or initial_context.get("to")
                 or initial_context.get("phone_number")
                 or initial_context.get("to_number")
                 or initial_context.get("customer_phone_number")
@@ -177,11 +178,7 @@ async def execute_whatsapp_tool(
                     if param_name in ("template_id", "template_name", "recipient_phone_number", "parameters"):
                         llm_arg_val = arguments.get(f"param_{param_name}") or arguments.get(f"var_{param_name}", "")
                     else:
-                        llm_arg_val = (
-                            arguments.get(param_name)
-                            or arguments.get(f"param_{param_name}")
-                            or arguments.get(f"var_{param_name}", "")
-                        )
+                        llm_arg_val = arguments.get(param_name)
                     if str(llm_arg_val or "").strip():
                         param_list.append(str(llm_arg_val).strip())
                     else:
@@ -230,11 +227,7 @@ async def execute_whatsapp_tool(
                 if param_name in ("template_id", "template_name", "recipient_phone_number", "parameters"):
                     llm_arg_val = arguments.get(f"param_{param_name}") or arguments.get(f"var_{param_name}", "")
                 else:
-                    llm_arg_val = (
-                        arguments.get(param_name)
-                        or arguments.get(f"param_{param_name}")
-                        or arguments.get(f"var_{param_name}", "")
-                    )
+                    llm_arg_val = arguments.get(param_name)
                 if str(llm_arg_val or "").strip():
                     param_list.append(str(llm_arg_val).strip())
                 elif fallback_val is not None and str(fallback_val).strip():

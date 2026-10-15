@@ -936,4 +936,140 @@ async def test_validate_tool_references_auto_populates_whatsapp_telephony_id():
     assert definition["config"]["telephony_configuration_id"] == 77
 
 
+@pytest.mark.asyncio
+async def test_validate_tool_references_picks_deterministic_default_with_multiple_configs():
+    from api.services.tool_management import validate_tool_references
+
+    cfg1 = MagicMock()
+    cfg1.id = 101
+    cfg1.is_default_outbound = False
+
+    cfg2 = MagicMock()
+    cfg2.id = 55
+    cfg2.is_default_outbound = True
+
+    cfg3 = MagicMock()
+    cfg3.id = 20
+    cfg3.is_default_outbound = False
+
+    definition = {"type": "whatsapp", "config": {}}
+
+    # When cfg2 is marked default outbound, it must be preferred regardless of ordering
+    with patch(
+        "api.services.tool_management.db_client.list_telephony_configurations_by_provider",
+        AsyncMock(return_value=[cfg1, cfg2, cfg3]),
+    ):
+        await validate_tool_references(definition, organization_id=10)
+    assert definition["config"]["telephony_configuration_id"] == 55
+
+    # When no config is marked default outbound, lowest id must be chosen deterministically
+    definition_no_default = {"type": "whatsapp", "config": {}}
+    with patch(
+        "api.services.tool_management.db_client.list_telephony_configurations_by_provider",
+        AsyncMock(return_value=[cfg1, cfg3]),
+    ):
+        await validate_tool_references(definition_no_default, organization_id=10)
+    assert definition_no_default["config"]["telephony_configuration_id"] == 20
+
+
+@pytest.mark.asyncio
+async def test_execute_whatsapp_tool_outbound_with_only_to_aligns_recipient_and_lead_phone():
+    from api.services.workflow.tools.whatsapp_tool import execute_whatsapp_tool
+
+    config = {
+        "execution_mode": "sync",
+        "telephony_configuration_id": 42,
+        "templates": [
+            {
+                "id": "tpl_to",
+                "name": "To Notice",
+                "template_name": "to_notice",
+                "language_code": "en_US",
+                "variable_mappings": [
+                    {
+                        "index": 1,
+                        "name": "customer_phone",
+                        "source": "lead_phone",
+                    }
+                ],
+            }
+        ],
+    }
+    tool = MockTool("WhatsApp To Tool", config)
+    mock_provider = AsyncMock()
+    mock_provider.send_template_message = AsyncMock(return_value={"id": "msg_999"})
+
+    # Context contains ONLY 'to' for customer destination
+    context_outbound_to = {
+        "call_direction": "outbound",
+        "caller_number": "+15550001111",  # Business caller ID
+        "to": "+15558883333",              # Destination lead phone
+    }
+    with patch(
+        "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
+        AsyncMock(return_value=mock_provider),
+    ):
+        res = await execute_whatsapp_tool(
+            tool=tool,
+            arguments={},
+            call_context_vars=context_outbound_to,
+            organization_id=10,
+        )
+        assert res["status"] == "delivered"
+        mock_provider.send_template_message.assert_awaited_with(
+            to_number="15558883333",
+            template_name="to_notice",
+            language_code="en_US",
+            parameters=["15558883333"],
+            from_phone_number_id=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_execute_whatsapp_tool_ordinary_variable_does_not_fall_back_to_param_prefixed_alias():
+    from api.services.workflow.tools.whatsapp_tool import execute_whatsapp_tool
+
+    config = {
+        "execution_mode": "sync",
+        "telephony_configuration_id": 42,
+        "templates": [
+            {
+                "id": "tpl_ord",
+                "name": "Order Notice",
+                "template_name": "order_notice",
+                "language_code": "en_US",
+                "variable_mappings": [
+                    {
+                        "index": 1,
+                        "name": "order_id",
+                        "source": "llm",
+                    }
+                ],
+            }
+        ],
+    }
+    tool = MockTool("WhatsApp Tool", config)
+    mock_provider = AsyncMock()
+
+    # Model supplies only 'param_order_id', but the variable is ordinary 'order_id'
+    # It must NOT read 'param_order_id' as the value for 'order_id'
+    arguments = {"param_order_id": "MISMATCHED_ORDER_123"}
+    context = {"called_number": "+15559998888", "call_direction": "outbound"}
+
+    with patch(
+        "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
+        AsyncMock(return_value=mock_provider),
+    ):
+        res = await execute_whatsapp_tool(
+            tool=tool,
+            arguments=arguments,
+            call_context_vars=context,
+            organization_id=10,
+        )
+        assert res["status"] == "error"
+        assert "Missing required parameter 'order_id'" in res["error"]
+        mock_provider.send_template_message.assert_not_called()
+
+
+
 

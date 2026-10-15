@@ -120,7 +120,7 @@ export function WhatsAppToolConfig({
         } finally {
             setIsLoadingData(false);
         }
-    }, [getAccessToken, telephonyConfigId, user, loading]);
+    }, [getAccessToken, telephonyConfigId, user, loading, onTelephonyConfigIdChange]);
 
     useEffect(() => {
         fetchData();

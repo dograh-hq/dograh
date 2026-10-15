@@ -14,11 +14,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
-from api.db.models import CampaignModel, TelephonyConfigurationModel
+from api.db.models import CampaignModel, TelephonyConfigurationModel, ToolModel
+from api.enums import ToolCategory, ToolStatus
 
 
 class TelephonyConfigurationInUseError(Exception):
-    """Raised when deleting a config that is still referenced by a campaign."""
+    """Raised when deleting a config that is still referenced by a campaign or tool."""
 
 
 class TelephonyConfigurationConflictError(Exception):
@@ -108,6 +109,10 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             if active_only:
                 query = query.where(TelephonyConfigurationModel.inactive.is_(False))
+            query = query.order_by(
+                TelephonyConfigurationModel.is_default_outbound.desc(),
+                TelephonyConfigurationModel.id.asc(),
+            )
             result = await session.execute(query)
             return list(result.scalars().all())
 
@@ -369,6 +374,26 @@ class TelephonyConfigurationClient(BaseDBClient):
                     f"Telephony configuration {config_id} is referenced by one or "
                     f"more campaigns and cannot be deleted."
                 )
+
+            if row.provider == "whatsapp":
+                tool_ref = await session.execute(
+                    select(ToolModel)
+                    .where(
+                        ToolModel.organization_id == organization_id,
+                        ToolModel.category == ToolCategory.WHATSAPP.value,
+                        ToolModel.status == ToolStatus.ACTIVE.value,
+                    )
+                )
+                active_tools = tool_ref.scalars().all()
+
+                for tool in active_tools:
+                    cfg = (tool.definition or {}).get("config", {}) or {}
+                    pinned_id = cfg.get("telephony_configuration_id")
+                    if pinned_id == config_id or pinned_id is None:
+                        raise TelephonyConfigurationInUseError(
+                            f"Telephony configuration is in use by active tool '{tool.name}'. "
+                            "Please archive or delete the tool first before removing this telephony configuration."
+                        )
 
             await session.delete(row)
             await session.commit()

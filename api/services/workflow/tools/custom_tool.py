@@ -153,6 +153,131 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
         }
         required.append("reason")
 
+    if definition.get("type") == "whatsapp":
+        templates = config.get("templates") or []
+        if not templates and config.get("template_name"):
+            t_name = config.get("template_name")
+            templates = [
+                {
+                    "id": t_name,
+                    "name": t_name,
+                    "description": "",
+                    "template_name": t_name,
+                    "variable_mappings": config.get("variable_mappings") or [],
+                }
+            ]
+
+        properties = {}
+        required = []
+
+        if len(templates) > 1:
+            template_choices = [
+                str(t.get("id") or (idx + 1)) for idx, t in enumerate(templates)
+            ]
+            template_desc_lines = [
+                "The WhatsApp template choice to send (1, 2, ...):"
+            ]
+            for idx, t in enumerate(templates):
+                tid = str(t.get("id") or (idx + 1))
+                name = t.get("name") or t.get("template_name") or f"Template {idx + 1}"
+                desc = t.get("description")
+                desc_str = f": {desc}" if desc else ""
+                template_desc_lines.append(f"- '{tid}' for {name}{desc_str}")
+
+            properties["template_id"] = {
+                "type": "string",
+                "enum": template_choices,
+                "description": "\n".join(template_desc_lines),
+            }
+            required.append("template_id")
+        elif len(templates) == 1:
+            tid = str(templates[0].get("id") or "1")
+            name = templates[0].get("name") or templates[0].get("template_name") or "Template 1"
+            desc = templates[0].get("description")
+            desc_str = f" ({desc})" if desc else ""
+            properties["template_id"] = {
+                "type": "string",
+                "enum": [tid],
+                "description": f"The template to send: '{tid}' for {name}{desc_str}",
+            }
+        else:
+            properties["template_name"] = {
+                "type": "string",
+                "description": "The approved WhatsApp template name to send.",
+            }
+            required.append("template_name")
+
+        # Expose parameters for any LLM-mapped variables across the configured templates
+        all_llm_vars: dict[str, str] = {}
+        all_context_fallback_vars: dict[str, str] = {}
+        has_free_parameters = False
+        for t in templates:
+            mappings = t.get("variable_mappings") or []
+            if mappings:
+                for m in mappings:
+                    source = m.get("source")
+                    param_name = m.get("name") or f"variable_{m.get('index')}"
+                    if source == "llm":
+                        param_desc = (
+                            m.get("value")
+                            or f"Value for template parameter '{param_name}'"
+                        )
+                        if len(templates) > 1:
+                            t_id = t.get("id") or t.get("template_name")
+                            param_desc = f"{param_desc} (for template '{t_id}')"
+                        if param_name in all_llm_vars:
+                            all_llm_vars[param_name] = f"{all_llm_vars[param_name]}; {param_desc}"
+                        else:
+                            all_llm_vars[param_name] = param_desc
+                    elif source == "context":
+                        # If a fallback_value is configured in the template, Dograh handles it
+                        # automatically so the LLM doesn't need to be prompted for it.
+                        if not m.get("fallback_value"):
+                            context_path = m.get("value", "")
+                            param_desc = f"Optional fallback value for '{param_name}' if context '{context_path}' is empty"
+                            if len(templates) > 1:
+                                t_id = t.get("id") or t.get("template_name")
+                                param_desc = f"{param_desc} (for template '{t_id}')"
+                            if param_name in all_context_fallback_vars:
+                                all_context_fallback_vars[param_name] = f"{all_context_fallback_vars[param_name]}; {param_desc}"
+                            else:
+                                all_context_fallback_vars[param_name] = param_desc
+            else:
+                has_free_parameters = True
+
+        reserved_param_names = {"template_id", "template_name", "recipient_phone_number", "parameters"}
+
+        for p_name, p_desc in all_llm_vars.items():
+            final_name = f"param_{p_name}" if p_name in reserved_param_names else p_name
+            properties[final_name] = {
+                "type": "string",
+                "description": p_desc,
+            }
+            if len(templates) == 1:
+                required.append(final_name)
+
+        # Context fallback vars are exposed as optional parameters (never required)
+        for p_name, p_desc in all_context_fallback_vars.items():
+            final_name = f"param_{p_name}" if p_name in reserved_param_names else p_name
+            if final_name not in properties:
+                properties[final_name] = {
+                    "type": "string",
+                    "description": p_desc,
+                }
+
+        if has_free_parameters or not templates:
+            properties["parameters"] = {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Ordered text values for the template placeholders ({{1}}, {{2}}, etc.).",
+            }
+
+        # Optional recipient override
+        properties["recipient_phone_number"] = {
+            "type": "string",
+            "description": "Optional recipient phone number in E.164 format. By default, automatically sends to the current caller/lead.",
+        }
+
     function_name = custom_tool_function_name(tool.name)
 
     return {

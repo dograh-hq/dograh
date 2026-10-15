@@ -375,8 +375,96 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         self.assertFalse(await verify({"x-hub-signature-256": "sha256=bad"}))
         self.assertFalse(await verify({"x-hub-signature-256": digest}))
         self.assertFalse(await verify({}))
-        # Non-ASCII header: rejected, not a TypeError turned into a 500.
         self.assertFalse(await verify({"x-hub-signature-256": f"sha256=é{digest[1:]}"}))
+
+    async def test_list_message_templates_parses_variables_and_examples(self):
+        templates_payload = {
+            "data": [
+                {
+                    "id": "12345",
+                    "name": "flight_update",
+                    "status": "APPROVED",
+                    "category": "UTILITY",
+                    "language": "en_US",
+                    "components": [
+                        {
+                            "type": "BODY",
+                            "text": "Hi {{1}}, your flight {{2}} is at {{3}}.",
+                            "example": {
+                                "body_text": [["Alice", "UA100", "5:00 PM"]]
+                            },
+                        }
+                    ],
+                }
+            ]
+        }
+        session = _DummySession({f"/{WABA}/message_templates": (200, templates_payload)})
+        with patch("aiohttp.ClientSession", return_value=session):
+            templates = await _provider().list_message_templates()
+
+        self.assertEqual(len(templates), 1)
+        tpl = templates[0]
+        self.assertEqual(tpl["id"], "12345")
+        self.assertEqual(tpl["name"], "flight_update")
+        self.assertEqual(tpl["category"], "UTILITY")
+        self.assertEqual(tpl["language"], "en_US")
+        self.assertEqual(len(tpl["variables"]), 3)
+        self.assertEqual(
+            tpl["variables"][0],
+            {"index": 1, "name": "variable_1", "example": "Alice", "component": "body"},
+        )
+        self.assertEqual(
+            tpl["variables"][1],
+            {"index": 2, "name": "variable_2", "example": "UA100", "component": "body"},
+        )
+        self.assertEqual(
+            tpl["variables"][2],
+            {"index": 3, "name": "variable_3", "example": "5:00 PM", "component": "body"},
+        )
+        self.assertEqual(session.requests[0][2]["params"], {"limit": 100, "status": "APPROVED"})
+
+    async def test_send_template_message_formats_payload_and_strips_plus(self):
+        phone_item = {
+            "id": "phone_999",
+            "display_phone_number": "+1 555-000-0000",
+            "verified_name": "Dograh HQ",
+        }
+        listing_payload = {"data": [phone_item], "paging": {}}
+        send_payload = {"messages": [{"id": "wamid.HBg123"}]}
+
+        session = _DummySession({
+            f"/{WABA}/phone_numbers": (200, listing_payload),
+            "/phone_999/messages": (200, send_payload),
+        })
+        with patch("aiohttp.ClientSession", return_value=session):
+            res = await _provider().send_template_message(
+                to_number="+1 (555) 123-4567",
+                template_name="booking_confirm",
+                language_code="en_US",
+                parameters=["John Doe", "Tomorrow 3pm"],
+            )
+
+        self.assertEqual(res, send_payload)
+        # Verify the POST request sent to Meta
+        send_req = [r for r in session.requests if r[1].endswith("/phone_999/messages")][0]
+        self.assertEqual(send_req[0], "post")
+        json_sent = send_req[2]["json"]
+        self.assertEqual(json_sent["to"], "15551234567")
+        self.assertEqual(json_sent["type"], "template")
+        self.assertEqual(json_sent["template"]["name"], "booking_confirm")
+        self.assertEqual(json_sent["template"]["language"]["code"], "en_US")
+        self.assertEqual(
+            json_sent["template"]["components"][0]["parameters"],
+            [{"type": "text", "text": "John Doe"}, {"type": "text", "text": "Tomorrow 3pm"}],
+        )
+
+    async def test_send_template_message_invalid_recipient_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            await _provider().send_template_message(
+                to_number="invalid-non-numeric",
+                template_name="test",
+            )
+        self.assertIn("Invalid recipient phone number", str(ctx.exception))
 
     def test_can_handle_webhook_recognises_meta_payloads_only(self):
         self.assertTrue(

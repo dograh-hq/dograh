@@ -374,6 +374,21 @@ async def update_tool(
 
     if request.status:
         validate_status(request.status)
+        if request.status == ToolStatus.ACTIVE.value:
+            existing = await db_client.get_tool_by_uuid(
+                tool_uuid, user.selected_organization_id, include_archived=True
+            )
+            if existing and existing.category == ToolCategory.WHATSAPP.value:
+                active_wa_tools = await db_client.get_tools_for_organization(
+                    organization_id=user.selected_organization_id,
+                    status=ToolStatus.ACTIVE.value,
+                    category=ToolCategory.WHATSAPP.value,
+                )
+                if any(t.tool_uuid != tool_uuid for t in active_wa_tools):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="An active WhatsApp Messaging tool already exists for this organization. You can configure multiple templates within that tool.",
+                    )
 
     definition = None
     if request.definition:
@@ -452,6 +467,52 @@ async def unarchive_tool(
         raise HTTPException(
             status_code=400, detail="No organization selected for the user"
         )
+
+    tool_to_restore = await db_client.get_tool_by_uuid(
+        tool_uuid, user.selected_organization_id, include_archived=True
+    )
+    if not tool_to_restore:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    if tool_to_restore.category == ToolCategory.WHATSAPP.value:
+        existing_wa = await db_client.get_tools_for_organization(
+            organization_id=user.selected_organization_id,
+            status=ToolStatus.ACTIVE.value,
+            category=ToolCategory.WHATSAPP.value,
+        )
+        if existing_wa:
+            raise HTTPException(
+                status_code=400,
+                detail="An active WhatsApp Messaging tool already exists for this organization. You can configure multiple templates within that tool.",
+            )
+
+        raw_def = tool_to_restore.definition if isinstance(tool_to_restore.definition, dict) else {}
+        config = raw_def.get("config", {}) if isinstance(raw_def.get("config"), dict) else {}
+        pinned_cfg_id = config.get("telephony_configuration_id")
+        if pinned_cfg_id is not None:
+            pinned_cfg = await db_client.get_telephony_configuration_for_org(
+                pinned_cfg_id, user.selected_organization_id, active_only=False
+            )
+            if (
+                not pinned_cfg
+                or pinned_cfg.provider != "whatsapp"
+                or pinned_cfg.inactive
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot unarchive WhatsApp tool because its configured WhatsApp telephony account (ID {pinned_cfg_id}) does not exist or is inactive.",
+                )
+        else:
+            wa_configs = await db_client.list_telephony_configurations_by_provider(
+                organization_id=user.selected_organization_id,
+                provider="whatsapp",
+                active_only=True,
+            )
+            if not wa_configs:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot unarchive WhatsApp tool because WhatsApp is not configured in Telephony settings. Please configure your WhatsApp Business Account in Telephony first.",
+                )
 
     tool = await db_client.unarchive_tool(tool_uuid, user.selected_organization_id)
 

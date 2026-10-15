@@ -11,9 +11,10 @@ vi.mock("@/client/sdk.gen", () => ({
     listWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGet: vi.fn(),
 }));
 
+const mockGetAccessToken = vi.fn().mockResolvedValue("test-token");
 vi.mock("@/lib/auth", () => ({
     useAuth: () => ({
-        getAccessToken: vi.fn().mockResolvedValue("test-token"),
+        getAccessToken: mockGetAccessToken,
     }),
 }));
 

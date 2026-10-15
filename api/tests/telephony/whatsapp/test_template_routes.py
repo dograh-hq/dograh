@@ -10,6 +10,7 @@ from api.routes.organization import (
     list_whatsapp_templates,
     list_whatsapp_templates_for_config,
 )
+from api.services.telephony.base import ProviderPhoneNumber
 
 
 class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
@@ -48,10 +49,11 @@ class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
         )
         mock_provider.list_provider_phone_numbers = AsyncMock(
             return_value=[
-                MagicMock(
-                    phone_number_id="pid_1",
-                    phone_number="+15551234",
-                    verified_name="Support",
+                ProviderPhoneNumber(
+                    address="+15551234",
+                    external_id="pid_1",
+                    label="Support",
+                    metadata={"phone_number_id": "pid_1", "verified_name": "Support"},
                 )
             ]
         )
@@ -80,6 +82,10 @@ class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
         self.assertEqual(res.templates[0].id, "tpl_1")
         self.assertEqual(res.templates[0].name, "welcome_message")
         self.assertEqual(res.templates[0].variables[0].name, "variable_1")
+        self.assertEqual(len(res.phone_numbers), 1)
+        self.assertEqual(res.phone_numbers[0].phone_number_id, "pid_1")
+        self.assertEqual(res.phone_numbers[0].display_phone_number, "+15551234")
+        self.assertEqual(res.phone_numbers[0].verified_name, "Support")
 
     async def test_list_templates_for_config_wrong_provider_raises(self):
         cfg = MagicMock(spec=TelephonyConfigurationModel)

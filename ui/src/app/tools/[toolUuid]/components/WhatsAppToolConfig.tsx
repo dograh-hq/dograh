@@ -57,6 +57,7 @@ export interface WhatsAppToolConfigProps {
     onFallbackRecipientPhoneChange?: (phone: string) => void;
     templates: WhatsAppTemplateConfig[];
     onTemplatesChange: (templates: WhatsAppTemplateConfig[]) => void;
+    telephonyConfigId?: number | null;
 }
 
 export function WhatsAppToolConfig({
@@ -70,6 +71,7 @@ export function WhatsAppToolConfig({
     onFallbackRecipientPhoneChange,
     templates,
     onTemplatesChange,
+    telephonyConfigId,
 }: WhatsAppToolConfigProps) {
     const { getAccessToken } = useAuth();
     const [availableTemplates, setAvailableTemplates] = useState<WhatsAppTemplateItem[]>([]);
@@ -90,6 +92,7 @@ export function WhatsAppToolConfig({
             setLoadError(null);
             const token = await getAccessToken();
             const res = await listWhatsappTemplatesApiV1OrganizationsWhatsappTemplatesGet({
+                query: telephonyConfigId ? { config_id: telephonyConfigId } : undefined,
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -111,7 +114,7 @@ export function WhatsAppToolConfig({
         } finally {
             setIsLoadingData(false);
         }
-    }, [getAccessToken]);
+    }, [getAccessToken, telephonyConfigId]);
 
     useEffect(() => {
         fetchData();
@@ -136,7 +139,7 @@ export function WhatsAppToolConfig({
             id: nextId,
             name: `Template ${nextId}`,
             description: "",
-            template_name: null,
+            template_name: "",
             template_id: null,
             language_code: "en_US",
             from_phone_number_id: null,
@@ -711,6 +714,7 @@ export function WhatsAppToolConfig({
                             onClick={() => handleRemoveTemplate(tpl.id)}
                             aria-label={`Delete template ${tpl.name || tpl.id}`}
                             title="Delete template"
+                            disabled={editingId !== null}
                         >
                             <Trash2 className="h-4 w-4" />
                         </Button>

@@ -107,7 +107,8 @@ async def _graph_request(
     """One Graph API request with the bearer token; any non-200/201 is an error."""
     headers = {"Authorization": f"Bearer {access_token}"}
     try:
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=15.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             request = getattr(session, method)
             async with request(
                 url, headers=headers, params=params, json=json_data
@@ -308,12 +309,27 @@ class WhatsAppProvider(TelephonyProvider):
         self, status: Optional[str] = "APPROVED"
     ) -> List[Dict[str, Any]]:
         """Fetch message templates from the Business Account with extracted variables."""
-        url = f"{GRAPH_API_BASE_URL}/{self.waba_id}/message_templates"
-        params: Dict[str, Any] = {"limit": 100}
+        url: str = f"{GRAPH_API_BASE_URL}/{self.waba_id}/message_templates"
+        params: Optional[Dict[str, Any]] = {"limit": 100}
         if status:
             params["status"] = status
-        payload = await _graph_request("get", url, self.access_token, params=params)
-        items = payload.get("data", []) or []
+
+        items: List[Dict[str, Any]] = []
+        visited: set[str] = set()
+
+        for _ in range(MAX_PHONE_NUMBER_PAGES):
+            visited.add(url)
+            payload = await _graph_request("get", url, self.access_token, params=params)
+            page_items = payload.get("data", []) or []
+            if isinstance(page_items, list):
+                items.extend(page_items)
+
+            paging = payload.get("paging")
+            next_url = paging.get("next") if isinstance(paging, dict) else None
+            url = next_url if isinstance(next_url, str) else ""
+            params = None
+            if not url or url in visited:
+                break
 
         parsed_templates = []
         for item in items:

@@ -362,7 +362,7 @@ export default function ToolDetailPage() {
                             id: (legacy.template_name as string) || "default_template",
                             name: (legacy.template_name as string) || "Default Template",
                             description: "",
-                            template_name: (legacy.template_name as string) || null,
+                            template_name: (legacy.template_name as string) || "",
                             template_id: (legacy.template_id as string) || null,
                             language_code: (legacy.language_code as string) || "en_US",
                             from_phone_number_id: (legacy.from_phone_number_id as string) || null,
@@ -601,6 +601,10 @@ export default function ToolDetailPage() {
                 return;
             }
         } else if (tool.category === "whatsapp") {
+            if (whatsAppTemplates.length === 0) {
+                setError("At least one WhatsApp template must be configured");
+                return;
+            }
             // Validate WhatsApp templates
             for (let i = 0; i < whatsAppTemplates.length; i++) {
                 const tpl = whatsAppTemplates[i];
@@ -621,7 +625,7 @@ export default function ToolDetailPage() {
                         setError(`Template #${i + 1} (${tpl.name}): Variable {{${v.index}}} requires a context path (e.g. {{initial_context.lead_name}})`);
                         return;
                     }
-                    if (v.source === "static" && !v.value?.trim()) {
+                    if ((v.source === "static" || v.source === "literal") && !v.value?.trim()) {
                         setError(`Template #${i + 1} (${tpl.name}): Variable {{${v.index}}} requires a fixed text value`);
                         return;
                     }
@@ -1238,6 +1242,7 @@ const data = await response.json();`;
                         onFallbackRecipientPhoneChange={setWhatsAppFallbackRecipientPhone}
                         templates={whatsAppTemplates}
                         onTemplatesChange={setWhatsAppTemplates}
+                        telephonyConfigId={whatsAppTelephonyConfigId}
                     />
                 ) : (
                     <HttpApiToolConfig

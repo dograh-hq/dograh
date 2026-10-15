@@ -762,6 +762,20 @@ class WhatsAppTemplateConfig(BaseModel):
         description="Mappings for template placeholder variables ({{1}}, {{2}}).",
     )
 
+    @field_validator("variable_mappings")
+    @classmethod
+    def validate_variable_mappings(
+        cls, mappings: list[WhatsAppVariableMapping]
+    ) -> list[WhatsAppVariableMapping]:
+        indexes = [m.index for m in mappings]
+        if len(indexes) != len(set(indexes)):
+            raise ValueError("Duplicate variable mapping indexes are not allowed.")
+        if indexes and set(indexes) != set(range(1, len(indexes) + 1)):
+            raise ValueError(
+                "Variable mapping indexes must be contiguous and 1-indexed (1, 2, ...)."
+            )
+        return mappings
+
 
 class WhatsAppToolConfig(BaseModel):
     """Configuration for WhatsApp template message tools supporting multiple templates."""
@@ -789,6 +803,16 @@ class WhatsAppToolConfig(BaseModel):
         description="List of configured templates available to the agent for this tool.",
     )
 
+    @field_validator("templates")
+    @classmethod
+    def validate_templates(
+        cls, templates: list[WhatsAppTemplateConfig]
+    ) -> list[WhatsAppTemplateConfig]:
+        ids = [t.id for t in templates]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Duplicate template IDs are not allowed in WhatsApp tool.")
+        return templates
+
     @model_validator(mode="before")
     @classmethod
     def migrate_legacy_single_template(cls, data: Any) -> Any:
@@ -810,6 +834,14 @@ class WhatsAppToolConfig(BaseModel):
                         "variable_mappings": data.get("variable_mappings") or [],
                     }
                 ]
+            for k in (
+                "template_name",
+                "template_id",
+                "language_code",
+                "from_phone_number_id",
+                "variable_mappings",
+            ):
+                data.pop(k, None)
         return data
 
 

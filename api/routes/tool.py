@@ -471,16 +471,33 @@ async def unarchive_tool(
                 detail="An active WhatsApp Messaging tool already exists for this organization. You can configure multiple templates within that tool.",
             )
 
-        wa_configs = await db_client.list_telephony_configurations_by_provider(
-            organization_id=user.selected_organization_id,
-            provider="whatsapp",
-            active_only=True,
-        )
-        if not wa_configs:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot unarchive WhatsApp tool because WhatsApp is not configured in Telephony settings. Please configure your WhatsApp Business Account in Telephony first.",
+        raw_def = tool_to_restore.definition if isinstance(tool_to_restore.definition, dict) else {}
+        config = raw_def.get("config", {}) if isinstance(raw_def.get("config"), dict) else {}
+        pinned_cfg_id = config.get("telephony_configuration_id")
+        if pinned_cfg_id is not None:
+            pinned_cfg = await db_client.get_telephony_configuration_for_org(
+                pinned_cfg_id, user.selected_organization_id, active_only=False
             )
+            if (
+                not pinned_cfg
+                or pinned_cfg.provider != "whatsapp"
+                or pinned_cfg.inactive
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot unarchive WhatsApp tool because its configured WhatsApp telephony account (ID {pinned_cfg_id}) does not exist or is inactive.",
+                )
+        else:
+            wa_configs = await db_client.list_telephony_configurations_by_provider(
+                organization_id=user.selected_organization_id,
+                provider="whatsapp",
+                active_only=True,
+            )
+            if not wa_configs:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot unarchive WhatsApp tool because WhatsApp is not configured in Telephony settings. Please configure your WhatsApp Business Account in Telephony first.",
+                )
 
     tool = await db_client.unarchive_tool(tool_uuid, user.selected_organization_id)
 

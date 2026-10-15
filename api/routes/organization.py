@@ -1283,9 +1283,9 @@ async def list_whatsapp_templates_for_config(
             raw_numbers = await provider.list_provider_phone_numbers()
             phone_numbers = [
                 WhatsAppPhoneNumberItem(
-                    phone_number_id=p.extra_data.get("phone_number_id") or p.address,
+                    phone_number_id=p.metadata.get("phone_number_id") or p.external_id or p.address,
                     display_phone_number=p.address,
-                    verified_name=p.extra_data.get("verified_name"),
+                    verified_name=p.metadata.get("verified_name") or p.label,
                 )
                 for p in raw_numbers
             ]
@@ -1293,9 +1293,15 @@ async def list_whatsapp_templates_for_config(
             db_numbers = await db_client.list_phone_numbers_for_config(config_id)
             phone_numbers = [
                 WhatsAppPhoneNumberItem(
-                    phone_number_id=n.address,
+                    phone_number_id=(
+                        ((n.extra_metadata or {}).get("provider") or {}).get("phone_number_id")
+                        or n.address
+                    ),
                     display_phone_number=n.address,
-                    verified_name=n.label,
+                    verified_name=(
+                        ((n.extra_metadata or {}).get("provider") or {}).get("verified_name")
+                        or n.label
+                    ),
                 )
                 for n in db_numbers
             ]
@@ -1317,8 +1323,12 @@ async def list_whatsapp_templates_for_config(
             organization_id=user.selected_organization_id,
             telephony_configuration_id=config_id,
         )
+        safe_detail = "Failed to fetch WhatsApp templates"
+        err_str = str(e)
+        if "Authentication" in err_str or "unauthorized" in err_str.lower():
+            safe_detail = "Failed to fetch WhatsApp templates: Authentication failed with Meta Graph API"
         raise HTTPException(
-            status_code=502, detail=f"Failed to fetch WhatsApp templates: {e}"
+            status_code=502, detail=safe_detail
         ) from e
 
 

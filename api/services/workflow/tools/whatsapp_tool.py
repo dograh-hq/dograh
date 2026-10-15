@@ -13,6 +13,16 @@ from api.errors.failure import DograhFailure, ErrorSource, ErrorType, log_failur
 from api.services.telephony.factory import get_telephony_provider_by_id
 from api.utils.template_renderer import render_template
 
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _clean_phone_number(val: Any) -> str:
+    """Normalize phone number and verify E.164 digit length (7-15 digits)."""
+    digits = re.sub(r"\D", "", str(val or ""))
+    if 7 <= len(digits) <= 15:
+        return digits
+    return ""
+
 
 async def execute_whatsapp_tool(
     tool: Any,
@@ -124,7 +134,7 @@ async def execute_whatsapp_tool(
                 or initial_context.get("called_number")
             )
 
-    clean_recipient = re.sub(r"\D", "", str(raw_recipient or ""))
+    clean_recipient = _clean_phone_number(raw_recipient)
     if not clean_recipient:
         # Check configured template fallback or tool fallback recipient phone number
         fallback_recipient = (
@@ -133,7 +143,7 @@ async def execute_whatsapp_tool(
             or config.get("test_recipient_phone_number")
         )
         if fallback_recipient:
-            clean_recipient = re.sub(r"\D", "", str(fallback_recipient))
+            clean_recipient = _clean_phone_number(fallback_recipient)
 
     if not clean_recipient:
         err_msg = (
@@ -154,58 +164,61 @@ async def execute_whatsapp_tool(
             source = mapping.get("source", "llm")
             mapping_val = mapping.get("value", "")
             fallback_val = mapping.get("fallback_value")
+            param_name = mapping.get("name") or f"variable_{mapping.get('index')}"
 
             if source == "context":
                 rendered = render_template(mapping_val, render_context)
                 if rendered is not None and str(rendered).strip():
-                    param_list.append(str(rendered))
+                    param_list.append(str(rendered).strip())
                 elif fallback_val is not None and str(fallback_val).strip():
-                    # 1. Configured fallback value from template
                     param_list.append(str(fallback_val).strip())
                 else:
-                    # 2. Fallback to LLM argument if context variable was empty/not found
-                    param_name = mapping.get("name") or f"variable_{mapping.get('index')}"
                     llm_arg_val = arguments.get(param_name, "")
                     if str(llm_arg_val or "").strip():
-                        param_list.append(str(llm_arg_val))
+                        param_list.append(str(llm_arg_val).strip())
                     else:
-                        # 3. Non-empty default so Meta doesn't 400
-                        if "name" in param_name.lower():
-                            llm_arg_val = "Guest"
-                        elif "date" in param_name.lower() or "time" in param_name.lower():
-                            llm_arg_val = "Upcoming"
-                        elif "order" in param_name.lower() or "number" in param_name.lower():
-                            llm_arg_val = "TAB-101"
-                        else:
-                            llm_arg_val = "-"
-                        param_list.append(str(llm_arg_val))
+                        err_msg = (
+                            f"Missing required parameter '{param_name}' for template '{template_name}'. "
+                            f"Context variable '{mapping_val}' was not found, no fallback was configured, "
+                            f"and no value was supplied by LLM."
+                        )
+                        logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
+                        return {"status": "error", "error": err_msg}
             elif source in ("static", "literal"):
-                param_list.append(str(mapping_val if str(mapping_val).strip() else "-"))
-            elif source == "lead_phone":
-                if clean_recipient and str(clean_recipient).strip():
-                    param_list.append(str(clean_recipient))
+                if mapping_val is not None and str(mapping_val).strip():
+                    param_list.append(str(mapping_val).strip())
                 elif fallback_val is not None and str(fallback_val).strip():
                     param_list.append(str(fallback_val).strip())
                 else:
-                    param_list.append("-")
+                    err_msg = f"Missing static text value for variable '{param_name}' in template '{template_name}'."
+                    logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
+                    return {"status": "error", "error": err_msg}
+            elif source == "lead_phone":
+                caller_phone = _clean_phone_number(
+                    initial_context.get("caller_number")
+                    or initial_context.get("from_number")
+                    or initial_context.get("phone_number")
+                )
+                if caller_phone:
+                    param_list.append(caller_phone)
+                elif fallback_val is not None and str(fallback_val).strip():
+                    param_list.append(str(fallback_val).strip())
+                elif clean_recipient:
+                    param_list.append(clean_recipient)
+                else:
+                    err_msg = f"Missing lead phone number for variable '{param_name}' in template '{template_name}'."
+                    logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
+                    return {"status": "error", "error": err_msg}
             else:  # "llm"
-                param_name = mapping.get("name") or f"variable_{mapping.get('index')}"
                 llm_arg_val = arguments.get(param_name, "")
                 if str(llm_arg_val or "").strip():
                     param_list.append(str(llm_arg_val).strip())
                 elif fallback_val is not None and str(fallback_val).strip():
                     param_list.append(str(fallback_val).strip())
                 else:
-                    # Meta Graph API throws error (#131008) if text parameter value is empty
-                    if "name" in param_name.lower():
-                        llm_arg_val = "Guest"
-                    elif "date" in param_name.lower() or "time" in param_name.lower():
-                        llm_arg_val = "Upcoming"
-                    elif "order" in param_name.lower() or "number" in param_name.lower():
-                        llm_arg_val = "TAB-101"
-                    else:
-                        llm_arg_val = "-"
-                    param_list.append(str(llm_arg_val))
+                    err_msg = f"Missing required parameter '{param_name}' for template '{template_name}'."
+                    logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
+                    return {"status": "error", "error": err_msg}
     elif "parameters" in arguments and isinstance(arguments["parameters"], list):
         param_list = [str(p if str(p).strip() else "-") for p in arguments["parameters"]]
 
@@ -242,9 +255,10 @@ async def execute_whatsapp_tool(
 
     execution_mode = config.get("execution_mode", "async")
 
+    masked_recipient = f"...{clean_recipient[-4:]}" if len(clean_recipient) >= 4 else "***"
     logger.info(
         f"Executing WhatsApp tool '{tool.name}' ({execution_mode}) -> "
-        f"template '{template_name}' from {from_phone_number_id or 'default'} to {clean_recipient} params={param_list}"
+        f"template '{template_name}' from {from_phone_number_id or 'default'} to {masked_recipient} param_count={len(param_list)}"
     )
 
     # 5. Execute Dispatch (Async vs Sync)
@@ -273,10 +287,13 @@ async def execute_whatsapp_tool(
                 organization_id=organization_id,
                 tool_name=tool.name,
             )
-            raise
+            if execution_mode != "async":
+                raise
 
     if execution_mode == "async":
-        asyncio.create_task(_send_msg())
+        task = asyncio.create_task(_send_msg())
+        _BACKGROUND_TASKS.add(task)
+        task.add_done_callback(_BACKGROUND_TASKS.discard)
         return {
             "status": "queued",
             "message": (

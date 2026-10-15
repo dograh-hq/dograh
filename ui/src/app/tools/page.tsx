@@ -115,7 +115,8 @@ export default function ToolsPage() {
                     },
                 });
                 if (teleRes.data) {
-                    const hasActiveWa = teleRes.data.some(
+                    const configs = teleRes.data.configurations || [];
+                    const hasActiveWa = configs.some(
                         (c) => c.provider === "whatsapp" && !c.inactive
                     );
                     setHasWhatsAppTelephony(hasActiveWa);

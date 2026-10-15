@@ -141,6 +141,39 @@ async def validate_tool_references(
                 status_code=404,
             )
 
+    if definition.get("type") == ToolCategory.WHATSAPP.value:
+        config = definition.get("config", {}) or {}
+        cfg_id = config.get("telephony_configuration_id")
+        if cfg_id is not None:
+            telephony_cfg = await db_client.get_telephony_configuration_for_org(
+                cfg_id, organization_id, active_only=False
+            )
+            if (
+                not telephony_cfg
+                or telephony_cfg.provider != "whatsapp"
+                or telephony_cfg.inactive
+            ):
+                raise ToolManagementError(
+                    "whatsapp_telephony_not_configured",
+                    (
+                        f"Selected WhatsApp telephony configuration (ID {cfg_id}) does not exist, "
+                        "is inactive, or is not a WhatsApp provider."
+                    ),
+                    status_code=400,
+                )
+        else:
+            wa_configs = await db_client.list_telephony_configurations_by_provider(
+                organization_id=organization_id,
+                provider="whatsapp",
+                active_only=True,
+            )
+            if not wa_configs:
+                raise ToolManagementError(
+                    "whatsapp_telephony_not_configured",
+                    "WhatsApp is not configured in Telephony settings. Please configure your WhatsApp Business Account in Telephony first.",
+                    status_code=400,
+                )
+
     recording_ids = {
         message["recording_id"]
         for message in definition.get("messages", [])
@@ -216,18 +249,6 @@ async def create_tool_for_user(
             raise ToolManagementError(
                 "whatsapp_tool_already_exists",
                 "A WhatsApp Messaging tool already exists for this organization. You can configure multiple templates within that tool.",
-                status_code=400,
-            )
-
-        wa_configs = await db_client.list_telephony_configurations_by_provider(
-            organization_id=user.selected_organization_id,
-            provider="whatsapp",
-            active_only=True,
-        )
-        if not wa_configs:
-            raise ToolManagementError(
-                "whatsapp_telephony_not_configured",
-                "WhatsApp is not configured in Telephony settings. Please configure your WhatsApp Business Account in Telephony first.",
                 status_code=400,
             )
 

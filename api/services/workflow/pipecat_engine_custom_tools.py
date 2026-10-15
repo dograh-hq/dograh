@@ -333,7 +333,7 @@ class CustomToolManager:
             timeout_secs = self._transfer_handler_timeout_secs(tool)
             handler = self._create_transfer_call_handler(tool, function_name)
         elif tool.category == ToolCategory.WHATSAPP.value:
-            timeout_secs = 10.0
+            timeout_secs = 15.0
             handler = self._create_whatsapp_tool_handler(tool, function_name)
         else:
             timeout_ms = ((tool.definition or {}).get("config", {}) or {}).get(

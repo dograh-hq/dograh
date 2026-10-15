@@ -417,7 +417,12 @@ async def test_unarchive_whatsapp_tool_enforces_single_active_tool_per_org():
     user.id = 1
     user.selected_organization_id = 42
 
-    archived_wa_tool = MagicMock(id=88, category="whatsapp", tool_uuid="archived-wa")
+    archived_wa_tool = MagicMock(
+        id=88,
+        category="whatsapp",
+        tool_uuid="archived-wa",
+        definition={"type": "whatsapp", "config": {}},
+    )
 
     # 1. When another active whatsapp tool already exists, unarchive is refused
     with (
@@ -685,11 +690,11 @@ async def test_execute_whatsapp_tool_fallback_values_for_context_and_lead_phone(
             to_number="15558889999",
             template_name="promo_notice",
             language_code="en_US",
-            parameters=["Valued Customer", "15558889999", "PROMO-2026"],
+            parameters=["Valued Customer", "your registered phone", "PROMO-2026"],
             from_phone_number_id=None,
         )
 
-    # Case 2: Inbound call with caller_number and lead_name in context
+    # Case 2: Inbound call with caller_number and lead_name in context -> uses caller_number
     with patch(
         "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
         return_value=mock_provider,
@@ -710,6 +715,48 @@ async def test_execute_whatsapp_tool_fallback_values_for_context_and_lead_phone(
             template_name="promo_notice",
             language_code="en_US",
             parameters=["Sarah Connor", "15553334444", "PROMO-2026"],
+            from_phone_number_id=None,
+        )
+
+    # Case 3: When lead_phone has no fallback_val and no caller in context, uses clean_recipient
+    config_no_phone_fb = {
+        "execution_mode": "sync",
+        "telephony_configuration_id": 42,
+        "fallback_recipient_phone_number": "+15558889999",
+        "templates": [
+            {
+                "id": "promo_temp",
+                "name": "Promo Notice",
+                "template_name": "promo_notice",
+                "language_code": "en_US",
+                "variable_mappings": [
+                    {
+                        "index": 1,
+                        "name": "customer_phone",
+                        "source": "lead_phone",
+                        "fallback_value": None,
+                    },
+                ],
+            }
+        ],
+    }
+    tool_no_phone_fb = MockTool("WhatsApp Promo No FB", config_no_phone_fb)
+    with patch(
+        "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
+        return_value=mock_provider,
+    ):
+        result = await execute_whatsapp_tool(
+            tool=tool_no_phone_fb,
+            arguments={},
+            call_context_vars={},
+            organization_id=1,
+        )
+        assert result["status"] == "delivered"
+        mock_provider.send_template_message.assert_awaited_with(
+            to_number="15558889999",
+            template_name="promo_notice",
+            language_code="en_US",
+            parameters=["15558889999"],
             from_phone_number_id=None,
         )
 

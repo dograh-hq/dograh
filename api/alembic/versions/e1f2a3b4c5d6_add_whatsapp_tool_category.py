@@ -44,6 +44,7 @@ def upgrade():
 
 
 def downgrade():
+    op.execute("DELETE FROM tools WHERE category = 'whatsapp'")
     _sync(
         [
             "http_api",

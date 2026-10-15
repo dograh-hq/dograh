@@ -20,12 +20,15 @@ Layers Dograh engine integration quirks onto upstream-pristine
   played straight to the transport, so the engine opens the session through
   the shared mixin instead. The seed must not request a turn, or Gemini
   greets the caller a second time.
+- **Input transcription language hint.** An explicitly configured language is
+  sent as ``language_codes`` so Gemini stops guessing the caller's language
+  per utterance (Gemini API only; Vertex support is unverified).
 """
 
 import asyncio
 from typing import Any, cast
 
-from google.genai.types import Content, ContentDict, Part
+from google.genai.types import Content, ContentDict, LiveConnectConfig, Part
 from loguru import logger
 
 from api.services.pipecat.gemini_json_schema_adapter import (
@@ -58,7 +61,15 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     adapter_class = DograhGeminiLiveJSONSchemaAdapter
 
     def __init__(self, **kwargs):
+        # Read before super() merges in upstream's en-US default, which must not
+        # turn into a hint that overrides auto-detection.
+        configured_language = getattr(kwargs.get("settings"), "language", None)
         super().__init__(**kwargs)
+        self._input_transcription_language: str | None = (
+            str(configured_language)
+            if isinstance(configured_language, str) and configured_language
+            else None
+        )
         self._transcription_grace_calls: list[FunctionCallFromLLM] = []
         self._transcription_grace_generation = 0
         # Text greeting captured from the first TTSSpeakFrame while the Gemini
@@ -407,6 +418,31 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
             await self._handle_send_error(e)
 
         self._ready_for_realtime_input = True
+
+    # ------------------------------------------------------------------
+    # Input transcription language: upstream sends an empty
+    # AudioTranscriptionConfig, so Gemini auto-detects the language of every
+    # caller utterance. Less common languages get mislabelled - phone-quality
+    # Georgian came back as Latin-script or Hindi gibberish, and verbatim with
+    # a ``ka-GE`` hint. Those transcripts seed the history on node transitions
+    # and reconnects, so bad ones degrade the conversation, not just the logs.
+    # ------------------------------------------------------------------
+
+    async def _connection_task_handler(self, config: LiveConnectConfig):
+        self._apply_input_transcription_language(config)
+        await super()._connection_task_handler(config=config)
+
+    def _apply_input_transcription_language(self, config: LiveConnectConfig) -> None:
+        transcription = config.input_audio_transcription
+        if (
+            not self._input_transcription_language
+            or transcription is None
+            or transcription.language_codes
+            # Vertex acceptance of language_codes is unverified.
+            or getattr(self._client, "vertexai", False)
+        ):
+            return
+        transcription.language_codes = [self._input_transcription_language]
 
     # ------------------------------------------------------------------
     # Session lifecycle: suppress upstream's automatic initial-context seed,

@@ -114,7 +114,9 @@ export default function ToolsPage() {
                         Authorization: `Bearer ${accessToken}`,
                     },
                 });
-                if (teleRes.data) {
+                if (teleRes.error || !teleRes.data) {
+                    setHasWhatsAppTelephony(false);
+                } else {
                     const configs = teleRes.data.configurations || [];
                     const hasActiveWa = configs.some(
                         (c) => c.provider === "whatsapp" && !c.inactive

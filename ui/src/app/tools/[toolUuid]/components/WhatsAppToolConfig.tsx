@@ -73,7 +73,7 @@ export function WhatsAppToolConfig({
     onTemplatesChange,
     telephonyConfigId,
 }: WhatsAppToolConfigProps) {
-    const { getAccessToken } = useAuth();
+    const { getAccessToken, user, loading } = useAuth();
     const [availableTemplates, setAvailableTemplates] = useState<WhatsAppTemplateItem[]>([]);
     const [availablePhoneNumbers, setAvailablePhoneNumbers] = useState<WhatsAppPhoneNumberItem[]>([]);
     const [isLoadingData, setIsLoadingData] = useState(false);
@@ -87,6 +87,7 @@ export function WhatsAppToolConfig({
     const draftCardRef = useRef<HTMLDivElement>(null);
 
     const fetchData = useCallback(async () => {
+        if (loading || !user) return;
         try {
             setIsLoadingData(true);
             setLoadError(null);
@@ -114,7 +115,7 @@ export function WhatsAppToolConfig({
         } finally {
             setIsLoadingData(false);
         }
-    }, [getAccessToken, telephonyConfigId]);
+    }, [getAccessToken, telephonyConfigId, user, loading]);
 
     useEffect(() => {
         fetchData();

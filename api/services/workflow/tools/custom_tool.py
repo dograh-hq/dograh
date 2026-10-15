@@ -225,7 +225,10 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
                         if len(templates) > 1:
                             t_id = t.get("id") or t.get("template_name")
                             param_desc = f"{param_desc} (for template '{t_id}')"
-                        all_llm_vars[param_name] = param_desc
+                        if param_name in all_llm_vars:
+                            all_llm_vars[param_name] = f"{all_llm_vars[param_name]}; {param_desc}"
+                        else:
+                            all_llm_vars[param_name] = param_desc
                     elif source == "context":
                         # If a fallback_value is configured in the template, Dograh handles it
                         # automatically so the LLM doesn't need to be prompted for it.
@@ -235,22 +238,29 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
                             if len(templates) > 1:
                                 t_id = t.get("id") or t.get("template_name")
                                 param_desc = f"{param_desc} (for template '{t_id}')"
-                            all_context_fallback_vars[param_name] = param_desc
+                            if param_name in all_context_fallback_vars:
+                                all_context_fallback_vars[param_name] = f"{all_context_fallback_vars[param_name]}; {param_desc}"
+                            else:
+                                all_context_fallback_vars[param_name] = param_desc
             else:
                 has_free_parameters = True
 
+        reserved_param_names = {"template_id", "template_name", "recipient_phone_number", "parameters"}
+
         for p_name, p_desc in all_llm_vars.items():
-            properties[p_name] = {
+            final_name = f"var_{p_name}" if p_name in reserved_param_names else p_name
+            properties[final_name] = {
                 "type": "string",
                 "description": p_desc,
             }
             if len(templates) == 1:
-                required.append(p_name)
+                required.append(final_name)
 
         # Context fallback vars are exposed as optional parameters (never required)
         for p_name, p_desc in all_context_fallback_vars.items():
-            if p_name not in properties:
-                properties[p_name] = {
+            final_name = f"var_{p_name}" if p_name in reserved_param_names else p_name
+            if final_name not in properties:
+                properties[final_name] = {
                     "type": "string",
                     "description": p_desc,
                 }

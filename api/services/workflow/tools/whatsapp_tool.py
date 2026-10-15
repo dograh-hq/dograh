@@ -131,7 +131,6 @@ async def execute_whatsapp_tool(
                 initial_context.get("caller_number")
                 or initial_context.get("from_number")
                 or initial_context.get("phone_number")
-                or initial_context.get("called_number")
             )
 
     clean_recipient = _clean_phone_number(raw_recipient)
@@ -173,7 +172,7 @@ async def execute_whatsapp_tool(
                 elif fallback_val is not None and str(fallback_val).strip():
                     param_list.append(str(fallback_val).strip())
                 else:
-                    llm_arg_val = arguments.get(param_name, "")
+                    llm_arg_val = arguments.get(param_name) or arguments.get(f"var_{param_name}", "")
                     if str(llm_arg_val or "").strip():
                         param_list.append(str(llm_arg_val).strip())
                     else:
@@ -210,7 +209,7 @@ async def execute_whatsapp_tool(
                     logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
                     return {"status": "error", "error": err_msg}
             else:  # "llm"
-                llm_arg_val = arguments.get(param_name, "")
+                llm_arg_val = arguments.get(param_name) or arguments.get(f"var_{param_name}", "")
                 if str(llm_arg_val or "").strip():
                     param_list.append(str(llm_arg_val).strip())
                 elif fallback_val is not None and str(fallback_val).strip():

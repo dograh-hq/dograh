@@ -334,6 +334,27 @@ class WhatsAppProvider(TelephonyProvider):
         parsed_templates = []
         for item in items:
             components = item.get("components") or []
+
+            # Check if template requires unsupported parameter components (media, header variables, dynamic buttons)
+            has_unsupported_params = False
+            for comp in components:
+                c_type = comp.get("type")
+                if c_type == "HEADER":
+                    format_type = comp.get("format", "TEXT")
+                    if format_type in ("IMAGE", "VIDEO", "DOCUMENT", "LOCATION"):
+                        has_unsupported_params = True
+                        break
+                    if "{{" in comp.get("text", ""):
+                        has_unsupported_params = True
+                        break
+                elif c_type == "BUTTONS":
+                    for btn in comp.get("buttons", []):
+                        if "{{" in btn.get("url", ""):
+                            has_unsupported_params = True
+                            break
+            if has_unsupported_params:
+                continue
+
             body_comp = next((c for c in components if c.get("type") == "BODY"), {})
             body_text = body_comp.get("text", "")
             examples = (body_comp.get("example") or {}).get("body_text", [[]])[0]

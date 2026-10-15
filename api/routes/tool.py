@@ -374,6 +374,21 @@ async def update_tool(
 
     if request.status:
         validate_status(request.status)
+        if request.status == ToolStatus.ACTIVE.value:
+            existing = await db_client.get_tool_by_uuid(
+                tool_uuid, user.selected_organization_id
+            )
+            if existing and existing.category == ToolCategory.WHATSAPP.value:
+                active_wa_tools = await db_client.get_tools_for_organization(
+                    organization_id=user.selected_organization_id,
+                    status=ToolStatus.ACTIVE.value,
+                    category=ToolCategory.WHATSAPP.value,
+                )
+                if any(t.tool_uuid != tool_uuid for t in active_wa_tools):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="An active WhatsApp Messaging tool already exists for this organization. You can configure multiple templates within that tool.",
+                    )
 
     definition = None
     if request.definition:

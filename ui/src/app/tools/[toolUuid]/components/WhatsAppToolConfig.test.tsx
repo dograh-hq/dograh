@@ -15,6 +15,8 @@ const mockGetAccessToken = vi.fn().mockResolvedValue("test-token");
 vi.mock("@/lib/auth", () => ({
     useAuth: () => ({
         getAccessToken: mockGetAccessToken,
+        user: { id: "user-1", email: "test@example.com" },
+        loading: false,
     }),
 }));
 

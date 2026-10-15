@@ -910,7 +910,7 @@ async def fallback_pin(test_engine):
             await _cleanup(factory, ids)
 
 
-async def _point_default_at_fallback(factory, organization_id):
+async def _point_default_at_fallback(factory, organization_id, backup_rules=None):
     """Replace the catalog default with an OpenAI pipeline that has a fallback."""
     async with factory() as session:
         primary = ProviderConnectionModel(
@@ -933,16 +933,19 @@ async def _point_default_at_fallback(factory, organization_id):
             "provider_connection_uuid": primary.uuid,
             "settings": {},
         }
+        if backup_rules is None:
+            backup_rules = [{"condition": {"type": "error"}, "settings": {}}]
         fallback = {
             "version": 1,
             "rules": [
                 {
-                    "condition": {"type": "error"},
+                    "condition": item["condition"],
                     "target": {
                         "provider_connection_uuid": backup.uuid,
-                        "settings": {},
+                        "settings": item["settings"],
                     },
                 }
+                for item in backup_rules
             ],
         }
         named = NamedModelConfigurationModel(
@@ -1020,3 +1023,94 @@ async def test_partial_override_keeps_the_current_default_fallback(
     again = await _migrate(test_engine, follow_up.migrate)
     assert again["bindings"] == 0
     assert again["configurations"] == 0
+
+
+@pytest.mark.asyncio
+async def test_partial_override_drops_fallback_that_repeats_the_primary(
+    test_engine, fallback_pin
+):
+    """A partial override that lands on the default's backup must not keep it.
+
+    Call start rejects a fallback target that uses the same connection and
+    model as the primary. A different model on that connection still runs.
+    """
+    factory, ids = fallback_pin
+    organization_id = ids["organization"]
+    async with factory() as session:
+        workflow = WorkflowModel(
+            organization_id=organization_id,
+            user_id=ids["user"],
+            name="Backup primary",
+            status="archived",
+            workflow_configurations={},
+        )
+        session.add(workflow)
+        await session.flush()
+        definition = WorkflowDefinitionModel(
+            workflow_id=workflow.id,
+            workflow_json={},
+            workflow_configurations={
+                "model_overrides": {
+                    "llm": {
+                        "provider": "openai",
+                        "api_key": "backup-key",
+                        "model": "gpt-4.1-mini",
+                    }
+                }
+            },
+            status="published",
+            is_current=True,
+        )
+        session.add(definition)
+        await session.flush()
+        workflow.released_definition_id = definition.id
+        session.add(
+            CampaignModel(
+                name="backup-primary-pin",
+                organization_id=organization_id,
+                workflow_id=workflow.id,
+                created_by=ids["user"],
+                source_type="csv",
+                source_id="backup-primary-pin.csv",
+                state="running",
+                orchestrator_metadata=_pin_split(workflow.id, definition.id),
+            )
+        )
+        await session.commit()
+        collision_id = definition.id
+
+    await _migrate(test_engine, original.migrate)
+    await _point_default_at_fallback(
+        factory,
+        organization_id,
+        backup_rules=[
+            {
+                "condition": {"type": "error"},
+                "settings": {"model": "gpt-4.1-mini"},
+            },
+            {
+                "condition": {"type": "no_output", "after_ms": 900},
+                "settings": {"model": "gpt-4.1"},
+            },
+        ],
+    )
+
+    summary = await _migrate(test_engine, follow_up.migrate)
+    assert summary["inherited"] == []
+
+    configurations, definitions, _, _ = await _snapshot(factory, organization_id)
+    binding = definitions[collision_id]["model_configuration_override"]
+    spec = configurations[binding["model_configuration_uuid"]].configuration
+    assert spec["llm"]["settings"]["model"] == "gpt-4.1-mini"
+    rules = spec["llm_fallback"]["rules"]
+    assert [rule["target"]["settings"]["model"] for rule in rules] == ["gpt-4.1"]
+    assert rules[0]["condition"] == {"type": "no_output", "after_ms": 900}
+
+    resolved = await get_effective_ai_model_configuration_for_workflow(
+        organization_id=organization_id,
+        workflow_configurations=definitions[collision_id],
+    )
+    assert resolved.llm.api_key == "backup-key"
+    assert resolved.llm.model == "gpt-4.1-mini"
+    assert len(resolved.llm_fallback.rules) == 1
+    assert resolved.llm_fallback.rules[0].target.model == "gpt-4.1"

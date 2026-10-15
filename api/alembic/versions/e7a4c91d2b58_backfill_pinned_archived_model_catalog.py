@@ -22,7 +22,11 @@ A partial override is layered on the organization's current catalog default,
 including that default's llm_fallback policy, because the new binding
 replaces the default rather than inheriting from it. A Dograh primary
 cannot carry those rules: call start rejects the binding, so the copied
-policy is left off when the resolved LLM provider is dograh. The older
+policy is left off when the resolved LLM provider is dograh. A rule whose
+target is the same connection and model as that primary is left off too:
+call start rejects it with "Fallback target must differ from the primary
+LLM", which happens when the override switches the primary onto the
+default's backup. The older
 MODEL_CONFIGURATION_V2 row is used only when that default was never
 created; otherwise a default the organization changed later would be
 replaced by the stale credential. A JSON null model_configuration_override
@@ -347,6 +351,70 @@ def _fallback_compatible_with_primary(fallback, sections):
     return fallback
 
 
+def _without_primary_duplicate(
+    fallback, provider, credentials, connection_settings, settings, connection_uuid
+):
+    """Omit backup rules that repeat the resolved primary.
+
+    Call start rejects a fallback target on the same connection when the
+    built model matches the primary. A partial override can move the primary
+    onto the organization default's backup, and copying that backup unchanged
+    would make the new binding fail authorization.
+    """
+    if not isinstance(fallback, dict):
+        return None
+    rules = fallback.get("rules")
+    if not isinstance(rules, list) or not rules or not connection_uuid:
+        return fallback
+    # Local import: this revision stays frozen from the app graph except for
+    # the same service comparison call start uses.
+    from fastapi import HTTPException
+
+    from api.services.configuration.model_connections import _build_service
+
+    try:
+        primary = _build_service(
+            "llm", provider, credentials, connection_settings, settings
+        )
+    except HTTPException:
+        return fallback
+    kept = []
+    changed = False
+    for rule in rules:
+        target = rule.get("target") if isinstance(rule, dict) else None
+        if (
+            not isinstance(target, dict)
+            or target.get("provider_connection_uuid") != connection_uuid
+        ):
+            kept.append(rule)
+            continue
+        target_settings = target.get("settings")
+        if not isinstance(target_settings, dict):
+            target_settings = {}
+        try:
+            built = _build_service(
+                "llm",
+                provider,
+                credentials,
+                connection_settings,
+                target_settings,
+            )
+        except HTTPException:
+            kept.append(rule)
+            continue
+        if built.model_dump() == primary.model_dump():
+            changed = True
+            continue
+        kept.append(rule)
+    if not changed:
+        return fallback
+    if not kept:
+        return None
+    trimmed = json.loads(json.dumps(fallback))
+    trimmed["rules"] = kept
+    return trimmed
+
+
 def _sections(configuration, organization_services):
     full = _obj(configuration.get(_v3.FULL_OVERRIDE_KEY))
     partial = _obj(configuration.get(_v3.PARTIAL_OVERRIDE_KEY))
@@ -382,6 +450,15 @@ def _configuration(catalog, mode, sections, name, fallback):
             ),
             "settings": settings,
         }
+        if role == "llm" and fallback is not None:
+            fallback = _without_primary_duplicate(
+                fallback,
+                provider,
+                credentials,
+                connection_settings,
+                settings,
+                spec[role]["provider_connection_uuid"],
+            )
     if fallback is not None:
         spec["llm_fallback"] = fallback
     key = _v3._canonical(spec)

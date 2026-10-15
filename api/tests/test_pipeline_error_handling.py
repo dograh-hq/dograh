@@ -53,7 +53,13 @@ def campaign_call(monkeypatch):
     monkeypatch.setattr(
         event_handlers.db_client,
         "get_workflow_run_by_id",
-        AsyncMock(return_value=SimpleNamespace(campaign_id=42, workflow_id=1)),
+        AsyncMock(
+            return_value=SimpleNamespace(
+                campaign_id=42,
+                workflow_id=1,
+                workflow=SimpleNamespace(organization_id=7),
+            )
+        ),
     )
     monkeypatch.setattr(event_handlers.db_client, "update_workflow_run", AsyncMock())
     for name in (
@@ -160,6 +166,7 @@ async def test_terminal_errors_count_once_per_campaign_call(
     call.breaker.assert_awaited_once_with(
         campaign_id=42,
         is_failure=True,
+        organization_id=7,
         workflow_run_id=88,
         reason="pipeline_error",
     )
@@ -193,6 +200,7 @@ async def test_finalization_error_cannot_suppress_campaign_failure(
     call.breaker.assert_awaited_once_with(
         campaign_id=42,
         is_failure=True,
+        organization_id=7,
         workflow_run_id=88,
         reason="pipeline_error",
     )
@@ -272,6 +280,7 @@ async def test_errors_the_call_survives_do_not_count_as_campaign_failures(
     call.breaker.assert_awaited_once_with(
         campaign_id=42,
         is_failure=False,
+        organization_id=7,
         workflow_run_id=88,
         reason="user_hangup",
     )
@@ -310,6 +319,7 @@ async def test_final_pipeline_status_records_one_outcome_without_carrier_callbac
     call.breaker.assert_awaited_once_with(
         campaign_id=42,
         is_failure=is_failure,
+        organization_id=7,
         workflow_run_id=88,
         reason=reason,
     )
@@ -369,6 +379,7 @@ async def test_carrier_completion_cannot_double_count_pipeline_outcome(
     call.breaker.assert_awaited_once_with(
         campaign_id=42,
         is_failure=reason == "pipeline_error",
+        organization_id=7,
         workflow_run_id=88,
         reason=reason,
     )

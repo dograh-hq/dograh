@@ -16,10 +16,10 @@ from api.tasks.function_names import FunctionNames
 class CampaignRunnerService:
     """Orchestrates campaign execution"""
 
-    async def start_campaign(self, campaign_id: int) -> None:
+    async def start_campaign(self, campaign_id: int, organization_id: int) -> None:
         """Entry point - updates state to 'syncing' and enqueues sync task"""
         # Get campaign
-        campaign = await db_client.get_campaign_by_id(campaign_id)
+        campaign = await db_client.get_campaign(campaign_id, organization_id)
         if not campaign:
             raise ValueError(f"Campaign {campaign_id} not found")
 
@@ -64,9 +64,9 @@ class CampaignRunnerService:
 
         logger.info(f"Campaign {campaign_id} started, syncing source data")
 
-    async def pause_campaign(self, campaign_id: int) -> None:
+    async def pause_campaign(self, campaign_id: int, organization_id: int) -> None:
         """Pauses active campaign processing"""
-        campaign = await db_client.get_campaign_by_id(campaign_id)
+        campaign = await db_client.get_campaign(campaign_id, organization_id)
         if not campaign:
             raise ValueError(f"Campaign {campaign_id} not found")
 
@@ -76,13 +76,15 @@ class CampaignRunnerService:
             )
 
         # Update state to paused
-        await db_client.update_campaign(campaign_id=campaign_id, state="paused")
+        await db_client.update_campaign_state(
+            campaign_id=campaign_id, state="paused", organization_id=organization_id
+        )
 
         logger.info(f"Campaign {campaign_id} paused")
 
-    async def resume_campaign(self, campaign_id: int) -> None:
+    async def resume_campaign(self, campaign_id: int, organization_id: int) -> None:
         """Resumes paused campaign"""
-        campaign = await db_client.get_campaign_by_id(campaign_id)
+        campaign = await db_client.get_campaign(campaign_id, organization_id)
         if not campaign:
             raise ValueError(f"Campaign {campaign_id} not found")
 
@@ -104,9 +106,13 @@ class CampaignRunnerService:
 
         logger.info(f"Campaign {campaign_id} resumed")
 
-    async def get_campaign_status(self, campaign_id: int) -> Dict[str, Any]:
+    async def get_campaign_status(
+        self,
+        campaign_id: int,
+        organization_id: int,
+    ) -> Dict[str, Any]:
         """Returns detailed campaign status"""
-        campaign = await db_client.get_campaign_by_id(campaign_id)
+        campaign = await db_client.get_campaign(campaign_id, organization_id)
         if not campaign:
             raise ValueError(f"Campaign {campaign_id} not found")
 

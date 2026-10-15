@@ -304,7 +304,11 @@ class CampaignOrchestrator:
                     f"campaign_id: {campaign_id} - Circuit breaker is open, "
                     f"pausing campaign. Stats: {stats}"
                 )
-                await db_client.update_campaign(campaign_id=campaign_id, state="paused")
+                await db_client.update_campaign_state(
+                    campaign_id=campaign_id,
+                    state="paused",
+                    organization_id=campaign.organization_id,
+                )
                 await db_client.append_campaign_log(
                     campaign_id=campaign_id,
                     level="warning",

@@ -981,7 +981,7 @@ def create_tts_service(
 
         voice = (
             getattr(user_config.tts, "voice", None) or ""
-        ).strip().lower() or "anushka"
+        ).strip().lower() or "shubh"
         speed = getattr(user_config.tts, "speed", None)
         settings_kwargs = {
             "model": user_config.tts.model,

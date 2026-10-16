@@ -57,7 +57,6 @@ from api.services.configuration.options import (
     SARVAM_STT_LANGUAGES_V25,
     SARVAM_STT_MODELS,
     SARVAM_TTS_MODELS,
-    SARVAM_V2_VOICES,
     SARVAM_V3_VOICES,
     SMALLEST_TTS_LANGUAGES,
     SMALLEST_TTS_MODELS,
@@ -1610,18 +1609,17 @@ class InworldTTSConfiguration(BaseTTSConfiguration):
 class SarvamTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="bulbul:v2",
+        default="bulbul:v3",
         description="Sarvam TTS model (voice list depends on this).",
         json_schema_extra={"examples": SARVAM_TTS_MODELS},
     )
     voice: str = Field(
-        default="anushka",
+        default="shubh",
         description="Sarvam voice name or custom voice ID.",
         json_schema_extra={
-            "examples": SARVAM_V2_VOICES,
+            "examples": SARVAM_V3_VOICES,
             "allow_custom_input": True,
             "model_options": {
-                "bulbul:v2": SARVAM_V2_VOICES,
                 "bulbul:v3": SARVAM_V3_VOICES,
             },
         },

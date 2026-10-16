@@ -9,7 +9,7 @@ import { ConfigurationFields } from "./model-connections/ConfigurationFields";
 import { SchemaFields } from "./model-connections/SchemaFields";
 import { selectOption, servicePanel } from "./model-connections/test-helpers";
 import type { ConfigurationSpec, ModelConnectionCatalog, ProviderConnection } from "./model-connections/types";
-import { VoiceSelector } from "./VoiceSelector";
+import { clearVoiceCache, VoiceSelector } from "./VoiceSelector";
 
 const auth = vi.hoisted(() => ({ loading: false, user: { id: "user-1" } }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => auth }));
@@ -21,6 +21,7 @@ const props = { provider: "elevenlabs", providerConnectionUuid: "account-1", mod
 
 beforeEach(() => {
     vi.clearAllMocks();
+    clearVoiceCache();
     auth.loading = false;
     fetchVoices.mockResolvedValue({ data: { provider: "elevenlabs", voices: [sofie] } } as never);
 });
@@ -104,5 +105,24 @@ describe("Provider connection voices", () => {
         fireEvent.click(screen.getByLabelText("Enter Custom Value"));
         await waitFor(() => expect(screen.getByRole("combobox").textContent).toContain("custom-voice"));
         expect(props.onChange).not.toHaveBeenCalled();
+        expect(fetchVoices).toHaveBeenCalledTimes(2);
+    });
+
+    it("renders Sarvam static voices client-side with 0ms load, search, and no refresh button", async () => {
+        function Editor() {
+            const [value, setValue] = useState("shubh_enhi_ads");
+            return <SchemaFields provider="sarvam" providerConnectionUuid="sarvam-conn" role="tts"
+                schema={{ properties: { voice: { type: "string", title: "Voice", voice_catalog: "dropdown", examples: ["shubh_enhi_ads", "aditi_hi_news"], allow_custom_input: true } } }}
+                values={{ voice: value }} onChange={(_, next) => setValue(String(next))} />;
+        }
+        render(<Editor />);
+        const trigger = screen.getByRole("combobox") as HTMLButtonElement;
+        expect(trigger.disabled).toBe(false);
+        expect(trigger.textContent).toContain("Shubh");
+        expect(fetchVoices).not.toHaveBeenCalled();
+
+        fireEvent.click(trigger);
+        expect(screen.getByText("English-Hindi • Ads • shubh_enhi_ads")).toBeDefined();
+        expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
     });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Loader2, Search, Volume2 } from "lucide-react";
+import { ChevronDown, Loader2, RotateCw, Search, Volume2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { getVoicesApiV1UserConfigurationsVoicesProviderGet } from "@/client/sdk.gen";
@@ -16,6 +16,23 @@ import { cn } from "@/lib/utils";
 type VoiceCatalogProvider = GetVoicesApiV1UserConfigurationsVoicesProviderGetData["path"]["provider"];
 const ALL_FILTER_VALUE = "__all__";
 
+const voiceCatalogCache = new Map<string, VoiceInfo[]>();
+
+export function clearVoiceCache() {
+    voiceCatalogCache.clear();
+}
+
+function getCacheKey(
+    userId?: string,
+    provider?: string,
+    providerConnectionUuid?: string,
+    model?: string,
+    language?: string
+): string | null {
+    if (!userId || !provider) return null;
+    return `${userId}:${provider}:${providerConnectionUuid || ""}:${model || ""}:${language || ""}`;
+}
+
 interface VoiceSelectorProps {
     id?: string;
     provider: string;
@@ -26,6 +43,7 @@ interface VoiceSelectorProps {
     language?: string;
     showFilters?: boolean;
     className?: string;
+    staticVoices?: VoiceInfo[];
 }
 
 export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
@@ -38,32 +56,66 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     language,
     showFilters = false,
     className,
+    staticVoices,
 }) => {
+    const isStatic = Boolean(staticVoices && staticVoices.length > 0);
     const { user, loading: authLoading } = useAuth();
     const userId = user?.id;
+    const cacheKey = !authLoading && !isStatic ? getCacheKey(userId, provider, providerConnectionUuid, model, language) : null;
+    const cachedVoices = cacheKey ? voiceCatalogCache.get(cacheKey) : undefined;
+
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [genderFilter, setGenderFilter] = useState(ALL_FILTER_VALUE);
     const [languageFilter, setLanguageFilter] = useState(ALL_FILTER_VALUE);
     const [accentFilter, setAccentFilter] = useState(ALL_FILTER_VALUE);
-    const [voices, setVoices] = useState<VoiceInfo[]>([]);
+    const [voices, setVoices] = useState<VoiceInfo[]>(() => staticVoices || cachedVoices || []);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [reload, setReload] = useState(0);
     const [playingPreview, setPlayingPreview] = useState<string | null>(null);
     const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
 
+    const handleReload = () => {
+        if (cacheKey) {
+            voiceCatalogCache.delete(cacheKey);
+        }
+        setReload((prev) => prev + 1);
+    };
+
     useEffect(() => {
-        setVoices([]);
-        setError(null);
-        setIsLoading(false);
-        if (authLoading || !userId) return;
+        if (staticVoices) {
+            setVoices(staticVoices);
+            setError(null);
+            setIsLoading(false);
+            return;
+        }
+
+        if (authLoading || !userId) {
+            setVoices([]);
+            setError(null);
+            setIsLoading(false);
+            return;
+        }
         // The backend's voice_catalog field metadata opts providers into this control.
         const providerKey = provider as VoiceCatalogProvider;
         if (providerKey !== "dograh" && !providerConnectionUuid) {
+            setVoices([]);
             setError("Select a provider connection to load voices.");
+            setIsLoading(false);
             return;
         }
+
+        const currentCacheKey = getCacheKey(userId, providerKey, providerConnectionUuid, model, language);
+        if (currentCacheKey && voiceCatalogCache.has(currentCacheKey)) {
+            setVoices(voiceCatalogCache.get(currentCacheKey)!);
+            setError(null);
+            setIsLoading(false);
+            return;
+        }
+
+        setVoices([]);
+        setError(null);
         let active = true;
         const controller = new AbortController();
         setIsLoading(true);
@@ -82,7 +134,11 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                 if (response.error) {
                     setError(detailFromError(response.error, "Failed to load voices"));
                 } else {
-                    setVoices(response.data?.voices || []);
+                    const fetchedVoices = response.data?.voices || [];
+                    if (currentCacheKey) {
+                        voiceCatalogCache.set(currentCacheKey, fetchedVoices);
+                    }
+                    setVoices(fetchedVoices);
                 }
             } catch {
                 if (!active) return;
@@ -96,7 +152,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             active = false;
             controller.abort();
         };
-    }, [provider, providerConnectionUuid, model, language, authLoading, userId, reload]);
+    }, [provider, providerConnectionUuid, model, language, authLoading, userId, reload, staticVoices]);
 
     // Cleanup audio on unmount or when popover closes
     useEffect(() => {
@@ -213,8 +269,13 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                         )}
                     </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[400px] p-0" align="start">
-                    <div className="p-2 space-y-2">
+                <PopoverContent
+                    className="w-[400px] max-h-[var(--radix-popover-content-available-height,calc(100vh-32px))] p-0 flex flex-col overflow-hidden"
+                    align="start"
+                    collisionPadding={16}
+                    sideOffset={4}
+                >
+                    <div className="p-2 space-y-2 border-b bg-popover shrink-0">
                         <div className="relative">
                             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
@@ -270,13 +331,14 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                                 </Select>
                             </div>
                         )}
+                    </div>
 
-                        <div className="max-h-[300px] overflow-auto space-y-1">
-                            {error ? (
-                                <div className="py-4 text-center">
-                                    <p role="alert" className="text-sm text-red-500">{error}</p>
-                                    <Button type="button" variant="ghost" size="sm" onClick={() => setReload(value => value + 1)}>Retry</Button>
-                                </div>
+                    <div className="flex-1 overflow-y-auto min-h-0 max-h-[320px] p-2 space-y-1">
+                        {error ? (
+                            <div className="py-4 text-center">
+                                <p role="alert" className="text-sm text-red-500">{error}</p>
+                                <Button type="button" variant="ghost" size="sm" onClick={handleReload}>Retry</Button>
+                            </div>
                             ) : isLoading ? (
                                 <div className="flex items-center justify-center py-4">
                                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -348,12 +410,24 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                             )}
                         </div>
 
-                        <div className="pt-2 border-t flex justify-end">
-                            <p className="text-xs text-muted-foreground">
+                        <div className="p-2 border-t flex items-center justify-between shrink-0 bg-popover">
+                            {!isStatic && (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs text-muted-foreground hover:text-foreground px-2"
+                                    onClick={handleReload}
+                                    disabled={isLoading}
+                                >
+                                    <RotateCw className={cn("h-3 w-3 mr-1", isLoading && "animate-spin")} />
+                                    Refresh
+                                </Button>
+                            )}
+                            <p className={cn("text-xs text-muted-foreground", isStatic && "ml-auto")}>
                                 {filteredVoices.length} of {voices.length} voices
                             </p>
                         </div>
-                    </div>
                 </PopoverContent>
             </Popover>
         </div>

@@ -14,6 +14,7 @@ import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 
 import { fieldForModel, isFieldVisible, resolveFieldSchema, schemaDefaults } from "./configuration";
 import { ConfigurationSelect } from "./ConfigurationSelect";
+import { getStaticVoices } from "./staticVoices";
 import type { FieldSchema, ServiceRole } from "./types";
 
 const PROVIDER_DEFAULT = "__provider_default__";
@@ -107,12 +108,13 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
         const current = value == null ? "" : String(value);
         // A remote catalog may be loading or omit a saved/custom voice. Keep
         // browsing available until the user explicitly chooses manual entry.
+        const staticVoices = provider ? getStaticVoices(provider, options, model) : undefined;
         const customInput = schema.allow_custom_input && (custom || (!voiceCatalog && Boolean(current && !options?.includes(current))));
         return <div className="space-y-2">
             {customInput ? <Input id={id} value={current} required={required} placeholder={`Enter ${name.replaceAll("_", " ")}`} onChange={event => onChange(event.target.value)} />
                 : voiceCatalog && provider ? (schema.voice_catalog === "dialog"
                     ? <VoiceSelectorModal id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} value={current} onChange={onChange} model={model} />
-                    : <VoiceSelector id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} value={current} onChange={onChange} model={model} language={language} />)
+                    : <VoiceSelector id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} value={current} onChange={onChange} model={model} language={language} staticVoices={staticVoices} />)
                 : <ConfigurationSelect id={id} value={value == null && nullable ? PROVIDER_DEFAULT : current} required={required}
                     placeholder={`Select ${name.replaceAll("_", " ")}`} onValueChange={next => onChange(next === PROVIDER_DEFAULT ? null : numeric ? Number(next) : next)}
                     options={[...(nullable ? [{ value: PROVIDER_DEFAULT, label: "Provider default" }] : []),

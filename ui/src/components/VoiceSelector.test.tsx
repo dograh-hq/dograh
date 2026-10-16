@@ -143,7 +143,7 @@ describe("Provider connection voices", () => {
     });
 
     it("refetches voices when connection revision changes or cache is cleared for connection", async () => {
-        const { rerender } = render(<VoiceSelector {...props} connectionRevision={1} />);
+        const { rerender, unmount } = render(<VoiceSelector {...props} connectionRevision={1} />);
         await waitFor(() => expect(fetchVoices).toHaveBeenCalledTimes(1));
 
         // Same revision does not refetch (cache hit)
@@ -155,9 +155,22 @@ describe("Provider connection voices", () => {
         rerender(<VoiceSelector {...props} connectionRevision={2} />);
         await waitFor(() => expect(fetchVoices).toHaveBeenCalledTimes(2));
 
-        // Clearing voice cache for specific connection uuid removes cached entry
+        unmount();
+
+        // Remounting at the same revision without clearing hits the cache (no new fetch)
+        const { unmount: unmountAgain } = render(<VoiceSelector {...props} connectionRevision={2} />);
+        expect(fetchVoices).toHaveBeenCalledTimes(2);
+        unmountAgain();
+
+        // Clearing an unrelated connection leaves account-1 cached
+        clearVoiceCache("other-account");
+        const { unmount: unmountThird } = render(<VoiceSelector {...props} connectionRevision={2} />);
+        expect(fetchVoices).toHaveBeenCalledTimes(2);
+        unmountThird();
+
+        // Clearing voice cache for account-1 removes its cached entry and triggers a new fetch on remount
         clearVoiceCache("account-1");
-        rerender(<VoiceSelector {...props} connectionRevision={3} />);
+        render(<VoiceSelector {...props} connectionRevision={2} />);
         await waitFor(() => expect(fetchVoices).toHaveBeenCalledTimes(3));
     });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { ExternalLink, Plus, X } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -59,9 +59,9 @@ function StringListInput({ id, name, values, onChange, secret, required }: {
     </div>;
 }
 
-function ValueInput({ id, name, schema, value, onChange, secret, required, provider, providerConnectionUuid, model, language }: {
+function ValueInput({ id, name, schema, value, onChange, secret, required, provider, providerConnectionUuid, connectionRevision, model, language }: {
     id: string; name: string; schema: FieldSchema; value: unknown; onChange: (value: unknown) => void;
-    secret: boolean; required: boolean; provider?: string; providerConnectionUuid?: string; model?: string; language?: string;
+    secret: boolean; required: boolean; provider?: string; providerConnectionUuid?: string; connectionRevision?: number; model?: string; language?: string;
 }) {
     const alternatives = schema.anyOf || [schema];
     const nullable = alternatives.some(option => option.type === "null");
@@ -71,6 +71,12 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
     const enumerated = Boolean(schema.enum || concrete.enum);
     // Select values are strings; numeric enums are converted back on change.
     const options = (schema.enum || concrete.enum || schema.examples)?.map(String);
+    const optionsKey = options ? options.join(",") : "";
+    const hasModelOptions = !schema.model_options || Boolean(model && schema.model_options[model]);
+    const staticVoices = useMemo(() => {
+        if (!provider || !hasModelOptions) return undefined;
+        return getStaticVoices(provider, options, model);
+    }, [provider, optionsKey, model, hasModelOptions]);
     const voiceCatalog = Boolean(schema.voice_catalog && provider);
     const [custom, setCustom] = useState(false);
 
@@ -108,13 +114,12 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
         const current = value == null ? "" : String(value);
         // A remote catalog may be loading or omit a saved/custom voice. Keep
         // browsing available until the user explicitly chooses manual entry.
-        const staticVoices = provider ? getStaticVoices(provider, options, model) : undefined;
         const customInput = schema.allow_custom_input && (custom || (!voiceCatalog && Boolean(current && !options?.includes(current))));
         return <div className="space-y-2">
             {customInput ? <Input id={id} value={current} required={required} placeholder={`Enter ${name.replaceAll("_", " ")}`} onChange={event => onChange(event.target.value)} />
                 : voiceCatalog && provider ? (schema.voice_catalog === "dialog"
-                    ? <VoiceSelectorModal id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} value={current} onChange={onChange} model={model} />
-                    : <VoiceSelector id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} value={current} onChange={onChange} model={model} language={language} staticVoices={staticVoices} />)
+                    ? <VoiceSelectorModal id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} connectionRevision={connectionRevision} value={current} onChange={onChange} model={model} />
+                    : <VoiceSelector id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} connectionRevision={connectionRevision} value={current} onChange={onChange} model={model} language={language} staticVoices={staticVoices} />)
                 : <ConfigurationSelect id={id} value={value == null && nullable ? PROVIDER_DEFAULT : current} required={required}
                     placeholder={`Select ${name.replaceAll("_", " ")}`} onValueChange={next => onChange(next === PROVIDER_DEFAULT ? null : numeric ? Number(next) : next)}
                     options={[...(nullable ? [{ value: PROVIDER_DEFAULT, label: "Provider default" }] : []),
@@ -133,10 +138,10 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
         onChange={event => onChange(event.target.value || (nullable ? null : ""))} />;
 }
 
-export function SchemaFields({ schema, values, onChange, secret = false, configuredFields = [], context = {}, provider, providerConnectionUuid, role, className = "grid grid-cols-1 gap-4 sm:grid-cols-2" }: {
+export function SchemaFields({ schema, values, onChange, secret = false, configuredFields = [], context = {}, provider, providerConnectionUuid, connectionRevision, role, className = "grid grid-cols-1 gap-4 sm:grid-cols-2" }: {
     schema: FieldSchema; values: Record<string, unknown>; onChange: (name: string, value: unknown) => void;
     secret?: boolean; configuredFields?: string[];
-    context?: Record<string, unknown>; provider?: string; providerConnectionUuid?: string; role?: ServiceRole;
+    context?: Record<string, unknown>; provider?: string; providerConnectionUuid?: string; connectionRevision?: number; role?: ServiceRole;
     /** "contents" lays the fields into the parent's two-column grid. */
     className?: string;
 }) {
@@ -161,7 +166,7 @@ export function SchemaFields({ schema, values, onChange, secret = false, configu
                 <div className="flex min-h-6 items-center justify-between gap-2">
                     <Label id={`${id}-label`} htmlFor={id} className="capitalize">{label}</Label>
                 </div>
-                {editing ? <ValueInput key={resetKey} id={id} name={name} provider={provider} providerConnectionUuid={providerConnectionUuid} model={String(resolvedValues.model || "") || undefined}
+                {editing ? <ValueInput key={resetKey} id={id} name={name} provider={provider} providerConnectionUuid={providerConnectionUuid} connectionRevision={connectionRevision} model={String(resolvedValues.model || "") || undefined}
                     language={String(resolvedValues.language || "") || undefined}
                     schema={suggestions ? { ...field, examples: suggestions, enum: field.enum ? suggestions : undefined } : field}
                     value={Object.hasOwn(values, name) ? values[name] : field.default} secret={secret}

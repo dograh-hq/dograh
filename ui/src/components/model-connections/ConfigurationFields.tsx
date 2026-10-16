@@ -222,7 +222,7 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
                             if (next) changeSelection(role, selectionForConnection(catalog, role, next, selection, connections));
                         }} />
                 </div>
-                {schema && selection && <SchemaFields key={`${connection?.uuid}:${connection?.revision}`} className="contents" provider={connection?.provider} providerConnectionUuid={connection?.uuid} role={role} schema={schema}
+                {schema && selection && <SchemaFields key={`${connection?.uuid}:${connection?.revision}`} className="contents" provider={connection?.provider} providerConnectionUuid={connection?.uuid} connectionRevision={connection?.revision} role={role} schema={schema}
                     values={selection.settings} context={connection?.connection_settings} onChange={(name, value) => changeSetting(role, name, value, fullSchema)} />}
             </div>}
             {isEmbedding && <p className="text-xs text-muted-foreground">Use the embedding model that indexed this workflow’s knowledge base. Changing it does not reindex documents.</p>}

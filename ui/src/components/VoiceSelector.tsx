@@ -18,25 +18,36 @@ const ALL_FILTER_VALUE = "__all__";
 
 const voiceCatalogCache = new Map<string, VoiceInfo[]>();
 
-export function clearVoiceCache() {
-    voiceCatalogCache.clear();
+export function clearVoiceCache(providerConnectionUuid?: string) {
+    if (!providerConnectionUuid) {
+        voiceCatalogCache.clear();
+        return;
+    }
+    for (const key of Array.from(voiceCatalogCache.keys())) {
+        const parts = key.split(":");
+        if (parts[2] === providerConnectionUuid) {
+            voiceCatalogCache.delete(key);
+        }
+    }
 }
 
 function getCacheKey(
     userId?: string,
     provider?: string,
     providerConnectionUuid?: string,
+    connectionRevision?: number,
     model?: string,
     language?: string
 ): string | null {
     if (!userId || !provider) return null;
-    return `${userId}:${provider}:${providerConnectionUuid || ""}:${model || ""}:${language || ""}`;
+    return `${userId}:${provider}:${providerConnectionUuid || ""}:${connectionRevision ?? ""}:${model || ""}:${language || ""}`;
 }
 
 interface VoiceSelectorProps {
     id?: string;
     provider: string;
     providerConnectionUuid?: string;
+    connectionRevision?: number;
     value: string;
     onChange: (voiceId: string) => void;
     model?: string;
@@ -50,6 +61,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     id,
     provider,
     providerConnectionUuid,
+    connectionRevision,
     value,
     onChange,
     model,
@@ -61,7 +73,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     const isStatic = Boolean(staticVoices && staticVoices.length > 0);
     const { user, loading: authLoading } = useAuth();
     const userId = user?.id;
-    const cacheKey = !authLoading && !isStatic ? getCacheKey(userId, provider, providerConnectionUuid, model, language) : null;
+    const cacheKey = !authLoading && !isStatic ? getCacheKey(userId, provider, providerConnectionUuid, connectionRevision, model, language) : null;
     const cachedVoices = cacheKey ? voiceCatalogCache.get(cacheKey) : undefined;
 
     const [isOpen, setIsOpen] = useState(false);
@@ -106,7 +118,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             return;
         }
 
-        const currentCacheKey = getCacheKey(userId, providerKey, providerConnectionUuid, model, language);
+        const currentCacheKey = getCacheKey(userId, providerKey, providerConnectionUuid, connectionRevision, model, language);
         if (currentCacheKey && voiceCatalogCache.has(currentCacheKey)) {
             setVoices(voiceCatalogCache.get(currentCacheKey)!);
             setError(null);
@@ -152,7 +164,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             active = false;
             controller.abort();
         };
-    }, [provider, providerConnectionUuid, model, language, authLoading, userId, reload, staticVoices]);
+    }, [provider, providerConnectionUuid, connectionRevision, model, language, authLoading, userId, reload, staticVoices]);
 
     // Cleanup audio on unmount or when popover closes
     useEffect(() => {

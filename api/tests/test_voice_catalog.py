@@ -618,9 +618,8 @@ async def test_rime_model_and_language_filtering_without_sending_secrets(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("language", [None, "hi-IN"])
 async def test_sarvam_reuses_model_options_without_external_requests(
-    language, connection, upstream
+    connection, upstream
 ):
     from api.services.configuration.options.sarvam import (
         SARVAM_V3_VOICES,
@@ -635,7 +634,7 @@ async def test_sarvam_reuses_model_options_without_external_requests(
         ("bulbul:v3", SARVAM_V3_VOICES),
     ]:
         response = await voice_catalog.get_connection_voices(
-            "sarvam", 42, connection.uuid, model=model, language=language
+            "sarvam", 42, connection.uuid, model=model
         )
         assert {voice.voice_id for voice in response.voices} == set(expected)
         assert all(voice.name for voice in response.voices)
@@ -650,14 +649,14 @@ async def test_sarvam_reuses_model_options_without_external_requests(
                 shubh_voice.description
                 == "English-Hindi • Ads • shubh_enhi_ads"
             )
-            assert shubh_voice.accent == "Ads"
+            assert shubh_voice.accent is None
             assert shubh_voice.language == "en-hi"
             kyc_voice = next(
                 v for v in response.voices if v.voice_id == "aparna_hi_kyc"
             )
             assert kyc_voice.name == "Aparna"
             assert kyc_voice.description == "Hindi • KYC • aparna_hi_kyc"
-            assert kyc_voice.accent == "KYC"
+            assert kyc_voice.accent is None
             assert kyc_voice.language == "hi"
         elif model == "bulbul:v3":
             shubh_voice = next(
@@ -665,8 +664,24 @@ async def test_sarvam_reuses_model_options_without_external_requests(
             )
             assert shubh_voice.name == "Shubh"
             assert shubh_voice.description == "Multilingual"
-            assert shubh_voice.language == "multilingual"
     assert requests == []
+
+
+@pytest.mark.asyncio
+async def test_sarvam_v4_language_filtering(connection, upstream):
+    connection.provider = "sarvam"
+    connection.connection_settings = {}
+    upstream(lambda request: pytest.fail("Bulbul voice options are static"))
+    response = await voice_catalog.get_connection_voices(
+        "sarvam", 42, connection.uuid, model="bulbul:v4-flash", language="pa"
+    )
+    assert {v.voice_id for v in response.voices} == {
+        "anand_pa_conversation",
+        "anand_pa_customer",
+        "harpreet_pa_narration",
+        "jaspal_pa_banking",
+    }
+    assert all(v.language == "pa" for v in response.voices)
 
 
 @pytest.mark.asyncio

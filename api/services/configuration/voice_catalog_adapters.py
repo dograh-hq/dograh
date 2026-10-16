@@ -350,17 +350,23 @@ class SarvamVoiceCatalog(VoiceCatalog):
                 lang_name, lang_tag = SARVAM_LANG_NAMES.get(
                     lang_code, (lang_code.title(), lang_code)
                 )
+                if query.language:
+                    req_subtags = {query.language.lower(), query.language.split("-")[0].lower()}
+                    voice_subtags = {lang_tag.lower(), *lang_tag.lower().split("-")}
+                    if not (req_subtags & voice_subtags):
+                        continue
                 style_name = _sarvam_style_name(style_key)
                 voices.append(
                     VoiceInfo(
                         voice_id=voice_id,
                         name=raw_name.title(),
                         description=f"{lang_name} • {style_name} • {voice_id}",
-                        accent=style_name,
                         language=lang_tag,
                     )
                 )
             else:
+                if query.language:
+                    continue
                 voices.append(
                     VoiceInfo(
                         voice_id=voice_id,

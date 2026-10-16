@@ -124,5 +124,40 @@ describe("Provider connection voices", () => {
         fireEvent.click(trigger);
         expect(screen.getByText("English-Hindi • Ads • shubh_enhi_ads")).toBeDefined();
         expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+
+        const searchInput = screen.getByPlaceholderText("Search voices...");
+        fireEvent.change(searchInput, { target: { value: "aditi" } });
+        expect(screen.queryByText("English-Hindi • Ads • shubh_enhi_ads")).toBeNull();
+        expect(screen.getByText("Hindi • News • aditi_hi_news")).toBeDefined();
+    });
+
+    it("does not offer static voices when selected model has no model_options entry", async () => {
+        function Editor() {
+            const [value, setValue] = useState("shubh_enhi_ads");
+            return <SchemaFields provider="sarvam" providerConnectionUuid="sarvam-conn" role="tts"
+                schema={{ properties: { voice: { type: "string", title: "Voice", voice_catalog: "dropdown", examples: ["shubh_enhi_ads"], model_options: { "bulbul:v4-flash": ["shubh_enhi_ads"] }, allow_custom_input: true } } }}
+                values={{ model: "bulbul:v2", voice: value }} onChange={(_, next) => setValue(String(next))} />;
+        }
+        render(<Editor />);
+        await waitFor(() => expect(fetchVoices).toHaveBeenCalledWith(expect.objectContaining({ path: { provider: "sarvam" } })));
+    });
+
+    it("refetches voices when connection revision changes or cache is cleared for connection", async () => {
+        const { rerender } = render(<VoiceSelector {...props} connectionRevision={1} />);
+        await waitFor(() => expect(fetchVoices).toHaveBeenCalledTimes(1));
+
+        // Same revision does not refetch (cache hit)
+        rerender(<VoiceSelector {...props} connectionRevision={1} />);
+        expect(fetchVoices).toHaveBeenCalledTimes(1);
+
+        // Updated connection revision triggers a fresh fetch
+        fetchVoices.mockResolvedValueOnce({ data: { provider: "elevenlabs", voices: [{ voice_id: "new-acc", name: "New Account Voice" }] } } as never);
+        rerender(<VoiceSelector {...props} connectionRevision={2} />);
+        await waitFor(() => expect(fetchVoices).toHaveBeenCalledTimes(2));
+
+        // Clearing voice cache for specific connection uuid removes cached entry
+        clearVoiceCache("account-1");
+        rerender(<VoiceSelector {...props} connectionRevision={3} />);
+        await waitFor(() => expect(fetchVoices).toHaveBeenCalledTimes(3));
     });
 });

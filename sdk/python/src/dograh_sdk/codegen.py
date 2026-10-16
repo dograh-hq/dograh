@@ -111,14 +111,25 @@ def _py_type_for(prop: dict[str, Any], owner_class_name: str) -> tuple[str, str]
 
 
 def _format_docstring(text: str, indent: int = 4) -> str:
-    """Wrap a description into a triple-quoted docstring."""
+    """Wrap a description into a triple-quoted docstring.
+
+    Paragraphs are wrapped one at a time and rejoined with a blank line.
+    `textwrap.fill` treats the whole string as one paragraph, which ran a
+    node's description straight into its `LLM hint:` label and made the label
+    read as part of the sentence before it.
+    """
     pad = " " * indent
-    wrapped = textwrap.fill(
-        text.strip(),
-        width=76,
-        initial_indent=pad,
-        subsequent_indent=pad,
-    )
+    paragraphs = [
+        textwrap.fill(
+            paragraph.strip(),
+            width=76,
+            initial_indent=pad,
+            subsequent_indent=pad,
+        )
+        for paragraph in text.strip().split("\n\n")
+        if paragraph.strip()
+    ]
+    wrapped = "\n\n".join(paragraphs)
     return f'{pad}"""\n{wrapped}\n{pad}"""'
 
 

@@ -390,6 +390,18 @@ def test_all_registered_node_models_inherit_base_node_data():
                 "cost_telephony_rate",
             ],
         ),
+        (
+            "roark",
+            [
+                "name",
+                "roark_enabled",
+                "roark_api_key",
+                "roark_agent_name",
+                "roark_agent_id",
+                "roark_send_transcript",
+                "roark_send_gathered_context",
+            ],
+        ),
     ],
 )
 def test_node_spec_property_order_stable(spec_name: str, expected_order: list[str]):
@@ -424,6 +436,7 @@ def test_tuner_cost_rate_fields_use_typed_renderer_options():
     [
         ("paygent", "https://docs.dograh.com/integrations/paygent"),
         ("tuner", "https://docs.dograh.com/integrations/tuner"),
+        ("roark", "https://docs.dograh.com/integrations/roark"),
     ],
 )
 def test_integration_node_docs_url(spec_name: str, expected_docs_url: str):

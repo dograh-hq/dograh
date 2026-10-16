@@ -38,10 +38,11 @@ class StartCall_Extraction_variablesRow:
 class StartCall(TypedNode):
     """
     Entry point of the workflow — plays a greeting and opens the
-    conversation.  LLM hint: The entry point of every workflow (exactly one
-    required). Plays an optional greeting, can fetch context from an
-    external API before the call begins, and executes the first
-    conversational turn.
+    conversation.
+
+    LLM hint: The entry point of every workflow (exactly one required).
+    Plays an optional greeting, can fetch context from an external API
+    before the call begins, and executes the first conversational turn.
     """
 
     type: ClassVar[str] = 'startCall'

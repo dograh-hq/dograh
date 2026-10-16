@@ -17,6 +17,7 @@ from dograh_sdk.typed import (
     EndCall,
     GlobalNode,
     Qa,
+    Roark,
     StartCall,
     Trigger,
     Tuner,
@@ -52,6 +53,7 @@ def client() -> _StubClient:
         (Webhook, "webhook"),
         (Qa, "qa"),
         (Tuner, "tuner"),
+        (Roark, "roark"),
     ],
     ids=lambda v: v.__name__ if isinstance(v, type) else v,
 )
@@ -72,13 +74,15 @@ def test_typed_class_declares_spec_name(cls: type[TypedNode], expected_type: str
         inst = cls(name="wh")
     elif cls is Qa:
         inst = cls(name="qa")
-    else:  # Tuner
+    elif cls is Tuner:
         inst = cls(
             name="tuner",
             tuner_agent_id="agent",
             tuner_workspace_id=1,
             tuner_api_key="secret",
         )
+    else:  # Roark
+        inst = cls(name="roark", roark_api_key="secret", roark_agent_name="agent")
     assert inst.type == expected_type
 
 

@@ -623,7 +623,6 @@ async def test_sarvam_reuses_model_options_without_external_requests(
     language, connection, upstream
 ):
     from api.services.configuration.options.sarvam import (
-        SARVAM_V2_VOICES,
         SARVAM_V3_VOICES,
     )
 
@@ -631,7 +630,6 @@ async def test_sarvam_reuses_model_options_without_external_requests(
     connection.connection_settings = {}
     requests = upstream(lambda request: pytest.fail("Bulbul voice options are static"))
     for model, expected in [
-        ("bulbul:v2", SARVAM_V2_VOICES),
         ("bulbul:v3", SARVAM_V3_VOICES),
     ]:
         response = await voice_catalog.get_connection_voices(

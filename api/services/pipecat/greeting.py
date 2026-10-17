@@ -121,7 +121,10 @@ class GreetingController:
 
     def _finished(self, speech: SpeechPlayback) -> None:
         text = self._playback.greeting_text(speech)
-        if text and speech.outcome is PlaybackOutcome.PLAYED:
+        if text and speech.outcome in (
+            PlaybackOutcome.PLAYED,
+            PlaybackOutcome.INTERRUPTED,
+        ):
             self._get_context().add_message({"role": "assistant", "content": text})
         # Configured greetings use persist_to_logs on their speech request.
         # Generated greetings only know their spoken text after playback.

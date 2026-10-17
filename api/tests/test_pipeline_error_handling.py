@@ -401,7 +401,7 @@ def test_dograh_workers_cancel_when_a_processor_becomes_permanently_unusable(
         return worker
 
     monkeypatch.setenv("ENABLE_TURN_LOGGING", "false")
-    monkeypatch.setattr(pipeline_builder, "PipelineWorker", capture_worker)
+    monkeypatch.setattr(pipeline_builder, "DograhPipelineWorker", capture_worker)
 
     result = pipeline_builder.create_pipeline_task(object(), workflow_run_id=88)
 

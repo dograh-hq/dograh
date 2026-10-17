@@ -16,9 +16,11 @@ from pipecat.frames.frames import (
     EndFrame,
     LLMContextFrame,
     ProposedUserStartedSpeakingFrame,
+    ProposedUserStoppedSpeakingFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameProcessor
@@ -78,6 +80,7 @@ class AnswerSupervisor(FrameProcessor):
         self._armed_at: float | None = None
         self.opening_deadline = OpeningDeadline()
         self._onset: float | None = None
+        self._speech_ended_at: float | None = None
         self._logical_turn = False
         self._uses_external_turns = True
         self._screening = False
@@ -247,6 +250,7 @@ class AnswerSupervisor(FrameProcessor):
         if self._onset is not None:
             return  # Duplicate starts must not extend the same turn's deadline.
         self._onset = asyncio.get_running_loop().time()
+        self._speech_ended_at = None
         self._epoch += 1
         self._verdict = None  # Revoke unused permission during a slow pre-call fetch.
         self._changed.set()
@@ -268,7 +272,13 @@ class AnswerSupervisor(FrameProcessor):
         ):
             # Classification measures physical speech; interruption strategies
             # may delay the logical turn until enough words have arrived.
+            self._speech_ended_at = None
             self._speech_started()
+        elif isinstance(frame, ProposedUserStoppedSpeakingFrame) or (
+            isinstance(frame, VADUserStoppedSpeakingFrame)
+            and not self._uses_external_turns
+        ):
+            self._speech_ended_at = asyncio.get_running_loop().time()
         elif isinstance(frame, UserStartedSpeakingFrame):
             # Logged before _speech_started(), which returns early once the
             # opening has been released -- those released calls are exactly the
@@ -286,10 +296,20 @@ class AnswerSupervisor(FrameProcessor):
         await self.push_frame(frame, direction)
 
     async def _on_turn_stopped(self, aggregator, strategy, message):
+        await self._classify_transcript(message.content or "", strategy)
+
+    async def observe_background_turn(self, message: dict) -> None:
+        """Classify retained opening speech without requesting a conversation reply."""
+        if self._closed or self._released or self._committed:
+            return
+        self._gate.held_user_messages[id(message)] = message
+        await self._classify_transcript(message["content"], None)
+
+    async def _classify_transcript(self, text: str, strategy) -> None:
         self._logical_turn = False
         if self._closed or self._released or self._committed:
             return
-        text = (message.content or "").strip()
+        text = text.strip()
         if not text:
             return  # Music/no STT evidence is never a human answer.
         if self._screening:
@@ -299,8 +319,9 @@ class AnswerSupervisor(FrameProcessor):
         # uncommitted. Keep the evidence outside the cancelled task.
         self._turn_texts.append(text)
         text = " ".join(self._turn_texts)
-        now = asyncio.get_running_loop().time()
-        duration = now - self._onset if self._onset is not None else float("inf")
+        # A greeting may defer this commit long after the caller finished.
+        end = self._speech_ended_at or asyncio.get_running_loop().time()
+        duration = end - self._onset if self._onset is not None else float("inf")
         signals = {
             "turn_stop_strategy": str(strategy),
             "duration_ms": round(duration * 1000) if self._onset is not None else None,

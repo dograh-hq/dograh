@@ -273,6 +273,7 @@ async def late_call(
     )
     worker.add_observer(feedback)
     engine.greeting.log_speech = feedback.log_greeting
+    engine.greeting.log_background_speech = feedback.log_background_greeting_speech
     engine.greeting.get_log_context = feedback.speech_log_context
     child = create_agent_worker(
         Pipeline([llm, tts]),
@@ -391,6 +392,7 @@ async def late_call(
             generation_contexts=generation_contexts,
             generation_messages=generation_messages,
             idle_events=idle_events,
+            user_starts=user_starts,
         )
     finally:
         output.resume.set()
@@ -421,8 +423,16 @@ async def test_supervision_retains_caller_speech_until_generation_is_ready(
         assert not c.generation_messages
         release.set()
         await asyncio.wait_for(c.action, 3)
-        await until(lambda: len(c.generation_messages) == 1)
+        assert await c.engine.drain_call_pipeline()
         assert not c.supervisor.blocks_workflow
+        if utterance == "Hello.":
+            assert not c.generation_messages
+            assert c.context.messages == [
+                {"role": "user", "content": utterance},
+                {"role": "assistant", "content": "Welcome."},
+            ]
+            return
+        await until(lambda: len(c.generation_messages) == 1)
         assert [
             m["content"] for m in c.generation_messages[0] if m["role"] == "user"
         ] == [utterance]
@@ -486,6 +496,35 @@ async def test_speech_starting_during_recording_fetch_interrupts_at_two_words(
 
 
 @pytest.mark.asyncio
+async def test_next_user_turn_after_background_speech_waits_for_generation_readiness(
+    simple_workflow,
+):
+    release = asyncio.Event()
+    async with late_call(simple_workflow, "audio", generation_release=release) as call:
+        await call.say("Hello.")
+        call.output.resume.set()
+        await until(lambda: call.speech.done)
+        assert await call.engine.drain_call_pipeline()
+        assert call.context.messages == [
+            {"role": "user", "content": "Hello."},
+            {"role": "assistant", "content": "Welcome."},
+        ]
+        await call.say("Can you help me?")
+        assert await call.engine.drain_call_pipeline()
+        assert not call.generation_messages
+        release.set()
+        await asyncio.wait_for(call.action, 3)
+        assert await call.engine.drain_call_pipeline()
+        assert call.generation_messages == [
+            [
+                {"role": "user", "content": "Hello."},
+                {"role": "assistant", "content": "Welcome."},
+                {"role": "user", "content": "Can you help me?"},
+            ]
+        ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("external_turns", [False, True])
 async def test_one_word_during_recording_fetch_leaves_greeting_intact(
     simple_workflow, external_turns
@@ -516,14 +555,47 @@ async def test_one_word_during_recording_fetch_leaves_greeting_intact(
         await asyncio.wait_for(c.action, 3)
         assert await c.engine.drain_call_pipeline()
         assert speech.outcome is PlaybackOutcome.PLAYED
-        assert c.generation_messages[-1] == [
-            {"role": "assistant", "content": "Welcome."},
+        assert not c.generation_messages
+        assert c.context.messages == [
             {"role": "user", "content": "Hello."},
+            {"role": "assistant", "content": "Welcome."},
         ]
-        assert c.llm.get_current_step() == 1
+        assert not c.user_starts
+        assert c.llm.get_current_step() == 0
         assert c.user.user_turn_controller.user_turn_strategies is c.normal_strategies
         await c.say("Hello.")
-        await until(lambda: c.llm.get_current_step() == 2)
+        await until(lambda: c.llm.get_current_step() == 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("supervised", [False, True])
+async def test_background_transcript_arriving_after_greeting_does_not_generate(
+    simple_workflow, supervised
+):
+    async with late_call(simple_workflow, "audio", supervised=supervised) as call:
+        await call.start()
+        await call.partial("Hello")
+        await call.worker.queue_frame(ProposedUserStoppedSpeakingFrame())
+        await until(lambda: call.engine.greeting._speech_start is None)
+        call.output.resume.set()
+        await until(lambda: call.speech.done)
+        assert await call.engine.drain_call_pipeline()
+        await call.stop("Hello.")
+        await asyncio.wait_for(call.action, 3)
+        assert await call.engine.drain_call_pipeline()
+        assert call.llm.get_current_step() == 0
+        assert call.context.messages == [
+            {"role": "user", "content": "Hello."},
+            {"role": "assistant", "content": "Welcome."},
+        ]
+        events = await call.persisted()
+        assert [
+            event["payload"]["text"]
+            for event in events
+            if event["type"] in {"rtf-user-transcription", "rtf-bot-text"}
+        ] == ["Hello.", "Welcome."]
+        await call.say("Can you help?")
+        await until(lambda: call.llm.get_current_step() == 1)
 
 
 @pytest.mark.asyncio
@@ -577,7 +649,7 @@ async def test_second_partial_word_interrupts_greeting_and_answers_finished_turn
 @pytest.mark.parametrize("greeting_type", ["text", "audio"])
 @pytest.mark.parametrize("turns", ["external", "vad", "min_words"])
 @pytest.mark.parametrize("supervised", [False, True])
-async def test_separate_one_word_turns_are_retained_until_playback_finishes(
+async def test_separate_background_turns_do_not_generate_after_playback(
     simple_workflow, greeting_type, turns, supervised
 ):
     async with late_call(
@@ -597,7 +669,11 @@ async def test_separate_one_word_turns_are_retained_until_playback_finishes(
         c.output.resume.set()
         await asyncio.wait_for(c.action, 3)
         assert await c.engine.drain_call_pipeline()
-        await until(lambda: c.llm.get_current_step() == 1)
+        assert c.llm.get_current_step() == 0
+        assert c.context.messages == [
+            {"role": "user", "content": "Hello. Pronto?"},
+            {"role": "assistant", "content": "Welcome."},
+        ]
         # The normal configuration applies again after the greeting.
         await c.worker.queue_frames(
             [
@@ -610,7 +686,7 @@ async def test_separate_one_word_turns_are_retained_until_playback_finishes(
                 else VADUserStoppedSpeakingFrame(),
             ]
         )
-        await until(lambda: c.llm.get_current_step() == 2)
+        await until(lambda: c.llm.get_current_step() == 1)
         users = [
             m["content"] for m in c.generation_messages[-1] if m.get("role") == "user"
         ]
@@ -620,7 +696,7 @@ async def test_separate_one_word_turns_are_retained_until_playback_finishes(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("greeting_type", ["text", "audio", "llm"])
 @pytest.mark.parametrize("allow_interrupt", [False, True])
-async def test_one_word_greeting_interjection_is_answered_after_playback(
+async def test_one_word_greeting_interjection_waits_for_next_user_turn(
     simple_workflow, greeting_type, allow_interrupt
 ):
     async with late_call(
@@ -637,9 +713,12 @@ async def test_one_word_greeting_interjection_is_answered_after_playback(
         assert await c.engine.drain_call_pipeline()
         assert c.speech.outcome == PlaybackOutcome.PLAYED
         assert c.output.interruptions == 0
-        await until(
-            lambda: c.llm.get_current_step() == (2 if greeting_type == "llm" else 1)
-        )
+        assert c.llm.get_current_step() == (1 if greeting_type == "llm" else 0)
+        assert c.context.messages == [
+            {"role": "user", "content": "Hello."},
+            {"role": "assistant", "content": "Welcome."},
+        ]
+        assert not c.user_starts
         if greeting_type == "llm":
             assert c.generation_contexts[0] is not c.context
             assert not any(
@@ -649,16 +728,20 @@ async def test_one_word_greeting_interjection_is_answered_after_playback(
         events = await c.persisted()
         users = [e for e in events if e["type"] == "rtf-user-transcription"]
         assert [event["payload"]["text"] for event in users] == ["Hello."]
+        assert [
+            event["payload"]["text"]
+            for event in events
+            if event["type"] in {"rtf-user-transcription", "rtf-bot-text"}
+        ] == ["Hello.", "Welcome."]
         assert not any(interrupted for _, interrupted in c.turns)
         await c.say("I need to change my appointment.")
         await until(
-            lambda: c.llm.get_current_step() == (3 if greeting_type == "llm" else 2)
+            lambda: c.llm.get_current_step() == (2 if greeting_type == "llm" else 1)
         )
         assert await c.engine.drain_call_pipeline()
         assert c.generation_messages[-1] == [
-            {"role": "assistant", "content": "Welcome."},
             {"role": "user", "content": "Hello."},
-            {"role": "assistant", "content": "How can I help?"},
+            {"role": "assistant", "content": "Welcome."},
             {"role": "user", "content": "I need to change my appointment."},
         ]
         c.engine.end_call_with_reason.assert_not_awaited()
@@ -666,13 +749,13 @@ async def test_one_word_greeting_interjection_is_answered_after_playback(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("allow_interrupt", [False, True])
-async def test_multiple_turns_during_greeting_trigger_one_reply_after_playback(
+async def test_background_turns_preserve_history_without_a_second_opening(
     simple_workflow, allow_interrupt
 ):
     history = [
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "Earlier caller message"},
-        {"role": "assistant", "content": "Earlier response"},
+        {"role": "assistant", "content": "Welcome."},
     ]
     async with late_call(
         simple_workflow, allow_interrupt=allow_interrupt, messages=list(history)
@@ -688,13 +771,13 @@ async def test_multiple_turns_during_greeting_trigger_one_reply_after_playback(
         await asyncio.wait_for(c.action, 3)
         assert await c.engine.drain_call_pipeline()
         assert c.speech.outcome == PlaybackOutcome.PLAYED
-        await until(lambda: c.llm.get_current_step() == 1)
+        assert c.llm.get_current_step() == 0
         expected_messages = [
             *history,
-            {"role": "assistant", "content": "Welcome."},
             {"role": "user", "content": "Hello? Pronto?"},
+            {"role": "assistant", "content": "Welcome."},
         ]
-        assert c.generation_messages[0] == expected_messages
+        assert c.context.messages == expected_messages
         events = await c.persisted()
         assert [
             e["payload"]["text"]
@@ -703,11 +786,10 @@ async def test_multiple_turns_during_greeting_trigger_one_reply_after_playback(
         ] == ["Hello? Pronto?"]
         assert c.engine.should_interrupt_user_turn()
         await c.say("Tomorrow afternoon would work.")
-        await until(lambda: c.llm.get_current_step() == 2)
+        await until(lambda: c.llm.get_current_step() == 1)
         assert await c.engine.drain_call_pipeline()
         assert c.generation_messages[-1] == [
             *expected_messages,
-            {"role": "assistant", "content": "How can I help?"},
             {"role": "user", "content": "Tomorrow afternoon would work."},
         ]
         c.engine.end_call_with_reason.assert_not_awaited()
@@ -780,7 +862,10 @@ async def test_turn_spanning_greeting_is_answered_when_it_finishes(
 async def test_idle_timeout_resumes_after_consuming_greeting_speech(
     simple_workflow, greeting_type
 ):
-    async with late_call(simple_workflow, greeting_type, idle_timeout=0.2) as c:
+    classifier = AsyncMock(return_value=MachineSubtype.CONVERSATION)
+    async with late_call(
+        simple_workflow, greeting_type, idle_timeout=0.2, classify=classifier
+    ) as c:
         await c.say("Hello?")
         await asyncio.sleep(0.25)
         assert not c.idle_events
@@ -789,18 +874,34 @@ async def test_idle_timeout_resumes_after_consuming_greeting_speech(
         await asyncio.wait_for(c.action, 3)
         assert await c.engine.drain_call_pipeline()
         assert not c.idle_events
-        await until(
-            lambda: c.llm.get_current_step() == (2 if greeting_type == "llm" else 1)
-        )
+        assert c.llm.get_current_step() == (1 if greeting_type == "llm" else 0)
+        # The 250 ms playback wait must not turn a short utterance into a
+        # >100 ms machine candidate or request an additional opening reply.
+        classifier.assert_not_awaited()
         await until(lambda: len(c.idle_events) == 1)
         await until(
-            lambda: c.llm.get_current_step() == (3 if greeting_type == "llm" else 2)
+            lambda: c.llm.get_current_step() == (2 if greeting_type == "llm" else 1)
         )
         assert await c.engine.drain_call_pipeline()
         assert c.generation_messages[-1][-1]["content"].startswith(
             "The user has been quiet."
         )
         c.engine.end_call_with_reason.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_background_voicemail_still_applies_answer_policy(simple_workflow):
+    async with late_call(
+        simple_workflow, "audio", allow_greeting_interrupt=False
+    ) as call:
+        await call.say("Please leave a message after the beep.")
+        call.output.resume.set()
+        await asyncio.wait_for(call.action, 3)
+        assert call.speech.outcome is PlaybackOutcome.PLAYED
+        assert call.llm.get_current_step() == 0
+        call.engine.end_call_with_reason.assert_awaited_once_with(
+            "voicemail_detected", abort_immediately=True
+        )
 
 
 @pytest.mark.asyncio
@@ -1455,6 +1556,13 @@ async def test_later_opening_uses_the_same_greeting_policy(
             c.output.resume.set()
             assert await asyncio.wait_for(later.wait(), 3)
             assert await c.engine.drain_call_pipeline()
+            assert c.llm.get_current_step() == opening_generations
+            assert c.context.messages == [
+                {"role": "assistant", "content": "Welcome."},
+                {"role": "user", "content": "Hello."},
+                {"role": "assistant", "content": "Billing here."},
+            ]
+            await c.say("Can you help?")
 
         await until(lambda: c.llm.get_current_step() == opening_generations + 1)
         assert await c.engine.drain_call_pipeline()
@@ -1465,7 +1573,7 @@ async def test_later_opening_uses_the_same_greeting_policy(
         ] == (["Welcome."] if interrupt else ["Welcome.", "Billing here."])
         assert [
             m["content"] for m in c.generation_messages[-1] if m.get("role") == "user"
-        ] == ["Hello. Wait please." if interrupt else "Hello."]
+        ] == (["Hello. Wait please."] if interrupt else ["Hello.", "Can you help?"])
 
 
 @pytest.mark.asyncio
@@ -1602,7 +1710,7 @@ async def test_greeting_interrupted_before_output_is_excluded_from_context_and_l
 @pytest.mark.asyncio
 @pytest.mark.parametrize("greeting_type", ["text", "audio", "llm"])
 @pytest.mark.parametrize("supervised", [False, True])
-async def test_disabled_greeting_interruption_retains_caller_and_waits_for_playback(
+async def test_disabled_greeting_interruption_keeps_background_speech_without_reply(
     simple_workflow, greeting_type, supervised
 ):
     async with late_call(
@@ -1619,12 +1727,12 @@ async def test_disabled_greeting_interruption_retains_caller_and_waits_for_playb
         assert call.llm.get_current_step() == opening_generations
         call.output.resume.set()
         await asyncio.wait_for(call.action, 3)
-        await until(lambda: call.llm.get_current_step() == opening_generations + 1)
         assert await call.engine.drain_call_pipeline()
+        assert call.llm.get_current_step() == opening_generations
         assert call.speech.outcome is PlaybackOutcome.PLAYED
-        assert call.generation_messages[-1] == [
-            {"role": "assistant", "content": "Welcome."},
+        assert call.context.messages == [
             {"role": "user", "content": "Please help me. With my account."},
+            {"role": "assistant", "content": "Welcome."},
         ]
         events = await call.persisted()
         assert [
@@ -1633,6 +1741,8 @@ async def test_disabled_greeting_interruption_retains_caller_and_waits_for_playb
             if event["type"] == "rtf-user-transcription"
         ] == ["Please help me. With my account."]
         assert call.output.interruptions == 0
+        await call.say("Are you there?")
+        await until(lambda: call.llm.get_current_step() == opening_generations + 1)
 
 
 @pytest.mark.asyncio
@@ -1696,3 +1806,9 @@ async def test_partially_delivered_greeting_matches_context_and_transcript(
         assert len(greetings) == 1
         assert greetings[0]["payload"]["text"] == "Hi"
         assert greetings[0]["payload"]["interrupted"] is True
+        transcripts = [
+            event["payload"]["text"]
+            for event in events
+            if event["type"] in {"rtf-user-transcription", "rtf-bot-text"}
+        ]
+        assert transcripts[:2] == ["Hi", "Wait please."]

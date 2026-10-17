@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
 from loguru import logger
 
@@ -40,12 +41,25 @@ class GreetingUserTurnStartStrategy(BaseUserTurnStartStrategy):
         super().__init__()
         self.speech = speech
         self.has_input = False
+        self.started_at: str | None = None
+        self.stopped_at: str | None = None
 
     async def process_frame(self, frame: Frame) -> ProcessFrameResult:
+        if isinstance(
+            frame, (ProposedUserStartedSpeakingFrame, VADUserStartedSpeakingFrame)
+        ):
+            self.started_at = self.started_at or datetime.now(UTC).isoformat(
+                timespec="milliseconds"
+            )
+        elif isinstance(
+            frame, (ProposedUserStoppedSpeakingFrame, VADUserStoppedSpeakingFrame)
+        ):
+            self.stopped_at = datetime.now(UTC).isoformat(timespec="milliseconds")
         if isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame)):
             self.has_input = self.has_input or bool(frame.text.strip())
             if (
-                self.speech.allow_interrupt
+                not self.speech.done
+                and self.speech.allow_interrupt
                 and len(frame.text.split()) >= self.speech.interrupt_min_words
             ):
                 await self.trigger_user_turn_started()
@@ -73,15 +87,22 @@ class GreetingController:
         self._turn_text: asyncio.Future[str] | None = None
         self._speech_start: Frame | None = None
         self._greeting_strategy: GreetingUserTurnStartStrategy | None = None
+        self._greeting_message: tuple[SpeechPlayback, dict] | None = None
         self._log_tasks: set[asyncio.Task] = set()
         self._playback.on_greeting_finished = self._finished
         self._playback.on_greeting_started = self._started
         self.log_speech: Callable[[SpeechPlayback], Awaitable[None]] | None = None
+        self.log_background_speech: (
+            Callable[[SpeechPlayback, str, str | None, str | None], Awaitable[None]]
+            | None
+        ) = None
+        self.on_background_turn: Callable[[dict], Awaitable[None]] | None = None
         self.get_log_context: Callable[[], dict] = dict
 
     def bind(self, user: LLMUserAggregator) -> None:
         self._user = user
         user.add_event_handler("on_before_process_frame", self._update_strategies)
+        user.add_event_handler("on_after_process_frame", self._after_user_frame)
         user.add_event_handler("on_user_turn_stopped", self._turn_stopped)
 
     async def _update_strategies(self, user: LLMUserAggregator, frame: Frame) -> None:
@@ -113,16 +134,36 @@ class GreetingController:
             min_words = None
         if not greeting_pending and self._greeting_strategy is not None:
             strategy = self._greeting_strategy
+            if (
+                strategy.speech.outcome is PlaybackOutcome.PLAYED
+                and not controller.has_active_user_turn
+                and not self._speech_start
+                and (strategy.has_input or strategy.started_at)
+                and not user.aggregation_string()
+                and not isinstance(
+                    frame,
+                    (ProposedUserStartedSpeakingFrame, VADUserStartedSpeakingFrame),
+                )
+            ):
+                # Recognition can finish after playback even though the caller
+                # stopped during it. Commit that final as background speech too.
+                return
             self._greeting_strategy = None
             if not controller.has_active_user_turn and (
                 user.aggregation_string() or (strategy.has_input and self._speech_start)
             ):
-                await strategy.trigger_user_turn_started(enable_interruptions=False)
-                if self._speech_start:
-                    for stop_strategy in controller.user_turn_strategies.stop:
-                        await stop_strategy.process_frame(self._speech_start)
+                if (
+                    strategy.speech.outcome is PlaybackOutcome.PLAYED
+                    and not self._speech_start
+                ):
+                    await self._consume_background_turn(user, strategy)
                 else:
-                    await controller.force_user_turn_stop()
+                    await strategy.trigger_user_turn_started(enable_interruptions=False)
+                    if self._speech_start:
+                        for stop_strategy in controller.user_turn_strategies.stop:
+                            await stop_strategy.process_frame(self._speech_start)
+                    else:
+                        await controller.force_user_turn_stop()
         if min_words is not None and min_words != self._min_words:
             if self._normal_strategies is None:
                 self._normal_strategies = controller.user_turn_strategies
@@ -158,6 +199,50 @@ class GreetingController:
         ):
             self._speech_start = None
 
+    async def _after_user_frame(self, user: LLMUserAggregator, frame: Frame) -> None:
+        if (
+            isinstance(frame, TranscriptionFrame)
+            and self._greeting_strategy is not None
+            and self._greeting_strategy.speech.done
+        ):
+            await self._update_strategies(user, Frame())
+
+    async def _consume_background_turn(
+        self, user: LLMUserAggregator, strategy: GreetingUserTurnStartStrategy
+    ) -> None:
+        """Keep background speech before a completed greeting, without inference."""
+        text = user.aggregation_string()
+        await user.reset()
+        speech = strategy.speech
+        context = speech.context if speech.context is not None else self._get_context()
+        message = {"role": "user", "content": text}
+        greeting_message = (
+            self._greeting_message[1]
+            if self._greeting_message and self._greeting_message[0] is speech
+            else None
+        )
+        index = next(
+            (
+                i
+                for i, entry in enumerate(context.messages)
+                if entry is greeting_message
+            ),
+            len(context.messages),
+        )
+        context.messages.insert(index, message)
+        if self._turn_text is not None and not self._turn_text.done():
+            self._turn_text.set_result("")
+        if self.log_background_speech:
+            self._log_tasks.add(
+                asyncio.create_task(
+                    self.log_background_speech(
+                        speech, text, strategy.started_at, strategy.stopped_at
+                    )
+                )
+            )
+        if self.on_background_turn:
+            await self.on_background_turn(message)
+
     @property
     def awaiting_turn(self) -> bool:
         return (
@@ -190,6 +275,16 @@ class GreetingController:
     async def _turn_stopped(
         self, _user, _strategy, message: UserTurnStoppedMessage
     ) -> None:
+        if (
+            self._turn_text is not None
+            and self._turn_text.done()
+            and not self._turn_text.cancelled()
+            and not self._turn_text.result()
+            and message.content
+        ):
+            # A new turn can finish while the supervised opening still waits
+            # for generation readiness. Unlike background speech, it needs a reply.
+            self._turn_text = asyncio.get_running_loop().create_future()
         if self._turn_text is not None and not self._turn_text.done():
             self._turn_text.set_result(message.content or "")
 
@@ -204,7 +299,9 @@ class GreetingController:
             context = (
                 speech.context if speech.context is not None else self._get_context()
             )
-            context.add_message({"role": "assistant", "content": text})
+            message = {"role": "assistant", "content": text}
+            context.add_message(message)
+            self._greeting_message = (speech, message)
         logger.bind(**speech.log_context).info(
             "Greeting finished: speech_id={} outcome={} first_output_at={} played_ms={}",
             speech.id,

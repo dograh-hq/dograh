@@ -972,6 +972,7 @@ class PipecatEngine:
 
     def set_answer_supervisor(self, supervisor, user_aggregator, idle_timeout: float):
         self.answer_supervisor = supervisor
+        self.greeting.on_background_turn = supervisor.observe_background_turn
         self._answer_user_aggregator = user_aggregator
         self.call_monitor.bind_user(user_aggregator, idle_timeout=idle_timeout)
 

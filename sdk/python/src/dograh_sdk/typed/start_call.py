@@ -79,15 +79,16 @@ class StartCall(TypedNode):
     """
     Let the caller interrupt the opening greeting. When off, caller speech
     is retained until the greeting finishes. Applies to cascade and realtime
-    openings. Realtime models use provider speech detection when
-    interruptions are allowed.
+    openings. Realtime uses provider or local speech detection according to
+    the adapter when interruptions are allowed.
     """
 
     greeting_interrupt_min_words: int = 2
     """
     Cascade only: interrupt when the caller's transcription contains at
     least this many words. Realtime providers do not support this word
-    threshold and use their own speech detection.
+    threshold; they use provider or local speech detection according to the
+    adapter.
     """
 
     allow_interrupt: bool = False
@@ -110,7 +111,7 @@ class StartCall(TypedNode):
 
     delayed_start_duration: float = 1.2
     """
-    Seconds to listen for a silent answer before opening. 0.1–10. With
+    Seconds to listen for a silent answer before opening. 0–10. With
     voicemail handling, replaces its default 1.2-second window.
     """
 

@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from loguru import logger
 
+from api.services.pipecat.realtime.connection import BackgroundConnectionMixin
 from api.services.pipecat.realtime.conversation import (
     RealtimeConversationMixin,
     opening_request,
@@ -54,7 +55,9 @@ Current workflow:
 """
 
 
-class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService):
+class DograhOpenAILiveLLMService(
+    BackgroundConnectionMixin, RealtimeConversationMixin, OpenAILiveLLMService
+):
     """Keep workflow instructions on the Responses backend of a Live session."""
 
     # Backend tool batches have their own boundaries; voice can start or stop

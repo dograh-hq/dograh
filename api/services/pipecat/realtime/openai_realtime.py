@@ -26,6 +26,7 @@ from typing import Any
 
 from loguru import logger
 
+from api.services.pipecat.realtime.connection import BackgroundConnectionMixin
 from api.services.pipecat.realtime.conversation import (
     RealtimeConversationMixin,
     opening_request,
@@ -50,7 +51,7 @@ from pipecat.utils.time import time_now_iso8601
 
 
 class DograhOpenAIRealtimeLLMService(
-    RealtimeConversationMixin, OpenAIRealtimeLLMService
+    BackgroundConnectionMixin, RealtimeConversationMixin, OpenAIRealtimeLLMService
 ):
     """OpenAI Realtime with Dograh engine integration quirks. See module docstring."""
 

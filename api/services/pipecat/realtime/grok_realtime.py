@@ -23,6 +23,7 @@ from typing import Any
 
 from loguru import logger
 
+from api.services.pipecat.realtime.connection import BackgroundConnectionMixin
 from api.services.pipecat.realtime.conversation import (
     RealtimeConversationMixin,
     opening_request,
@@ -42,7 +43,9 @@ from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
 from pipecat.utils.time import time_now_iso8601
 
 
-class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMService):
+class DograhGrokRealtimeLLMService(
+    BackgroundConnectionMixin, RealtimeConversationMixin, GrokRealtimeLLMService
+):
     """Grok Realtime with Dograh engine integration quirks."""
 
     _workflow_tools_follow_voice_response = False

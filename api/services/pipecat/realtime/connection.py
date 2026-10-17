@@ -31,7 +31,7 @@ class BackgroundConnectionMixin:
         if self._connecting_during_setup:
             if self._startup_connection_task is None:
                 self._startup_connection_task = self.create_task(
-                    super()._connect(), name=f"{self}::startup_connection"
+                    self._connect_at_startup(), name=f"{self}::startup_connection"
                 )
             return
         if (
@@ -41,6 +41,19 @@ class BackgroundConnectionMixin:
             await asyncio.shield(self._startup_connection_task)
             return
         await super()._connect()
+
+    async def _connect_at_startup(self):
+        try:
+            await super()._connect()
+        except Exception as exc:
+            # The task manager logs uncaught exceptions but cannot decide the
+            # call's fate. Report unexpected failures through the normal worker
+            # error path instead of waiting for the input-readiness timeout.
+            await self.push_error(
+                error_msg=f"Realtime startup connection failed: {exc}",
+                exception=exc,
+                force_treat_as_permanent=True,
+            )
 
     async def _cancel_startup_connection(self):
         task = self._startup_connection_task

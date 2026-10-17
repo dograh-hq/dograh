@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pipecat.frames.frames import EndFrame, InputAudioRawFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import WorkerParams
+from pipecat.pipeline.worker import ProcessorUnusablePolicy, WorkerParams
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.openai.live.llm import OpenAILiveLLMService
 from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
@@ -22,6 +22,7 @@ from pipecat.utils.asyncio.task_manager import TaskManager
 from api.services.pipecat.call_opening import OpeningInputGate
 from api.services.pipecat.pipeline_worker import DograhPipelineWorker
 from api.services.pipecat.realtime.azure_realtime import DograhAzureRealtimeLLMService
+from api.services.pipecat.realtime.connection import BackgroundConnectionMixin
 from api.services.pipecat.realtime.grok_realtime import DograhGrokRealtimeLLMService
 from api.services.pipecat.realtime.openai_live import DograhOpenAILiveLLMService
 from api.services.pipecat.realtime.openai_realtime import DograhOpenAIRealtimeLLMService
@@ -271,3 +272,37 @@ async def test_failed_pipeline_setup_cleans_pending_or_connected_provider(
         state.socket.close.assert_awaited_once()
     else:
         assert state.cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_unexpected_connection_exception_cancels_worker(connecting, monkeypatch):
+    service = connecting.service
+    mro = type(service).__mro__
+    upstream = next(
+        cls
+        for cls in mro[mro.index(BackgroundConnectionMixin) + 1 :]
+        if "_connect" in vars(cls)
+    )
+    failure = RuntimeError("unexpected provider connection failure")
+
+    async def fail(_service):
+        raise failure
+
+    monkeypatch.setattr(upstream, "_connect", fail)
+    report = AsyncMock(wraps=service.push_error)
+    monkeypatch.setattr(service, "push_error", report)
+    worker = DograhPipelineWorker(
+        Pipeline([service]),
+        enable_rtvi=False,
+        processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
+    )
+    manager = TaskManager()
+    await asyncio.wait_for(worker.run(WorkerParams(task_manager=manager)), 2)
+    report.assert_awaited_once_with(
+        error_msg=f"Realtime startup connection failed: {failure}",
+        exception=failure,
+        force_treat_as_permanent=True,
+    )
+    assert worker.has_finished()
+    assert service._startup_connection_task is None
+    assert not manager.current_tasks()

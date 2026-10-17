@@ -102,7 +102,7 @@ async def sync_external_pbx_call_record(workflow_run_id: int) -> None:
 
     Missing PBX configuration is a no-op. Retryable failures propagate so the
     completion worker can recover them. Terminal rejections are logged and
-    finish the step, since retrying cannot recover missing call identity.
+    finish the step, since retrying cannot fix invalid mappings or missing identity.
     """
     try:
         run = await db_client.get_workflow_run_by_id(workflow_run_id)

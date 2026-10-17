@@ -14,8 +14,8 @@ class ExternalPBXResult:
     ok: bool
     action: str
     message: str
-    # Failed operations can be terminal when the saved call identity is incomplete.
-    retryable: bool = True
+    # Providers explicitly opt transient API failures into recovery.
+    retryable: bool = False
 
 
 class ExternalPBXAdapter(ABC):

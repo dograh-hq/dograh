@@ -392,17 +392,27 @@ async def test_recovery_retries_only_failed_steps(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("disposition", ["AA", "DNC"])
-async def test_missing_pbx_identity_leaves_recovery(
-    completion_db, monkeypatch, disposition
+@pytest.mark.parametrize(
+    "failure", ["missing_lead_id", "missing_phone", "invalid_mappings"]
+)
+async def test_terminal_pbx_validation_leaves_recovery(
+    completion_db, monkeypatch, failure
 ):
     client, _, run_id = completion_db
     await prepare(client, run_id)
     identity = {"type": "vicidial", "callerid": "M123", "lead_id": ""}
+    disposition = "DNC" if failure == "missing_phone" else "AA"
+    mappings = []
+    expected_fields = {"status": disposition}
+    if failure == "invalid_mappings":
+        identity["lead_id"] = "42"
+        disposition = "user_hangup"  # No valid native VICIdial status to send.
+        mappings = [{"context_path": "lead_name", "destination_field": "bad name)"}]
+        expected_fields = {"bad name)": "Ada"}
     await client.update_workflow_run(
         run_id,
         initial_context={"external_pbx_call": identity},
-        gathered_context={"mapped_call_disposition": disposition},
+        gathered_context={"mapped_call_disposition": disposition, "lead_name": "Ada"},
     )
     adapter = create_adapter(
         {
@@ -429,7 +439,9 @@ async def test_missing_pbx_identity_leaves_recovery(
         AsyncMock(return_value=adapter),
     )
     monkeypatch.setattr(
-        client, "get_workflow_run_configurations", AsyncMock(return_value={})
+        client,
+        "get_workflow_run_configurations",
+        AsyncMock(return_value={"external_pbx_field_mappings": mappings}),
     )
     for function in (
         "run_final_extraction",
@@ -441,7 +453,7 @@ async def test_missing_pbx_identity_leaves_recovery(
     await asyncio.wait_for(
         workflow_completion.process_workflow_completion(None, run_id), timeout=10
     )
-    update_fields.assert_awaited_once_with(identity, {"status": disposition})
+    update_fields.assert_awaited_once_with(identity, expected_fields)
     http_session.assert_not_called()
     run = await client.get_workflow_run_by_id(run_id)
     assert run.extra["workflow_completion"]["status"] == "done"

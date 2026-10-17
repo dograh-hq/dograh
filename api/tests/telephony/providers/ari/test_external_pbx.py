@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import redis.asyncio as aioredis
+from aiohttp import ClientConnectionError
 from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
@@ -355,7 +356,14 @@ async def test_vicidial_update_lead_never_puts_a_mapped_field_first():
 
 
 @pytest.mark.asyncio
-async def test_vicidial_update_lead_rejects_fields_shadowing_control_params():
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"format": "json", "custom_fields": "N", "function": "add_lead"},
+        {"bad name)": "value"},
+    ],
+)
+async def test_vicidial_update_lead_rejects_invalid_or_reserved_fields(fields):
     """Mapped fields are appended last, so a collision would hijack the call."""
     adapter = create_adapter(_vicidial_config())
     session = _StubSession(
@@ -366,12 +374,78 @@ async def test_vicidial_update_lead_rejects_fields_shadowing_control_params():
         "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
         return_value=session,
     ):
-        await adapter.update_fields(
+        result = await adapter.update_fields(
             {"lead_id": "42"},
-            {"format": "json", "custom_fields": "N", "function": "add_lead"},
+            fields,
         )
 
-    assert not session.requests, "a request with only reserved names must not be sent"
+    assert not session.requests, "a request with no valid fields must not be sent"
+    assert not result.ok
+    assert not result.retryable
+
+
+async def _call_pbx_operation(adapter, operation):
+    identity = {"lead_id": "42", "callerid": "M123", "agent_user": "agent"}
+    if operation == "update":
+        return await adapter.update_fields(identity, {"comments": "note"})
+    if operation == "hangup":
+        return await adapter.hangup(identity)
+    if operation == "suppression":
+        identity["lead"] = {"phone_number": "15551234567"}
+    return await adapter.apply_do_not_call(identity, "DNC")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation", ["update", "hangup", "suppression", "phone_lookup"]
+)
+@pytest.mark.parametrize(
+    ("status", "retryable"),
+    [
+        (200, False),
+        (403, False),
+        (408, True),
+        (429, True),
+        (503, True),
+    ],
+)
+async def test_pbx_retries_only_transient_http_failures(operation, status, retryable):
+    adapter = create_adapter(_vicidial_config())
+    session = _StubSession(_StubResponse(status, "ERROR: request rejected"))
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        return_value=session,
+    ):
+        result = await _call_pbx_operation(adapter, operation)
+    assert len(session.requests) == 1
+    assert not result.ok
+    assert result.retryable is retryable
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation", ["update", "hangup", "suppression", "phone_lookup"]
+)
+@pytest.mark.parametrize(
+    ("error", "retryable"),
+    [
+        (TimeoutError("Timed out"), True),
+        (ClientConnectionError("Connection reset"), True),
+        (ValueError("Invalid request"), False),
+    ],
+)
+async def test_pbx_retries_transport_errors_but_not_invalid_requests(
+    operation, error, retryable
+):
+    adapter = create_adapter(_vicidial_config())
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        side_effect=error,
+    ) as session:
+        result = await _call_pbx_operation(adapter, operation)
+    session.assert_called_once()
+    assert not result.ok
+    assert result.retryable is retryable
 
 
 @pytest.mark.asyncio
@@ -1124,7 +1198,7 @@ async def test_completion_records_the_disposition_without_any_workflow_mapping(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["exception", "rejected", "suppression"])
-async def test_completion_write_failure_reaches_worker(monkeypatch, failure):
+async def test_retryable_completion_write_failure_reaches_worker(monkeypatch, failure):
     from api.services.telephony.external_pbx_writeback import (
         sync_external_pbx_call_record,
     )
@@ -1136,11 +1210,11 @@ async def test_completion_write_failure_reaches_worker(monkeypatch, failure):
         adapter.update_fields.side_effect = TimeoutError("PBX unavailable")
     elif failure == "rejected":
         adapter.update_fields.return_value = ExternalPBXResult(
-            False, "update_lead", "rejected"
+            False, "update_lead", "rejected", retryable=True
         )
     else:
         adapter.apply_do_not_call.return_value = ExternalPBXResult(
-            False, "dnc", "rejected"
+            False, "dnc", "rejected", retryable=True
         )
 
     with pytest.raises((TimeoutError, RuntimeError)):
@@ -1170,7 +1244,7 @@ async def test_missing_lead_identity_is_not_retryable(lead_id):
 async def test_phone_lookup_failure_with_lead_id_remains_retryable(monkeypatch):
     adapter = create_adapter(_vicidial_config())
     # A failed lookup can recover because the call captured a usable lead ID.
-    lookup = AsyncMock(return_value="")
+    lookup = AsyncMock(return_value=("", True))
     monkeypatch.setattr(adapter, "_lead_phone_number", lookup)
     identity = {"type": "vicidial", "lead_id": "42"}
     result = await adapter.apply_do_not_call(identity, "DNC")
@@ -1192,7 +1266,7 @@ async def test_missing_lead_id_does_not_skip_retryable_suppression(monkeypatch):
     )
     adapter.apply_do_not_call = AsyncMock(
         return_value=ExternalPBXResult(
-            False, "add_dnc_phone", "Temporarily unavailable"
+            False, "add_dnc_phone", "Temporarily unavailable", retryable=True
         )
     )
     with pytest.raises(RuntimeError, match="do-not-call write-back rejected"):

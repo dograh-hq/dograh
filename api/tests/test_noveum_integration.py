@@ -121,7 +121,7 @@ def _completion_context(logs=None, recording_url="https://dograh/rec.wav"):
     return types.SimpleNamespace(
         workflow_run_id=42,
         workflow_run=types.SimpleNamespace(
-            logs=logs or {}, recording_url=recording_url
+            logs=logs or {}, recording_url=recording_url, gathered_context={}
         ),
         workflow_definition={},
         definition_id=1,
@@ -403,6 +403,7 @@ async def test_completion_happy_path_uploads_audio_and_sends_trace():
     context = _completion_context(
         logs={NOVEUM_PAYLOAD_LOG_KEY: _envelope(manifest=manifest)}
     )
+    context.workflow_run.gathered_context = {"call_disposition": "qualified"}
     nodes = [_noveum_node(api_key="nv-key")]
     client = MagicMock()
 
@@ -433,6 +434,7 @@ async def test_completion_happy_path_uploads_audio_and_sends_trace():
     sent_trace = client.send_trace_dict.call_args.args[0]
     assert sent_trace["trace_id"] == "trace-1"
     assert sent_trace["attributes"]["dograh.recording_url"] == "https://dograh/rec.wav"
+    assert sent_trace["attributes"]["dograh.call_disposition"] == "qualified"
     # Placeholder live-phase identity must be replaced with the node's values.
     assert sent_trace["attributes"]["noveum.project"] == "voice-agent"
     assert sent_trace["attributes"]["noveum.environment"] == "production"

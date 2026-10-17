@@ -28,6 +28,9 @@ ENGINE_OWNED_CONTEXT_KEYS = frozenset(
         "llm_fallback_metrics",
         "sip_call_id",
         "extracted_variables",
+        "nodes_visited",
+        "agent_visits",
+        "agent_transfers",
     }
 )
 
@@ -129,16 +132,16 @@ async def extract_variables(
         logger.warning("Extractor returned no response; returning empty result.")
         extracted = {}
     else:
-        extracted = parse_llm_json(llm_response)
+        try:
+            extracted = parse_llm_json(llm_response, raise_on_error=strict)
+        except ValueError as exc:
+            raise ExtractionResponseError("Invalid extraction JSON") from exc
         if strict and (
             not isinstance(extracted, dict)
-            or (
-                set(extracted) == {"raw"}
-                and "raw" not in {v.name for v in extraction_variables}
-            )
+            or not extracted.keys() & {v.name for v in extraction_variables}
         ):
             raise ExtractionResponseError("Invalid extraction response")
-        if "raw" in extracted and len(extracted) == 1:
+        if not strict and "raw" in extracted and len(extracted) == 1:
             logger.warning(
                 "Extractor returned invalid JSON; storing raw content instead."
             )

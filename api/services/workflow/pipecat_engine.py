@@ -862,6 +862,15 @@ class PipecatEngine:
         requests = [request for _, request in pending] if not skipped else []
         current = self._snapshot_extraction_request(self.active_agent.current_node)
         if current and not skipped:
+            # A transition may still be extracting the active node. Its final
+            # request uses the latest conversation and replaces that older work.
+            requests = [
+                request
+                for request in requests
+                if request["workflow_id"] != current["workflow_id"]
+                or request["definition_id"] != current["definition_id"]
+                or request["node_id"] != current["node_id"]
+            ]
             requests.append(current)
         options = (
             [

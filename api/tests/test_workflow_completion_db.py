@@ -1,14 +1,42 @@
 import asyncio
+import importlib
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
+from api.db.models import WorkflowModel
 from api.services.telephony import ari_manager
+from api.tasks import workflow_completion
 from api.tests.test_run_model_snapshot_db import snapshot_db as snapshot_db_fixture
 
 completion_db = snapshot_db_fixture
+
+
+@pytest.mark.asyncio
+async def test_concurrent_completions_preserve_all_disposition_codes(completion_db):
+    client, _, run_id = completion_db
+    run = await client.get_workflow_run_by_id(run_id)
+    codes = [f"outcome-{index}" for index in range(8)]
+    await asyncio.wait_for(
+        asyncio.gather(
+            *[
+                client.add_call_disposition_code(run.workflow_id, code)
+                for code in [*codes, *codes]
+            ]
+        ),
+        timeout=10,
+    )
+    async with client.async_session() as session:
+        workflow = await session.get(WorkflowModel, run.workflow_id)
+        stored = workflow.call_disposition_codes["disposition_codes"]
+    assert sorted(stored) == sorted(codes)
 
 
 async def prepare(client, run_id):
@@ -287,3 +315,103 @@ async def test_recovery_finds_runs_after_extraction_but_before_integrations(
     run = await client.get_workflow_run_by_id(run_id)
     assert run.extra["workflow_completion"]["final_extraction"]["status"] == "done"
     assert "final_extraction" not in run.gathered_context
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failed_step", ["disposition", "integrations", "billing", "pbx"]
+)
+async def test_recovery_retries_only_failed_steps(
+    completion_db, monkeypatch, failed_step
+):
+    client, _, run_id = completion_db
+    await prepare(client, run_id)
+    monkeypatch.setattr(workflow_completion, "db_client", client)
+    monkeypatch.setattr(workflow_completion, "run_final_extraction", AsyncMock())
+    operations = {
+        step: AsyncMock() for step in ("disposition", "integrations", "billing", "pbx")
+    }
+    monkeypatch.setattr(client, "add_call_disposition_code", operations["disposition"])
+    for step, function in (
+        ("integrations", "run_integrations_post_workflow_run"),
+        ("billing", "report_completed_workflow_run_platform_usage"),
+        ("pbx", "sync_external_pbx_call_record"),
+    ):
+        monkeypatch.setattr(workflow_completion, function, operations[step])
+    operations[failed_step].side_effect = TimeoutError("Temporarily unavailable")
+    with pytest.raises(
+        RuntimeError, match=f"Workflow completion failed: {failed_step}"
+    ):
+        await workflow_completion.process_workflow_completion(None, run_id)
+    run = await client.get_workflow_run_by_id(run_id)
+    state = run.extra["workflow_completion"]
+    assert state["status"] == "running"
+    assert set(state["steps"]) == operations.keys() - {failed_step}
+    assert all(operation.await_count == 1 for operation in operations.values())
+
+    # A duplicate job must wait for the same lease as the sweeper.
+    await workflow_completion.process_workflow_completion(None, run_id)
+    assert all(operation.await_count == 1 for operation in operations.values())
+    await client.update_workflow_run(
+        run_id, extra={"workflow_completion": {**state, "lease_until": time.time() - 1}}
+    )
+    assert run_id in await client.get_overdue_workflow_completions()
+    operations[failed_step].side_effect = None
+    await workflow_completion.process_workflow_completion(None, run_id)
+    for step, operation in operations.items():
+        assert operation.await_count == (2 if step == failed_step else 1)
+    run = await client.get_workflow_run_by_id(run_id)
+    assert run.extra["workflow_completion"]["status"] == "done"
+    assert run_id not in await client.get_overdue_workflow_completions()
+
+
+@pytest.mark.asyncio
+async def test_migration_rebuilds_an_invalid_concurrent_index(test_engine):
+    migration = importlib.import_module(
+        "api.alembic.versions.d6a83e2b19f0_index_pending_workflow_completions"
+    )
+    schema = f"completion_index_{uuid4().hex}"
+    index = "idx_workflow_runs_pending_completion"
+
+    def upgrade(connection):
+        context = MigrationContext.configure(connection)
+        with context.begin_transaction(), Operations.context(context):
+            migration.upgrade()
+
+    async with test_engine.connect() as connection:
+        connection = await connection.execution_options(isolation_level="AUTOCOMMIT")
+        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+        try:
+            await connection.execute(text(f'SET search_path TO "{schema}"'))
+            await connection.execute(
+                text(
+                    "CREATE TABLE workflow_runs (id integer, is_completed boolean, extra jsonb)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO workflow_runs (id, is_completed) VALUES (1, true), (2, true)"
+                )
+            )
+            # A failed concurrent unique build leaves exactly the invalid index
+            # state that IF NOT EXISTS would silently retain on retry.
+            with pytest.raises(IntegrityError):
+                await connection.execute(
+                    text(
+                        f"CREATE UNIQUE INDEX CONCURRENTLY {index} ON workflow_runs (is_completed)"
+                    )
+                )
+            valid = text(
+                f"SELECT indisvalid FROM pg_index WHERE indexrelid = '{index}'::regclass"
+            )
+            assert await connection.scalar(valid) is False
+            await connection.commit()
+            await connection.run_sync(upgrade)
+            assert await connection.scalar(valid) is True
+            definition = await connection.scalar(
+                text(f"SELECT pg_get_indexdef('{index}'::regclass)")
+            )
+            assert "(id)" in definition
+            assert "workflow_completion" in definition
+        finally:
+            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))

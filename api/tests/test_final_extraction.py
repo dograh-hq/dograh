@@ -94,6 +94,57 @@ async def test_pending_transition_retains_its_original_conversation(monkeypatch)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("same_workflow", [True, False])
+async def test_pending_current_node_is_extracted_once(monkeypatch, same_workflow):
+    instance, llm = engine(monkeypatch)
+    started = asyncio.Event()
+
+    async def slow(*_args, **_kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    llm.run_inference.side_effect = slow
+    await instance._perform_variable_extraction_if_needed(
+        instance.active_agent.current_node
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    instance.context.add_message({"role": "user", "content": "A later correction"})
+    if not same_workflow:
+        # Node IDs can repeat across transferred workflows.
+        instance.active_agent.workflow_id = 10
+        instance.active_agent.definition_id = 20
+    await asyncio.wait_for(instance.end_call_with_reason("end_call", True), timeout=1)
+    logs = instance.final_extraction_logs()
+    requests = logs["final_extraction"]["requests"]
+    assert len(requests) == (1 if same_workflow else 2)
+    assert "conversation_history" not in requests[-1]
+    assert logs["conversation"][-1]["content"] == "A later correction"
+    assert not instance._pending_extraction_tasks
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["nodes_visited", "agent_visits", "agent_transfers"])
+async def test_extraction_cannot_replace_engine_history(monkeypatch, key):
+    instance, llm = engine(monkeypatch)
+    history = [{"node_id": "start"}]
+    instance._gathered_context[key] = deepcopy(history)
+    current = node(variable=key)
+    current.extraction_variables.append(
+        ExtractionVariableDTO(name="name", type="string")
+    )
+    instance.active_agent.current_node = current
+    llm.run_inference.return_value = json.dumps({key: "invalid", "name": "Ada"})
+    await instance._perform_variable_extraction_if_needed(
+        current, run_in_background=False
+    )
+    assert instance._gathered_context[key] == history
+    assert instance._gathered_context["name"] == "Ada"
+    await instance.end_call_with_reason("end_call", True)
+    request = instance.final_extraction_logs()["final_extraction"]["requests"][0]
+    assert [variable["name"] for variable in request["variables"]] == ["name"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "reason",
     [EndTaskReason.PIPELINE_ERROR.value, EndTaskReason.VOICEMAIL_DETECTED.value],
@@ -222,7 +273,7 @@ def worker(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("variable", ["name", "final_extraction"])
+@pytest.mark.parametrize("variable", ["name", "final_extraction", "raw"])
 async def test_worker_uses_child_model_and_is_idempotent(worker, variable):
     run, llm, saved = worker
     run.logs["final_extraction"]["requests"][0]["variables"][0]["name"] = variable
@@ -268,7 +319,9 @@ async def test_transient_failure_is_retried(worker):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("response", [None, "not json", "[]"])
+@pytest.mark.parametrize(
+    "response", [None, "not json", "[]", "{}", '{"unrequested": "Ada"}']
+)
 async def test_invalid_response_exhausts_retries(worker, response):
     _, llm, saved = worker
     llm.run_inference.return_value = response
@@ -276,6 +329,27 @@ async def test_invalid_response_exhausts_retries(worker, response):
     assert llm.run_inference.await_count == 3
     assert saved.call_args.kwargs["status"] == "failed"
     assert saved.call_args.kwargs["error_class"] == "ExtractionResponseError"
+
+
+@pytest.mark.asyncio
+async def test_raw_variable_does_not_accept_parser_fallback(worker):
+    run, llm, saved = worker
+    run.logs["final_extraction"]["requests"][0]["variables"][0]["name"] = "raw"
+    llm.run_inference.side_effect = ["not JSON", '```json\n{"raw": "Ada"}\n```']
+    await service.run_final_extraction(1, 7, "lease")
+    assert llm.run_inference.await_count == 2
+    assert saved.call_args.kwargs["variables"] == {"raw": "Ada"}
+    assert saved.call_args.kwargs["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_requested_null_value_is_a_valid_extraction(worker):
+    _, llm, saved = worker
+    llm.run_inference.return_value = '{"name": null}'
+    await service.run_final_extraction(1, 7, "lease")
+    llm.run_inference.assert_awaited_once()
+    assert saved.call_args.kwargs["variables"] == {"name": None}
+    assert saved.call_args.kwargs["status"] == "done"
 
 
 @pytest.mark.asyncio
@@ -411,4 +485,30 @@ async def test_standalone_client_can_be_created_and_closed_off_pipeline():
     # Client construction and cleanup must work without a running pipeline;
     # no inference request is made with the dummy provider credentials.
     llm = await service._create_llm(config, None)
-    await llm.cleanup()
+    assert not llm._client.is_closed()
+    await service._close_llm(llm)
+    assert llm._client.is_closed()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_fallback_cleanup_closes_every_owned_sdk_client(
+    monkeypatch, cleanup_fails
+):
+    from pipecat.services.openai.llm import OpenAILLMService
+
+    from api.schemas.llm_fallback import ErrorCondition
+    from api.services.pipecat.fallback_llm import FallbackLLMProcessor, FallbackRoute
+
+    primary = OpenAILLMService(api_key="test", enable_direct_mode=True)
+    fallback = OpenAILLMService(api_key="test", enable_direct_mode=True)
+    llm = FallbackLLMProcessor(
+        primary, routes=[FallbackRoute(condition=ErrorCondition(), service=fallback)]
+    )
+    if cleanup_fails:
+        monkeypatch.setattr(
+            llm, "cleanup", AsyncMock(side_effect=RuntimeError("cleanup failed"))
+        )
+    await service._close_llm(llm)
+    assert primary._client.is_closed()
+    assert fallback._client.is_closed()

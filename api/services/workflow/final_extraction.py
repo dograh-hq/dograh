@@ -6,6 +6,7 @@ from typing import Any
 
 from loguru import logger
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.services.openai.base_llm import BaseOpenAILLMService
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 from api.db import db_client
@@ -23,6 +24,7 @@ from api.services.configuration.run_model_configuration import (
     get_effective_ai_model_configuration_for_run,
 )
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
+from api.services.pipecat.fallback_llm import FallbackLLMProcessor
 from api.services.pipecat.service_factory import create_llm_service
 from api.services.workflow.conversation_history import (
     build_conversation_history,
@@ -50,6 +52,20 @@ async def _close_llm(llm: Any) -> None:
         logger.warning(
             "Final extraction client cleanup failed ({})", type(exc).__name__
         )
+    finally:
+        # Pipecat's OpenAI-compatible services own an SDK client but their
+        # processor cleanup does not close it. Fallbacks own several services.
+        processors = llm.processors if isinstance(llm, FallbackLLMProcessor) else [llm]
+        for processor in processors:
+            if isinstance(processor, BaseOpenAILLMService):
+                try:
+                    async with asyncio.timeout(5):
+                        await processor._client.close()
+                except Exception as exc:  # noqa: BLE001 - attempt each client's cleanup
+                    logger.warning(
+                        "Final extraction HTTP client cleanup failed ({})",
+                        type(exc).__name__,
+                    )
 
 
 async def _create_llm(user_config, correlation_id):

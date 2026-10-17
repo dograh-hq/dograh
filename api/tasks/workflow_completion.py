@@ -44,25 +44,30 @@ async def process_workflow_completion(_ctx, workflow_run_id: int):
 
     run, _ = await db_client.get_workflow_run_with_context(workflow_run_id)
     disposition = (run.gathered_context or {}).get("mapped_call_disposition")
+    operations = []
     if disposition:
-        try:
-            await db_client.add_call_disposition_code(run.workflow_id, disposition)
-        except Exception as exc:  # noqa: BLE001 - independent completion steps
-            logger.error(
-                "Error storing disposition code for run {}: {}", workflow_run_id, exc
+        operations.append(
+            (
+                "disposition",
+                lambda: db_client.add_call_disposition_code(
+                    run.workflow_id, disposition
+                ),
             )
-
-    operations = [
-        (
-            "integrations",
-            lambda: run_integrations_post_workflow_run(_ctx, workflow_run_id),
-        ),
-        (
-            "billing",
-            lambda: report_completed_workflow_run_platform_usage(workflow_run_id),
-        ),
-        ("pbx", lambda: sync_external_pbx_call_record(workflow_run_id)),
-    ]
+        )
+    operations.extend(
+        [
+            (
+                "integrations",
+                lambda: run_integrations_post_workflow_run(_ctx, workflow_run_id),
+            ),
+            (
+                "billing",
+                lambda: report_completed_workflow_run_platform_usage(workflow_run_id),
+            ),
+            ("pbx", lambda: sync_external_pbx_call_record(workflow_run_id)),
+        ]
+    )
+    failed_steps = []
     for step, operation in operations:
         if step in steps:
             continue
@@ -72,6 +77,8 @@ async def process_workflow_completion(_ctx, workflow_run_id: int):
             logger.error(
                 "Error in completion step {} for run {}: {}", step, workflow_run_id, exc
             )
+            failed_steps.append(step)
+            continue
         if tracked and not await db_client.checkpoint_workflow_completion(
             workflow_run_id,
             organization_id,
@@ -80,9 +87,14 @@ async def process_workflow_completion(_ctx, workflow_run_id: int):
         ):
             raise RuntimeError("Completion lease expired")
     if tracked:
-        await db_client.checkpoint_workflow_completion(
+        if failed_steps:
+            # Keep the lease until expiry; the sweeper will retry only the
+            # unfinished steps without racing an already queued duplicate.
+            raise RuntimeError(f"Workflow completion failed: {', '.join(failed_steps)}")
+        if not await db_client.checkpoint_workflow_completion(
             workflow_run_id, organization_id, token, "done"
-        )
+        ):
+            raise RuntimeError("Completion lease expired")
     logger.info("Completed workflow completion processing for run {}", workflow_run_id)
 
 

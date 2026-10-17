@@ -15,6 +15,14 @@ depends_on = None
 
 def upgrade():
     with op.get_context().autocommit_block():
+        # An interrupted concurrent build can leave an invalid index behind.
+        # Rebuild on retry rather than treating its existence as success.
+        op.drop_index(
+            "idx_workflow_runs_pending_completion",
+            table_name="workflow_runs",
+            postgresql_concurrently=True,
+            if_exists=True,
+        )
         op.create_index(
             "idx_workflow_runs_pending_completion",
             "workflow_runs",
@@ -23,7 +31,6 @@ def upgrade():
                 "is_completed IS TRUE AND (extra -> 'workflow_completion' ->> 'status') IN ('pending', 'running')"
             ),
             postgresql_concurrently=True,
-            if_not_exists=True,
         )
 
 

@@ -1123,6 +1123,33 @@ async def test_completion_records_the_disposition_without_any_workflow_mapping(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["exception", "rejected", "suppression"])
+async def test_completion_write_failure_reaches_worker(monkeypatch, failure):
+    from api.services.telephony.external_pbx_writeback import (
+        sync_external_pbx_call_record,
+    )
+
+    _, run = _writeback_run("AA")
+    adapter = _patch_writeback(monkeypatch, run, [])
+    adapter.apply_do_not_call = AsyncMock(return_value=None)
+    if failure == "exception":
+        adapter.update_fields.side_effect = TimeoutError("PBX unavailable")
+    elif failure == "rejected":
+        adapter.update_fields.return_value = ExternalPBXResult(
+            False, "update_lead", "rejected"
+        )
+    else:
+        adapter.apply_do_not_call.return_value = ExternalPBXResult(
+            False, "dnc", "rejected"
+        )
+
+    with pytest.raises((TimeoutError, RuntimeError)):
+        await sync_external_pbx_call_record(11)
+    if failure != "exception":
+        adapter.apply_do_not_call.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_completion_uses_the_runs_telephony_configuration(monkeypatch):
     """Multiple ARI configs must not send the update to the first PBX listed."""
     from api.services.telephony import external_pbx_writeback

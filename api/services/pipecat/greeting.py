@@ -3,17 +3,20 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 
+from loguru import logger
+
 from api.services.pipecat.speech_playback import (
     PlaybackOutcome,
     SpeechPlayback,
     SpeechPlaybackTracker,
 )
 from pipecat.frames.frames import (
-    BotStartedSpeakingFrame,
     Frame,
+    InterimTranscriptionFrame,
     ProposedUserStartedSpeakingFrame,
     ProposedUserStoppedSpeakingFrame,
     StartFrame,
+    TranscriptionFrame,
     VADUserStartedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
 )
@@ -22,12 +25,37 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregator,
     UserTurnStoppedMessage,
 )
+from pipecat.turns.types import ProcessFrameResult
 from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
+from pipecat.turns.user_start.base_user_turn_start_strategy import (
+    BaseUserTurnStartStrategy,
+)
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 
+class GreetingUserTurnStartStrategy(BaseUserTurnStartStrategy):
+    """Retain short utterances without opening a turn during protected playback."""
+
+    def __init__(self, speech: SpeechPlayback):
+        super().__init__()
+        self.speech = speech
+        self.has_input = False
+
+    async def process_frame(self, frame: Frame) -> ProcessFrameResult:
+        if isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame)):
+            self.has_input = self.has_input or bool(frame.text.strip())
+            if (
+                self.speech.allow_interrupt
+                and len(frame.text.split()) >= self.speech.interrupt_min_words
+            ):
+                await self.trigger_user_turn_started()
+                await self.speech.wait()
+                return ProcessFrameResult.STOP
+        return ProcessFrameResult.CONTINUE
+
+
 class GreetingController:
-    """Apply startup turn strategies and commit successfully played greeting text."""
+    """Own greeting interruption policy and the shared delivered-text commit."""
 
     def __init__(
         self,
@@ -44,8 +72,12 @@ class GreetingController:
         self._min_words: int | None = None
         self._turn_text: asyncio.Future[str] | None = None
         self._speech_start: Frame | None = None
+        self._greeting_strategy: GreetingUserTurnStartStrategy | None = None
+        self._log_tasks: set[asyncio.Task] = set()
         self._playback.on_greeting_finished = self._finished
-        self.log_generated_speech: Callable[[str], Awaitable[None]] | None = None
+        self._playback.on_greeting_started = self._started
+        self.log_speech: Callable[[SpeechPlayback], Awaitable[None]] | None = None
+        self.get_log_context: Callable[[], dict] = dict
 
     def bind(self, user: LLMUserAggregator) -> None:
         self._user = user
@@ -58,28 +90,55 @@ class GreetingController:
         controller = user.user_turn_controller
         greeting_pending = self._playback.greeting_pending
         if greeting_pending:
-            min_words = 2
+            speech = self._playback.greeting
+            if (
+                self._greeting_strategy is None
+                or self._greeting_strategy.speech is not speech
+            ):
+                if self._normal_strategies is None:
+                    self._normal_strategies = controller.user_turn_strategies
+                self._greeting_strategy = GreetingUserTurnStartStrategy(speech)
+                self._turn_text = asyncio.get_running_loop().create_future()
+                self._min_words = None
+                await controller.update_strategies(
+                    UserTurnStrategies(
+                        start=[self._greeting_strategy],
+                        stop=self._normal_strategies.stop,
+                    )
+                )
+            min_words = None
         elif self._is_screening():
             min_words = 1
         else:
             min_words = None
+        if not greeting_pending and self._greeting_strategy is not None:
+            strategy = self._greeting_strategy
+            self._greeting_strategy = None
+            if not controller.has_active_user_turn and (
+                user.aggregation_string() or (strategy.has_input and self._speech_start)
+            ):
+                await strategy.trigger_user_turn_started(enable_interruptions=False)
+                if self._speech_start:
+                    for stop_strategy in controller.user_turn_strategies.stop:
+                        await stop_strategy.process_frame(self._speech_start)
+                else:
+                    await controller.force_user_turn_stop()
         if min_words is not None and min_words != self._min_words:
             if self._normal_strategies is None:
                 self._normal_strategies = controller.user_turn_strategies
             # Screening admits transcripts; its supervisor decides when to interrupt.
             strategy = MinWordsUserTurnStartStrategy(
-                min_words=min_words, enable_interruptions=greeting_pending
+                min_words=min_words, enable_interruptions=False
             )
-            if greeting_pending:
-                self._turn_text = asyncio.get_running_loop().create_future()
             await controller.update_strategies(
                 UserTurnStrategies(start=[strategy], stop=self._normal_strategies.stop)
             )
             self._min_words = min_words
-            if greeting_pending:
-                # Protect queued greetings and account for an earlier bot-start.
-                await strategy.process_frame(BotStartedSpeakingFrame())
-        elif min_words is None and self._normal_strategies is not None:
+        elif (
+            not greeting_pending
+            and min_words is None
+            and self._normal_strategies is not None
+        ):
             normal = self._normal_strategies
             self._normal_strategies = None
             self._min_words = None
@@ -103,9 +162,29 @@ class GreetingController:
     def awaiting_turn(self) -> bool:
         return (
             self._playback.greeting is not None
-            and self._playback.greeting.outcome is PlaybackOutcome.INTERRUPTED
+            and self._playback.greeting.done
             and self._turn_text is not None
             and not self._turn_text.done()
+            and (
+                self._playback.greeting.outcome is PlaybackOutcome.INTERRUPTED
+                or (
+                    self._user is not None
+                    and self._user.user_turn_controller.has_active_user_turn
+                )
+                or (
+                    self._greeting_strategy is not None
+                    and self._greeting_strategy.has_input
+                )
+            )
+        )
+
+    @property
+    def has_completed_turn(self) -> bool:
+        return bool(
+            self._turn_text is not None
+            and self._turn_text.done()
+            and not self._turn_text.cancelled()
+            and self._turn_text.result()
         )
 
     async def _turn_stopped(
@@ -121,13 +200,30 @@ class GreetingController:
 
     def _finished(self, speech: SpeechPlayback) -> None:
         text = self._playback.greeting_text(speech)
-        if text and speech.outcome is PlaybackOutcome.PLAYED:
-            self._get_context().add_message({"role": "assistant", "content": text})
-        # Configured greetings use persist_to_logs on their speech request.
-        # Generated greetings only know their spoken text after playback.
-        if speech.text is None and text and self.log_generated_speech and self._user:
-            self._user.create_task(self.log_generated_speech(text))
+        if text:
+            context = (
+                speech.context if speech.context is not None else self._get_context()
+            )
+            context.add_message({"role": "assistant", "content": text})
+        if self.log_speech:
+            task = asyncio.create_task(self.log_speech(speech))
+            self._log_tasks.add(task)
         if self._user and speech.outcome is not PlaybackOutcome.CLOSED:
             # Serialize restoration with incoming caller frames, including when
             # the call is silent after playback.
             self._user.create_task(self._user.queue_frame(Frame()))
+
+    def _started(self, speech: SpeechPlayback) -> None:
+        speech.log_context = self.get_log_context()
+
+    async def flush(self) -> None:
+        tasks = tuple(self._log_tasks)
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            self._log_tasks.difference_update(tasks)
+            for result in results:
+                if isinstance(result, BaseException):
+                    logger.error(
+                        "Greeting transcript persistence failed ({})",
+                        type(result).__name__,
+                    )

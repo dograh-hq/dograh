@@ -112,6 +112,24 @@ def test_add_typed_and_add_produce_identical_data(client: _StubClient):
     assert typed_data == generic_data
 
 
+def test_typed_start_greeting_policy_roundtrips_without_a_recording(
+    client: _StubClient,
+):
+    workflow = Workflow(client=client)
+    workflow.add_typed(
+        StartCall(
+            name="Greeting",
+            prompt="Greet the caller",
+            allow_greeting_interrupt=False,
+            greeting_interrupt_min_words=4,
+        )
+    )
+    data = ReactFlowDTO.model_validate(workflow.to_json()).nodes[0].data
+    assert data.allow_greeting_interrupt is False
+    assert data.greeting_interrupt_min_words == 4
+    assert data.greeting_recording_id is None
+
+
 def test_webhook_mutable_defaults_dont_share_state(client: _StubClient):
     """Dataclass default_factory ensures every Webhook() gets its own dict."""
     wf = Workflow(client=client)

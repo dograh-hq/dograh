@@ -3,13 +3,14 @@
 import asyncio
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Protocol
 
 from loguru import logger
 
+from api.services.pipecat.recording_word_timings import recording_prefix
 from pipecat.frames.frames import (
-    AggregatedTextFrame,
     CancelFrame,
     EndFrame,
     Frame,
@@ -18,9 +19,13 @@ from pipecat.frames.frames import (
     LLMFullResponseStartFrame,
     OutputAudioRawFrame,
     SpeechBoundaryFrame,
+    SpeechOutputAudioRawFrame,
     StopFrame,
     TextFrame,
+    TTSAudioRawFrame,
+    TTSTextFrame,
 )
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.utils.string import TextPartForConcatenation, concatenate_aggregated_text
 
@@ -76,8 +81,22 @@ class SpeechPlayback:
         self.mute_user = mute_user
         self.has_output = False
         self.started = False
+        self.allow_interrupt = True
+        self.interrupt_min_words = 2
         self.text: str | None = None
         self.text_parts: list[TextPartForConcatenation] = []
+        self._text_ends: list[float] = []
+        self._word_origin: float | None = None
+        self.context: LLMContext | None = None
+        self.delivered_text = ""
+        self.played_seconds = 0.0
+        self.queued_seconds = 0.0
+        self.recording_duration: float | None = None
+        self.timing_source = "unavailable"
+        self.first_output_at: str | None = None
+        self.finished_at: str | None = None
+        self.log_context: dict = {}
+        self._pending_word: TextPartForConcatenation | None = None
         self._owner = owner
         self._result: asyncio.Future[PlaybackOutcome] = (
             asyncio.get_running_loop().create_future()
@@ -105,11 +124,35 @@ class SpeechPlayback:
         self._owner.pending.pop(self.id, None)
         if outcome is PlaybackOutcome.TIMED_OUT:
             logger.warning(f"Speech {self.id} timed out; releasing its wait and mute")
+        self.finished_at = datetime.now(UTC).isoformat(timespec="milliseconds")
+        self.delivered_text = self._delivered_text(outcome)
         self._result.set_result(outcome)
         for observer in self._owner._observers:
             observer.on_speech_finished(self.id, outcome)
         if self is self._owner.greeting and self._owner.on_greeting_finished:
             self._owner.on_greeting_finished(self)
+
+    def _delivered_text(self, outcome: PlaybackOutcome) -> str:
+        if not self.has_output:
+            return ""
+        if self.recording_duration is not None:
+            return recording_prefix(
+                self.text or "", self.recording_duration, self.played_seconds
+            )
+        complete = (
+            outcome is PlaybackOutcome.PLAYED
+            and self.played_seconds + 1e-6 >= self.queued_seconds
+        )
+        if complete and self.text is not None:
+            return self.text
+        parts = []
+        for part, end in zip(self.text_parts, self._text_ends):
+            if end > self.played_seconds + 1e-6:
+                break
+            parts.append(part)
+        if complete and self._pending_word is not None:
+            parts.append(self._pending_word)
+        return concatenate_aggregated_text(parts)
 
 
 class SpeechPlaybackTracker:
@@ -119,9 +162,11 @@ class SpeechPlaybackTracker:
         self.pending: dict[str, SpeechPlayback] = {}
         self.greeting: SpeechPlayback | None = None
         self.on_greeting_finished: Callable[[SpeechPlayback], None] | None = None
+        self.on_greeting_started: Callable[[SpeechPlayback], None] | None = None
         self._output: FrameProcessor | None = None
         # Direct recordings can nest inside a still-generating TTS response.
         self._output_scopes: list[str] = []
+        self._input_scopes: list[str] = []
         self._unmarked_response: str | None = None
         self._expected_response: SpeechPlayback | None = None
         self._expected_source: FrameProcessor | None = None
@@ -210,6 +255,7 @@ class SpeechPlaybackTracker:
         for speech in list(self.pending.values()):
             speech.finish(outcome)
         self._output_scopes.clear()
+        self._input_scopes.clear()
         self._unmarked_response = None
         self._expected_response = None
         self._expected_source = None
@@ -242,31 +288,56 @@ class SpeechPlaybackTracker:
             )
 
     def _capture_greeting_text(self, _processor, frame: Frame) -> None:
-        """Keep generated greeting text out of context until playback succeeds."""
+        """Own greeting text until its delivery result can be committed once."""
         speech = self.greeting
+        if isinstance(frame, TextFrame) and frame.metadata.get("dograh_greeting_id"):
+            frame.append_to_context = False
+            if isinstance(frame, TTSTextFrame):
+                frame.persist_to_logs = False
+            if speech is None or frame.metadata["dograh_greeting_id"] != speech.id:
+                return
         if not (
-            speech and speech.id in self._output_scopes and isinstance(frame, TextFrame)
+            speech
+            and isinstance(frame, TextFrame)
+            and (
+                speech.id in self._output_scopes
+                or frame.metadata.get("dograh_greeting_id") == speech.id
+            )
         ):
             return
-        if frame.append_to_context and speech.text is None:
-            speech.text_parts.append(
-                TextPartForConcatenation(
-                    (
-                        frame.raw_text
-                        if isinstance(frame, AggregatedTextFrame) and frame.raw_text
-                        else frame.text
-                    ),
-                    includes_inter_part_spaces=frame.includes_inter_frame_spaces,
-                )
+        if not speech.done and isinstance(frame, TTSTextFrame):
+            frame.persist_to_logs = False
+            part = TextPartForConcatenation(
+                frame.raw_text or frame.text,
+                includes_inter_part_spaces=frame.includes_inter_frame_spaces,
             )
+            if frame.pts is not None or frame.aggregated_by == "word":
+                speech.timing_source = "provider"
+                word_end = speech.played_seconds
+                if frame.pts is not None:
+                    if speech._word_origin is None:
+                        speech._word_origin = frame.pts / 1e9 - speech.played_seconds
+                    word_end = frame.pts / 1e9 - speech._word_origin
+                if speech._pending_word is not None:
+                    speech.text_parts.append(speech._pending_word)
+                    speech._text_ends.append(word_end)
+                speech._pending_word = part
+            elif frame.aggregated_by != "recording" and speech.has_output:
+                speech.timing_source = "segment"
+                if speech._pending_word is not None:
+                    speech.text_parts.append(speech._pending_word)
+                    speech._text_ends.append(speech.played_seconds)
+                    speech._pending_word = None
+                speech.text_parts.append(part)
+                speech._text_ends.append(speech.played_seconds)
         frame.append_to_context = False
 
     @staticmethod
     def greeting_text(speech: SpeechPlayback) -> str:
         return (
-            speech.text
-            if speech.text is not None
-            else concatenate_aggregated_text(speech.text_parts)
+            speech.delivered_text
+            if speech.done
+            else speech._delivered_text(PlaybackOutcome.INTERRUPTED)
         )
 
     async def before_output(self, processor, frame: Frame) -> None:
@@ -277,15 +348,35 @@ class SpeechPlaybackTracker:
         elif isinstance(frame, (CancelFrame, StopFrame)):
             self.cancel_all()
         elif self._output is not None and processor is self._output:
-            boundary = self._response_boundary(frame)
+            boundary = (
+                frame
+                if isinstance(frame, SpeechBoundaryFrame)
+                else self._response_boundary(frame)
+            )
             if boundary:
+                if boundary.beginning:
+                    self._input_scopes.append(boundary.speech_id)
+                elif boundary.speech_id in self._input_scopes:
+                    self._input_scopes.remove(boundary.speech_id)
                 # Inject at this position in the transport's media queue. A
                 # timestamped LLM end travels through a separate clock queue
                 # and can overtake audio; the untimed boundary cannot. Processing
                 # inline here also prevents a later response overtaking it in
                 # the processor's input queue. The original frame is unchanged.
-                boundary.transport_destination = frame.transport_destination
-                await processor.process_frame(boundary, FrameDirection.DOWNSTREAM)
+                if boundary is not frame:
+                    boundary.transport_destination = frame.transport_destination
+                    await processor.process_frame(boundary, FrameDirection.DOWNSTREAM)
+            elif (
+                isinstance(frame, (TTSAudioRawFrame, SpeechOutputAudioRawFrame))
+                and self._input_scopes
+            ):
+                if speech := self.pending.get(self._input_scopes[-1]):
+                    speech.queued_seconds += len(frame.audio) / (
+                        frame.sample_rate * frame.num_channels * 2
+                    )
+            elif isinstance(frame, TextFrame) and self._input_scopes:
+                if self.greeting and self._input_scopes[-1] == self.greeting.id:
+                    frame.metadata["dograh_greeting_id"] = self.greeting.id
 
     def _response_boundary(self, frame: Frame) -> SpeechBoundaryFrame | None:
         if not isinstance(frame, (LLMFullResponseStartFrame, LLMFullResponseEndFrame)):
@@ -322,6 +413,8 @@ class SpeechPlaybackTracker:
                 self._output_scopes.append(frame.speech_id)
                 if speech := self.pending.get(frame.speech_id):
                     speech.started = True
+                    if speech is self.greeting and self.on_greeting_started:
+                        self.on_greeting_started(speech)
             else:
                 for observer in self._observers:
                     observer.on_playback_finished(frame.speech_id)
@@ -338,17 +431,28 @@ class SpeechPlaybackTracker:
             if boundary:
                 self.after_output(_processor, boundary)
         elif isinstance(frame, OutputAudioRawFrame) and frame.audio:
-            self.note_output()
+            if isinstance(frame, (TTSAudioRawFrame, SpeechOutputAudioRawFrame)):
+                self.note_output(frame)
+            elif self.greeting is None or self.greeting.done:
+                self.note_output()
         elif isinstance(frame, EndFrame):
             self.cancel_all()
 
-    def note_output(self) -> None:
+    def note_output(self, frame: OutputAudioRawFrame | None = None) -> None:
         """Record delivered audio, or delivered text in the text-chat adapter."""
         speech = (
             self.pending.get(self._output_scopes[-1]) if self._output_scopes else None
         )
         if speech:
             speech.has_output = True
+            if speech.first_output_at is None:
+                speech.first_output_at = datetime.now(UTC).isoformat(
+                    timespec="milliseconds"
+                )
+            if frame is not None:
+                speech.played_seconds += len(frame.audio) / (
+                    frame.sample_rate * frame.num_channels * 2
+                )
         if self._output_scopes:
             for observer in self._observers:
                 observer.on_output(self._output_scopes[-1])

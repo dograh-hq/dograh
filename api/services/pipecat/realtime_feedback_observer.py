@@ -47,6 +47,7 @@ from api.services.pipecat.realtime_feedback_events import (
 if TYPE_CHECKING:
     from api.services.observability.call_events.recorder import CallEventRecorder
     from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
+    from api.services.pipecat.speech_playback import SpeechPlayback
     from api.services.pipecat.transcript_log_coordinator import (
         TranscriptLogCoordinator,
     )
@@ -117,6 +118,37 @@ class RealtimeFeedbackObserver(BaseObserver):
     async def log_speech(self, text: str):
         """Persist speech that is intentionally excluded from assistant context."""
         await self._append_to_buffer(build_bot_text_event(text=text))
+
+    def speech_log_context(self) -> dict:
+        if self._logs_buffer is None:
+            return {}
+        return {
+            "turn": self._logs_buffer.current_turn,
+            "node_id": self._logs_buffer.current_node_id,
+            "node_name": self._logs_buffer.current_node_name,
+        }
+
+    async def log_greeting(self, speech: "SpeechPlayback") -> None:
+        if not speech.delivered_text or self._logs_buffer is None:
+            return
+        event = build_bot_text_event(
+            text=speech.delivered_text,
+            timestamp=speech.first_output_at,
+            end_timestamp=speech.finished_at,
+        )
+        event["payload"].update(
+            speech_id=speech.id,
+            outcome=speech.outcome.value,
+            interrupted=speech.outcome.value == "interrupted",
+            played_ms=round(speech.played_seconds * 1000),
+            timing_source=speech.timing_source,
+        )
+        await self._logs_buffer.append(
+            event,
+            timestamp=speech.first_output_at,
+            use_current_node=False,
+            **speech.log_context,
+        )
 
     async def on_push_frame(self, data: FramePushed):
         """Process frames and send relevant ones to the client."""

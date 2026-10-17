@@ -492,7 +492,7 @@ class TestStartGreeting:
         ] == expected_frames
         text_frame = next(f for f in queued if isinstance(f, TTSTextFrame))
         assert text_frame.append_to_context is is_realtime
-        assert text_frame.persist_to_logs is not is_realtime
+        assert text_frame.persist_to_logs is False
         assert context.get_messages() == []
         if not is_realtime:
             # Only the final output boundary commits a completed greeting.
@@ -584,7 +584,7 @@ class TestStartGreeting:
         assert isinstance(queued_frame, TTSSpeakFrame)
         assert queued_frame.text == TEXT_GREETING
         assert queued_frame.append_to_context is False
-        assert queued_frame.persist_to_logs is True
+        assert queued_frame.persist_to_logs is False
         assert engine.speech_playback.greeting_pending
         assert engine.speech_playback.greeting.text == TEXT_GREETING
         assert engine.context.get_messages() == []

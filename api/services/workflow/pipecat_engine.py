@@ -1036,8 +1036,8 @@ class PipecatEngine:
         This is the shared source of truth for how a node begins once the
         engine is ready and the node has already been set on the context.
         Cascade openings share the same greeting policy at call startup and
-        after agent transfers: two words interrupt, and only completed
-        greetings enter assistant context.
+        after agent transfers: the opening node controls interruption, and
+        delivered greeting text enters both assistant context and transcript.
 
         Args:
             node_id: The node being opened.
@@ -1088,6 +1088,7 @@ class PipecatEngine:
                         persist_to_logs=False,
                         mute_user=mute_user,
                         greeting=not self._is_realtime,
+                        greeting_node=agent.workflow.nodes.get(node_id),
                     )
                     if speech.outcome is not PlaybackOutcome.FAILED:
                         if wait_for_playback:
@@ -1124,6 +1125,7 @@ class PipecatEngine:
                             persist_to_logs=False,
                             mute_user=mute_user,
                             greeting=True,
+                            greeting_node=agent.workflow.nodes.get(node_id),
                         )
                     if wait_for_playback:
                         await speech.wait()
@@ -1146,6 +1148,8 @@ class PipecatEngine:
                 if wait_for_playback or mute_user or not self._is_realtime
                 else None
             )
+            if speech is not None:
+                self._configure_greeting(speech, agent.workflow.nodes.get(node_id))
             try:
                 self.expect_response()
                 await agent.run_llm(opening_context or self.context)
@@ -1158,6 +1162,11 @@ class PipecatEngine:
             return NodeOpeningResult("llm", speech)
 
         return NodeOpeningResult("none")
+
+    def _configure_greeting(self, speech: SpeechPlayback, node: Node | None) -> None:
+        speech.context = self.context
+        speech.allow_interrupt = getattr(node, "allow_greeting_interrupt", True)
+        speech.interrupt_min_words = getattr(node, "greeting_interrupt_min_words", 2)
 
     async def _open_realtime_after_recorded_greeting(
         self, transcript: str | None
@@ -1313,6 +1322,7 @@ class PipecatEngine:
 
         # Mute the pipeline
         self._mute_pipeline = True
+        await self.greeting.flush()
 
         # Workflow control is no longer valid. Ordinary tools have a separate
         # owner and keep running while their pipeline waiters are torn down.
@@ -1452,6 +1462,7 @@ class PipecatEngine:
         mute_user: bool = False,
         timeout: float = 35,
         greeting: bool = False,
+        greeting_node: Node | None = None,
         origin_agent: AgentRuntime | None = None,
         can_queue: Callable[[], bool] | None = None,
     ) -> SpeechPlayback:
@@ -1474,6 +1485,10 @@ class PipecatEngine:
             raise ValueError("Provide exactly one speech source")
 
         speech = self.speech_playback.create(timeout=timeout, greeting=greeting)
+        if greeting:
+            self._configure_greeting(
+                speech, greeting_node or self.active_agent.current_node
+            )
 
         def completed(outcome):
             speech.finish(outcome)
@@ -1513,7 +1528,7 @@ class PipecatEngine:
             frames = []
             if greeting:
                 append_to_context = False
-                persist_to_logs = True
+                persist_to_logs = False
             if text is not None:
                 if speech_agent.worker is None:
                     return completed(PlaybackOutcome.FAILED)
@@ -1551,6 +1566,14 @@ class PipecatEngine:
             if can_queue is not None and not can_queue():
                 return completed(PlaybackOutcome.SKIPPED)
             speech.text = text if text is not None else (transcript or "")
+            if greeting and audio is not None:
+                sample_rate = (
+                    self._audio_config.pipeline_sample_rate
+                    if self._audio_config
+                    else 16000
+                )
+                speech.recording_duration = len(audio) / (sample_rate * 2)
+                speech.timing_source = "estimated" if transcript else "unavailable"
             speech.mute_user = mute_user
             await queue_frame(SpeechBoundaryFrame(speech.id, beginning=True))
             for frame in frames:
@@ -1620,7 +1643,7 @@ class PipecatEngine:
     def should_interrupt_user_turn(self) -> bool:
         """Greeting word thresholds are enforced by the active start strategy."""
         if self.speech_playback.greeting_pending:
-            return True
+            return self.speech_playback.greeting.allow_interrupt
         return (
             self.answer_supervisor is None or not self.answer_supervisor.blocks_workflow
         )
@@ -2204,6 +2227,7 @@ class PipecatEngine:
             if agent is not None:
                 agent.stop_tool_messages()
         self.speech_playback.cancel_all()
+        await self.greeting.flush()
         # Cancel any pending timeout tasks
         if self._response_timeout_task and not self._response_timeout_task.done():
             self._response_timeout_task.cancel()

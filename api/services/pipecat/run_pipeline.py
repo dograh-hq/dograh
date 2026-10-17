@@ -1173,7 +1173,8 @@ async def _run_pipeline_impl(
         ),
     )
     task.add_observer(feedback_observer)
-    engine.greeting.log_generated_speech = feedback_observer.log_speech
+    engine.greeting.log_speech = feedback_observer.log_greeting
+    engine.greeting.get_log_context = feedback_observer.speech_log_context
 
     if not is_realtime:
 

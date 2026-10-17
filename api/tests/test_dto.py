@@ -1,10 +1,48 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
+from api.services.workflow.dto import (
+    ReactFlowDTO,
+    StartCallNodeData,
+    sanitize_workflow_definition,
+)
 
 _FIXTURES_DIR = Path(__file__).parent / "dto_fixtures"
+
+
+@pytest.mark.parametrize(
+    "recording_fields",
+    [
+        {},
+        {"greeting_recording_id": None},
+        {"greeting_recording_id": ""},
+        {"greeting_recording_id": "  "},
+    ],
+)
+def test_pre_recorded_greeting_requires_a_recording(recording_fields):
+    with pytest.raises(ValidationError, match="Select a greeting recording") as error:
+        StartCallNodeData(
+            name="Start",
+            greeting_type="audio",
+            greeting="Old text greeting",
+            **recording_fields,
+        )
+    assert error.value.errors()[0]["loc"] == ("greeting_recording_id",)
+
+
+@pytest.mark.parametrize("greeting_type", [None, "text"])
+def test_text_or_default_greeting_does_not_require_a_recording(greeting_type):
+    data = StartCallNodeData(name="Start", greeting_type=greeting_type)
+    assert data.greeting_recording_id is None
+
+
+def test_pre_recorded_greeting_accepts_a_selected_recording():
+    data = StartCallNodeData(
+        name="Start", greeting_type="audio", greeting_recording_id="42"
+    )
+    assert data.greeting_recording_id == "42"
 
 
 @pytest.mark.asyncio

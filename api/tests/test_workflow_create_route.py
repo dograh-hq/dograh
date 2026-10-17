@@ -21,6 +21,40 @@ def _make_test_app() -> FastAPI:
     return app
 
 
+def test_validate_workflow_reports_missing_greeting_recording_on_start_node():
+    definition = {
+        "nodes": [
+            {
+                "id": "start-1",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "Greet the caller",
+                    "greeting_type": "audio",
+                },
+            }
+        ],
+        "edges": [],
+    }
+    with patch("api.routes.workflow.db_client") as mock_db:
+        mock_db.get_workflow = AsyncMock(return_value=SimpleNamespace(id=33))
+        mock_db.get_draft_version = AsyncMock(
+            return_value=SimpleNamespace(workflow_json=definition)
+        )
+        response = TestClient(_make_test_app()).post("/workflow/33/validate")
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["is_valid"] is False
+    assert len(detail["errors"]) == 1
+    error = detail["errors"][0]
+    assert error["kind"] == "node"
+    assert error["id"] == "start-1"
+    assert error["field"] == "greeting_recording_id"
+    assert "select a greeting recording" in error["message"].lower()
+
+
 def test_update_workflow_drops_retired_inline_model_keys_before_db_write():
     """Old clients may echo inline model keys; the catalog binding is the only
     model setting a save may carry."""

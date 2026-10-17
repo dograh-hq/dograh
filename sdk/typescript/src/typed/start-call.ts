@@ -42,17 +42,25 @@ export interface StartCall {
      */
     greeting?: string;
     /**
-     * Pre-recorded audio file played at the start of the call.
+     * Pre-recorded audio file played at the start of the call. Required when Greeting Type is Pre-recorded Audio.
      *
      * LLM hint: Value is the `recording_id` string. Use the `list_recordings` MCP tool to discover available recordings.
      */
     greeting_recording_id?: string;
     /**
+     * Let the caller interrupt the opening greeting. When off, caller speech is retained until the greeting finishes. Applies to text and recorded greetings with separate STT, LLM and TTS services; realtime models manage their own interruptions.
+     */
+    allow_greeting_interrupt?: boolean;
+    /**
+     * Interrupt the greeting when the caller's transcription contains at least this many words.
+     */
+    greeting_interrupt_min_words?: number;
+    /**
      * Agent system prompt for the opening turn. Supports {{template_variables}} from pre-call fetch and the initial context.
      */
     prompt: string;
     /**
-     * When true, the user can interrupt the agent mid-utterance.
+     * Allow the caller to interrupt responses after the opening greeting.
      */
     allow_interrupt?: boolean;
     /**

@@ -336,7 +336,8 @@ class TransferHarness:
             selected_visit=lambda: self.engine.selected_visit_id,
         )
         self.call_worker.add_observer(feedback)
-        self.engine.greeting.log_generated_speech = feedback.log_speech
+        self.engine.greeting.log_speech = feedback.log_greeting
+        self.engine.greeting.get_log_context = feedback.speech_log_context
 
         factory = AgentRuntimeFactory(
             organization_id=1,

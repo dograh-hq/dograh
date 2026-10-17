@@ -143,6 +143,10 @@ class InMemoryLogsBuffer:
         """Set the fallback turn for non-transcript events."""
         self._current_turn = turn
 
+    @property
+    def current_turn(self) -> int | None:
+        return self._current_turn
+
     async def append(
         self,
         event: dict,

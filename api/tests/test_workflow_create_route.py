@@ -23,6 +23,7 @@ def _make_test_app() -> FastAPI:
 
 
 @pytest.mark.parametrize("action", ["validate", "publish"])
+@pytest.mark.parametrize("schema_error", [None, "start_node", "other_node", "edge"])
 @pytest.mark.parametrize(
     "recording_fields",
     [
@@ -33,7 +34,7 @@ def _make_test_app() -> FastAPI:
     ],
 )
 def test_validate_workflow_reports_missing_greeting_recording_on_start_node(
-    action, recording_fields
+    action, schema_error, recording_fields
 ):
     definition = {
         "nodes": [
@@ -64,6 +65,17 @@ def test_validate_workflow_reports_missing_greeting_recording_on_start_node(
             }
         ],
     }
+    if schema_error == "edge":
+        definition["edges"][0]["data"]["condition"] = ""
+        expected_schema_error = ("edge", "edge-1", "data.condition")
+    elif schema_error:
+        node_index = 0 if schema_error == "start_node" else 1
+        definition["nodes"][node_index]["position"]["x"] = "invalid"
+        expected_schema_error = (
+            "node",
+            definition["nodes"][node_index]["id"],
+            "position.x",
+        )
     with patch("api.routes.workflow.db_client") as mock_db:
         mock_db.get_workflow = AsyncMock(return_value=SimpleNamespace(id=33))
         mock_db.get_draft_version = AsyncMock(
@@ -78,8 +90,18 @@ def test_validate_workflow_reports_missing_greeting_recording_on_start_node(
     assert response.status_code == 422
     detail = response.json()["detail"]
     assert detail["is_valid"] is False
-    assert len(detail["errors"]) == 1
-    error = detail["errors"][0]
+    assert len(detail["errors"]) == (2 if schema_error else 1)
+    if schema_error:
+        assert expected_schema_error in {
+            (error["kind"], error["id"], error["field"]) for error in detail["errors"]
+        }
+    greeting_errors = [
+        error
+        for error in detail["errors"]
+        if error["field"] == "data.greeting_recording_id"
+    ]
+    assert len(greeting_errors) == 1
+    error = greeting_errors[0]
     assert error["kind"] == "node"
     assert error["id"] == "start-1"
     assert error["field"] == "data.greeting_recording_id"

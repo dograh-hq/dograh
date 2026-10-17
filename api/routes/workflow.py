@@ -131,7 +131,7 @@ async def _validate_workflow_definition(
     organization_id: int,
     exclude_workflow_id: Optional[int] = None,
 ) -> list[WorkflowError]:
-    """Run DTO, graph, tool-name, and trigger checks on a workflow definition.
+    """Run DTO, greeting, graph, tool-name, and trigger checks on a definition.
 
     Returns the list of errors (empty if the definition is valid). This is
     the single source of truth for "is this workflow valid?" — used by the
@@ -148,10 +148,11 @@ async def _validate_workflow_definition(
     except ValidationError as exc:
         errors.extend(_transform_schema_errors(exc, workflow_definition))
 
+    errors.extend(validate_greeting_recordings(workflow_definition))
+
     # ----------- Graph Validation if DTO is valid ------------
     try:
         if dto:
-            errors.extend(validate_greeting_recordings(dto))
             WorkflowGraph(dto)
     except ValueError as e:
         errors.extend(e.args[0])

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from api.services.workflow.dto import (
     ReactFlowDTO,
@@ -30,7 +31,7 @@ def test_missing_recording_is_an_authoring_error_not_a_runtime_parse_error(
     definition["nodes"][0]["data"].update(greeting_type="audio", **recording_fields)
     dto = ReactFlowDTO.model_validate(definition)
     assert WorkflowGraph(dto).start_node_id == "s"
-    errors = validate_greeting_recordings(dto)
+    errors = validate_greeting_recordings(definition)
     assert len(errors) == 1
     assert errors[0]["id"] == "s"
     assert errors[0]["field"] == "data.greeting_recording_id"
@@ -44,7 +45,57 @@ def test_valid_greetings_pass_authoring_validation(greeting_type, recording_id):
     definition["nodes"][0]["data"].update(
         greeting_type=greeting_type, greeting_recording_id=recording_id
     )
-    assert validate_greeting_recordings(ReactFlowDTO.model_validate(definition)) == []
+    assert validate_greeting_recordings(definition) == []
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        None,
+        {},
+        {"nodes": None},
+        {"nodes": {}},
+        {"nodes": "invalid"},
+        {
+            "nodes": [
+                None,
+                [],
+                {},
+                {"type": "startCall"},
+                {"type": "startCall", "data": None},
+                {"type": "startCall", "data": []},
+                {"type": "startCall", "data": "invalid"},
+                {"type": "agentNode", "data": {"greeting_type": "audio"}},
+            ]
+        },
+    ],
+)
+def test_greeting_authoring_validation_ignores_malformed_node_structures(definition):
+    assert validate_greeting_recordings(definition) == []
+
+
+@pytest.mark.parametrize("recording_id", [0, False, [], {}, ["42"], 42])
+def test_greeting_authoring_validation_leaves_invalid_id_types_to_schema(recording_id):
+    definition = json.loads((_FIXTURES_DIR / "clean.json").read_text())
+    definition["nodes"][0]["data"].update(
+        greeting_type="audio", greeting_recording_id=recording_id
+    )
+    with pytest.raises(ValidationError):
+        ReactFlowDTO.model_validate(definition)
+    assert validate_greeting_recordings(definition) == []
+
+
+@pytest.mark.parametrize("node_id", [None, 42])
+def test_greeting_authoring_validation_handles_invalid_node_ids(node_id):
+    definition = {
+        "nodes": [
+            {"id": node_id, "type": "startCall", "data": {"greeting_type": "audio"}}
+        ]
+    }
+    errors = validate_greeting_recordings(definition)
+    assert len(errors) == 1
+    assert errors[0]["id"] is None
+    assert errors[0]["field"] == "data.greeting_recording_id"
 
 
 @pytest.mark.parametrize("greeting_type", [None, "text"])

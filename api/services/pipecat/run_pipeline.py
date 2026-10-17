@@ -172,6 +172,18 @@ def _create_answer_supervisor(
     return AnswerSupervisor(config, context=context, classify=classifier.classify)
 
 
+def _create_opening_input_gate(start_node, audio_buffer):
+    # The downstream aggregator cannot detect speech while this gate retains
+    # audio. Detect it here in both pipeline shapes, before delayed ASR results.
+    window_ms = resolve_listening_window_ms(start_node)
+    return OpeningInputGate(
+        capture_audio=audio_buffer.capture_opening_audio,
+        vad=SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
+        if window_ms > 0
+        else None,
+    )
+
+
 def _create_user_mute_strategies(engine, answer_supervisor):
     strategies = [
         FunctionCallUserMuteStrategy(),
@@ -955,13 +967,7 @@ async def _run_pipeline_impl(
     )
     user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
     if answer_supervisor is None:
-        opening_window_ms = resolve_listening_window_ms(start_node)
-        engine.opening.input_gate = OpeningInputGate(
-            capture_audio=audio_buffer.capture_opening_audio,
-            vad=SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
-            if is_realtime and opening_window_ms > 0
-            else None,
-        )
+        engine.opening.input_gate = _create_opening_input_gate(start_node, audio_buffer)
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
 
     # Configure turn strategies based on STT provider, model, and workflow configuration

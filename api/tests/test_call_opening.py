@@ -18,6 +18,7 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection
 
 from api.services.pipecat.call_opening import OpeningInputGate
+from api.services.pipecat.run_pipeline import _create_opening_input_gate
 from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tests.test_call_start_sequence import Call
@@ -137,6 +138,75 @@ async def test_provider_readiness_timeout_ends_call_and_retains_input_until_clea
     await engine.opening.close()
 
 
+@pytest.mark.parametrize("realtime", [False, True])
+@pytest.mark.parametrize("speaking", [False, True])
+@pytest.mark.asyncio
+async def test_opening_detects_caller_audio_before_delayed_transcription(
+    monkeypatch, realtime, speaking
+):
+    call = Call(monkeypatch, fetch_task=None, is_child=not realtime)
+    engine = call.engine
+    engine._is_realtime = realtime
+    node = SimpleNamespace(
+        delayed_start=True,
+        delayed_start_duration=0.4,
+        is_start=True,
+        greeting=None,
+        greeting_type="text",
+    )
+    engine.active_agent.workflow.nodes["start"] = node
+    retained = engine.opening.input_gate = _create_opening_input_gate(
+        node, SimpleNamespace(capture_opening_audio=AsyncMock())
+    )
+    assert retained._vad is not None
+    monkeypatch.setattr(
+        retained._vad,
+        "analyze_audio",
+        AsyncMock(return_value=VADState.SPEAKING if speaking else VADState.QUIET),
+    )
+    retained.push_frame = AsyncMock()
+    if realtime:
+        engine.active_agent.llm = SimpleNamespace(
+            handle_prerecorded_greeting=AsyncMock(), wait_for_input_ready=AsyncMock()
+        )
+    try:
+        await call.transport.handlers["on_client_connected"](call.transport, None)
+        audio = InputAudioRawFrame(bytes(640), 16000, 1)
+        await retained.process_frame(audio, D)
+        retained.push_frame.assert_not_awaited()
+        # Recognition has not produced even an interim result at the deadline.
+        engine.opening.deadline.armed_at -= 0.5
+        await asyncio.wait_for(
+            call.task.handlers["on_pipeline_started"](call.task, None), 1
+        )
+        if speaking:
+            engine.queue_node_opening.assert_not_awaited()
+            async with asyncio.timeout(1):
+                while not retained.push_frame.await_count:
+                    await asyncio.sleep(0)
+            retained.push_frame.assert_awaited_once_with(audio, D)
+            transcript = TranscriptionFrame("Hello?", "caller", "")
+            await retained.process_frame(transcript, D)
+            assert retained.push_frame.await_args.args[0] is transcript
+            engine.queue_node_opening.assert_not_awaited()
+        else:
+            engine.queue_node_opening.assert_awaited_once()
+    finally:
+        await engine.opening.close()
+        await retained.cleanup()
+
+
+@pytest.mark.parametrize("delay", [None, 0])
+def test_no_listening_window_does_not_create_an_opening_vad(delay):
+    node = SimpleNamespace(
+        delayed_start=delay is not None, delayed_start_duration=delay
+    )
+    retained = _create_opening_input_gate(
+        node, SimpleNamespace(capture_opening_audio=AsyncMock())
+    )
+    assert retained._vad is None
+
+
 @pytest.mark.asyncio
 async def test_opening_task_can_close_itself_without_self_cancellation():
     engine = PipecatEngine(workflow=None, call_context_vars={})
@@ -237,25 +307,57 @@ async def test_input_waits_for_readiness_and_protected_playback_in_both_pipeline
     realtime,
 ):
     engine = PipecatEngine(workflow=None, call_context_vars={}, is_realtime=realtime)
-    ready = asyncio.Event()
-    engine.active_agent.llm = SimpleNamespace(wait_for_input_ready=ready.wait)
-    engine.wait_for_generation_ready = AsyncMock(side_effect=ready.wait)
+    generation_entered, generation_ready = asyncio.Event(), asyncio.Event()
+    input_entered, input_ready = asyncio.Event(), asyncio.Event()
+    playback_entered = asyncio.Event()
+
+    async def generation():
+        generation_entered.set()
+        return await generation_ready.wait()
+
+    async def provider_input():
+        input_entered.set()
+        await input_ready.wait()
+
+    engine.active_agent.llm = SimpleNamespace(
+        wait_for_input_ready=AsyncMock(side_effect=provider_input)
+    )
+    engine.wait_for_generation_ready = AsyncMock(side_effect=generation)
     engine.opening.input_gate = retained = gate()
     audio = InputAudioRawFrame(b"\x01\x02" * 320, 16000, 1)
     await retained.process_frame(audio, D)
     speech = engine.speech_playback.create(greeting=True)
     speech.allow_interrupt = allow_interrupt
+    original_wait = speech.wait
+
+    async def playback():
+        playback_entered.set()
+        return await original_wait()
+
+    speech.wait = AsyncMock(side_effect=playback)
     release = asyncio.create_task(engine.release_opening_input(speech))
     try:
-        await asyncio.sleep(0)
+        await asyncio.wait_for(generation_entered.wait(), 1)
         retained.push_frame.assert_not_awaited()
-        ready.set()
-        await asyncio.sleep(0.01)
+        engine.active_agent.llm.wait_for_input_ready.assert_not_awaited()
+        generation_ready.set()
+        if realtime:
+            await asyncio.wait_for(input_entered.wait(), 1)
+            retained.push_frame.assert_not_awaited()
+            speech.wait.assert_not_awaited()
+            input_ready.set()
         if not allow_interrupt:
+            await asyncio.wait_for(playback_entered.wait(), 1)
             retained.push_frame.assert_not_awaited()
             speech.finish(PlaybackOutcome.PLAYED)
         await asyncio.wait_for(release, 1)
         retained.push_frame.assert_awaited_once_with(audio, D)
+        engine.wait_for_generation_ready.assert_awaited_once()
+        if realtime:
+            engine.active_agent.llm.wait_for_input_ready.assert_awaited_once()
+        else:
+            engine.active_agent.llm.wait_for_input_ready.assert_not_awaited()
+        assert speech.wait.await_count == int(not allow_interrupt)
     finally:
         release.cancel()
         await asyncio.gather(release, return_exceptions=True)

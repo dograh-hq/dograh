@@ -90,7 +90,7 @@ class WorkerSettings:
     cron_jobs = [
         cron(
             sweep_workflow_completions,
-            minute=set(range(0, 60, 5)),
+            minute=set(range(0, 60, 15)),
             second=15,
             run_at_startup=True,
         ),

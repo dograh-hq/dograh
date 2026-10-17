@@ -143,7 +143,7 @@ class WorkflowCompletionClient(BaseDBClient):
             return True
 
     async def get_overdue_workflow_completions(self, limit: int = 100) -> list[int]:
-        """System sweeper: recover lost enqueues and expired worker leases."""
+        """Recover unfinished completions older than 30 minutes with no active lease."""
         now = time.time()
         state = WorkflowRunModel.extra["workflow_completion"]
         async with self.async_session() as session:
@@ -153,7 +153,7 @@ class WorkflowCompletionClient(BaseDBClient):
                     text(
                         "is_completed IS TRUE AND (extra -> 'workflow_completion' ->> 'status') IN ('pending', 'running')"
                     ),
-                    state["created_at"].as_float() < now - 600,
+                    state["created_at"].as_float() < now - 30 * 60,
                     or_(
                         state["lease_until"].as_float().is_(None),
                         state["lease_until"].as_float() < now,

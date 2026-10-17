@@ -55,11 +55,36 @@ async def prepare(client, run_id):
         extra={
             "workflow_completion": {
                 "status": "pending",
-                "created_at": time.time() - 1200,
+                "created_at": time.time() - 3600,
                 "final_extraction": {"status": "pending"},
             }
         },
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("age_seconds", "eligible"), [(1200, False), (1800, False), (1801, True)]
+)
+async def test_recovery_waits_for_completion_to_be_older_than_30_minutes(
+    completion_db, monkeypatch, age_seconds, eligible
+):
+    client, _, run_id = completion_db
+    now = time.time()
+    monkeypatch.setattr(
+        "api.db.workflow_completion_client.time", SimpleNamespace(time=lambda: now)
+    )
+    await client.update_workflow_run(
+        run_id,
+        is_completed=True,
+        extra={
+            "workflow_completion": {
+                "status": "pending",
+                "created_at": now - age_seconds,
+            }
+        },
+    )
+    assert (run_id in await client.get_overdue_workflow_completions()) is eligible
 
 
 @pytest.mark.asyncio

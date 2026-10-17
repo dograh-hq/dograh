@@ -1150,6 +1150,57 @@ async def test_completion_write_failure_reaches_worker(monkeypatch, failure):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("lead_id", [None, "", "  "])
+async def test_missing_lead_identity_is_not_retryable(lead_id):
+    adapter = create_adapter(_vicidial_config())
+    identity = {"type": "vicidial", "callerid": "M123", "lead_id": lead_id}
+    with patch(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession"
+    ) as session:
+        update = await adapter.update_fields(identity, {"status": "DNC"})
+        suppression = await adapter.apply_do_not_call(identity, "DNC")
+    assert not update.ok
+    assert not update.retryable
+    assert not suppression.ok
+    assert not suppression.retryable
+    session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_phone_lookup_failure_with_lead_id_remains_retryable(monkeypatch):
+    adapter = create_adapter(_vicidial_config())
+    # A failed lookup can recover because the call captured a usable lead ID.
+    lookup = AsyncMock(return_value="")
+    monkeypatch.setattr(adapter, "_lead_phone_number", lookup)
+    identity = {"type": "vicidial", "lead_id": "42"}
+    result = await adapter.apply_do_not_call(identity, "DNC")
+    lookup.assert_awaited_once_with(identity)
+    assert not result.ok
+    assert result.retryable
+
+
+@pytest.mark.asyncio
+async def test_missing_lead_id_does_not_skip_retryable_suppression(monkeypatch):
+    from api.services.telephony import external_pbx_writeback
+
+    identity, run = _writeback_run("DNC")
+    identity["lead_id"] = ""
+    identity["lead"] = {"phone_number": "15551234567"}
+    adapter = _patch_writeback(monkeypatch, run, [])
+    adapter.update_fields.return_value = ExternalPBXResult(
+        False, "update_lead", "No lead ID", retryable=False
+    )
+    adapter.apply_do_not_call = AsyncMock(
+        return_value=ExternalPBXResult(
+            False, "add_dnc_phone", "Temporarily unavailable"
+        )
+    )
+    with pytest.raises(RuntimeError, match="do-not-call write-back rejected"):
+        await external_pbx_writeback.sync_external_pbx_call_record(11)
+    adapter.apply_do_not_call.assert_awaited_once_with(identity, "DNC")
+
+
+@pytest.mark.asyncio
 async def test_completion_uses_the_runs_telephony_configuration(monkeypatch):
     """Multiple ARI configs must not send the update to the first PBX listed."""
     from api.services.telephony import external_pbx_writeback

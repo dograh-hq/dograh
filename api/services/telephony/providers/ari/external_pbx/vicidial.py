@@ -289,7 +289,7 @@ class VicidialAdapter(ExternalPBXAdapter):
             captured = str(lead.get("phone_number", "")).strip()
             if captured:
                 return captured
-        lead_id = str(identity.get("lead_id", "")).strip()
+        lead_id = str(identity.get("lead_id") or "").strip()
         if not lead_id:
             return ""
         params = {
@@ -342,7 +342,12 @@ class VicidialAdapter(ExternalPBXAdapter):
                 "phone number"
             )
             return ExternalPBXResult(
-                False, "add_dnc_phone", "No VICIdial phone number resolved"
+                False,
+                "add_dnc_phone",
+                "No VICIdial phone number resolved",
+                # With a captured lead ID, a later lookup may succeed. Without
+                # one or a captured phone number, retrying cannot recover it.
+                retryable=bool(str(identity.get("lead_id") or "").strip()),
             )
         params = {
             "source": self._non_agent_source,
@@ -406,14 +411,14 @@ class VicidialAdapter(ExternalPBXAdapter):
             return ExternalPBXResult(
                 False, "update_lead", "Non-agent API is not configured"
             )
-        lead_id = str(identity.get("lead_id", "")).strip()
+        lead_id = str(identity.get("lead_id") or "").strip()
         if not lead_id:
             logger.warning(
                 "[VICIdial] update_lead skipped: no lead_id was captured from the "
                 f"INVITE fields={sorted(fields)}"
             )
             return ExternalPBXResult(
-                False, "update_lead", "No VICIdial lead ID captured"
+                False, "update_lead", "No VICIdial lead ID captured", retryable=False
             )
 
         safe_fields: dict[str, str] = {}

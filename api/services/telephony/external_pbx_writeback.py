@@ -100,8 +100,9 @@ async def sync_external_pbx_call_record(workflow_run_id: int) -> None:
     before its final variable extraction, so it is already stored by the time
     ``on_pipeline_finished`` enqueues the job that calls this.
 
-    Missing PBX configuration is a no-op. Failed writes propagate so the
-    completion worker can retry them independently of successful steps.
+    Missing PBX configuration is a no-op. Retryable failures propagate so the
+    completion worker can recover them. Terminal rejections are logged and
+    finish the step, since retrying cannot recover missing call identity.
     """
     try:
         run = await db_client.get_workflow_run_by_id(workflow_run_id)
@@ -172,9 +173,9 @@ async def sync_external_pbx_call_record(workflow_run_id: int) -> None:
                 f"[External PBX] do-not-call requested for run {workflow_run_id}: "
                 f"ok={suppression.ok} {suppression.message}"
             )
-        if result is not None and not result.ok:
+        if result is not None and not result.ok and result.retryable:
             raise RuntimeError("External PBX lead write-back rejected")
-        if suppression is not None and not suppression.ok:
+        if suppression is not None and not suppression.ok and suppression.retryable:
             raise RuntimeError("External PBX do-not-call write-back rejected")
     except Exception as exc:
         logger.error(

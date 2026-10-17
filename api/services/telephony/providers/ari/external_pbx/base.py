@@ -14,6 +14,8 @@ class ExternalPBXResult:
     ok: bool
     action: str
     message: str
+    # Failed operations can be terminal when the saved call identity is incomplete.
+    retryable: bool = True
 
 
 class ExternalPBXAdapter(ABC):

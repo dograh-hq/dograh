@@ -2,7 +2,7 @@ import asyncio
 import importlib
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -12,7 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from api.db.models import WorkflowModel
-from api.services.telephony import ari_manager
+from api.services.telephony import ari_manager, external_pbx_writeback
+from api.services.telephony.providers.ari.external_pbx import create_adapter
 from api.tasks import workflow_completion
 from api.tests.test_run_model_snapshot_db import snapshot_db as snapshot_db_fixture
 
@@ -363,6 +364,72 @@ async def test_recovery_retries_only_failed_steps(
     run = await client.get_workflow_run_by_id(run_id)
     assert run.extra["workflow_completion"]["status"] == "done"
     assert run_id not in await client.get_overdue_workflow_completions()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("disposition", ["AA", "DNC"])
+async def test_missing_pbx_identity_leaves_recovery(
+    completion_db, monkeypatch, disposition
+):
+    client, _, run_id = completion_db
+    await prepare(client, run_id)
+    identity = {"type": "vicidial", "callerid": "M123", "lead_id": ""}
+    await client.update_workflow_run(
+        run_id,
+        initial_context={"external_pbx_call": identity},
+        gathered_context={"mapped_call_disposition": disposition},
+    )
+    adapter = create_adapter(
+        {
+            "type": "vicidial",
+            "non_agent_api": {
+                "url": "https://vici.example.com/non_agent_api.php",
+                "username": "test",
+                "password": "test",
+            },
+        }
+    )
+    update_fields = AsyncMock(wraps=adapter.update_fields)
+    monkeypatch.setattr(adapter, "update_fields", update_fields)
+    http_session = Mock()
+    monkeypatch.setattr(
+        "api.services.telephony.providers.ari.external_pbx.vicidial.aiohttp.ClientSession",
+        http_session,
+    )
+    monkeypatch.setattr(workflow_completion, "db_client", client)
+    monkeypatch.setattr(external_pbx_writeback, "db_client", client)
+    monkeypatch.setattr(
+        external_pbx_writeback,
+        "_adapter_for_organization",
+        AsyncMock(return_value=adapter),
+    )
+    monkeypatch.setattr(
+        client, "get_workflow_run_configurations", AsyncMock(return_value={})
+    )
+    for function in (
+        "run_final_extraction",
+        "run_integrations_post_workflow_run",
+        "report_completed_workflow_run_platform_usage",
+    ):
+        monkeypatch.setattr(workflow_completion, function, AsyncMock())
+
+    await asyncio.wait_for(
+        workflow_completion.process_workflow_completion(None, run_id), timeout=10
+    )
+    update_fields.assert_awaited_once_with(identity, {"status": disposition})
+    http_session.assert_not_called()
+    run = await client.get_workflow_run_by_id(run_id)
+    assert run.extra["workflow_completion"]["status"] == "done"
+    assert "pbx" in run.extra["workflow_completion"]["steps"]
+    future = time.time() + 365 * 24 * 60 * 60
+    monkeypatch.setattr(
+        "api.db.workflow_completion_client.time", SimpleNamespace(time=lambda: future)
+    )
+    assert run_id not in await client.get_overdue_workflow_completions()
+    await asyncio.wait_for(
+        workflow_completion.process_workflow_completion(None, run_id), timeout=10
+    )
+    update_fields.assert_awaited_once()
 
 
 @pytest.mark.asyncio

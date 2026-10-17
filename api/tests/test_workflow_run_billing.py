@@ -209,10 +209,12 @@ async def test_billing_failure_reaches_completion_worker(monkeypatch):
 async def test_no_platform_fee_does_not_require_retry(monkeypatch):
     exc = Exception("No billable usage")
     exc.response = SimpleNamespace(status_code=409, text='{"detail":"usage_not_ready"}')
+    report_usage = AsyncMock(side_effect=exc)
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
     monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,
         "report_platform_usage",
-        AsyncMock(side_effect=exc),
+        report_usage,
     )
     await report_workflow_run_platform_usage(_make_workflow_run())
+    report_usage.assert_awaited_once()

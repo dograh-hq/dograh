@@ -22,7 +22,12 @@ def parse_llm_json(
         raise_on_error: Raise ValueError instead of returning a fallback value.
 
     Returns:
-        Parsed JSON as a dictionary. If parsing fails, returns {"raw": raw_content}.
+        Parsed JSON as a dictionary or list. When raise_on_error is False,
+        empty input returns {} and unparseable input returns {"raw": raw_content}.
+
+    Raises:
+        ValueError: If raise_on_error is True and the input is empty or cannot
+            be parsed as a JSON object or array.
     """
     if not raw_content or not raw_content.strip():
         if raise_on_error:

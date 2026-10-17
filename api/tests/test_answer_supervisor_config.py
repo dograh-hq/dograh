@@ -4,7 +4,10 @@ import pytest
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pydantic import ValidationError
 
-from api.schemas.answer_supervisor import resolve_answer_supervisor_config
+from api.schemas.answer_supervisor import (
+    resolve_answer_supervisor_config,
+    resolve_listening_window_ms,
+)
 from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
 
 
@@ -90,6 +93,24 @@ def test_ui_delayed_start_duration_is_converted_to_supervisor_window(
     assert (
         resolve({"enabled": True}, start_node=node).listening_window_ms == expected_ms
     )
+    assert resolve_listening_window_ms(node) == expected_ms
+
+
+@pytest.mark.parametrize(
+    "duration", [-1, 10.01, float("nan"), float("inf"), -float("inf"), "bad", True]
+)
+def test_delayed_start_rejects_invalid_durations_with_or_without_supervision(duration):
+    node = SimpleNamespace(delayed_start=True, delayed_start_duration=duration)
+    with pytest.raises(ValidationError):
+        resolve_listening_window_ms(node)
+    with pytest.raises(ValidationError):
+        resolve({"enabled": True}, start_node=node)
+
+
+def test_disabled_delayed_start_does_not_apply_an_unused_invalid_duration():
+    node = SimpleNamespace(delayed_start=False, delayed_start_duration=float("nan"))
+    assert resolve_listening_window_ms(node) == 0
+    assert resolve({"enabled": True}, start_node=node).listening_window_ms == 1200
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,7 @@
 """Answer startup regressions using real Pipecat queues and turn aggregation."""
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -129,6 +130,16 @@ async def call(*, classify=None, before_drop=None, arm_on_start=True, **settings
 
 async def verdict(c):
     return await asyncio.wait_for(c.supervisor.wait_for_verdict(), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_listening_deadline_is_measured_from_arm_not_timer_scheduling():
+    async with call(arm_on_start=False, listening_window_ms=200) as c:
+        c.supervisor.arm()
+        # Simulate synchronous construction delaying the timer's first turn.
+        time.sleep(0.25)  # noqa: ASYNC251 - deliberately delay the event loop
+        result = await asyncio.wait_for(c.supervisor.wait_for_verdict(), timeout=0.1)
+        assert result.action == "start_opening"
 
 
 @pytest.mark.asyncio

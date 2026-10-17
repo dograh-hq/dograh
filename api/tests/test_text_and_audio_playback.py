@@ -443,7 +443,7 @@ class TestStartGreeting:
     async def test_recorded_greeting_is_committed_as_its_own_turn(
         self, is_realtime, text_workflow: WorkflowGraph
     ):
-        """Cascade greetings commit on playback; realtime uses the aggregator."""
+        """Both pipeline shapes commit recorded greetings at the output boundary."""
         llm = Mock(spec=["handle_prerecorded_greeting"]) if is_realtime else None
         if is_realtime:
             llm.handle_prerecorded_greeting = AsyncMock()
@@ -483,28 +483,25 @@ class TestStartGreeting:
             "TTSAudioRawFrame",
             "TTSStoppedFrame",
         ]
-        if is_realtime:
-            expected_frames.append("LLMAssistantPushAggregationFrame")
         assert [
             type(frame).__name__
             for frame in queued
             if not isinstance(frame, SpeechBoundaryFrame)
         ] == expected_frames
         text_frame = next(f for f in queued if isinstance(f, TTSTextFrame))
-        assert text_frame.append_to_context is is_realtime
+        assert text_frame.append_to_context is False
         assert text_frame.persist_to_logs is False
         assert context.get_messages() == []
-        if not is_realtime:
-            # Only the final output boundary commits a completed greeting.
-            assert engine.speech_playback.greeting_pending
-            for frame in queued[:-1]:
-                engine.speech_playback.after_output(None, frame)
-            assert context.get_messages() == []
-            engine.speech_playback.after_output(None, queued[-1])
-            assert not engine.speech_playback.greeting_pending
-            assert context.get_messages() == [
-                {"role": "assistant", "content": "Welcome back"}
-            ]
+        # Only the final output boundary commits a completed greeting.
+        assert engine.speech_playback.greeting_pending
+        for frame in queued[:-1]:
+            engine.speech_playback.after_output(None, frame)
+        assert context.get_messages() == []
+        engine.speech_playback.after_output(None, queued[-1])
+        assert not engine.speech_playback.greeting_pending
+        assert context.get_messages() == [
+            {"role": "assistant", "content": "Welcome back"}
+        ]
 
     @pytest.mark.asyncio
     async def test_realtime_recorded_greeting_opens_the_llm_session(

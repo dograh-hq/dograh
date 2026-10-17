@@ -38,6 +38,7 @@ from api.errors.failure import (
 from api.schemas.workflow_configurations import CallDispositionOption
 from api.services.pipecat.audio_playback import play_audio
 from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
+from api.services.pipecat.call_opening import CallOpening
 from api.services.pipecat.greeting import GreetingController
 from api.services.pipecat.speech_playback import (
     PlaybackOutcome,
@@ -106,6 +107,7 @@ CALL_STATUS_CONTEXT_KEY = "call_status"
 # service behind it open indefinitely. Measured on the abrupt-hangup path at
 # p50 1.4s / p90 4.0s / max 21.3s, so this cuts off the tail and nothing else.
 FINAL_EXTRACTION_TIMEOUT_SECONDS = 10.0
+INITIAL_AGENT_STARTUP_TIMEOUT_SECONDS = 20.0
 
 
 @dataclass(frozen=True)
@@ -192,6 +194,7 @@ class PipecatEngine:
         self._initialized = False
         self._call_disposed = False
         self._shutdown_task: asyncio.Task | None = None
+        self._initial_agent_startup: asyncio.Task[bool] | None = None
         self._gathered_context: dict = {}
         self._response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
@@ -220,6 +223,7 @@ class PipecatEngine:
         self._answer_user_aggregator = None
 
         self.speech_playback = SpeechPlaybackTracker()
+        self.opening = CallOpening()
         self.call_monitor = CallMonitorProcessor(
             response_source=lambda: (
                 None if self.transfer_in_progress else self.active_agent.llm
@@ -1073,6 +1077,7 @@ class PipecatEngine:
 
     def set_answer_supervisor(self, supervisor, user_aggregator, idle_timeout: float):
         self.answer_supervisor = supervisor
+        self.greeting.on_background_turn = supervisor.observe_background_turn
         self._answer_user_aggregator = user_aggregator
         self.call_monitor.bind_user(user_aggregator, idle_timeout=idle_timeout)
 
@@ -1142,8 +1147,8 @@ class PipecatEngine:
     ) -> NodeOpeningResult:
         """Queue the opening behavior for a node.
 
-        This is the shared source of truth for how a node begins once the
-        engine is ready and the node has already been set on the context.
+        Recorded openings use call-owned playback while generation prepares.
+        Text and generated openings wait for the agent and its node context.
         Cascade openings share the same greeting policy at call startup and
         after agent transfers: the opening node controls interruption, and
         delivered greeting text enters both assistant context and transcript.
@@ -1180,6 +1185,15 @@ class PipecatEngine:
             if greeting_info:
                 greeting_type, greeting_value = greeting_info
                 if (
+                    greeting_type
+                    not in {
+                        "audio",
+                        "audio_recording_id",
+                    }
+                    and not await self.wait_for_generation_ready()
+                ):
+                    return NodeOpeningResult("none")
+                if (
                     greeting_type in {"audio", "audio_recording_id"}
                     and greeting_value
                     and self._fetch_recording_audio
@@ -1196,7 +1210,7 @@ class PipecatEngine:
                         append_to_context=True,
                         persist_to_logs=False,
                         mute_user=mute_user,
-                        greeting=not self._is_realtime,
+                        greeting=True,
                         greeting_node=agent.workflow.nodes.get(node_id),
                     )
                     if speech.outcome is not PlaybackOutcome.FAILED:
@@ -1216,8 +1230,12 @@ class PipecatEngine:
                         # Realtime adapters consume the opening text as a prompt
                         # and generate a response; configured tool text is skipped.
                         speech = self.speech_playback.expect_response(
-                            source=agent.llm, mute_user=mute_user
+                            source=agent.llm, mute_user=mute_user, greeting=True
                         )
+                        self._configure_greeting(
+                            speech, agent.workflow.nodes.get(node_id)
+                        )
+                        speech.manage_text = False
                         try:
                             await agent.speak(
                                 greeting_value,
@@ -1245,20 +1263,19 @@ class PipecatEngine:
             and agent.llm is not None
             and self.context is not None
         ):
+            if not await self.wait_for_generation_ready():
+                return NodeOpeningResult("none")
             logger.debug("Queueing initial LLM generation for node opening")
             # Queue after the voicemail detector in the live pipeline so the
             # detector can gate initial generations when needed.
-            speech = (
-                self.speech_playback.expect_response(
-                    source=agent.llm,
-                    mute_user=mute_user,
-                    greeting=not self._is_realtime,
-                )
-                if wait_for_playback or mute_user or not self._is_realtime
-                else None
+            speech = self.speech_playback.expect_response(
+                source=agent.llm,
+                mute_user=mute_user,
+                greeting=True,
             )
             if speech is not None:
                 self._configure_greeting(speech, agent.workflow.nodes.get(node_id))
+                speech.manage_text = not self._is_realtime
             try:
                 self.expect_response()
                 await agent.run_llm(opening_context or self.context)
@@ -1274,8 +1291,34 @@ class PipecatEngine:
 
     def _configure_greeting(self, speech: SpeechPlayback, node: Node | None) -> None:
         speech.context = self.context
+        speech.connection_started_at = self.opening.deadline.armed_at
+        if node is not None:
+            # Playback may start before generation enters the node.
+            speech.log_context.update(node_id=node.id, node_name=node.name)
         speech.allow_interrupt = getattr(node, "allow_greeting_interrupt", True)
         speech.interrupt_min_words = getattr(node, "greeting_interrupt_min_words", 2)
+        speech.log_context["pipeline_type"] = (
+            "realtime" if self._is_realtime else "cascade"
+        )
+        speech.log_context["interruption_mode"] = (
+            "disabled"
+            if not speech.allow_interrupt
+            else "provider"
+            if self._is_realtime
+            else "word_count"
+        )
+        logger.bind(**speech.log_context).info(
+            "Greeting requested: speech_id={} allow_interrupt={} requested_min_words={}",
+            speech.id,
+            speech.allow_interrupt,
+            speech.interrupt_min_words,
+        )
+        if self._is_realtime and speech.allow_interrupt:
+            logger.info(
+                "Realtime greeting uses provider interruption detection; "
+                "the configured word threshold ({}) is unsupported",
+                speech.interrupt_min_words,
+            )
 
     async def _open_realtime_after_recorded_greeting(
         self, transcript: str | None
@@ -1303,7 +1346,32 @@ class PipecatEngine:
         )
         if handle_prerecorded_greeting is None:
             return
+        # Seeding a stateful session needs the node's prompt and tools even
+        # though the recording itself can already be playing on the call.
+        if not await self.wait_for_generation_ready():
+            return
         await handle_prerecorded_greeting(self.context, transcript)
+
+    async def release_opening_input(self, speech: SpeechPlayback | None = None) -> None:
+        """Release retained caller input once the selected backend can accept it."""
+        gate = self.opening.input_gate
+        if gate is None:
+            return
+        try:
+            if not await self.wait_for_generation_ready():
+                return
+            if self._is_realtime:
+                service = self.active_agent.llm
+                async with asyncio.timeout(INITIAL_AGENT_STARTUP_TIMEOUT_SECONDS):
+                    await service.wait_for_input_ready()
+            if speech is not None and not speech.allow_interrupt:
+                await speech.wait()
+            if not self.is_call_disposed():
+                await gate.release()
+        except Exception:  # noqa: BLE001 - failed readiness must terminate the call
+            logger.exception("Could not release opening caller input")
+            if not self.is_call_disposed():
+                await self.end_call_with_reason(EndTaskReason.PIPELINE_ERROR.value)
 
     async def _handle_end_node(self, node: Node) -> None:
         """Handle end node execution."""
@@ -1427,6 +1495,8 @@ class PipecatEngine:
             return
 
         self._call_disposed = True
+        await self.opening.close()
+        await self.cancel_initial_agent_startup()
         self.speech_playback.cancel_all()
 
         # Mute the pipeline
@@ -1530,7 +1600,9 @@ class PipecatEngine:
         # nothing else, so a child left running would be cancelled later by the
         # runner -- losing its last audio and its usage metrics -- instead of
         # draining into a transport that is still up.
-        await self.retire_agents(call_status, drain=not abort_immediately)
+        await self.retire_agents(
+            call_status, drain=not abort_immediately and self.generation_ready
+        )
 
         # One run row anchors the call, so which agents it visited, on which
         # definitions and models, is recorded on its gathered context. Written
@@ -1643,6 +1715,8 @@ class PipecatEngine:
                 append_to_context = False
                 persist_to_logs = False
             if text is not None:
+                if not await self.wait_for_generation_ready():
+                    return completed(PlaybackOutcome.CLOSED)
                 if speech_agent.worker is None:
                     return completed(PlaybackOutcome.FAILED)
                 queue_frame = speech_agent.queue_frame
@@ -1907,6 +1981,58 @@ class PipecatEngine:
         if not await agent.wait_until_started(timeout=timeout):
             return False
         return await self.activate_agent(agent, timeout=timeout)
+
+    def begin_initial_agent_startup(self) -> None:
+        """Prepare generation while call-owned playback and recognition continue."""
+        if self._initial_agent_startup is None and not self.is_call_disposed():
+            self._initial_agent_startup = asyncio.create_task(
+                self._prepare_initial_agent(), name="initial-agent-startup"
+            )
+
+    async def _prepare_initial_agent(self) -> bool:
+        try:
+            async with asyncio.timeout(INITIAL_AGENT_STARTUP_TIMEOUT_SECONDS):
+                started = await self.start_initial_agent()
+                if self.is_call_disposed():
+                    return False
+                if not started:
+                    raise RuntimeError("Initial agent never became ready")
+                await self.set_node(self.active_agent.workflow.start_node_id)
+                return not self.is_call_disposed()
+        except Exception:  # noqa: BLE001 - all provider/setup failures must end the call
+            logger.exception("Initial agent preparation failed")
+            if not self.is_call_disposed():
+                await self.end_call_with_reason(EndTaskReason.PIPELINE_ERROR.value)
+            return False
+
+    async def wait_for_generation_ready(self) -> bool:
+        """Wait at a generation boundary without cancelling shared preparation."""
+        task = self.__dict__.get("_initial_agent_startup")
+        if task is not None:
+            try:
+                if not await asyncio.shield(task):
+                    return False
+            except asyncio.CancelledError:
+                if task.cancelled():
+                    return False
+                raise
+        return not self.is_call_disposed()
+
+    @property
+    def generation_ready(self) -> bool:
+        task = self.__dict__.get("_initial_agent_startup")
+        return task is None or (
+            task.done()
+            and not task.cancelled()
+            and task.exception() is None
+            and task.result()
+        )
+
+    async def cancel_initial_agent_startup(self) -> None:
+        task = self.__dict__.get("_initial_agent_startup")
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     async def build_agent(self, *, workflow_id: int, visit_id: str) -> AgentRuntime:
         """Build a destination agent and attach it to the call, inactive."""
@@ -2336,6 +2462,8 @@ class PipecatEngine:
         Connection owners are finalized by close_mcp_sessions() in the run
         finally block, including failures before the pipeline starts.
         """
+        await self.opening.close()
+        await self.cancel_initial_agent_startup()
         for agent in [self.active_agent, self.pending_agent, *self._retired_agents]:
             if agent is not None:
                 agent.stop_tool_messages()

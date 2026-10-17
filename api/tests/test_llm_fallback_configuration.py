@@ -209,7 +209,7 @@ def test_registry_has_no_provider_specific_fallback_fields():
 
 @pytest.mark.asyncio
 async def test_vertex_connections_keep_independent_clients_and_close_them():
-    from pipecat.services.google.vertex.llm import GoogleVertexLLMService
+    from api.services.pipecat.service_factory import DograhGoogleVertexLLMService
 
     credentials = object()
     clients = [MagicMock(), MagicMock()]
@@ -238,7 +238,7 @@ async def test_vertex_connections_keep_independent_clients_and_close_them():
     )
     with (
         patch.object(
-            GoogleVertexLLMService, "_get_credentials", return_value=credentials
+            DograhGoogleVertexLLMService, "_get_credentials", return_value=credentials
         ),
         patch(
             "pipecat.services.google.vertex.llm.Client", side_effect=clients

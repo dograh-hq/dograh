@@ -128,6 +128,33 @@ class RealtimeFeedbackObserver(BaseObserver):
             "node_name": self._logs_buffer.current_node_name,
         }
 
+    async def log_background_greeting_speech(
+        self,
+        speech: "SpeechPlayback",
+        text: str,
+        started_at: str | None,
+        stopped_at: str | None,
+    ) -> None:
+        if not text or self._logs_buffer is None:
+            return
+        event = build_user_transcription_event(
+            text=text, final=True, timestamp=started_at, end_timestamp=stopped_at
+        )
+        event["payload"]["background_greeting_id"] = speech.id
+        # Group background speech before the greeting in the transcript. Actual
+        # speech times remain in the payload, including their overlap.
+        await self._logs_buffer.append(
+            event,
+            timestamp=speech.first_output_at or speech.finished_at,
+            use_current_node=False,
+            use_current_turn=False,
+            **{
+                key: speech.log_context[key]
+                for key in ("turn", "node_id", "node_name")
+                if key in speech.log_context
+            },
+        )
+
     async def log_greeting(self, speech: "SpeechPlayback") -> None:
         if not speech.delivered_text or self._logs_buffer is None:
             return
@@ -142,13 +169,20 @@ class RealtimeFeedbackObserver(BaseObserver):
             interrupted=speech.outcome.value == "interrupted",
             played_ms=round(speech.played_seconds * 1000),
             timing_source=speech.timing_source,
+            **{
+                key: speech.log_context[key]
+                for key in ("pipeline_type", "interruption_mode")
+                if key in speech.log_context
+            },
         )
         await self._logs_buffer.append(
             event,
             timestamp=speech.first_output_at,
             use_current_node=False,
             use_current_turn=False,
-            **speech.log_context,
+            turn=speech.log_context.get("turn"),
+            node_id=speech.log_context.get("node_id"),
+            node_name=speech.log_context.get("node_name"),
         )
 
     async def on_push_frame(self, data: FramePushed):

@@ -20,7 +20,10 @@ from typing import Any
 
 from loguru import logger
 
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.adapters.services.aws_nova_sonic_adapter import (
     AWSNovaSonicConversationHistoryMessage,
@@ -84,6 +87,15 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
     """AWS Nova 2 Sonic with Dograh workflow integration."""
 
     adapter_class = DograhAWSNovaSonicLLMAdapter
+
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(
+            self._stream
+            and self._audio_input_started
+            and self._prompt_name
+            and self._input_audio_content_name
+        )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -158,6 +170,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
     # Initial and one-off response triggers
     # ------------------------------------------------------------------
 
+    @opening_request
     async def _handle_context(self, context: LLMContext):
         if self._disconnecting:
             return
@@ -252,6 +265,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         await self._finish_connecting_if_context_available()
         await self._flush_pending_text_inputs()
 
+    @opening_request
     async def _finish_connecting_if_context_available(self):
         # Upstream assumes this method is invoked once. Dograh can reach it from
         # connection-ready, runtime settings, and the initial response trigger.

@@ -727,6 +727,13 @@ class WorkflowRunModel(Base):
         ),
         Index("idx_workflow_runs_workflow_id", "workflow_id"),
         Index("idx_workflow_runs_campaign_id", "campaign_id"),
+        Index(
+            "idx_workflow_runs_pending_completion",
+            "id",
+            postgresql_where=text(
+                "is_completed IS TRUE AND (extra -> 'workflow_completion' ->> 'status') IN ('pending', 'running')"
+            ),
+        ),
     )
 
 

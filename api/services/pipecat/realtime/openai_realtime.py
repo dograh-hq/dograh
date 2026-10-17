@@ -26,7 +26,10 @@ from typing import Any
 
 from loguru import logger
 
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     Frame,
@@ -53,6 +56,14 @@ class DograhOpenAIRealtimeLLMService(
 
     # Tool responses can span several assistant items and playback gaps.
     _workflow_tools_follow_voice_response = False
+
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(
+            self._api_session_ready
+            and self._pending_prerecorded_greeting is None
+            and self._pending_initial_greeting_text is None
+        )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -102,6 +113,7 @@ class DograhOpenAIRealtimeLLMService(
         if frame.run_llm and appended_any:
             await self._send_manual_response_create()
 
+    @opening_request
     async def _handle_context(self, context: LLMContext):
         if not self._handled_initial_context:
             if context is None:
@@ -127,6 +139,7 @@ class DograhOpenAIRealtimeLLMService(
         self._context = context
         await self._create_initial_greeting_response(greeting_text)
 
+    @opening_request
     async def _create_initial_greeting_response(self, greeting_text: str):
         if self._disconnecting:
             return
@@ -188,6 +201,7 @@ class DograhOpenAIRealtimeLLMService(
         await self._send_session_update()
         self._llm_needs_conversation_setup = False
 
+    @opening_request
     async def _handle_evt_session_updated(self, evt):
         self._api_session_ready = True
         if self._pending_initial_greeting_text is not None:

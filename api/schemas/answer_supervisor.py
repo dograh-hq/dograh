@@ -7,6 +7,16 @@ from pydantic import BaseModel, ConfigDict, Field
 DEFAULT_LISTENING_WINDOW_SECONDS = 1.2
 
 
+def resolve_listening_window_ms(node, *, default: int = 0) -> int:
+    """Resolve Delayed Start independently of pipeline and classification."""
+    if node is None or not getattr(node, "delayed_start", False):
+        return default
+    duration = getattr(node, "delayed_start_duration", None)
+    return round(
+        (DEFAULT_LISTENING_WINDOW_SECONDS if duration is None else duration) * 1000
+    )
+
+
 class AnswerMessage(BaseModel):
     text: str = Field(default="", max_length=5000)
     recording_id: str | None = None
@@ -109,9 +119,5 @@ def resolve_answer_supervisor_config(
         return None
     values = dict(voicemail_config)
     if start_node and start_node.delayed_start:
-        duration = start_node.delayed_start_duration
-        # Share the default with the Start node UI.
-        values["listening_window_ms"] = round(
-            (DEFAULT_LISTENING_WINDOW_SECONDS if duration is None else duration) * 1000
-        )
+        values["listening_window_ms"] = resolve_listening_window_ms(start_node)
     return AnswerSupervisorConfig.model_validate(values)

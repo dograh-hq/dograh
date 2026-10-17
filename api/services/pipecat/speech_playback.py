@@ -83,6 +83,8 @@ class SpeechPlayback:
         self.started = False
         self.allow_interrupt = True
         self.interrupt_min_words = 2
+        # Generated realtime text remains owned by the provider aggregator.
+        self.manage_text = True
         self.text: str | None = None
         self.text_parts: list[TextPartForConcatenation] = []
         self._text_ends: list[float] = []
@@ -94,6 +96,8 @@ class SpeechPlayback:
         self.recording_duration: float | None = None
         self.timing_source = "unavailable"
         self.first_output_at: str | None = None
+        self.requested_at = asyncio.get_running_loop().time()
+        self.connection_started_at: float | None = None
         self.finished_at: str | None = None
         self.log_context: dict = {}
         self._pending_word: TextPartForConcatenation | None = None
@@ -290,6 +294,8 @@ class SpeechPlaybackTracker:
     def _capture_greeting_text(self, _processor, frame: Frame) -> None:
         """Own greeting text until its delivery result can be committed once."""
         speech = self.greeting
+        if speech is not None and not speech.manage_text:
+            return
         if isinstance(frame, TextFrame) and frame.metadata.get("dograh_greeting_id"):
             frame.append_to_context = False
             if isinstance(frame, TTSTextFrame):
@@ -459,6 +465,18 @@ class SpeechPlaybackTracker:
                 speech.first_output_at = datetime.now(UTC).isoformat(
                     timespec="milliseconds"
                 )
+                if speech is self.greeting:
+                    now = asyncio.get_running_loop().time()
+                    logger.bind(**speech.log_context).info(
+                        "Greeting first audio output: speech_id={} first_output_at={} "
+                        "request_to_audio_ms={} connection_to_audio_ms={}",
+                        speech.id,
+                        speech.first_output_at,
+                        round((now - speech.requested_at) * 1000),
+                        round((now - speech.connection_started_at) * 1000)
+                        if speech.connection_started_at is not None
+                        else None,
+                    )
             if frame is not None:
                 speech.played_seconds += len(frame.audio) / (
                     frame.sample_rate * frame.num_channels * 2

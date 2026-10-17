@@ -5,6 +5,7 @@ from loguru import logger
 from api.constants import ENABLE_CALL_RECORDING_UPLOAD
 from api.db import db_client
 from api.enums import PostHogEvent, WorkflowRunState
+from api.schemas.answer_supervisor import resolve_listening_window_ms
 from api.services.campaign.campaign_event_publisher import (
     notify_campaign_call_completed,
 )
@@ -181,8 +182,8 @@ def register_event_handlers(
 
         The call-start sequence, the same for every transport and both
         pipeline shapes: ring until the pre-call fetch settles, fold its
-        result into the call, bind the first agent's services, then attach
-        the agent and open its start node.
+        result into the call, bind the first agent's services, then prepare
+        generation while recorded playback and answer supervision proceed.
         """
         if (
             ready_state["pipeline_started"]
@@ -192,6 +193,7 @@ def register_event_handlers(
             ready_state["initial_response_triggered"] = True
 
             if answer_supervisor is not None:
+                answer_supervisor.opening_deadline = engine.opening.deadline
                 answer_supervisor.arm()
 
             asyncio.create_task(
@@ -221,46 +223,58 @@ def register_event_handlers(
             except Exception as e:
                 logger.error(f"Failed to persist call-start context: {e}")
 
-            # Attach and activate the agent this call starts on. On a split
-            # pipeline nothing can generate until this lands: an agent worker
-            # is inactive until told otherwise, and an inactive worker is
-            # handed no frames from the bus.
-            # Disposal precedes retirement, so avoid startup once shutdown begins.
+            # Recognition and recorded playback belong to the call pipeline.
+            # Generation waits on this preparation only when it is needed.
             if engine.is_call_disposed():
                 return
-
-            started = await engine.start_initial_agent()
-
-            # Hangup during startup must skip both opening and failure handling.
-            if engine.is_call_disposed():
-                return
-
-            if not started:
-                logger.error(
-                    f"Initial agent never became ready for run {workflow_run_id}; "
-                    "ending the call"
-                )
-                await engine.end_call_with_reason(EndTaskReason.PIPELINE_ERROR.value)
-                return
-
-            # Set the start node now (after pre-call fetch data is merged)
-            # so that render_template() has the complete _call_context_vars.
-            await engine.set_node(engine.active_agent.workflow.start_node_id)
-            if engine.is_call_disposed():
-                return
+            engine.begin_initial_agent_startup()
             if answer_supervisor is not None:
                 await engine.handle_answer_supervision()
                 return
+            start_node = engine.active_agent.workflow.nodes.get(
+                engine.active_agent.workflow.start_node_id
+            )
+            window_ms = resolve_listening_window_ms(start_node)
+            if not await engine.opening.deadline.wait(window_ms):
+                return
+            gate = engine.opening.input_gate
+            caller_first = bool(window_ms and gate and gate.heard_speech)
+            logger.info(
+                "Opening window released: window_ms={} elapsed_ms={} path={}",
+                window_ms,
+                round(
+                    (
+                        asyncio.get_running_loop().time()
+                        - engine.opening.deadline.armed_at
+                    )
+                    * 1000
+                ),
+                "caller_first" if caller_first else "silent",
+            )
+            if caller_first:
+                if not await engine.wait_for_generation_ready():
+                    return
+                await engine._open_realtime_after_recorded_greeting(None)
+                engine.call_monitor.activate()
+                engine.opening.prepare(engine.release_opening_input())
+                return
+            greeting = engine.get_start_greeting()
+            recorded = greeting and greeting[0] in {"audio", "audio_recording_id"}
+            if not recorded and not await engine.wait_for_generation_ready():
+                return
             engine.call_monitor.activate()
-            await engine.queue_node_opening(
+            opening = await engine.queue_node_opening(
                 node_id=engine.active_agent.workflow.start_node_id,
                 previous_node_id=None,
                 generate_if_no_greeting=True,
             )
+            if gate is not None:
+                engine.opening.prepare(engine.release_opening_input(opening.playback))
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport, _participant):
         logger.debug("In on_client_connected callback handler")
+        engine.opening.deadline.arm()
         await audio_buffer.start_recording()
         ready_state["client_connected"] = True
         await maybe_trigger_initial_response()

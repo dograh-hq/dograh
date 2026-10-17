@@ -7,7 +7,10 @@ from loguru import logger
 from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.errors.failure import mark_failure_reported
-from api.schemas.answer_supervisor import resolve_answer_supervisor_config
+from api.schemas.answer_supervisor import (
+    resolve_answer_supervisor_config,
+    resolve_listening_window_ms,
+)
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
     DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS,
@@ -35,6 +38,7 @@ from api.services.pipecat.agent_runtime_factory import (
     AgentRuntimeFactory,
 )
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
+from api.services.pipecat.call_opening import OpeningInputGate
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
     register_event_handlers,
@@ -102,7 +106,6 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
     FunctionCallUserMuteStrategy,
-    MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
@@ -174,8 +177,6 @@ def _create_user_mute_strategies(engine, answer_supervisor):
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
-    if answer_supervisor is None and getattr(engine, "_is_realtime", False):
-        strategies.insert(0, MuteUntilFirstBotCompleteUserMuteStrategy())
     return strategies
 
 
@@ -953,6 +954,13 @@ async def _run_pipeline_impl(
         get_parent_context=engine._get_otel_context,
     )
     user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
+    if answer_supervisor is None:
+        engine.opening.input_gate = OpeningInputGate(
+            capture_audio=audio_buffer.capture_opening_audio,
+            vad=SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
+            if is_realtime and resolve_listening_window_ms(start_node) > 0
+            else None
+        )
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
 
     # Configure turn strategies based on STT provider, model, and workflow configuration
@@ -1069,13 +1077,11 @@ async def _run_pipeline_impl(
         logger.info(
             f"Disabling voicemail detection for realtime workflow run {workflow_run_id}"
         )
-    # Recordings are only meaningful in non-realtime mode (the router switches
-    # between pre-recorded audio and dynamic TTS; realtime LLMs produce audio
-    # directly). Each agent visit gets its own router from the runtime factory.
-    if not is_realtime and has_recordings:
+    # Recorded openings use the same cache in both pipeline shapes.
+    if has_recordings:
         # Warm the recording cache in the background so audio is ready
         # before the first playback request.
-        asyncio.create_task(
+        engine.opening.prepare(
             warm_recording_cache(
                 organization_id=workflow.organization_id,
                 pipeline_sample_rate=audio_config.pipeline_sample_rate,
@@ -1099,6 +1105,7 @@ async def _run_pipeline_impl(
             ),
             pipeline_metrics_aggregator,
             termination_funnel,
+            opening_input=engine.opening.input_gate,
         )
     else:
         pipeline = build_pipeline(
@@ -1116,12 +1123,15 @@ async def _run_pipeline_impl(
                     allow_inference=lambda: engine.agent_can_generate(
                         engine.active_agent
                     ),
+                    generation_ready=lambda: engine.generation_ready,
+                    wait_for_generation=engine.wait_for_generation_ready,
                     name=f"{call_worker_name}::AgentBridge",
                 )
             ],
             pipeline_metrics_aggregator,
             termination_funnel,
             answer_supervisor=answer_supervisor,
+            opening_input=engine.opening.input_gate,
         )
 
     # Create pipeline task with audio configuration

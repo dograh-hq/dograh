@@ -112,6 +112,7 @@ async def late_call(
     turn_stop_timeout=5,
     recording_fetch=None,
     wait_for_output=True,
+    generation_release=None,
     **config,
 ):
     node = workflow.nodes[workflow.start_node_id]
@@ -141,6 +142,14 @@ async def late_call(
             generation_messages.append(deepcopy(frame.context.messages))
 
     tts = MockTTSService(mock_audio_duration_ms=120, frame_delay=0)
+    if generation_release is not None:
+        original_setup = tts.setup
+
+        async def delayed_setup(setup):
+            await original_setup(setup)
+            await generation_release.wait()
+
+        tts.setup = delayed_setup
     output = HeldOutput(hold_after_chunks)
     engine = PipecatEngine(
         llm=llm,
@@ -239,6 +248,8 @@ async def late_call(
         worker_name="call",
         selected_visit=lambda: "agent",
         allow_inference=lambda: True,
+        generation_ready=lambda: engine.generation_ready,
+        wait_for_generation=engine.wait_for_generation_ready,
     )
     worker = PipelineWorker(
         Pipeline(
@@ -284,9 +295,19 @@ async def late_call(
     try:
         await until(lambda: worker.started_at is not None)
         await worker.add_workers(child)
-        await until(lambda: child.started_at is not None)
-        await worker.activate_worker("agent")
-        await until(lambda: child.active and child.started_at is not None)
+
+        async def prepare_agent():
+            await until(lambda: child.started_at is not None)
+            await worker.activate_worker("agent")
+            await until(lambda: child.active and child.started_at is not None)
+            return True
+
+        if generation_release is not None:
+            engine.start_initial_agent = prepare_agent
+            engine.set_node = AsyncMock()
+            engine.begin_initial_agent_startup()
+        else:
+            await prepare_agent()
         if supervised:
             supervisor.arm()
             action = asyncio.create_task(engine.handle_answer_supervision())
@@ -373,6 +394,7 @@ async def late_call(
         )
     finally:
         output.resume.set()
+        await engine.cancel_initial_agent_startup()
         if action:
             action.cancel()
             await asyncio.gather(action, return_exceptions=True)
@@ -381,6 +403,29 @@ async def late_call(
         if not run.done():
             await worker.queue_frame(CancelFrame())
         await asyncio.wait_for(run, 5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("utterance", ["Hello.", "Can you help me?"])
+async def test_supervision_retains_caller_speech_until_generation_is_ready(
+    simple_workflow, utterance
+):
+    release = asyncio.Event()
+    async with late_call(simple_workflow, "audio", generation_release=release) as c:
+        assert not c.engine.generation_ready
+        await c.say(utterance)
+        c.output.resume.set()
+        await until(lambda: c.speech.done)
+        assert not c.action.done()
+        assert c.supervisor.blocks_workflow
+        assert not c.generation_messages
+        release.set()
+        await asyncio.wait_for(c.action, 3)
+        await until(lambda: len(c.generation_messages) == 1)
+        assert not c.supervisor.blocks_workflow
+        assert [
+            m["content"] for m in c.generation_messages[0] if m["role"] == "user"
+        ] == [utterance]
 
 
 @pytest.mark.asyncio
@@ -897,9 +942,14 @@ async def test_human_during_screening_reply_is_retained_and_releases_workflow(
             )
         )
         screening_queued = asyncio.get_running_loop().create_future()
+        screening_allowed = asyncio.Event()
         queue_speech = c.engine.queue_speech
 
         async def queue_screening(**kwargs):
+            # Finish releasing the previous opening before holding this speech.
+            # Otherwise the test's resume.set() can race with resume.clear()
+            # and let a short recording finish before the simulated pickup.
+            await screening_allowed.wait()
             c.output.resume.clear()
             c.output.writing.clear()
             speech = await queue_speech(**kwargs)
@@ -909,6 +959,7 @@ async def test_human_during_screening_reply_is_retained_and_releases_workflow(
         c.engine.queue_speech = queue_screening
         await c.say("Tell me your name and reason for calling.")
         c.output.resume.set()
+        screening_allowed.set()
         speech = await asyncio.wait_for(screening_queued, 3)
         await asyncio.wait_for(c.output.writing.wait(), 3)
         assert not c.engine.speech_playback.mutes_user

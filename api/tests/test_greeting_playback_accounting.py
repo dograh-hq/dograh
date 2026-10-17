@@ -1,6 +1,8 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from loguru import logger
 from pipecat.frames.frames import SpeechBoundaryFrame, TTSAudioRawFrame, TTSTextFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
 
@@ -12,12 +14,59 @@ from api.services.pipecat.recording_word_timings import (
     recording_prefix,
 )
 from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechPlaybackTracker
+from api.services.workflow.pipecat_engine import PipecatEngine
 
 
 def audio(seconds, sample_rate=16000, channels=1):
     return TTSAudioRawFrame(
         b"\x01\x00" * round(seconds * sample_rate * channels), sample_rate, channels
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("realtime", [False, True])
+async def test_greeting_metrics_share_output_boundaries_without_duplicating_realtime_text(
+    realtime,
+):
+    context = LLMContext()
+    engine = PipecatEngine(
+        workflow=None, call_context_vars={}, context=context, is_realtime=realtime
+    )
+    engine.opening.deadline.arm()
+    records = []
+    sink = logger.add(lambda message: records.append(message.record))
+    try:
+        speech = engine.speech_playback.create(greeting=True)
+        engine._configure_greeting(speech, SimpleNamespace(id="start", name="Start"))
+        speech.manage_text = not realtime
+        speech.text = "Welcome."
+        tracker = engine.speech_playback
+        tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=True))
+        tracker.after_output(None, audio(0.1))
+        text = TTSTextFrame("Welcome.", aggregated_by="sentence")
+        tracker._capture_greeting_text(None, text)
+        assert text.append_to_context is realtime
+        tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=False))
+        assert speech.outcome is PlaybackOutcome.PLAYED
+        assert speech.first_output_at is not None
+        assert speech.played_seconds == 0.1
+        messages = [record["message"] for record in records]
+        assert sum("Greeting requested:" in message for message in messages) == 1
+        assert (
+            sum("Greeting first audio output:" in message for message in messages) == 1
+        )
+        assert sum("Greeting finished:" in message for message in messages) == 1
+        assert any("connection_to_audio_ms=" in message for message in messages)
+        if realtime:
+            # The realtime aggregator still owns its text; tracking playback must
+            # neither suppress that text nor append a second copy to context.
+            assert context.messages == []
+        else:
+            assert context.messages == [{"role": "assistant", "content": "Welcome."}]
+    finally:
+        logger.remove(sink)
+        engine.speech_playback.cancel_all()
+        await engine.opening.close()
 
 
 def test_estimated_word_boundaries_preserve_original_text():

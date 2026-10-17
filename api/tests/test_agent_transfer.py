@@ -54,6 +54,7 @@ from api.services.pipecat.pipeline_builder import build_pipeline
 from api.services.pipecat.pipeline_metrics_aggregator import (
     PipelineMetricsAggregator,
 )
+from api.services.pipecat.pipeline_worker import DograhPipelineWorker
 from api.services.pipecat.realtime_feedback_observer import (
     RealtimeFeedbackObserver,
 )
@@ -294,6 +295,8 @@ class TransferHarness:
                 allow_inference=lambda: self.engine.agent_can_generate(
                     self.engine.active_agent
                 ),
+                generation_ready=lambda: self.engine.generation_ready,
+                wait_for_generation=self.engine.wait_for_generation_ready,
                 name=f"{call_worker_name}::AgentBridge",
             ),
         ]
@@ -309,7 +312,7 @@ class TransferHarness:
             metrics_aggregator,
             TerminationFunnelProcessor(),
         )
-        self.call_worker = PipelineWorker(
+        self.call_worker = DograhPipelineWorker(
             pipeline,
             name=call_worker_name,
             params=PipelineParams(audio_out_sample_rate=16000),

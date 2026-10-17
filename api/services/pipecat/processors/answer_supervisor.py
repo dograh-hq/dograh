@@ -29,6 +29,7 @@ from api.services.pipecat.answer_classification import (
     MachineSubtype,
     classify_machine_utterance,
 )
+from api.services.pipecat.call_opening import OpeningDeadline
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ class AnswerSupervisor(FrameProcessor):
         self._classify = classify
         self._gate = AnswerContextGate()
         self._armed_at: float | None = None
+        self.opening_deadline = OpeningDeadline()
         self._onset: float | None = None
         self._logical_turn = False
         self._uses_external_turns = True
@@ -164,7 +166,8 @@ class AnswerSupervisor(FrameProcessor):
         """Start the clock at the two-event readiness barrier, before pre-call fetch."""
         if self._armed_at is not None or self._closed:
             return
-        self._armed_at = asyncio.get_running_loop().time()
+        self.opening_deadline.arm()
+        self._armed_at = self.opening_deadline.armed_at
         # Emit the resolved budgets once per call. listening_window_ms is derived
         # from the Start node's Delayed Start.
         self._log(
@@ -191,7 +194,8 @@ class AnswerSupervisor(FrameProcessor):
         Screening and committed decisions are excluded. Classification stays
         active through playback and any turn or classification already underway.
         """
-        await asyncio.sleep(self.config.listening_window_ms / 1000)
+        if not await self.opening_deadline.wait(self.config.listening_window_ms):
+            return
         if self._epoch == 0 and not self._screening and not self._committed:
             self._publish(
                 AnswerVerdict(AnswerAction.START_OPENING, "silent_window"),

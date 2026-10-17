@@ -468,14 +468,15 @@ class SpeechPlaybackTracker:
                 if speech is self.greeting:
                     now = asyncio.get_running_loop().time()
                     logger.bind(**speech.log_context).info(
-                        "Greeting first audio output: speech_id={} first_output_at={} "
-                        "request_to_audio_ms={} connection_to_audio_ms={}",
+                        "Greeting first output: speech_id={} first_output_at={} "
+                        "request_to_output_ms={} connection_to_output_ms={} output_type={}",
                         speech.id,
                         speech.first_output_at,
                         round((now - speech.requested_at) * 1000),
                         round((now - speech.connection_started_at) * 1000)
                         if speech.connection_started_at is not None
                         else None,
+                        "audio" if frame is not None else "text",
                     )
             if frame is not None:
                 speech.played_seconds += len(frame.audio) / (

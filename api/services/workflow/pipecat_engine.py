@@ -1258,8 +1258,8 @@ class PipecatEngine:
                 service = self.active_agent.llm
                 async with asyncio.timeout(INITIAL_AGENT_STARTUP_TIMEOUT_SECONDS):
                     await service.wait_for_input_ready()
-                if speech is not None and not speech.allow_interrupt:
-                    await speech.wait()
+            if speech is not None and not speech.allow_interrupt:
+                await speech.wait()
             if not self.is_call_disposed():
                 await gate.release()
         except Exception:  # noqa: BLE001 - failed readiness must terminate the call

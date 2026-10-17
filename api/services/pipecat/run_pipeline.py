@@ -955,11 +955,12 @@ async def _run_pipeline_impl(
     )
     user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
     if answer_supervisor is None:
+        opening_window_ms = resolve_listening_window_ms(start_node)
         engine.opening.input_gate = OpeningInputGate(
             capture_audio=audio_buffer.capture_opening_audio,
             vad=SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
-            if is_realtime and resolve_listening_window_ms(start_node) > 0
-            else None
+            if is_realtime and opening_window_ms > 0
+            else None,
         )
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
 

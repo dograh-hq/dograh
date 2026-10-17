@@ -1,10 +1,13 @@
 """Answer handling configuration stored inside workflow voicemail_detection."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 DEFAULT_LISTENING_WINDOW_SECONDS = 1.2
+_DELAYED_START_SECONDS = TypeAdapter(
+    Annotated[float, Field(ge=0, le=10, allow_inf_nan=False, strict=True)]
+)
 
 
 def resolve_listening_window_ms(node, *, default: int = 0) -> int:
@@ -12,9 +15,12 @@ def resolve_listening_window_ms(node, *, default: int = 0) -> int:
     if node is None or not getattr(node, "delayed_start", False):
         return default
     duration = getattr(node, "delayed_start_duration", None)
-    return round(
-        (DEFAULT_LISTENING_WINDOW_SECONDS if duration is None else duration) * 1000
+    # Keep the existing zero-delay setting valid, but apply the same finite,
+    # bounded duration contract even when answer supervision is disabled.
+    duration = _DELAYED_START_SECONDS.validate_python(
+        DEFAULT_LISTENING_WINDOW_SECONDS if duration is None else duration
     )
+    return round(duration * 1000)
 
 
 class AnswerMessage(BaseModel):

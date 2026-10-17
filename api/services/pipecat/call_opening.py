@@ -97,11 +97,15 @@ class OpeningInputGate(FrameProcessor):
             if isinstance(frame, InputAudioRawFrame):
                 if self._capture_audio:
                     await self._capture_audio(frame)
+                    if self._closed:
+                        return
                 self._audio_seconds += len(frame.audio) / (
                     frame.sample_rate * frame.num_channels * 2
                 )
                 if self._vad and not self.heard_speech:
                     state = await self._vad.analyze_audio(frame.audio)
+                    if self._closed:
+                        return
                     self.heard_speech = state in (VADState.SPEAKING, VADState.STOPPING)
             elif isinstance(
                 frame, (ProposedUserStartedSpeakingFrame, VADUserStartedSpeakingFrame)
@@ -133,6 +137,7 @@ class OpeningInputGate(FrameProcessor):
     def close(self) -> None:
         self._closed = True
         self._frames.clear()
+        self._audio_seconds = 0
 
     async def cleanup(self):
         self.close()

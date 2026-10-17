@@ -129,6 +129,7 @@ async def create_recordings(
     user=Depends(get_user),
 ):
     """Create one or more recording records after audio files have been uploaded."""
+    committed = False
     try:
         backend = StorageBackend.get_current_backend()
         results = []
@@ -146,7 +147,7 @@ async def create_recordings(
                 tts_voice_id=rec_req.tts_voice_id,
                 metadata=rec_req.metadata,
             )
-            await invalidate_recording_cache(user.selected_organization_id)
+            committed = True
             results.append(_build_response(recording))
 
         logger.info(
@@ -162,6 +163,11 @@ async def create_recordings(
         raise HTTPException(
             status_code=500, detail="Failed to create recordings"
         ) from exc
+    finally:
+        # Each DB call commits independently. Invalidate once even if a later
+        # row or response conversion fails after earlier rows were committed.
+        if committed:
+            await invalidate_recording_cache(user.selected_organization_id)
 
 
 @router.get(

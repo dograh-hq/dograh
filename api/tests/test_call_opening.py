@@ -230,13 +230,16 @@ async def test_input_retention_overflow_is_reported_instead_of_silently_losing_s
 
 
 @pytest.mark.parametrize("allow_interrupt", [False, True])
+@pytest.mark.parametrize("realtime", [False, True])
 @pytest.mark.asyncio
-async def test_realtime_retains_audio_until_ready_and_protected_playback_finishes(
+async def test_input_waits_for_readiness_and_protected_playback_in_both_pipelines(
     allow_interrupt,
+    realtime,
 ):
-    engine = PipecatEngine(workflow=None, call_context_vars={}, is_realtime=True)
+    engine = PipecatEngine(workflow=None, call_context_vars={}, is_realtime=realtime)
     ready = asyncio.Event()
     engine.active_agent.llm = SimpleNamespace(wait_for_input_ready=ready.wait)
+    engine.wait_for_generation_ready = AsyncMock(side_effect=ready.wait)
     engine.opening.input_gate = retained = gate()
     audio = InputAudioRawFrame(b"\x01\x02" * 320, 16000, 1)
     await retained.process_frame(audio, D)
@@ -258,6 +261,40 @@ async def test_realtime_retains_audio_until_ready_and_protected_playback_finishe
         await asyncio.gather(release, return_exceptions=True)
         engine.speech_playback.cancel_all()
         await engine.opening.close()
+
+
+@pytest.mark.parametrize("suspended_in", ["capture", "vad"])
+@pytest.mark.asyncio
+async def test_close_during_audio_preparation_cannot_retain_a_frame(suspended_in):
+    entered, resume = asyncio.Event(), asyncio.Event()
+
+    async def suspended(_audio):
+        entered.set()
+        await resume.wait()
+        return VADState.SPEAKING
+
+    retained = OpeningInputGate(
+        capture_audio=suspended if suspended_in == "capture" else None,
+        vad=SimpleNamespace(analyze_audio=suspended) if suspended_in == "vad" else None,
+    )
+    retained.push_frame = AsyncMock()
+    incoming = asyncio.create_task(
+        retained.process_frame(InputAudioRawFrame(bytes(640), 16000, 1), D)
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        retained.close()
+        resume.set()
+        await asyncio.wait_for(incoming, 1)
+        assert not retained._frames
+        assert retained._audio_seconds == 0
+        assert not retained.heard_speech
+        await retained.release()
+        retained.push_frame.assert_not_awaited()
+    finally:
+        resume.set()
+        incoming.cancel()
+        await asyncio.wait_for(asyncio.gather(incoming, return_exceptions=True), 1)
 
 
 @pytest.mark.asyncio

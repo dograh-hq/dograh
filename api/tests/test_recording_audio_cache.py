@@ -45,7 +45,7 @@ def recordings(monkeypatch, tmp_path):
     monkeypatch.setattr(cache, "CACHE_DIR", str(tmp_path))
     monkeypatch.setattr(audio_file_cache, "CACHE_DIR", str(tmp_path))
     monkeypatch.setattr(cache, "_metadata_cache", OrderedDict())
-    monkeypatch.setattr(cache, "_metadata_generation", 0)
+    monkeypatch.setattr(cache, "_metadata_invalidations", WeakValueDictionary())
     monkeypatch.setattr(cache, "_download_locks", WeakValueDictionary())
 
     async def lookup(identifier, org, *, by_pk):
@@ -469,6 +469,34 @@ async def test_warm_query_overlapping_invalidation_cannot_restore_metadata(recor
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["fetch", "warm"])
+async def test_other_organization_mutation_does_not_restart_or_abort_query(
+    recordings, path
+):
+    query = recordings.by_pk if path == "fetch" else recordings.listing
+    original = query.side_effect
+
+    async def lookup(*args, **kwargs):
+        cache._clear_recording_metadata(2)
+        if path == "fetch":
+            return await original(*args, **kwargs)
+        return original(*args, **kwargs)
+
+    query.side_effect = lookup
+    if path == "fetch":
+        result = await asyncio.wait_for(
+            cache.create_recording_audio_fetcher(1, 8000)(recording_pk=42), 1
+        )
+        assert result.audio == recordings.rows[0].audio
+    else:
+        await cache.warm_recording_cache(1, 8000)
+    query.assert_awaited_once()
+    recordings.download.assert_awaited_once()
+    assert cache._cached_recording(1, 42) is not None
+    assert not cache._metadata_invalidations
+
+
+@pytest.mark.asyncio
 async def test_cancelled_fill_releases_waiting_fetch(recordings):
     entered = asyncio.Event()
     original = recordings.convert.side_effect
@@ -602,3 +630,83 @@ async def test_rename_invalidates_even_if_workflow_replacement_fails(
     assert error.value.status_code == 500
     assert not cache._metadata_cache
     manager.broadcast.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail_after", [None, 0, 6])
+async def test_batch_create_invalidates_once_including_partial_commits(
+    recordings, monkeypatch, fail_after
+):
+    from fastapi import HTTPException
+
+    from api.routes import workflow_recording as routes
+    from api.schemas.workflow_recording import BatchRecordingCreateRequestSchema
+
+    events = []
+
+    async def create(**kwargs):
+        assert kwargs["organization_id"] == 1
+        if len(events) == fail_after:
+            raise RuntimeError("recording write failed")
+        events.append("commit")
+        return recordings.rows[0]
+
+    async def invalidate(organization_id):
+        assert organization_id == 1
+        events.append("invalidate")
+
+    monkeypatch.setattr(db_client, "create_recording", AsyncMock(side_effect=create))
+    monkeypatch.setattr(routes, "invalidate_recording_cache", invalidate)
+    request = BatchRecordingCreateRequestSchema(
+        recordings=[
+            {
+                "recording_id": f"greeting-{i}",
+                "storage_key": f"recordings/1/{i}.wav",
+                "transcript": "Hello",
+            }
+            for i in range(20)
+        ]
+    )
+    user = SimpleNamespace(id=1, selected_organization_id=1)
+    if fail_after is None:
+        response = await routes.create_recordings(request, user=user)
+        assert len(response.recordings) == 20
+    else:
+        with pytest.raises(HTTPException) as error:
+            await routes.create_recordings(request, user=user)
+        assert error.value.status_code == 500
+    commits = 20 if fail_after is None else fail_after
+    assert events == ["commit"] * commits + (["invalidate"] if commits else [])
+
+
+@pytest.mark.asyncio
+async def test_batch_create_invalidates_if_response_conversion_fails_after_commit(
+    recordings, monkeypatch
+):
+    from fastapi import HTTPException
+
+    from api.routes import workflow_recording as routes
+    from api.schemas.workflow_recording import BatchRecordingCreateRequestSchema
+
+    monkeypatch.setattr(
+        db_client, "create_recording", AsyncMock(return_value=recordings.rows[0])
+    )
+    monkeypatch.setattr(
+        routes, "_build_response", Mock(side_effect=ValueError("response invalid"))
+    )
+    invalidate = AsyncMock()
+    monkeypatch.setattr(routes, "invalidate_recording_cache", invalidate)
+    with pytest.raises(HTTPException):
+        await routes.create_recordings(
+            BatchRecordingCreateRequestSchema(
+                recordings=[
+                    {
+                        "recording_id": "hello",
+                        "storage_key": "recording.wav",
+                        "transcript": "Hello",
+                    }
+                ]
+            ),
+            user=SimpleNamespace(id=1, selected_organization_id=1),
+        )
+    invalidate.assert_awaited_once_with(1)

@@ -61,7 +61,9 @@ _MAX_METADATA_ENTRIES = 2048
 _metadata_cache: OrderedDict[tuple[int, int | str], tuple[float, _Recording]] = (
     OrderedDict()
 )
-_metadata_generation = 0
+# Only in-flight queries retain these per-organization invalidation signals.
+# Weak values avoid retaining every organization that has ever mutated a row.
+_metadata_invalidations: WeakValueDictionary[int, asyncio.Event] = WeakValueDictionary()
 _download_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
 
@@ -99,8 +101,9 @@ def _remember_recording(recording) -> _Recording:
 
 
 def _clear_recording_metadata(organization_id: int) -> None:
-    global _metadata_generation
-    _metadata_generation += 1
+    invalidated = _metadata_invalidations.pop(organization_id, None)
+    if invalidated is not None:
+        invalidated.set()
     for key in list(_metadata_cache):
         if key[0] == organization_id:
             del _metadata_cache[key]
@@ -263,7 +266,9 @@ def create_recording_audio_fetcher(
         identifier = recording_pk if recording_pk is not None else recording_id
         recording = _cached_recording(organization_id, identifier)
         while recording is None:
-            generation = _metadata_generation
+            invalidated = _metadata_invalidations.setdefault(
+                organization_id, asyncio.Event()
+            )
             if recording_pk is not None:
                 row = await db_client.get_recording_by_id(recording_pk, organization_id)
             else:
@@ -278,7 +283,7 @@ def create_recording_audio_fetcher(
                 logger.warning(f"Recording {identifier} not found in database")
                 return None
             # Do not repopulate metadata from a query that overlapped invalidation.
-            if generation != _metadata_generation:
+            if invalidated.is_set():
                 continue
             recording = _remember_recording(row)
 
@@ -311,9 +316,11 @@ async def warm_recording_cache(
     from api.services.storage import get_storage_for_backend
 
     try:
-        generation = _metadata_generation
+        invalidated = _metadata_invalidations.setdefault(
+            organization_id, asyncio.Event()
+        )
         recordings = await db_client.get_recordings(organization_id=organization_id)
-        if not recordings or generation != _metadata_generation:
+        if not recordings or invalidated.is_set():
             return
         recordings = [
             _remember_recording(row)

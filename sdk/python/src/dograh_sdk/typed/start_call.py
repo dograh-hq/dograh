@@ -71,12 +71,27 @@ class StartCall(TypedNode):
 
     greeting_recording_id: Optional[str] = None
     """
-    Pre-recorded audio file played at the start of the call.
+    Pre-recorded audio file played at the start of the call. Required when
+    Greeting Type is Pre-recorded Audio.
+    """
+
+    allow_greeting_interrupt: bool = True
+    """
+    Let the caller interrupt the opening greeting. When off, caller speech
+    is retained until the greeting finishes. Applies to text and recorded
+    greetings with separate STT, LLM and TTS services; realtime models
+    manage their own interruptions.
+    """
+
+    greeting_interrupt_min_words: int = 2
+    """
+    Interrupt the greeting when the caller's transcription contains at least
+    this many words.
     """
 
     allow_interrupt: bool = False
     """
-    When true, the user can interrupt the agent mid-utterance.
+    Allow the caller to interrupt responses after the opening greeting.
     """
 
     add_global_prompt: bool = True

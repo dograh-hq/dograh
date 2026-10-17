@@ -26,6 +26,8 @@ export type FlowNodeData = {
     greeting?: string;
     greeting_type?: 'text' | 'audio';
     greeting_recording_id?: string;
+    allow_greeting_interrupt?: boolean;
+    greeting_interrupt_min_words?: number;
     delayed_start?: boolean;
     delayed_start_duration?: number;
     // Pre-call data fetch (StartCall only)

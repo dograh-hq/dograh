@@ -1,7 +1,13 @@
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from api.schemas.answer_supervisor import DEFAULT_LISTENING_WINDOW_SECONDS
 from api.services.integrations import (
@@ -16,7 +22,9 @@ from api.services.workflow.node_specs._base import (
     GraphConstraints,
     NodeCategory,
     NodeExample,
+    NumberInputOptions,
     PropertyOption,
+    PropertyRendererOptions,
     PropertyType,
 )
 from api.services.workflow.node_specs.constants import DEFAULT_QA_SYSTEM_PROMPT
@@ -216,6 +224,8 @@ class _ToolDocumentRefsMixin(BaseModel):
         "greeting_type",
         "greeting",
         "greeting_recording_id",
+        "allow_greeting_interrupt",
+        "greeting_interrupt_min_words",
         "prompt",
         "allow_interrupt",
         "add_global_prompt",
@@ -266,7 +276,7 @@ class _ToolDocumentRefsMixin(BaseModel):
         },
         "greeting_recording_id": {
             "display_name": "Greeting Recording",
-            "description": "Pre-recorded audio file played at the start of the call.",
+            "description": "Pre-recorded audio file played at the start of the call. Required when Greeting Type is Pre-recorded Audio.",
             "ui_type": PropertyType.recording_ref,
             "llm_hint": (
                 "Value is the `recording_id` string. Use the `list_recordings` "
@@ -275,7 +285,8 @@ class _ToolDocumentRefsMixin(BaseModel):
             "display_options": DisplayOptions(show={"greeting_type": ["audio"]}),
         },
         "allow_interrupt": {
-            "description": "When true, the user can interrupt the agent mid-utterance.",
+            "display_name": "Allow Interruptions After Greeting",
+            "description": "Allow the caller to interrupt responses after the opening greeting.",
         },
         "tool_uuids": {
             "description": "Tools the agent can invoke during the opening turn.",
@@ -350,7 +361,31 @@ class StartCallNodeData(
         default=None, ui_type=PropertyType.options
     )
     greeting_recording_id: Optional[str] = spec_field(
-        default=None, ui_type=PropertyType.recording_ref
+        default=None,
+        ui_type=PropertyType.recording_ref,
+    )
+    allow_greeting_interrupt: bool = spec_field(
+        default=True,
+        ui_type=PropertyType.boolean,
+        display_name="Allow Greeting Interruption",
+        description=(
+            "Let the caller interrupt the opening greeting. When off, caller speech "
+            "is retained until the greeting finishes. Applies to text and recorded "
+            "greetings with separate STT, LLM and TTS services; realtime models "
+            "manage their own interruptions."
+        ),
+    )
+    greeting_interrupt_min_words: int = spec_field(
+        default=2,
+        ge=1,
+        strict=True,
+        ui_type=PropertyType.number,
+        display_name="Minimum Words to Interrupt",
+        description="Interrupt the greeting when the caller's transcription contains at least this many words.",
+        display_options=DisplayOptions(show={"allow_greeting_interrupt": [True]}),
+        renderer_options=PropertyRendererOptions(
+            number_input=NumberInputOptions(fractional=False)
+        ),
     )
     delayed_start: bool = spec_field(default=False, ui_type=PropertyType.boolean)
     delayed_start_duration: Optional[float] = spec_field(

@@ -166,6 +166,9 @@ async def _handle_answer(engine: "PipecatEngine", supervisor) -> AnswerAction | 
                         "answer_message_failed", abort_immediately=True
                     )
                     return
+                if not engine._is_realtime and engine.greeting.awaiting_turn:
+                    interrupted = await engine.greeting.wait_for_turn()
+                interrupted = interrupted or engine.greeting.has_completed_turn
                 supervisor.release()
                 engine.call_monitor.activate(waiting_for_user=True)
                 # A pickup after screening is a new human turn. If an opening

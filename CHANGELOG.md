@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.50.0 (2026-10-17)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add shared tool messages with start and delayed variants by @a6kme in https://github.com/dograh-hq/dograh/pull/890
+* feat(telephony): add WhatsApp inbound calling integration by @amitbhakt in https://github.com/dograh-hq/dograh/pull/732
+* feat(ui): event banner for the TTS verbalization benchmark by @sandeepvemu-dograh in https://github.com/dograh-hq/dograh/pull/895
+* feat(tts): Deepgram Flux voices, explicit model setting, clearer handshake errors by @a6kme in https://github.com/dograh-hq/dograh/pull/896
+* feat(telephony): key WhatsApp on the Business Account and sync its numbers from Meta by @a6kme in https://github.com/dograh-hq/dograh/pull/901
+### Bug Fixes
+* fix(greeting): consistent playback accounting and interruption controls by @a6kme in https://github.com/dograh-hq/dograh/pull/911
+### Documentation
+* docs(whatsapp): add setup screenshots and Graph API calling settings curl by @amitbhakt in https://github.com/dograh-hq/dograh/pull/892
+
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.49.0...dograh-v1.50.0
+
 ## 1.49.0 (2026-10-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

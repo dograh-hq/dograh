@@ -91,6 +91,7 @@ class AgentRuntime:
     recording_router: Any = None
     user_config: Any = None
     runtime_configuration: dict[str, Any] = field(default_factory=dict)
+    model_configuration_snapshot: dict[str, Any] = field(default_factory=dict)
     is_realtime: bool = False
     # False for the call-owned runtime, whose worker is the call itself and
     # must never be shut down by a retirement.

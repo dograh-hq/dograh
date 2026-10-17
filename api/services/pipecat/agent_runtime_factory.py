@@ -21,6 +21,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.services.configuration.model_connections import ResolvedModelConfiguration
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.agent_generation_processor import (
     AgentGenerationProcessor,
@@ -139,7 +140,7 @@ class AgentRuntimeFactory:
 
     async def _resolve_destination_configuration(
         self, definition
-    ) -> EffectiveAIModelConfiguration:
+    ) -> ResolvedModelConfiguration:
         """Resolve a destination's models within this call's authorization."""
         from fastapi import HTTPException
 
@@ -178,7 +179,7 @@ class AgentRuntimeFactory:
                 "destination_model_configuration_invalid",
                 "The destination model configuration is incompatible with this call's authorization.",
             ) from exc
-        return user_config
+        return resolved
 
     def populate(
         self,
@@ -273,7 +274,8 @@ class AgentRuntimeFactory:
         """
         visit_id = visit_id or new_visit_id()
         workflow, definition = await self.resolve_destination(workflow_id)
-        user_config = await self._resolve_destination_configuration(definition)
+        resolved = await self._resolve_destination_configuration(definition)
+        user_config = resolved.effective
 
         if user_config.is_realtime and user_config.realtime is not None:
             # A realtime destination is a different pipeline shape, not a
@@ -300,6 +302,7 @@ class AgentRuntimeFactory:
             variable_extraction_llm=None,
             is_child=True,
             entered_at=None,
+            model_configuration_snapshot=resolved.snapshot,
         )
         self.populate(runtime, user_config=user_config, definition=definition)
         try:

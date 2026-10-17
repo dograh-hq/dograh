@@ -930,6 +930,8 @@ async def _run_pipeline_impl(
         is_realtime=is_realtime,
         context_compaction_enabled=context_compaction_enabled,
         call_dispositions=call_dispositions,
+        # Voice calls hand final extraction to the completion worker after hangup.
+        defer_final_extraction=True,
     )
 
     # Create pipeline components
@@ -1242,6 +1244,10 @@ async def _run_pipeline_impl(
         agent.workflow_name = workflow.name
         agent.user_config = user_config
         agent.runtime_configuration = runtime_configuration
+
+    engine.active_agent.model_configuration_snapshot = dict(
+        workflow_run.model_configuration_snapshot or {}
+    )
 
     # Initialize the engine to set the initial context with
     # System Prompt and Tools

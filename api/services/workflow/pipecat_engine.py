@@ -1,4 +1,6 @@
+from copy import deepcopy
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import (
     TYPE_CHECKING,
     Awaitable,
@@ -63,6 +65,10 @@ from loguru import logger
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
 from api.services.workflow.answer_handling import ANSWER_TERMINAL_REASONS, handle_answer
+from api.services.workflow.conversation_history import (
+    build_conversation_history,
+    normalize_conversation,
+)
 from api.services.workflow.disposition_extraction import (
     CALL_DISPOSITION_CONTEXT_KEY,
     DispositionExtractionService,
@@ -84,6 +90,7 @@ from api.services.workflow.pipecat_engine_custom_tools import (
     CustomToolManager,
 )
 from api.services.workflow.pipecat_engine_variable_extractor import (
+    ENGINE_OWNED_CONTEXT_KEYS,
     VariableExtractionManager,
 )
 from api.services.workflow.tools.knowledge_base import (
@@ -92,25 +99,6 @@ from api.services.workflow.tools.knowledge_base import (
 from api.utils.template_renderer import render_template
 
 CALL_STATUS_CONTEXT_KEY = "call_status"
-
-# Gathered-context keys the engine records itself. Variable extraction merges
-# its results into the same dict, so these are held back from that merge.
-#
-# The call disposition is recorded only by the engine, which keeps its mapped
-# counterpart in sync for reporting, filters and external-PBX write-backs.
-ENGINE_OWNED_CONTEXT_KEYS = frozenset(
-    {
-        CALL_DISPOSITION_CONTEXT_KEY,
-        "mapped_call_disposition",
-        CALL_STATUS_CONTEXT_KEY,
-        "call_tags",
-        "answer_supervisor",
-        "tool_results",
-        "llm_fallback_metrics",
-        # Telephony persists this before the call; extraction must not replace it.
-        "sip_call_id",
-    }
-)
 
 # How long the terminal extraction gets before the call is disposed of without
 # it. In-pipeline cancellations funnel through `end_call_with_reason`, so this
@@ -156,6 +144,7 @@ class PipecatEngine:
         context_compaction_enabled: bool = False,
         run_transition_variable_extraction_in_background: bool = True,
         call_dispositions: Sequence[CallDispositionOption] | None = None,
+        defer_final_extraction: bool = False,
     ):
         self._call_worker = task
         self._is_realtime = is_realtime
@@ -209,6 +198,10 @@ class PipecatEngine:
         self._gathered_context: dict = {}
         self._response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
+        self._pending_extraction_requests: dict[asyncio.Task, dict] = {}
+        self._defer_final_extraction = defer_final_extraction
+        self._final_extraction_snapshot: dict | None = None
+        self._final_extraction_metadata: dict = {}
         # True once terminal call disposal has run its synchronous extraction.
         # Recoverable operations such as a failed transfer use a repeatable
         # flush and must not consume this one-shot finalization state.
@@ -741,6 +734,15 @@ class PipecatEngine:
                 _do_extraction(), name=f"variable-extraction:{node.name}"
             )
             self._pending_extraction_tasks.add(task)
+            if self._defer_final_extraction:
+                request = self._snapshot_extraction_request(node)
+                request["conversation_history"] = build_conversation_history(
+                    self.context
+                )
+                self._pending_extraction_requests[task] = request
+                task.add_done_callback(
+                    lambda done: self._pending_extraction_requests.pop(done, None)
+                )
             task.add_done_callback(self._pending_extraction_tasks.discard)
             return None
         else:
@@ -816,6 +818,109 @@ class PipecatEngine:
         return await self._perform_variable_extraction_if_needed(
             node, run_in_background=False
         )
+
+    def _snapshot_extraction_request(self, node: Node | None) -> dict | None:
+        if not (node and node.extraction_enabled and node.extraction_variables):
+            return None
+        variables = [
+            variable.model_copy(update={"prompt": self._format_prompt(variable.prompt)})
+            if variable.prompt
+            else variable
+            for variable in node.extraction_variables
+            if variable.name not in ENGINE_OWNED_CONTEXT_KEYS
+        ]
+        if not variables:
+            return None
+        agent = self.active_agent
+        return {
+            "workflow_id": agent.workflow_id,
+            "definition_id": agent.definition_id,
+            "node_id": node.id,
+            "variables": [v.model_dump(mode="json") for v in variables],
+            "prompt": self._format_prompt(node.extraction_prompt),
+            "model_configuration_snapshot": deepcopy(
+                agent.model_configuration_snapshot
+            ),
+        }
+
+    async def _defer_terminal_extraction(
+        self,
+        call_status: str,
+        should_extract_disposition: bool,
+    ) -> None:
+        """Freeze unfinished work before releasing the live inference clients."""
+        pending = [
+            (task, request)
+            for task, request in self._pending_extraction_requests.items()
+            if not task.done()
+        ]
+        for task, _ in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*(task for task, _ in pending), return_exceptions=True)
+        skipped = call_status in (
+            EndTaskReason.PIPELINE_ERROR.value,
+            EndTaskReason.VOICEMAIL_DETECTED.value,
+            *ANSWER_TERMINAL_REASONS,
+        )
+        requests = [request for _, request in pending] if not skipped else []
+        current = self._snapshot_extraction_request(self.active_agent.current_node)
+        if current and not skipped:
+            # A transition may still be extracting the active node. Its final
+            # request uses the latest conversation and replaces that older work.
+            requests = [
+                request
+                for request in requests
+                if request["workflow_id"] != current["workflow_id"]
+                or request["definition_id"] != current["definition_id"]
+                or request["node_id"] != current["node_id"]
+            ]
+            requests.append(current)
+        options = (
+            [
+                option.model_copy(
+                    update={"description": self._format_prompt(option.description)}
+                ).model_dump(mode="json")
+                for option in self._call_dispositions
+            ]
+            if should_extract_disposition and not skipped
+            else []
+        )
+        agent = self.active_agent
+        self._final_extraction_snapshot = {
+            "version": 1,
+            "requests": requests,
+            "disposition": {
+                "options": options,
+                "fallback": self._gathered_context[CALL_DISPOSITION_CONTEXT_KEY],
+                "mapping": dict(self._disposition_mapping),
+                "workflow_id": agent.workflow_id,
+                "definition_id": agent.definition_id,
+                "model_configuration_snapshot": deepcopy(
+                    agent.model_configuration_snapshot
+                ),
+            },
+        }
+        self._final_extraction_metadata = {
+            "status": "pending" if requests or options else "skipped",
+            "created_at": datetime.now(UTC).isoformat(),
+            "definition_id": agent.definition_id,
+            "node_ids": [request["node_id"] for request in requests],
+        }
+        self._final_extraction_done = True
+
+    def final_extraction_metadata(self) -> dict:
+        """Return extraction state for the run's completion metadata in extra."""
+        return deepcopy(self._final_extraction_metadata)
+
+    def final_extraction_logs(self) -> dict:
+        """Return the durable handoff after the conversation's writers have drained."""
+        if self._final_extraction_snapshot is None:
+            return {}
+        return {
+            "conversation": normalize_conversation(self.context),
+            "final_extraction": deepcopy(self._final_extraction_snapshot),
+        }
 
     async def perform_final_variable_extraction(self) -> None:
         """Perform the one-shot variable extraction used during call disposal.
@@ -1451,7 +1556,11 @@ class PipecatEngine:
         # mapping-less view of a run is read from.
         self.record_call_tags([call_disposition])
 
-        if call_status not in (
+        if self._defer_final_extraction:
+            await self._defer_terminal_extraction(
+                call_status, should_extract_disposition
+            )
+        elif call_status not in (
             EndTaskReason.PIPELINE_ERROR.value,
             EndTaskReason.VOICEMAIL_DETECTED.value,
             *ANSWER_TERMINAL_REASONS,

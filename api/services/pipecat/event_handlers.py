@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from loguru import logger
 
@@ -215,6 +216,9 @@ def register_event_handlers(
             # fetch is the last thing that can change them, so this is the
             # first moment they are known.
             engine.finalize_initial_agent(visit_configuration)
+            engine.active_agent.model_configuration_snapshot = dict(
+                getattr(workflow_run, "model_configuration_snapshot", None) or {}
+            )
             try:
                 await db_client.update_workflow_run(
                     workflow_run_id,
@@ -437,10 +441,11 @@ def register_event_handlers(
         # copy would only be a second, worse answer.
         await engine.finish_tool_calls()
         gathered_context = await engine.get_gathered_context()
+        final_extraction = engine.final_extraction_metadata()
 
         # Store disposition code in workflow for dynamic filtering
         disposition_code = gathered_context.get("mapped_call_disposition")
-        if disposition_code and workflow_run:
+        if disposition_code and workflow_run and not final_extraction:
             try:
                 await db_client.add_call_disposition_code(
                     workflow_run.workflow_id, disposition_code
@@ -515,24 +520,7 @@ def register_event_handlers(
             list(gathered_context),
         )
 
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id,
-            usage_info=usage_info,
-            gathered_context=gathered_context,
-            is_completed=True,
-            state=WorkflowRunState.COMPLETED.value,
-        )
-        await notify_campaign_call_completed(
-            workflow_run.campaign_id if workflow_run else None, workflow_run_id
-        )
-
-        asyncio.create_task(
-            _capture_call_event(
-                workflow_run_id, user_provider_id, PostHogEvent.CALL_COMPLETED
-            )
-        )
-
-        logs_update: dict[str, object] = {}
+        logs_update: dict[str, object] = engine.final_extraction_logs()
         if not in_memory_logs_buffer.is_empty:
             try:
                 feedback_events = in_memory_logs_buffer.get_events()
@@ -546,15 +534,31 @@ def register_event_handlers(
             logger.info("Logs buffer is empty, skipping save")
 
         logs_update.update(integration_logs)
+        completion: dict[str, object] = {
+            "status": "pending",
+            "created_at": time.time(),
+        }
+        if final_extraction:
+            completion["final_extraction"] = final_extraction
 
-        if logs_update:
-            try:
-                await db_client.update_workflow_run(
-                    run_id=workflow_run_id,
-                    logs=logs_update,
-                )
-            except Exception as e:
-                logger.error(f"Error saving workflow run logs: {e}", exc_info=True)
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id,
+            usage_info=usage_info,
+            gathered_context=gathered_context,
+            logs=logs_update,
+            extra={"workflow_completion": completion},
+            is_completed=True,
+            state=WorkflowRunState.COMPLETED.value,
+        )
+        await notify_campaign_call_completed(
+            workflow_run.campaign_id if workflow_run else None, workflow_run_id
+        )
+
+        asyncio.create_task(
+            _capture_call_event(
+                workflow_run_id, user_provider_id, PostHogEvent.CALL_COMPLETED
+            )
+        )
 
         # Upload artifacts straight from the in-memory buffers so nothing has
         # to cross a process/host boundary via temp files. Must complete
@@ -607,6 +611,7 @@ def register_event_handlers(
         await enqueue_job(
             FunctionNames.PROCESS_WORKFLOW_COMPLETION,
             workflow_run_id,
+            _job_id=f"workflow-completion-{workflow_run_id}",
         )
 
     # Return the buffer so it can be passed to other handlers

@@ -186,6 +186,11 @@ async def run_completion(
             continue
 
         trace_attributes = trace_data.setdefault("attributes", {})
+        disposition = (context.workflow_run.gathered_context or {}).get(
+            "call_disposition"
+        )
+        if disposition:
+            trace_attributes["dograh.call_disposition"] = disposition
         if recording_url:
             trace_attributes["dograh.recording_url"] = recording_url
         # The live-phase client ran with placeholder identity ("deferred" /

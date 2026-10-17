@@ -34,6 +34,16 @@ _STATUS_RE = re.compile(r"^[A-Za-z0-9_-]{1,%d}$" % _MAX_STATUS_LENGTH)
 _SYSTEM_DNC_LIST = "SYSTEM_INTERNAL"
 
 
+def _retryable_http_status(status: int) -> bool:
+    return status in (408, 429) or 500 <= status < 600
+
+
+def _retryable_request_error(exc: Exception) -> bool:
+    return isinstance(
+        exc, (TimeoutError, aiohttp.ClientConnectionError, aiohttp.ClientPayloadError)
+    )
+
+
 def _response_code(response_text: str) -> str:
     """Return a diagnostic VICIdial status without retaining response PII."""
     if not response_text:
@@ -219,6 +229,7 @@ class VicidialAdapter(ExternalPBXAdapter):
                 "VICIdial accepted the operation"
                 if ok
                 else "VICIdial rejected the operation",
+                retryable=_retryable_http_status(response.status),
             )
         except Exception as exc:
             logger.error(
@@ -226,7 +237,10 @@ class VicidialAdapter(ExternalPBXAdapter):
                 f"stage={stage} error_type={type(exc).__name__}"
             )
             return ExternalPBXResult(
-                False, stage.lower(), "VICIdial API request failed"
+                False,
+                stage.lower(),
+                "VICIdial API request failed",
+                retryable=_retryable_request_error(exc),
             )
 
     async def hangup(self, identity: Mapping[str, Any]) -> ExternalPBXResult:
@@ -277,21 +291,23 @@ class VicidialAdapter(ExternalPBXAdapter):
             return {}
         return {"status": status}
 
-    async def _lead_phone_number(self, identity: Mapping[str, Any]) -> str:
+    async def _lead_phone_number(self, identity: Mapping[str, Any]) -> tuple[str, bool]:
         """The customer's number, from the INVITE if captured or the lead if not.
 
         ``phone_number`` is only on the identity when a deployment listed it
         under "Lead Fields To Capture", so fall back to reading it off the lead
         rather than making suppression depend on that setting.
+
+        Returns the number and whether a failed lookup can be retried.
         """
         lead = identity.get("lead")
         if isinstance(lead, Mapping):
             captured = str(lead.get("phone_number", "")).strip()
             if captured:
-                return captured
-        lead_id = str(identity.get("lead_id", "")).strip()
+                return captured, False
+        lead_id = str(identity.get("lead_id") or "").strip()
         if not lead_id:
-            return ""
+            return "", False
         params = {
             "source": self._non_agent_source,
             "user": self._non_agent_user,
@@ -304,15 +320,16 @@ class VicidialAdapter(ExternalPBXAdapter):
             async with aiohttp.ClientSession(timeout=self._timeout) as session:
                 async with session.get(self._non_agent_url, params=params) as response:
                     body = (await response.text()).strip()
+                    status_code = response.status
         except Exception as exc:
             logger.error(
                 f"[VICIdial] lead_field_info failed error_type={type(exc).__name__}"
             )
-            return ""
-        if body.startswith("ERROR"):
+            return "", _retryable_request_error(exc)
+        if status_code != 200 or body.startswith("ERROR"):
             logger.warning(f"[VICIdial] lead_field_info: {_response_summary(body)}")
-            return ""
-        return body
+            return "", _retryable_http_status(status_code)
+        return body, False
 
     async def apply_do_not_call(
         self, identity: Mapping[str, Any], disposition: str | None
@@ -335,14 +352,17 @@ class VicidialAdapter(ExternalPBXAdapter):
             return ExternalPBXResult(
                 False, "add_dnc_phone", "Non-agent API is not configured"
             )
-        phone_number = await self._lead_phone_number(identity)
+        phone_number, retryable = await self._lead_phone_number(identity)
         if not phone_number:
             logger.warning(
                 "[VICIdial] add_dnc_phone skipped: could not resolve the lead's "
                 "phone number"
             )
             return ExternalPBXResult(
-                False, "add_dnc_phone", "No VICIdial phone number resolved"
+                False,
+                "add_dnc_phone",
+                "No VICIdial phone number resolved",
+                retryable=retryable,
             )
         params = {
             "source": self._non_agent_source,
@@ -362,7 +382,10 @@ class VicidialAdapter(ExternalPBXAdapter):
                 f"[VICIdial] add_dnc_phone failed error_type={type(exc).__name__}"
             )
             return ExternalPBXResult(
-                False, "add_dnc_phone", "VICIdial API request failed"
+                False,
+                "add_dnc_phone",
+                "VICIdial API request failed",
+                retryable=_retryable_request_error(exc),
             )
         # A number already on the list is the state this call exists to reach,
         # so treat it as done rather than as a failure to retry or alert on.
@@ -383,6 +406,7 @@ class VicidialAdapter(ExternalPBXAdapter):
             ok,
             "add_dnc_phone",
             "Number suppressed" if ok else "VICIdial rejected the DNC request",
+            retryable=_retryable_http_status(status_code),
         )
 
     async def update_fields(
@@ -406,14 +430,14 @@ class VicidialAdapter(ExternalPBXAdapter):
             return ExternalPBXResult(
                 False, "update_lead", "Non-agent API is not configured"
             )
-        lead_id = str(identity.get("lead_id", "")).strip()
+        lead_id = str(identity.get("lead_id") or "").strip()
         if not lead_id:
             logger.warning(
                 "[VICIdial] update_lead skipped: no lead_id was captured from the "
                 f"INVITE fields={sorted(fields)}"
             )
             return ExternalPBXResult(
-                False, "update_lead", "No VICIdial lead ID captured"
+                False, "update_lead", "No VICIdial lead ID captured", retryable=False
             )
 
         safe_fields: dict[str, str] = {}
@@ -434,7 +458,7 @@ class VicidialAdapter(ExternalPBXAdapter):
                 f"survived validation fields={sorted(fields)}"
             )
             return ExternalPBXResult(
-                False, "update_lead", "No valid lead fields resolved"
+                False, "update_lead", "No valid lead fields resolved", retryable=False
             )
 
         # Field order is load-bearing: VICIdial's custom-field parser ignores
@@ -485,6 +509,7 @@ class VicidialAdapter(ExternalPBXAdapter):
                 ok,
                 "update_lead",
                 "VICIdial lead updated" if ok else "VICIdial rejected the lead update",
+                retryable=_retryable_http_status(response.status),
             )
         except Exception as exc:
             logger.error(
@@ -492,5 +517,8 @@ class VicidialAdapter(ExternalPBXAdapter):
                 f"fields={sorted(safe_fields)} error_type={type(exc).__name__}"
             )
             return ExternalPBXResult(
-                False, "update_lead", "VICIdial API request failed"
+                False,
+                "update_lead",
+                "VICIdial API request failed",
+                retryable=_retryable_request_error(exc),
             )

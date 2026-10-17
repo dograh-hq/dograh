@@ -284,8 +284,7 @@ async def update_recording(
                 detail=f"Recording ID '{new_id}' is already in use",
             )
 
-        old_id = existing.recording_id
-
+        # The recording and all workflow references commit together.
         recording = await db_client.update_recording_id(
             id=id,
             new_recording_id=new_id,
@@ -296,18 +295,6 @@ async def update_recording(
             raise HTTPException(status_code=404, detail="Recording not found")
 
         await invalidate_recording_cache(user.selected_organization_id)
-        # Replace old recording ID in all non-legacy workflow definitions
-        updated = await db_client.replace_recording_id_in_workflows(
-            old_id=old_id,
-            new_id=new_id,
-            organization_id=user.selected_organization_id,
-        )
-        if updated:
-            logger.info(
-                f"Updated {updated} workflow definition(s) with new recording ID "
-                f"'{old_id}' -> '{new_id}'"
-            )
-
         return _build_response(recording)
 
     except HTTPException:

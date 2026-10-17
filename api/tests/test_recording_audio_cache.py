@@ -582,9 +582,6 @@ async def test_mutation_routes_invalidate_after_committing(
         monkeypatch.setattr(
             db_client, "update_recording_id", AsyncMock(side_effect=write)
         )
-        monkeypatch.setattr(
-            db_client, "replace_recording_id_in_workflows", AsyncMock(return_value=0)
-        )
         await routes.update_recording(
             42, RecordingUpdateRequestSchema(recording_id="renamed"), user=user
         )
@@ -599,9 +596,7 @@ async def test_mutation_routes_invalidate_after_committing(
 
 
 @pytest.mark.asyncio
-async def test_rename_invalidates_even_if_workflow_replacement_fails(
-    recordings, monkeypatch
-):
+async def test_failed_rename_preserves_cached_alias(recordings, monkeypatch):
     from fastapi import HTTPException
 
     from api.routes import workflow_recording as routes
@@ -614,11 +609,8 @@ async def test_rename_invalidates_even_if_workflow_replacement_fails(
         db_client, "check_recording_id_exists", AsyncMock(return_value=False)
     )
     monkeypatch.setattr(
-        db_client, "update_recording_id", AsyncMock(return_value=recordings.rows[0])
-    )
-    monkeypatch.setattr(
         db_client,
-        "replace_recording_id_in_workflows",
+        "update_recording_id",
         AsyncMock(side_effect=RuntimeError("workflow update failed")),
     )
     with pytest.raises(HTTPException) as error:
@@ -628,8 +620,8 @@ async def test_rename_invalidates_even_if_workflow_replacement_fails(
             user=SimpleNamespace(selected_organization_id=1),
         )
     assert error.value.status_code == 500
-    assert not cache._metadata_cache
-    manager.broadcast.assert_awaited_once()
+    assert cache._cached_recording(1, "welcome") is not None
+    manager.broadcast.assert_not_awaited()
 
 
 @pytest.mark.asyncio

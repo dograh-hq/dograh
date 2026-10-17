@@ -51,6 +51,10 @@ async def create_transport(
         outbound_encoding=encoding,  # Telnyx → Dograh; from media_format.encoding
         transfer_strategy=TelnyxConferenceStrategy(),
         hangup_strategy=TelnyxHangupStrategy(),
+        params=TelnyxFrameSerializer.InputParams(
+            telnyx_sample_rate=audio_config.transport_in_sample_rate,
+            sample_rate=audio_config.pipeline_sample_rate,
+        ),
     )
 
     mixer = await build_audio_out_mixer(

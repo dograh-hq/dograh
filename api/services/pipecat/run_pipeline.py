@@ -422,7 +422,7 @@ async def _run_pipeline_telephony_impl(
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
     spec = telephony_registry.get(provider_name)
-    audio_config = create_audio_config(provider_name)
+    audio_config = create_audio_config(provider_name, is_realtime=is_realtime)
 
     transport = await spec.transport_factory(
         websocket,

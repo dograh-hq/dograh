@@ -22,6 +22,7 @@ from api.schemas.workflow_recording import (
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.mps_service_key_client import mps_service_key_client
+from api.services.pipecat.recording_audio_cache import invalidate_recording_cache
 from api.services.storage import storage_fs
 
 router = APIRouter(prefix="/workflow-recordings", tags=["workflow-recordings"])
@@ -128,6 +129,7 @@ async def create_recordings(
     user=Depends(get_user),
 ):
     """Create one or more recording records after audio files have been uploaded."""
+    committed = False
     try:
         backend = StorageBackend.get_current_backend()
         results = []
@@ -145,6 +147,7 @@ async def create_recordings(
                 tts_voice_id=rec_req.tts_voice_id,
                 metadata=rec_req.metadata,
             )
+            committed = True
             results.append(_build_response(recording))
 
         logger.info(
@@ -160,6 +163,11 @@ async def create_recordings(
         raise HTTPException(
             status_code=500, detail="Failed to create recordings"
         ) from exc
+    finally:
+        # Each DB call commits independently. Invalidate once even if a later
+        # row or response conversion fails after earlier rows were committed.
+        if committed:
+            await invalidate_recording_cache(user.selected_organization_id)
 
 
 @router.get(
@@ -226,6 +234,7 @@ async def delete_recording(
         if not success:
             raise HTTPException(status_code=404, detail="Recording not found")
 
+        await invalidate_recording_cache(user.selected_organization_id)
         logger.info(
             f"Deleted recording {recording_id}, org {user.selected_organization_id}"
         )
@@ -286,6 +295,7 @@ async def update_recording(
         if not recording:
             raise HTTPException(status_code=404, detail="Recording not found")
 
+        await invalidate_recording_cache(user.selected_organization_id)
         # Replace old recording ID in all non-legacy workflow definitions
         updated = await db_client.replace_recording_id_in_workflows(
             old_id=old_id,

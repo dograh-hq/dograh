@@ -200,12 +200,19 @@ class GreetingController:
 
     def _finished(self, speech: SpeechPlayback) -> None:
         text = self._playback.greeting_text(speech)
-        if text:
+        if text and speech.manage_text:
             context = (
                 speech.context if speech.context is not None else self._get_context()
             )
             context.add_message({"role": "assistant", "content": text})
-        if self.log_speech:
+        logger.bind(**speech.log_context).info(
+            "Greeting finished: speech_id={} outcome={} first_output_at={} played_ms={}",
+            speech.id,
+            speech.outcome.value,
+            speech.first_output_at,
+            round(speech.played_seconds * 1000),
+        )
+        if self.log_speech and speech.manage_text:
             task = asyncio.create_task(self.log_speech(speech))
             self._log_tasks.add(task)
         if self._user and speech.outcome is not PlaybackOutcome.CLOSED:
@@ -214,7 +221,7 @@ class GreetingController:
             self._user.create_task(self._user.queue_frame(Frame()))
 
     def _started(self, speech: SpeechPlayback) -> None:
-        speech.log_context = self.get_log_context()
+        speech.log_context = {**self.get_log_context(), **speech.log_context}
 
     async def flush(self) -> None:
         tasks = tuple(self._log_tasks)

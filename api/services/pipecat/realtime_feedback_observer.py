@@ -142,13 +142,20 @@ class RealtimeFeedbackObserver(BaseObserver):
             interrupted=speech.outcome.value == "interrupted",
             played_ms=round(speech.played_seconds * 1000),
             timing_source=speech.timing_source,
+            **{
+                key: speech.log_context[key]
+                for key in ("pipeline_type", "interruption_mode")
+                if key in speech.log_context
+            },
         )
         await self._logs_buffer.append(
             event,
             timestamp=speech.first_output_at,
             use_current_node=False,
             use_current_turn=False,
-            **speech.log_context,
+            turn=speech.log_context.get("turn"),
+            node_id=speech.log_context.get("node_id"),
+            node_name=speech.log_context.get("node_name"),
         )
 
     async def on_push_frame(self, data: FramePushed):

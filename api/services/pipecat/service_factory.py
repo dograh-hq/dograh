@@ -34,7 +34,13 @@ from api.services.pipecat.fallback_llm import FallbackLLMProcessor, FallbackRout
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
+from api.services.pipecat.google_credentials import (
+    get_google_credentials,
+    prepare_google_credentials,
+)
 from api.utils.url_security import validate_user_configured_service_url
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frame_processor import FrameProcessorSetup
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
@@ -289,7 +295,34 @@ class DograhGoogleLLMService(GoogleLLMService):
 
 
 class DograhGoogleVertexLLMService(GoogleVertexLLMService):
+    """Vertex text service with Dograh schemas and nonblocking authentication."""
+
     adapter_class = DograhGeminiJSONSchemaAdapter
+
+    # The upstream constructor dispatches through this hook. Return a lazy
+    # credential object so it never discovers credentials or refreshes tokens.
+    _get_credentials = staticmethod(get_google_credentials)
+
+    async def setup(self, setup: FrameProcessorSetup) -> None:
+        await super().setup(setup)
+        await prepare_google_credentials(self._credentials)
+
+    async def run_inference(
+        self,
+        context: LLMContext,
+        max_tokens: int | None = None,
+        system_instruction: str | None = None,
+        response_schema: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Prepare authentication for inference outside a running pipeline."""
+        await prepare_google_credentials(self._credentials)
+        return await super().run_inference(
+            context, max_tokens, system_instruction, response_schema
+        )
+
+    async def _stream_content(self, context: LLMContext):
+        await prepare_google_credentials(self._credentials)
+        return await super()._stream_content(context)
 
 
 def _validate_runtime_service_url(url: str, field_name: str) -> None:

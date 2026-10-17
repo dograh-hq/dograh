@@ -6,7 +6,10 @@ from dataclasses import replace
 
 from loguru import logger
 
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
 from api.services.pipecat.usage_metrics import LiveUsageMetricsData
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -79,6 +82,14 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
                 speaking=self._workflow_bot_is_speaking,
                 succeeded=evt.inner_type == "response.completed",
             )
+
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(
+            self._session_started
+            and self._pending_prerecorded_greeting is None
+            and not self._pending_speech
+        )
 
     def __init__(self, *, backend_model: str, settings=None, **kwargs):
         settings = settings or self.Settings()
@@ -164,6 +175,7 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         )
         self._sent_backend_snapshot = snapshot
 
+    @opening_request
     async def _handle_context(self, context: LLMContext):
         if context is None:
             return
@@ -175,6 +187,7 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         await super()._handle_context(context)
         await self._maybe_send_tools_update()
 
+    @opening_request
     async def _handle_evt_session_started(self, evt):
         self._live_audio_seconds = 0.0
         await super()._handle_evt_session_started(evt)
@@ -243,6 +256,7 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
             self._bot_playback_stopped.set()
         await super().process_frame(frame, direction)
 
+    @opening_request
     async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
         if context is None:
             logger.warning(f"{self}: received greeting before context was set")
@@ -275,6 +289,7 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         await self._handle_context(self._context)
         await self._flush_prerecorded_greeting()
 
+    @opening_request
     async def _flush_prerecorded_greeting(self):
         if not self._session_started or self._pending_prerecorded_greeting is None:
             return

@@ -69,11 +69,15 @@ async def test_no_output_never_commits_requested_text(outcome):
     ],
 )
 @pytest.mark.parametrize("source", ["audio", "text", "generated"])
-async def test_partial_greeting_commits_the_same_text_once(source, outcome):
+@pytest.mark.parametrize("initial_turn", [None, 1])
+async def test_partial_greeting_commits_the_same_text_once(
+    source, outcome, initial_turn
+):
     tracker = SpeechPlaybackTracker()
     context = LLMContext(messages=[{"role": "assistant", "content": "Hi,"}])
     logs = InMemoryLogsBuffer(1)
-    logs.set_current_turn(1)
+    if initial_turn is not None:
+        logs.set_current_turn(initial_turn)
     logs.set_current_node("start", "Start")
     feedback = RealtimeFeedbackObserver(AsyncMock(), logs)
     controller = GreetingController(
@@ -113,8 +117,48 @@ async def test_partial_greeting_commits_the_same_text_once(source, outcome):
     assert events[0]["payload"]["played_ms"] == 2000
     assert events[0]["payload"]["outcome"] == outcome.value
     assert events[0]["node_id"] == "start"
-    assert events[0]["turn"] == 1
+    assert events[0].get("turn") == initial_turn
     assert events[0]["payload"]["timestamp"] == speech.first_output_at
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome", [PlaybackOutcome.PLAYED, PlaybackOutcome.INTERRUPTED]
+)
+@pytest.mark.parametrize(
+    "text,raw_text,expected",
+    [
+        ("● rec_hello Hello there.", None, "Hello there."),
+        ("●rec_hello Hello there.", None, "Hello there."),
+        ("● rec_hello transformed", "● rec_hello Hello there.", "Hello there."),
+        ("● rec_hello", None, ""),
+    ],
+)
+async def test_recording_router_control_text_is_not_committed(
+    text, raw_text, expected, outcome
+):
+    tracker = SpeechPlaybackTracker()
+    context = LLMContext()
+    logs = InMemoryLogsBuffer(1)
+    feedback = RealtimeFeedbackObserver(AsyncMock(), logs)
+    controller = GreetingController(
+        tracker, lambda: context, is_screening=lambda: False
+    )
+    controller.log_speech = feedback.log_greeting
+    speech = tracker.create(greeting=True)
+    tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=True))
+    tracker.after_output(None, audio(1))
+    frame = TTSTextFrame(text, aggregated_by="recording_router", raw_text=raw_text)
+    tracker._capture_greeting_text(None, frame)
+    speech.finish(outcome)
+    await controller.flush()
+    assert speech.delivered_text == expected
+    assert context.messages == (
+        [{"role": "assistant", "content": expected}] if expected else []
+    )
+    assert [event["payload"]["text"] for event in logs.get_events()] == (
+        [expected] if expected else []
+    )
 
 
 @pytest.mark.asyncio

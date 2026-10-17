@@ -46,6 +46,7 @@ from api.services.workflow.configuration_policy import (
 from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
+from api.services.workflow.greeting_validation import validate_greeting_recordings
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.run_usage_response import (
     format_public_cost_info,
@@ -150,6 +151,7 @@ async def _validate_workflow_definition(
     # ----------- Graph Validation if DTO is valid ------------
     try:
         if dto:
+            errors.extend(validate_greeting_recordings(dto))
             WorkflowGraph(dto)
     except ValueError as e:
         errors.extend(e.args[0])

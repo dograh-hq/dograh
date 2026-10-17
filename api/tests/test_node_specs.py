@@ -76,6 +76,7 @@ def test_greeting_policy_spec_order_and_visibility():
     )
     assert threshold.default == 2
     assert threshold.min_value == 1
+    assert threshold.renderer_options.number_input.fractional is False
     assert threshold.display_options.show == {"allow_greeting_interrupt": [True]}
 
 

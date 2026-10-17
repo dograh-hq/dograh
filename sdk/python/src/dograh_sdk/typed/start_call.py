@@ -83,7 +83,7 @@ class StartCall(TypedNode):
     manage their own interruptions.
     """
 
-    greeting_interrupt_min_words: float = 2
+    greeting_interrupt_min_words: int = 2
     """
     Interrupt the greeting when the caller's transcription contains at least
     this many words.

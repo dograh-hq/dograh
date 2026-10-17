@@ -156,6 +156,7 @@ class InMemoryLogsBuffer:
         node_id: Optional[str] = None,
         node_name: Optional[str] = None,
         use_current_node: bool = True,
+        use_current_turn: bool = True,
     ):
         """Append an immutable event with optional correlation metadata."""
         if use_current_node:
@@ -164,7 +165,7 @@ class InMemoryLogsBuffer:
         timestamped_event = stamp_realtime_feedback_event(
             deepcopy(event),
             timestamp=timestamp or datetime.now(UTC).isoformat(timespec="milliseconds"),
-            turn=self._current_turn if turn is None else turn,
+            turn=self._current_turn if use_current_turn and turn is None else turn,
             node_id=node_id,
             node_name=node_name,
         )

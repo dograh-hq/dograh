@@ -55,7 +55,14 @@ describe("greeting interruption controls", () => {
         expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
         expect((screen.getByRole("spinbutton") as HTMLInputElement).value).toBe("2");
         const labels = [...container.querySelectorAll("label")].map((label) => label.textContent);
+        expect(labels).toEqual(expect.arrayContaining([
+            "Greeting",
+            "Allow Greeting Interruption",
+            "Minimum Words to Interrupt",
+            "Prompt",
+        ]));
         expect(labels.indexOf("Greeting")).toBeLessThan(labels.indexOf("Allow Greeting Interruption"));
+        expect(labels.indexOf("Allow Greeting Interruption")).toBeLessThan(labels.indexOf("Minimum Words to Interrupt"));
         expect(labels.indexOf("Minimum Words to Interrupt")).toBeLessThan(labels.indexOf("Prompt"));
     });
 

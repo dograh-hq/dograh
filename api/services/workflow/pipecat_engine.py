@@ -1008,7 +1008,11 @@ class PipecatEngine:
 
         greeting_type = node.greeting_type or "text"
 
-        if greeting_type == "audio" and node.greeting_recording_id:
+        if (
+            greeting_type == "audio"
+            and node.greeting_recording_id
+            and node.greeting_recording_id.strip()
+        ):
             return ("audio", node.greeting_recording_id)
 
         if node.greeting:

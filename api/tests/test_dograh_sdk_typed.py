@@ -9,6 +9,8 @@ Covers:
 
 from __future__ import annotations
 
+from typing import get_type_hints
+
 import pytest
 from dograh_sdk import Workflow
 from dograh_sdk._generated_models import NodeSpec
@@ -115,6 +117,7 @@ def test_add_typed_and_add_produce_identical_data(client: _StubClient):
 def test_typed_start_greeting_policy_roundtrips_without_a_recording(
     client: _StubClient,
 ):
+    assert get_type_hints(StartCall)["greeting_interrupt_min_words"] is int
     workflow = Workflow(client=client)
     workflow.add_typed(
         StartCall(

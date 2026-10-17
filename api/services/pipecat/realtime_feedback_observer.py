@@ -147,6 +147,7 @@ class RealtimeFeedbackObserver(BaseObserver):
             event,
             timestamp=speech.first_output_at,
             use_current_node=False,
+            use_current_turn=False,
             **speech.log_context,
         )
 

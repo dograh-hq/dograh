@@ -307,8 +307,18 @@ class SpeechPlaybackTracker:
             return
         if not speech.done and isinstance(frame, TTSTextFrame):
             frame.persist_to_logs = False
+            text = frame.raw_text or frame.text
+            if frame.aggregated_by == "recording_router":
+                from api.services.workflow.pipecat_engine_context_composer import (
+                    RECORDING_MARKER,
+                )
+
+                recording_parts = (
+                    text.lstrip().removeprefix(RECORDING_MARKER).split(maxsplit=1)
+                )
+                text = recording_parts[1] if len(recording_parts) == 2 else ""
             part = TextPartForConcatenation(
-                frame.raw_text or frame.text,
+                text,
                 includes_inter_part_spaces=frame.includes_inter_frame_spaces,
             )
             if frame.pts is not None or frame.aggregated_by == "word":

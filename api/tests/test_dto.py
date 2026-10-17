@@ -1,13 +1,15 @@
+import json
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 from api.services.workflow.dto import (
     ReactFlowDTO,
     StartCallNodeData,
     sanitize_workflow_definition,
 )
+from api.services.workflow.greeting_validation import validate_greeting_recordings
+from api.services.workflow.workflow_graph import WorkflowGraph
 
 _FIXTURES_DIR = Path(__file__).parent / "dto_fixtures"
 
@@ -21,15 +23,28 @@ _FIXTURES_DIR = Path(__file__).parent / "dto_fixtures"
         {"greeting_recording_id": "  "},
     ],
 )
-def test_pre_recorded_greeting_requires_a_recording(recording_fields):
-    with pytest.raises(ValidationError, match="Select a greeting recording") as error:
-        StartCallNodeData(
-            name="Start",
-            greeting_type="audio",
-            greeting="Old text greeting",
-            **recording_fields,
-        )
-    assert error.value.errors()[0]["loc"] == ("greeting_recording_id",)
+def test_missing_recording_is_an_authoring_error_not_a_runtime_parse_error(
+    recording_fields,
+):
+    definition = json.loads((_FIXTURES_DIR / "clean.json").read_text())
+    definition["nodes"][0]["data"].update(greeting_type="audio", **recording_fields)
+    dto = ReactFlowDTO.model_validate(definition)
+    assert WorkflowGraph(dto).start_node_id == "s"
+    errors = validate_greeting_recordings(dto)
+    assert len(errors) == 1
+    assert errors[0]["id"] == "s"
+    assert errors[0]["field"] == "data.greeting_recording_id"
+
+
+@pytest.mark.parametrize(
+    "greeting_type,recording_id", [(None, None), ("text", None), ("audio", "42")]
+)
+def test_valid_greetings_pass_authoring_validation(greeting_type, recording_id):
+    definition = json.loads((_FIXTURES_DIR / "clean.json").read_text())
+    definition["nodes"][0]["data"].update(
+        greeting_type=greeting_type, greeting_recording_id=recording_id
+    )
+    assert validate_greeting_recordings(ReactFlowDTO.model_validate(definition)) == []
 
 
 @pytest.mark.parametrize("greeting_type", [None, "text"])

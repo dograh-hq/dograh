@@ -5,7 +5,6 @@ from pydantic import (
     BaseModel,
     Field,
     ValidationError,
-    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -23,7 +22,9 @@ from api.services.workflow.node_specs._base import (
     GraphConstraints,
     NodeCategory,
     NodeExample,
+    NumberInputOptions,
     PropertyOption,
+    PropertyRendererOptions,
     PropertyType,
 )
 from api.services.workflow.node_specs.constants import DEFAULT_QA_SYSTEM_PROMPT
@@ -361,7 +362,6 @@ class StartCallNodeData(
     )
     greeting_recording_id: Optional[str] = spec_field(
         default=None,
-        validate_default=True,
         ui_type=PropertyType.recording_ref,
     )
     allow_greeting_interrupt: bool = spec_field(
@@ -383,6 +383,9 @@ class StartCallNodeData(
         display_name="Minimum Words to Interrupt",
         description="Interrupt the greeting when the caller's transcription contains at least this many words.",
         display_options=DisplayOptions(show={"allow_greeting_interrupt": [True]}),
+        renderer_options=PropertyRendererOptions(
+            number_input=NumberInputOptions(fractional=False)
+        ),
     )
     delayed_start: bool = spec_field(default=False, ui_type=PropertyType.boolean)
     delayed_start_duration: Optional[float] = spec_field(
@@ -397,17 +400,6 @@ class StartCallNodeData(
     pre_call_fetch_credential_uuid: Optional[str] = spec_field(
         default=None, ui_type=PropertyType.credential_ref
     )
-
-    @field_validator("greeting_recording_id")
-    @classmethod
-    def _require_greeting_recording(
-        cls, value: Optional[str], info: ValidationInfo
-    ) -> Optional[str]:
-        if info.data.get("greeting_type") == "audio" and (
-            value is None or not value.strip()
-        ):
-            raise ValueError("Select a greeting recording for pre-recorded audio")
-        return value
 
     @model_validator(mode="before")
     @classmethod

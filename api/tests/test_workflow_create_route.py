@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -21,7 +22,19 @@ def _make_test_app() -> FastAPI:
     return app
 
 
-def test_validate_workflow_reports_missing_greeting_recording_on_start_node():
+@pytest.mark.parametrize("action", ["validate", "publish"])
+@pytest.mark.parametrize(
+    "recording_fields",
+    [
+        {},
+        {"greeting_recording_id": None},
+        {"greeting_recording_id": ""},
+        {"greeting_recording_id": "  "},
+    ],
+)
+def test_validate_workflow_reports_missing_greeting_recording_on_start_node(
+    action, recording_fields
+):
     definition = {
         "nodes": [
             {
@@ -32,17 +45,35 @@ def test_validate_workflow_reports_missing_greeting_recording_on_start_node():
                     "name": "Start",
                     "prompt": "Greet the caller",
                     "greeting_type": "audio",
+                    **recording_fields,
                 },
+            },
+            {
+                "id": "end-1",
+                "type": "endCall",
+                "position": {"x": 0, "y": 100},
+                "data": {"name": "End", "prompt": "Say goodbye"},
+            },
+        ],
+        "edges": [
+            {
+                "id": "edge-1",
+                "source": "start-1",
+                "target": "end-1",
+                "data": {"label": "End", "condition": "Conversation finished"},
             }
         ],
-        "edges": [],
     }
     with patch("api.routes.workflow.db_client") as mock_db:
         mock_db.get_workflow = AsyncMock(return_value=SimpleNamespace(id=33))
         mock_db.get_draft_version = AsyncMock(
-            return_value=SimpleNamespace(workflow_json=definition)
+            return_value=SimpleNamespace(
+                workflow_json=definition, workflow_configurations={}
+            )
         )
-        response = TestClient(_make_test_app()).post("/workflow/33/validate")
+        mock_db.publish_workflow_draft = AsyncMock()
+        response = TestClient(_make_test_app()).post(f"/workflow/33/{action}")
+        mock_db.publish_workflow_draft.assert_not_awaited()
 
     assert response.status_code == 422
     detail = response.json()["detail"]
@@ -51,7 +82,7 @@ def test_validate_workflow_reports_missing_greeting_recording_on_start_node():
     error = detail["errors"][0]
     assert error["kind"] == "node"
     assert error["id"] == "start-1"
-    assert error["field"] == "greeting_recording_id"
+    assert error["field"] == "data.greeting_recording_id"
     assert "select a greeting recording" in error["message"].lower()
 
 

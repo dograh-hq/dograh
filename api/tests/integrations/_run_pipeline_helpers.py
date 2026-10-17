@@ -75,6 +75,12 @@ class NoopFeedbackObserver(BaseObserver):
     async def log_speech(self, text: str):
         pass
 
+    async def log_greeting(self, speech):
+        pass
+
+    def speech_log_context(self):
+        return {}
+
     async def cleanup(self):
         pass
 

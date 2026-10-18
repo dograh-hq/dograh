@@ -80,7 +80,7 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.services.workflow.workflow_graph import WorkflowGraph
 from api.tests.pipecat_test_utils import stub_agent_runtime
-from pipecat.tests import MockLLMService, MockTTSService
+from pipecat.tests import ContextCapturingMockLLM, MockLLMService, MockTTSService
 
 TRANSFER_TOOL_UUID = "tool-transfer-agent"
 DESTINATION_WORKFLOW_ID = 99
@@ -1426,7 +1426,8 @@ async def test_a_destination_set_to_continue_skips_its_greeting():
 @pytest.mark.asyncio
 async def test_a_destination_set_to_introduce_speaks_its_line_and_then_continues():
     """Set to introduce and continue, the destination says its own line first,
-    then opens with a generated reply behind it, and skips its Start greeting."""
+    then opens with a generated reply behind it, and skips its Start greeting.
+    The reply is generated knowing the line was said, so it is not said twice."""
     source_llm = MockLLMService(
         mock_steps=[
             MockLLMService.create_function_call_chunks(
@@ -1435,7 +1436,7 @@ async def test_a_destination_set_to_introduce_speaks_its_line_and_then_continues
         ],
         chunk_delay=0.001,
     )
-    destination_llm = MockLLMService(
+    destination_llm = ContextCapturingMockLLM(
         mock_steps=[MockLLMService.create_text_chunks("Carrying on.")],
         chunk_delay=0.001,
     )
@@ -1477,15 +1478,24 @@ async def test_a_destination_set_to_introduce_speaks_its_line_and_then_continues
         # The introduction is synthesized ahead of the generated reply.
         assert received.index(introduction) < reply_at
 
-        # The destination knows it said the line: it is in the assistant context.
-        async with asyncio.timeout(5):
-            while not any(
-                isinstance(m, dict)
-                and m.get("role") == "assistant"
-                and introduction in str(m.get("content", ""))
-                for m in harness.engine.context.messages
-            ):
-                await asyncio.sleep(0.02)
+        # The reply was generated knowing the line had been said: it is the
+        # last assistant turn in the context the first completion was given.
+        first_completion = destination_llm.captured_contexts[0]["messages"]
+        assistant_turns = [
+            m["content"] for m in first_completion if m.get("role") == "assistant"
+        ]
+        assert assistant_turns and assistant_turns[-1] == introduction
+
+        # Once everything queued ahead of the reply has reached the caller, the
+        # line is in the context exactly once: playback did not append it again.
+        assert await harness.engine.drain_call_pipeline()
+        assert [
+            m
+            for m in harness.engine.context.messages
+            if isinstance(m, dict)
+            and m.get("role") == "assistant"
+            and introduction in str(m.get("content", ""))
+        ] == [{"role": "assistant", "content": introduction}]
     finally:
         await harness.stop()
 

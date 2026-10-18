@@ -76,16 +76,37 @@ describe("TransferAgentToolConfig", () => {
         expect(screen.queryByLabelText("Introduction")).toBeNull();
     });
 
-    it("asks for the introduction only when the destination introduces itself", () => {
+    it("shows the greeting mode already configured", () => {
         render(<Harness initialGreetingMode="introduce_and_continue" />);
         expect(
             screen.getByLabelText("When the destination agent picks up").textContent,
         ).toContain("Introduce itself, then continue");
+        expect(screen.getByLabelText("Introduction")).toBeDefined();
+    });
+
+    it("asks for the introduction only when the destination introduces itself", () => {
+        render(<Harness />);
+        const modeSelect = () =>
+            screen.getByLabelText("When the destination agent picks up");
+
+        fireEvent.keyDown(modeSelect(), { key: "ArrowDown" });
+        expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+            "Play its greeting, then wait",
+            "Continue the conversation",
+            "Introduce itself, then continue",
+        ]);
+        fireEvent.click(screen.getByRole("option", { name: "Introduce itself, then continue" }));
+        expect(modeSelect().textContent).toContain("Introduce itself, then continue");
 
         const field = screen.getByLabelText("Introduction") as HTMLTextAreaElement;
         fireEvent.change(field, { target: { value: "Billing here, carrying on." } });
         expect(
             (screen.getByLabelText("Introduction") as HTMLTextAreaElement).value,
         ).toBe("Billing here, carrying on.");
+
+        fireEvent.keyDown(modeSelect(), { key: "ArrowDown" });
+        fireEvent.click(screen.getByRole("option", { name: "Continue the conversation" }));
+        expect(modeSelect().textContent).toContain("Continue the conversation");
+        expect(screen.queryByLabelText("Introduction")).toBeNull();
     });
 });

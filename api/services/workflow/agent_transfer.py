@@ -205,16 +205,22 @@ class AgentTransferCoordinator:
                 # opening, so the caller hears who picked up even when that
                 # opening turns out to be a tool call. It is not the tracked
                 # greeting: the generated turn is, and it keeps the node's
-                # interruption policy. The assistant turn commits the line to
-                # context and logs, as it does for the handover announcement.
-                # The opening request enters the destination's pipeline behind
-                # this speech, so the reply cannot overtake it.
-                await engine.queue_speech(
+                # interruption policy. The opening request enters the
+                # destination's pipeline behind this speech, so the reply
+                # cannot overtake it. Playback would commit the line to context
+                # only after the reply had been requested, so it is entered as
+                # an assistant turn here instead, before the reply is generated
+                # against the context, and the speech is logged on its own.
+                speech = await engine.queue_speech(
                     request.introduction,
-                    append_to_context=True,
-                    persist_to_logs=False,
+                    append_to_context=False,
+                    persist_to_logs=True,
                     mute_user=True,
                 )
+                if not speech.done:
+                    engine.context.add_message(
+                        {"role": "assistant", "content": request.introduction}
+                    )
             await engine.queue_node_opening(
                 node_id=start_node_id,
                 previous_node_id=(

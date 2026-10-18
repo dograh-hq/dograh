@@ -49,7 +49,7 @@ A Transfer to Agent tool has four settings. Everything else about how a handoff 
 - **Agent** (`workflow_id`, required) — the id of the Dograh agent to transfer to. It must belong to the same organization.
 - **Handover message** — stored as one text entry with `event: "start"` in `definition.messages`. Spoken by the current agent, in its own voice, just before the handover. Supports [template variables](/voice-agent/template-variables). Maximum 500 characters. The editor starts with "Let me connect you with the right person. One moment please." Leave it empty, or send `messages: []` through the API, to hand over without saying anything.
 - **Greeting mode** (`greeting_mode`, default `start_greeting`) — how the destination agent opens once it has the call:
-  - `start_greeting` — it plays its Start Call greeting and waits for the caller to speak. Right for an agent whose greeting already asks what the caller needs.
+  - `start_greeting` — it plays its Start Call greeting and waits for the caller to speak. If the destination has no Start Call greeting, it opens with a generated reply instead. Right for an agent whose greeting already asks what the caller needs.
   - `continue` — it skips the greeting and opens with a reply generated from the conversation history. Right for an agent that greets callers on its own phone number but is also a transfer target, and should not introduce itself twice.
   - `introduce_and_continue` — it says the **Introduction** in its own voice, then opens with a generated reply. Right for an agent that only ever answers handoffs: the caller hears who picked up without having to repeat themselves, and the introduction cannot be lost when the first generated turn is a tool call.
 - **Introduction** (`introduction`) — what the destination agent says as it takes over, in its own voice. Required with `introduce_and_continue` and not accepted with the other modes. Supports [template variables](/voice-agent/template-variables). Maximum 500 characters. Write it in the language the destination agent speaks, and make it a handover line rather than a copy of its Start Call greeting: "Hi, this is Billing, my colleague has filled me in" rather than "Thanks for calling, how can I help?".
@@ -102,13 +102,23 @@ It is **not** available on speech-to-speech (realtime) agents. The tool still re
 
 The destination agent must exist before you create the tool, because the tool stores its id. When you are building a set of agents programmatically, create the destination agents first, then the tools, then the agent that routes between them.
 
-To have the destination introduce itself and carry straight on, set the greeting mode and the introduction together:
+To have the destination introduce itself and carry straight on, set the greeting mode and the introduction together in the definition:
 
 ```json
-"config": {
-  "workflow_id": 117,
-  "greeting_mode": "introduce_and_continue",
-  "introduction": "Hi, this is Billing. My colleague has filled me in, so let's carry on."
+{
+  "type": "transfer_agent",
+  "messages": [
+    {
+      "event": "start",
+      "type": "text",
+      "text": "Let me put you through to our billing team. One moment."
+    }
+  ],
+  "config": {
+    "workflow_id": 117,
+    "greeting_mode": "introduce_and_continue",
+    "introduction": "Hi, this is Billing. My colleague has filled me in, so let's carry on."
+  }
 }
 ```
 

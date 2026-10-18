@@ -1066,6 +1066,7 @@ def create_tts_service(
                 model=user_config.tts.model,
                 voice=voice,
                 speed=speed,
+                volume=getattr(user_config.tts, "volume", 1.0),
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],

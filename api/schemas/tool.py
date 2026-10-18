@@ -36,6 +36,7 @@ ToolCategoryValue = Literal[
     "native",
     "integration",
     "mcp",
+    "whatsapp",
 ]
 
 
@@ -696,13 +697,178 @@ class McpToolDefinition(ToolDefinitionBase):
     config: McpToolConfig = Field(description="MCP server configuration.")
 
 
+class WhatsAppVariableMapping(BaseModel):
+    """Mapping for one template variable placeholder like {{1}}."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    index: int = Field(
+        description="1-based placeholder index in the template (e.g. 1 for {{1}}).",
+        ge=1,
+    )
+    name: str = Field(
+        description="Name of the parameter, shown to the LLM or used for identification.",
+    )
+    source: Literal["context", "llm", "static", "literal", "lead_phone"] = Field(
+        default="llm",
+        description="Source of this variable: 'context' (e.g. {{initial_context.name}}), 'llm' (filled by model), 'static'/'literal' (fixed value), or 'lead_phone'.",
+    )
+    value: str | None = Field(
+        default=None,
+        description="Template string for 'context', static string for 'static', or description instruction for 'llm'.",
+    )
+    fallback_value: str | None = Field(
+        default=None,
+        description="Optional fallback value to use if the source (context variable, lead phone, etc.) is empty or missing at runtime.",
+    )
+
+
+class WhatsAppTemplateConfig(BaseModel):
+    """Configuration for one approved WhatsApp template within the tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(
+        description="Unique identifier / key for this template in the tool, e.g. 'booking_confirmation' or 'brochure_link'.",
+    )
+    name: str = Field(
+        description="Display name or label for this template configuration.",
+    )
+    description: str = Field(
+        default="",
+        description="Guidance for the LLM on when to choose and send this specific template.",
+    )
+    template_name: str = Field(
+        description="Approved Meta WhatsApp template name.",
+    )
+    template_id: str | None = Field(
+        default=None,
+        description="Optional Meta template ID.",
+    )
+    language_code: str = Field(
+        default="en_US",
+        description="Language code of the template, e.g. 'en_US'.",
+    )
+    from_phone_number_id: str | None = Field(
+        default=None,
+        description="Specific sender Phone Number ID for this template (selected from available WABA numbers). If omitted, default account number is used.",
+    )
+    fallback_recipient_phone_number: str | None = Field(
+        default=None,
+        description="Optional template-specific fallback recipient phone number in E.164 format.",
+    )
+    variable_mappings: list[WhatsAppVariableMapping] = Field(
+        default_factory=list,
+        description="Mappings for template placeholder variables ({{1}}, {{2}}).",
+    )
+
+    @field_validator("variable_mappings")
+    @classmethod
+    def validate_variable_mappings(
+        cls, mappings: list[WhatsAppVariableMapping]
+    ) -> list[WhatsAppVariableMapping]:
+        indexes = [m.index for m in mappings]
+        if len(indexes) != len(set(indexes)):
+            raise ValueError("Duplicate variable mapping indexes are not allowed.")
+        if indexes and set(indexes) != set(range(1, len(indexes) + 1)):
+            raise ValueError(
+                "Variable mapping indexes must be contiguous and 1-indexed (1, 2, ...)."
+            )
+        names = [m.name.strip() for m in mappings if m.name and m.name.strip()]
+        if len(names) != len(set(names)):
+            raise ValueError("Duplicate variable mapping names are not allowed within a template.")
+        reserved_names = {"template_id", "template_name", "recipient_phone_number", "parameters"}
+        for m in mappings:
+            if m.name and m.name.strip().lower() in reserved_names:
+                raise ValueError(
+                    f"Variable mapping name '{m.name}' is reserved by the tool. Please choose a different parameter name."
+                )
+        return mappings
+
+
+class WhatsAppToolConfig(BaseModel):
+    """Configuration for WhatsApp template message tools supporting multiple templates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    execution_mode: Literal["async", "sync"] = Field(
+        default="async",
+        description="Execution mode: 'async' queues delivery immediately with zero dead air, 'sync' waits for Meta confirmation.",
+    )
+    telephony_configuration_id: int | None = Field(
+        default=None,
+        description="Specific WhatsApp telephony configuration ID. If omitted, organization's active WhatsApp config is used.",
+    )
+    fallback_recipient_phone_number: str | None = Field(
+        default=None,
+        description="Fallback recipient phone number in E.164 format (e.g. +1234567890) used when testing or if caller phone number cannot be determined from call context.",
+    )
+    test_recipient_phone_number: str | None = Field(
+        default=None,
+        description="Alias for fallback_recipient_phone_number for backward compatibility.",
+    )
+    templates: list[WhatsAppTemplateConfig] = Field(
+        default_factory=list,
+        description="List of configured templates available to the agent for this tool.",
+    )
+
+    @field_validator("templates")
+    @classmethod
+    def validate_templates(
+        cls, templates: list[WhatsAppTemplateConfig]
+    ) -> list[WhatsAppTemplateConfig]:
+        ids = [t.id for t in templates]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Duplicate template IDs are not allowed in WhatsApp tool.")
+        return templates
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_single_template(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if data.get("test_recipient_phone_number") and not data.get("fallback_recipient_phone_number"):
+                data["fallback_recipient_phone_number"] = data["test_recipient_phone_number"]
+            if not data.get("templates") and data.get("template_name"):
+                t_name = data.get("template_name")
+                data["templates"] = [
+                    {
+                        "id": t_name,
+                        "name": t_name,
+                        "description": "",
+                        "template_name": t_name,
+                        "template_id": data.get("template_id"),
+                        "language_code": data.get("language_code") or "en_US",
+                        "from_phone_number_id": data.get("from_phone_number_id"),
+                        "fallback_recipient_phone_number": data.get("fallback_recipient_phone_number"),
+                        "variable_mappings": data.get("variable_mappings") or [],
+                    }
+                ]
+            for k in (
+                "template_name",
+                "template_id",
+                "language_code",
+                "from_phone_number_id",
+                "variable_mappings",
+            ):
+                data.pop(k, None)
+        return data
+
+
+class WhatsAppToolDefinition(ToolDefinitionBase):
+    """Tool definition for WhatsApp template messaging tools."""
+
+    type: Literal["whatsapp"] = Field(description="Tool type.")
+    config: WhatsAppToolConfig = Field(description="WhatsApp tool configuration.")
+
+
 ToolDefinition = Annotated[
     HttpApiToolDefinition
     | EndCallToolDefinition
     | TransferCallToolDefinition
     | TransferAgentToolDefinition
     | CalculatorToolDefinition
-    | McpToolDefinition,
+    | McpToolDefinition
+    | WhatsAppToolDefinition,
     Field(discriminator="type"),
 ]
 

@@ -39,6 +39,7 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
+from api.services.workflow.tools.whatsapp_tool import execute_whatsapp_tool
 from api.services.workflow.tools.transfer_resolver import (
     TransferResolutionError,
     resolve_transfer_config,
@@ -331,6 +332,9 @@ class CustomToolManager:
         elif tool.category == ToolCategory.TRANSFER_CALL.value:
             timeout_secs = self._transfer_handler_timeout_secs(tool)
             handler = self._create_transfer_call_handler(tool, function_name)
+        elif tool.category == ToolCategory.WHATSAPP.value:
+            timeout_secs = 15.0
+            handler = self._create_whatsapp_tool_handler(tool, function_name)
         else:
             timeout_ms = ((tool.definition or {}).get("config", {}) or {}).get(
                 "timeout_ms", 5000
@@ -426,6 +430,32 @@ class CustomToolManager:
                 )
 
         return http_tool_handler
+
+    def _create_whatsapp_tool_handler(self, tool: Any, function_name: str):
+        """Create a handler function for a WhatsApp template messaging tool."""
+
+        async def whatsapp_tool_handler(
+            function_call_params: FunctionCallParams,
+        ) -> None:
+            logger.info(f"WhatsApp Tool EXECUTED: {function_name}")
+            logger.info(f"Arguments: {function_call_params.arguments}")
+
+            try:
+                result = await execute_whatsapp_tool(
+                    tool=tool,
+                    arguments=function_call_params.arguments,
+                    call_context_vars=self._engine._call_context_vars,
+                    gathered_context_vars=self._engine._gathered_context,
+                    organization_id=await self.get_organization_id(),
+                )
+                await function_call_params.result_callback(result)
+            except Exception as e:
+                logger.error(f"WhatsApp tool '{function_name}' execution failed: {e}")
+                await function_call_params.result_callback(
+                    {"status": "error", "error": str(e)}
+                )
+
+        return whatsapp_tool_handler
 
     def _create_mcp_handler(self, session: "McpToolSession", function_name: str):
         """Create a handler that proxies an LLM function call to a live MCP

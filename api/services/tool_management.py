@@ -14,7 +14,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import PostHogEvent, ToolCategory
+from api.enums import PostHogEvent, ToolCategory, ToolStatus
 from api.schemas.tool import (
     CreatedByResponse,
     CreateToolRequest,
@@ -141,6 +141,46 @@ async def validate_tool_references(
                 status_code=404,
             )
 
+    if definition.get("type") == ToolCategory.WHATSAPP.value:
+        config = definition.get("config", {}) or {}
+        cfg_id = config.get("telephony_configuration_id")
+        if cfg_id is not None:
+            telephony_cfg = await db_client.get_telephony_configuration_for_org(
+                cfg_id, organization_id, active_only=False
+            )
+            if (
+                not telephony_cfg
+                or telephony_cfg.provider != "whatsapp"
+                or telephony_cfg.inactive
+            ):
+                raise ToolManagementError(
+                    "whatsapp_telephony_not_configured",
+                    (
+                        f"Selected WhatsApp telephony configuration (ID {cfg_id}) does not exist, "
+                        "is inactive, or is not a WhatsApp provider."
+                    ),
+                    status_code=400,
+                )
+        else:
+            wa_configs = await db_client.list_telephony_configurations_by_provider(
+                organization_id=organization_id,
+                provider="whatsapp",
+                active_only=True,
+            )
+            if not wa_configs:
+                raise ToolManagementError(
+                    "whatsapp_telephony_not_configured",
+                    "WhatsApp is not configured in Telephony settings. Please configure your WhatsApp Business Account in Telephony first.",
+                    status_code=400,
+                )
+            deterministic_config = sorted(
+                wa_configs,
+                key=lambda c: (not bool(getattr(c, "is_default_outbound", False)), getattr(c, "id", 0)),
+            )[0]
+            if not isinstance(definition.get("config"), dict):
+                definition["config"] = {}
+            definition["config"]["telephony_configuration_id"] = deterministic_config.id
+
     recording_ids = {
         message["recording_id"]
         for message in definition.get("messages", [])
@@ -205,6 +245,19 @@ async def create_tool_for_user(
             "No organization selected for the user",
             status_code=400,
         )
+
+    if request.category == ToolCategory.WHATSAPP.value:
+        existing_wa = await db_client.get_tools_for_organization(
+            organization_id=user.selected_organization_id,
+            status=ToolStatus.ACTIVE.value,
+            category=ToolCategory.WHATSAPP.value,
+        )
+        if existing_wa:
+            raise ToolManagementError(
+                "whatsapp_tool_already_exists",
+                "A WhatsApp Messaging tool already exists for this organization. You can configure multiple templates within that tool.",
+                status_code=400,
+            )
 
     definition = request.definition.model_dump()
     await validate_tool_references(

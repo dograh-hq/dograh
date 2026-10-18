@@ -210,17 +210,19 @@ class AgentTransferCoordinator:
                 # cannot overtake it. Playback would commit the line to context
                 # only after the reply had been requested, so it is entered as
                 # an assistant turn here instead, before the reply is generated
-                # against the context, and the speech is logged on its own.
+                # against the context. The line is logged once the caller has
+                # heard it, with its playback timing, like the greeting.
                 speech = await engine.queue_speech(
                     request.introduction,
                     append_to_context=False,
-                    persist_to_logs=True,
+                    persist_to_logs=False,
                     mute_user=True,
                 )
                 if not speech.done:
                     engine.context.add_message(
                         {"role": "assistant", "content": request.introduction}
                     )
+                    engine.greeting.log_playback(speech)
             await engine.queue_node_opening(
                 node_id=start_node_id,
                 previous_node_id=(

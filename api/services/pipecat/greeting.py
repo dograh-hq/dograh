@@ -320,6 +320,22 @@ class GreetingController:
     def _started(self, speech: SpeechPlayback) -> None:
         speech.log_context = {**self.get_log_context(), **speech.log_context}
 
+    def log_playback(self, speech: SpeechPlayback) -> None:
+        """Persist a queued line with its playback timing once it has played.
+
+        For a line that is neither the greeting nor written to context, so no
+        other path records when the caller heard it.
+        """
+        speech.log_context = {**self.get_log_context(), **speech.log_context}
+        if self.log_speech is None:
+            return
+
+        async def log_when_finished() -> None:
+            await speech.wait()
+            await self.log_speech(speech)
+
+        self._log_tasks.add(asyncio.create_task(log_when_finished()))
+
     async def flush(self) -> None:
         tasks = tuple(self._log_tasks)
         if tasks:

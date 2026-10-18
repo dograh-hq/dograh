@@ -1496,6 +1496,23 @@ async def test_a_destination_set_to_introduce_speaks_its_line_and_then_continues
             and m.get("role") == "assistant"
             and introduction in str(m.get("content", ""))
         ] == [{"role": "assistant", "content": introduction}]
+
+        # The line is logged once the caller has heard it, with its playback
+        # timing like the greeting: not as bare text when it was queued.
+        async with asyncio.timeout(5):
+            while not (
+                logged := [
+                    event
+                    for event in harness.logs.get_events()
+                    if event["type"] == "rtf-bot-text"
+                    and event["payload"]["text"] == introduction
+                ]
+            ):
+                await asyncio.sleep(0.02)
+        [entry] = logged
+        assert entry["payload"]["outcome"] == "played"
+        assert entry["payload"]["end_timestamp"] > entry["payload"]["timestamp"]
+        assert entry["timestamp"] == entry["payload"]["timestamp"]
     finally:
         await harness.stop()
 

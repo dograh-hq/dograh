@@ -16,8 +16,10 @@ from pipecat.frames.frames import (
     LLMMessagesAppendFrame,
 )
 
+from api.schemas.tool import TransferGreetingMode
 from api.services.pipecat.agent_runtime_factory import AgentBuildError
 from api.services.pipecat.audio_playback import HoldAudio
+from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.workflow.agent_handoff_context import build_handoff_snapshot
 from api.services.workflow.agent_runtime import new_visit_id
 
@@ -40,7 +42,10 @@ class TransferRequest:
     destination_label: str
     origin_visit_id: str
     announcement: str | None = None
-    play_greeting: bool = True
+    greeting_mode: TransferGreetingMode = "start_greeting"
+    # Spoken by the destination before its first generated turn; only used
+    # with the "introduce_and_continue" greeting mode.
+    introduction: str | None = None
     request_id: str = field(default_factory=lambda: f"xfer-{uuid.uuid4().hex[:10]}")
     cancelled_reason: str | None = None
 
@@ -193,9 +198,39 @@ class AgentTransferCoordinator:
             engine.call_monitor.resume()
             await engine.notify_agent_entered(destination)
             start_node_id = destination.workflow.start_node_id
+            if (
+                request.greeting_mode == "introduce_and_continue"
+                and request.introduction
+            ):
+                # A fixed line in the destination's voice ahead of its generated
+                # opening, so the caller hears who picked up even when that
+                # opening turns out to be a tool call. It is not the tracked
+                # greeting: the generated turn is, and it keeps the node's
+                # interruption policy. The opening request enters the
+                # destination's pipeline behind this speech, so the reply
+                # cannot overtake it. Playback would commit the line to context
+                # only after the reply had been requested, so it is entered as
+                # an assistant turn here instead, before the reply is generated
+                # against the context. The line is logged once the caller has
+                # heard it, with its playback timing, like the greeting.
+                speech = await engine.queue_speech(
+                    request.introduction,
+                    append_to_context=False,
+                    persist_to_logs=False,
+                    mute_user=True,
+                )
+                engine.greeting.log_playback(speech)
+                # Entered unless the line is already known not to have played:
+                # the call closed, or it was skipped or failed to queue.
+                if speech.outcome in (None, PlaybackOutcome.PLAYED):
+                    engine.context.add_message(
+                        {"role": "assistant", "content": request.introduction}
+                    )
             await engine.queue_node_opening(
                 node_id=start_node_id,
-                previous_node_id=None if request.play_greeting else start_node_id,
+                previous_node_id=(
+                    None if request.greeting_mode == "start_greeting" else start_node_id
+                ),
                 generate_if_no_greeting=True,
                 origin_visit_id=destination.visit_id,
             )

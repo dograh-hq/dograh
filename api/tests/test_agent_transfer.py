@@ -80,7 +80,7 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.services.workflow.workflow_graph import WorkflowGraph
 from api.tests.pipecat_test_utils import stub_agent_runtime
-from pipecat.tests import MockLLMService, MockTTSService
+from pipecat.tests import ContextCapturingMockLLM, MockLLMService, MockTTSService
 
 TRANSFER_TOOL_UUID = "tool-transfer-agent"
 DESTINATION_WORKFLOW_ID = 99
@@ -153,7 +153,8 @@ class TransferAgentTool:
         self,
         *,
         message: str | None = "Let me put you through to billing.",
-        play_greeting: bool = True,
+        greeting_mode: str = "start_greeting",
+        introduction: str | None = None,
     ):
         self.tool_uuid = TRANSFER_TOOL_UUID
         self.name = "Transfer to Billing"
@@ -167,7 +168,8 @@ class TransferAgentTool:
             else [],
             "config": {
                 "workflow_id": DESTINATION_WORKFLOW_ID,
-                "play_greeting": play_greeting,
+                "greeting_mode": greeting_mode,
+                **({"introduction": introduction} if introduction else {}),
             },
         }
 
@@ -603,7 +605,9 @@ async def test_transfer_retires_source_before_starting_destination(monkeypatch, 
     monkeypatch.setattr(engine, "queue_node_opening", watch_opening)
     monkeypatch.setattr(output, "write_audio_frame", watch_audio)
     transfer_task = asyncio.create_task(
-        run_transfer(harness, tool=TransferAgentTool(message=None, play_greeting=False))
+        run_transfer(
+            harness, tool=TransferAgentTool(message=None, greeting_mode="continue")
+        )
     )
     hangup_task = None
     try:
@@ -822,7 +826,7 @@ async def test_destination_tool_result_speaks_while_opening_is_still_pending(
     monkeypatch.setattr(engine, "queue_node_opening", wait_for_opening_audio)
     try:
         await run_transfer(
-            harness, tool=TransferAgentTool(message=None, play_greeting=False)
+            harness, tool=TransferAgentTool(message=None, greeting_mode="continue")
         )
         assert engine.transfer_coordinator.completed[-1]["outcome"] == "completed"
         assert destination_llm.get_current_step() == 2
@@ -1377,7 +1381,7 @@ async def test_the_destination_opens_with_its_own_greeting():
 
 @pytest.mark.asyncio
 async def test_a_destination_set_to_continue_skips_its_greeting():
-    """With play_greeting off, the destination picks up without introducing itself."""
+    """Set to continue, the destination picks up without introducing itself."""
     source_llm = MockLLMService(
         mock_steps=[
             MockLLMService.create_function_call_chunks(
@@ -1405,7 +1409,7 @@ async def test_a_destination_set_to_continue_skips_its_greeting():
     await harness.start()
 
     try:
-        await run_transfer(harness, tool=TransferAgentTool(play_greeting=False))
+        await run_transfer(harness, tool=TransferAgentTool(greeting_mode="continue"))
 
         assert harness.engine.transfer_coordinator.completed[-1]["outcome"] == (
             "completed"
@@ -1417,6 +1421,123 @@ async def test_a_destination_set_to_continue_skips_its_greeting():
                 await asyncio.sleep(0.02)
     finally:
         await harness.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_destination_set_to_introduce_speaks_its_line_and_then_continues():
+    """Set to introduce and continue, the destination says its own line first,
+    then opens with a generated reply behind it, and skips its Start greeting.
+    The reply is generated knowing the line was said, so it is not said twice."""
+    source_llm = MockLLMService(
+        mock_steps=[
+            MockLLMService.create_function_call_chunks(
+                "transfer_to_billing", {}, tool_call_id="call_transfer_1"
+            )
+        ],
+        chunk_delay=0.001,
+    )
+    destination_llm = ContextCapturingMockLLM(
+        mock_steps=[MockLLMService.create_text_chunks("Carrying on.")],
+        chunk_delay=0.001,
+    )
+
+    harness = TransferHarness()
+    await harness.build(
+        source_llm=source_llm,
+        destination_llm=destination_llm,
+        source_workflow=build_agent_workflow(
+            name="Reception", greeting=None, tool_uuids=[TRANSFER_TOOL_UUID]
+        ),
+        destination_workflow=build_agent_workflow(
+            name="Billing", greeting="Billing here, how can I help?"
+        ),
+    )
+    await harness.start()
+
+    introduction = "Billing here, picking up where you left off."
+    try:
+        await run_transfer(
+            harness,
+            tool=TransferAgentTool(
+                greeting_mode="introduce_and_continue", introduction=introduction
+            ),
+        )
+
+        assert harness.engine.transfer_coordinator.completed[-1]["outcome"] == (
+            "completed"
+        )
+        assert "Billing here, how can I help?" not in harness.speech.texts()
+        # The line is the destination's own, in its own voice.
+        assert ("destination", introduction) in harness.speech.lines
+
+        received = harness.destination_tts.received_texts
+        async with asyncio.timeout(5):
+            while not any("Carrying on." in text for text in received):
+                await asyncio.sleep(0.02)
+        reply_at = next(i for i, text in enumerate(received) if "Carrying on." in text)
+        # The introduction is synthesized ahead of the generated reply.
+        assert received.index(introduction) < reply_at
+
+        # The reply was generated knowing the line had been said: it is the
+        # last assistant turn in the context the first completion was given.
+        first_completion = destination_llm.captured_contexts[0]["messages"]
+        assistant_turns = [
+            m["content"] for m in first_completion if m.get("role") == "assistant"
+        ]
+        assert assistant_turns and assistant_turns[-1] == introduction
+
+        # Once everything queued ahead of the reply has reached the caller, the
+        # line is in the context exactly once: playback did not append it again.
+        assert await harness.engine.drain_call_pipeline()
+        assert [
+            m
+            for m in harness.engine.context.messages
+            if isinstance(m, dict)
+            and m.get("role") == "assistant"
+            and introduction in str(m.get("content", ""))
+        ] == [{"role": "assistant", "content": introduction}]
+
+        # The line is logged once the caller has heard it, with its playback
+        # timing like the greeting: not as bare text when it was queued.
+        async with asyncio.timeout(5):
+            while not (
+                logged := [
+                    event
+                    for event in harness.logs.get_events()
+                    if event["type"] == "rtf-bot-text"
+                    and event["payload"]["text"] == introduction
+                ]
+            ):
+                await asyncio.sleep(0.02)
+        [entry] = logged
+        assert entry["payload"]["outcome"] == "played"
+        assert entry["payload"]["end_timestamp"] > entry["payload"]["timestamp"]
+        assert entry["timestamp"] == entry["payload"]["timestamp"]
+    finally:
+        await harness.stop()
+
+
+def test_an_introduction_is_only_accepted_when_the_destination_introduces_itself():
+    from pydantic import ValidationError
+
+    from api.schemas.tool import TransferAgentConfig
+
+    config = TransferAgentConfig(
+        workflow_id=1, greeting_mode="introduce_and_continue", introduction="Hi."
+    )
+    assert config.introduction == "Hi."
+    assert TransferAgentConfig(workflow_id=1).greeting_mode == "start_greeting"
+
+    with pytest.raises(ValidationError, match="introduction is required"):
+        TransferAgentConfig(workflow_id=1, greeting_mode="introduce_and_continue")
+    with pytest.raises(ValidationError, match="introduction is required"):
+        TransferAgentConfig(
+            workflow_id=1, greeting_mode="introduce_and_continue", introduction="  "
+        )
+    with pytest.raises(ValidationError, match="only accepted"):
+        TransferAgentConfig(workflow_id=1, greeting_mode="continue", introduction="Hi.")
+    with pytest.raises(ValidationError):
+        TransferAgentConfig(workflow_id=1, play_greeting=False)
 
 
 @pytest.mark.asyncio

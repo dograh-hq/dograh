@@ -89,6 +89,7 @@ class InMemoryAudioBuffer:
 class InMemoryRecordingBuffers:
     """Holds the mixed recording plus aligned user and bot mono tracks.
 
+    The bot track excludes output mixer audio; the mixed recording retains it.
     User and bot tracks include silence padding from AudioBufferProcessor, so
     all three recordings have the same byte size when the mixed track is mono.
     """

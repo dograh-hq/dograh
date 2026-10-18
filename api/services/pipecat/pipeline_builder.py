@@ -24,6 +24,7 @@ def create_pipeline_components(audio_config: AudioConfig):
     audio_buffer = CallAudioBufferProcessor(
         sample_rate=audio_config.pipeline_sample_rate,
         buffer_size=audio_config.buffer_size_bytes,
+        use_unmixed_audio_for_bot_track=True,
     )
 
     context = LLMContext()

@@ -1,5 +1,6 @@
 langfuse==4.14.3
-google-auth[requests]==2.53.0
+google-auth[requests]==2.62.0
+grpcio==1.83.1
 opentelemetry-exporter-prometheus==0.65b0
 prometheus-client==0.26.0
 fastapi==0.135.3

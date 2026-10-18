@@ -327,12 +327,13 @@ class GreetingController:
         other path records when the caller heard it.
         """
         speech.log_context = {**self.get_log_context(), **speech.log_context}
-        if self.log_speech is None:
+        log_speech = self.log_speech
+        if log_speech is None:
             return
 
         async def log_when_finished() -> None:
             await speech.wait()
-            await self.log_speech(speech)
+            await log_speech(speech)
 
         self._log_tasks.add(asyncio.create_task(log_when_finished()))
 

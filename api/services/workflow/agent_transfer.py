@@ -19,6 +19,7 @@ from pipecat.frames.frames import (
 from api.schemas.tool import TransferGreetingMode
 from api.services.pipecat.agent_runtime_factory import AgentBuildError
 from api.services.pipecat.audio_playback import HoldAudio
+from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.workflow.agent_handoff_context import build_handoff_snapshot
 from api.services.workflow.agent_runtime import new_visit_id
 
@@ -218,11 +219,13 @@ class AgentTransferCoordinator:
                     persist_to_logs=False,
                     mute_user=True,
                 )
-                if not speech.done:
+                engine.greeting.log_playback(speech)
+                # Entered unless the line is already known not to have played:
+                # the call closed, or it was skipped or failed to queue.
+                if speech.outcome in (None, PlaybackOutcome.PLAYED):
                     engine.context.add_message(
                         {"role": "assistant", "content": request.introduction}
                     )
-                    engine.greeting.log_playback(speech)
             await engine.queue_node_opening(
                 node_id=start_node_id,
                 previous_node_id=(

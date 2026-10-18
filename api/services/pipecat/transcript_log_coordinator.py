@@ -162,6 +162,10 @@ class TranscriptLogCoordinator:
             side = state.assistant[-1] if state.assistant else None
             # Speech after a slot that has both its transcript and its own
             # timing is a new utterance. It must not stretch the earlier one.
+            # A slot still waiting for its transcript keeps absorbing speech:
+            # from here, a pause inside one utterance looks the same as the
+            # next one starting, and context-bound speech has its transcript
+            # recorded by the time its audio stops, before the next line can.
             if (
                 side is None
                 or side.emitted

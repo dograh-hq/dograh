@@ -274,11 +274,17 @@ class AgentRuntime:
     async def run_llm(self, context: "LLMContext") -> None:
         """Ask this agent's LLM for a generation against the shared context.
 
-        Queued on the LLM service rather than on the worker so it lands after
-        whatever gate sits in front of the generation stage, matching how the
-        single-worker pipeline has always started a node's opening turn.
+        A child agent's LLM heads its own pipeline, so the request is queued
+        at the worker like any speech queued for that agent, and generation
+        follows that speech in order. The call-owned agent queues on the LLM
+        service itself so the request lands after whatever gate sits in front
+        of the generation stage, matching how the single-worker pipeline has
+        always started a node's opening turn.
         """
-        await self.llm.queue_frame(LLMContextFrame(context))
+        if self.is_child and self.worker is not None:
+            await self.queue_frame(LLMContextFrame(context))
+        else:
+            await self.llm.queue_frame(LLMContextFrame(context))
 
     # -- lifecycle -------------------------------------------------------
 

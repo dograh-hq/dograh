@@ -668,20 +668,25 @@ async def test_sarvam_reuses_model_options_without_external_requests(
 
 
 @pytest.mark.asyncio
-async def test_sarvam_v4_language_filtering(connection, upstream):
+async def test_sarvam_v4_voices_allow_cross_lingual_selection(
+    connection, upstream
+):
+    from api.services.configuration.options.sarvam import SARVAM_V4_VOICES
+
     connection.provider = "sarvam"
     connection.connection_settings = {}
     upstream(lambda request: pytest.fail("Bulbul voice options are static"))
     response = await voice_catalog.get_connection_voices(
         "sarvam", 42, connection.uuid, model="bulbul:v4-flash", language="pa"
     )
-    assert {v.voice_id for v in response.voices} == {
-        "anand_pa_conversation",
-        "anand_pa_customer",
-        "harpreet_pa_narration",
-        "jaspal_pa_banking",
-    }
-    assert all(v.language == "pa" for v in response.voices)
+    # Sarvam Bulbul voices are cross-lingual; passing language must not restrict voice choice
+    assert {v.voice_id for v in response.voices} == set(SARVAM_V4_VOICES)
+    pa_voice = next(
+        v for v in response.voices if v.voice_id == "anand_pa_conversation"
+    )
+    assert pa_voice.language == "pa"
+    hi_voice = next(v for v in response.voices if v.voice_id == "shubh_enhi_ads")
+    assert hi_voice.language == "en-hi"
 
 
 @pytest.mark.asyncio

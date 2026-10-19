@@ -169,6 +169,23 @@ class TestSarvamTTSServiceFactory:
         assert config.language == "hi-IN"
         assert config.speed == 1.0
 
+    def test_sarvam_tts_configuration_defaults_for_v3(self):
+        config = SarvamTTSConfiguration(api_key="test-key", model="bulbul:v3")
+        assert config.model == "bulbul:v3"
+        assert config.voice == "shubh"
+
+        config_empty = SarvamTTSConfiguration(
+            api_key="test-key", model="bulbul:v3", voice=""
+        )
+        assert config_empty.model == "bulbul:v3"
+        assert config_empty.voice == "shubh"
+
+        validated = SarvamTTSConfiguration.model_validate(
+            {"api_key": "test-key", "model": "bulbul:v3"}
+        )
+        assert validated.model == "bulbul:v3"
+        assert validated.voice == "shubh"
+
     def test_sarvam_tts_voice_schema_allows_custom_model_specific_options(self):
         voice_schema = SarvamTTSConfiguration.model_json_schema()["properties"]["voice"]
 

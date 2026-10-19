@@ -1640,6 +1640,31 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         description="Speech speed multiplier.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _default_voice_for_model(cls, data):
+        if isinstance(data, dict):
+            model = data.get("model")
+            voice = data.get("voice")
+            if (
+                not voice
+                or not str(voice).strip()
+                or (voice == "shubh_enhi_ads" and model in ("bulbul:v3", "bulbul:v3-beta"))
+            ):
+                if model in ("bulbul:v3", "bulbul:v3-beta"):
+                    data["voice"] = "shubh"
+                elif model == "bulbul:v4-flash":
+                    data["voice"] = "shubh_enhi_ads"
+        return data
+
+    @model_validator(mode="after")
+    def _align_default_voice_for_model(self):
+        if self.model in ("bulbul:v3", "bulbul:v3-beta") and (
+            not self.voice or self.voice == "shubh_enhi_ads"
+        ):
+            object.__setattr__(self, "voice", "shubh")
+        return self
+
 
 CAMB_TTS_MODELS = ["mars-flash", "mars-pro", "mars-instruct"]
 

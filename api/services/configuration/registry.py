@@ -58,6 +58,7 @@ from api.services.configuration.options import (
     SARVAM_STT_MODELS,
     SARVAM_TTS_MODELS,
     SARVAM_V3_VOICES,
+    SARVAM_V4_VOICES,
     SMALLEST_TTS_LANGUAGES,
     SMALLEST_TTS_MODELS,
     SMALLEST_TTS_PRO_VOICES,
@@ -1617,10 +1618,13 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         default="shubh",
         description="Sarvam voice name or custom voice ID.",
         json_schema_extra={
+            "voice_catalog": "dropdown",
             "examples": SARVAM_V3_VOICES,
             "allow_custom_input": True,
+            "reset_on_change": ["model"],
             "model_options": {
                 "bulbul:v3": SARVAM_V3_VOICES,
+                "bulbul:v4-flash": SARVAM_V4_VOICES,
             },
         },
     )
@@ -1635,6 +1639,34 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         le=2.0,
         description="Speech speed multiplier.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_voice_for_model(cls, data):
+        if isinstance(data, dict):
+            model = data.get("model")
+            voice = data.get("voice")
+            if (
+                not voice
+                or not str(voice).strip()
+                or (
+                    voice == "shubh_enhi_ads"
+                    and model in ("bulbul:v3", "bulbul:v3-beta")
+                )
+            ):
+                if model in ("bulbul:v3", "bulbul:v3-beta"):
+                    data["voice"] = "shubh"
+                elif model == "bulbul:v4-flash":
+                    data["voice"] = "shubh_enhi_ads"
+        return data
+
+    @model_validator(mode="after")
+    def _align_default_voice_for_model(self):
+        if self.model in ("bulbul:v3", "bulbul:v3-beta") and (
+            not self.voice or self.voice == "shubh_enhi_ads"
+        ):
+            object.__setattr__(self, "voice", "shubh")
+        return self
 
 
 CAMB_TTS_MODELS = ["mars-flash", "mars-pro", "mars-instruct"]

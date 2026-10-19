@@ -9,7 +9,10 @@ import httpx
 
 from api.schemas.voices import VoiceInfo
 from api.services.configuration.options.deepgram import DEEPGRAM_DEFAULT_BASE_URL
-from api.services.configuration.options.sarvam import SARVAM_V3_VOICES
+from api.services.configuration.options.sarvam import (
+    SARVAM_V3_VOICES,
+    SARVAM_V4_VOICES,
+)
 
 
 @dataclass(frozen=True)
@@ -296,16 +299,74 @@ class RimeVoiceCatalog(VoiceCatalog):
         return voices
 
 
+SARVAM_LANG_NAMES: dict[str, tuple[str, str]] = {
+    "as": ("Assamese", "as"),
+    "bn": ("Bengali", "bn"),
+    "en": ("English", "en"),
+    "enhi": ("English-Hindi", "en-hi"),
+    "gu": ("Gujarati", "gu"),
+    "hi": ("Hindi", "hi"),
+    "kn": ("Kannada", "kn"),
+    "mr": ("Marathi", "mr"),
+    "pa": ("Punjabi", "pa"),
+    "ta": ("Tamil", "ta"),
+    "te": ("Telugu", "te"),
+}
+
+
+def _sarvam_style_name(style_key: str) -> str:
+    if style_key == "kyc":
+        return "KYC"
+    return style_key.replace("_", " ").title()
+
+
 class SarvamVoiceCatalog(VoiceCatalog):
     name = "Sarvam"
 
     async def voices(self, client, query):
-        # Bulbul v3 speakers are static. The separate voice-cloning API uses
+        # Bulbul v3/v4 speakers are static. The separate voice-cloning API uses
         # a different synthesis endpoint that our current service doesn't use.
         # https://docs.sarvam.ai/api/migrations/from-cartesia/text-to-speech
-        options = {"bulbul:v3": SARVAM_V3_VOICES}
-        names = options.get(query.model or "bulbul:v3", ())
-        return [VoiceInfo(voice_id=name, name=name.title()) for name in names]
+        options = {
+            "bulbul:v4-flash": SARVAM_V4_VOICES,
+            "bulbul:v3": SARVAM_V3_VOICES,
+        }
+        names = options.get(query.model or "bulbul:v4-flash", ())
+        if query.model == "bulbul:v3":
+            return [
+                VoiceInfo(
+                    voice_id=name,
+                    name=name.title(),
+                    description="Multilingual",
+                    language="multilingual",
+                )
+                for name in names
+            ]
+        voices = []
+        for voice_id in names:
+            parts = voice_id.split("_", 2)
+            if len(parts) == 3:
+                raw_name, lang_code, style_key = parts
+                lang_name, lang_tag = SARVAM_LANG_NAMES.get(
+                    lang_code, (lang_code.title(), lang_code)
+                )
+                style_name = _sarvam_style_name(style_key)
+                voices.append(
+                    VoiceInfo(
+                        voice_id=voice_id,
+                        name=raw_name.title(),
+                        description=f"{lang_name} • {style_name} • {voice_id}",
+                        language=lang_tag,
+                    )
+                )
+            else:
+                voices.append(
+                    VoiceInfo(
+                        voice_id=voice_id,
+                        name=voice_id.replace("_", " ").title(),
+                    )
+                )
+        return voices
 
 
 VOICE_CATALOGS: dict[str, type[VoiceCatalog]] = {

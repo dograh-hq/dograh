@@ -53,6 +53,7 @@ from .sarvam import (
     SARVAM_STT_MODELS,
     SARVAM_TTS_MODELS,
     SARVAM_V3_VOICES,
+    SARVAM_V4_VOICES,
 )
 from .smallest import (
     SMALLEST_TTS_LANGUAGES,
@@ -112,6 +113,7 @@ __all__ = [
     "SARVAM_STT_MODELS",
     "SARVAM_TTS_MODELS",
     "SARVAM_V3_VOICES",
+    "SARVAM_V4_VOICES",
     "SMALLEST_TTS_LANGUAGES",
     "SMALLEST_TTS_MODELS",
     "SMALLEST_TTS_PRO_VOICES",

@@ -186,7 +186,9 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
                 values={configuration[role]?.settings || {}} onChange={(name, value) => changeSetting(role, name, value, fullSchema)} />;
         })}
         <div className="space-y-1.5">
-            <Label htmlFor="dograh-provider-connection">Dograh account</Label>
+            <div className="flex min-h-6 items-center justify-between gap-2">
+                <Label htmlFor="dograh-provider-connection">Dograh account</Label>
+            </div>
             <ProviderSelect id="dograh-provider-connection" required value={dograhValue} onValueChange={changeDograhConnection}
                 placeholder="Choose an account" addLabel="Add a Dograh account" onAdd={() => setAdding("dograh")}
                 options={dograhConnections.map(connection => ({ value: connection.uuid, label: connection.name }))} />
@@ -210,7 +212,9 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
             </label>}
             {(!isEmbedding || selection) && <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                    <Label htmlFor={`connection-${role}`}>Provider</Label>
+                    <div className="flex min-h-6 items-center justify-between gap-2">
+                        <Label htmlFor={`connection-${role}`}>Provider</Label>
+                    </div>
                     <ProviderSelect id={`connection-${role}`} required value={connection?.uuid || ""} placeholder="Choose a provider"
                         options={options.map(item => providerOption(role, item))} addLabel="Add a provider" addHint={addHint(role)} onAdd={() => setAdding(role)}
                         onValueChange={value => {
@@ -218,7 +222,7 @@ export function ConfigurationFields({ configuration, catalog, connections, onCha
                             if (next) changeSelection(role, selectionForConnection(catalog, role, next, selection, connections));
                         }} />
                 </div>
-                {schema && selection && <SchemaFields key={`${connection?.uuid}:${connection?.revision}`} className="contents" provider={connection?.provider} providerConnectionUuid={connection?.uuid} role={role} schema={schema}
+                {schema && selection && <SchemaFields key={`${connection?.uuid}:${connection?.revision}`} className="contents" provider={connection?.provider} providerConnectionUuid={connection?.uuid} connectionRevision={connection?.revision} role={role} schema={schema}
                     values={selection.settings} context={connection?.connection_settings} onChange={(name, value) => changeSetting(role, name, value, fullSchema)} />}
             </div>}
             {isEmbedding && <p className="text-xs text-muted-foreground">Use the embedding model that indexed this workflow’s knowledge base. Changing it does not reindex documents.</p>}

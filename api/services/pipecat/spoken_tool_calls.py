@@ -1,5 +1,6 @@
 """Shared execution policy for provider-specific spoken-tool stream adapters."""
 
+import asyncio
 import json
 import uuid
 
@@ -7,7 +8,7 @@ from loguru import logger
 
 from api.services.pipecat.spoken_tool_call_guard import SpokenToolCallGuard
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
-from pipecat.services.llm_service import FunctionCallFromLLM
+from pipecat.services.llm_service import FunctionCallFromLLM, FunctionCallRunnerItem
 
 
 class SpokenToolCallMixin:
@@ -123,6 +124,33 @@ class SpokenToolCallMixin:
             # results trigger another inference before the transition is accepted.
             ordinary = [call for call in function_calls if call not in transitions]
             self._pending_node_transition_function_calls = ordinary + transitions
+            # Accept ordinary side effects now through the workflow's independent
+            # owner, so interruption/worker cleanup cannot discard a requested
+            # save. Delivery still uses the normal grouped dispatch after TTS;
+            # the owner deduplicates that second preparation by tool_call_id.
+            runner_items = []
+            for call in ordinary:
+                registry_item = self._functions.get(call.function_name)
+                if registry_item is None:
+                    registry_item = self._functions.get(None)
+                if registry_item is not None:
+                    runner_items.append(
+                        FunctionCallRunnerItem(
+                            registry_item=registry_item,
+                            function_name=call.function_name,
+                            tool_call_id=call.tool_call_id,
+                            arguments=call.arguments,
+                            context=call.context,
+                        )
+                    )
+            try:
+                await self._call_event_handler(
+                    "on_function_calls_prepared", runner_items
+                )
+            except asyncio.CancelledError:
+                # The fallback owner rejects work from a losing/stale attempt.
+                self._discard_pending_node_transition_calls("not_accepted")
+                raise
             logger.debug("Deferring recovered tool batch until after TTS")
             return
         await super()._run_or_defer_function_calls(

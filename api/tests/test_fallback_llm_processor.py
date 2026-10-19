@@ -100,11 +100,12 @@ class Capture(FrameProcessor):
 
 
 @pytest_asyncio.fixture
-async def harness():
+async def harness(request):
+    service_class = getattr(request, "param", GoogleLLMService)
     services = [
-        GoogleLLMService(
+        service_class(
             api_key="test-key",
-            settings=GoogleLLMService.Settings(model=model),
+            settings=service_class.Settings(model=model),
             enable_direct_mode=True,
             stream_idle_timeout_secs=0.3,
         )

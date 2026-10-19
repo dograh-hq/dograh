@@ -1751,6 +1751,15 @@ class MiniMaxTTSConfiguration(BaseTTSConfiguration):
     speed: float = Field(
         default=1.0, ge=0.5, le=2.0, description="Speech speed (0.5 to 2.0)."
     )
+    volume: float = Field(
+        default=1.0,
+        gt=0.0,
+        le=10.0,
+        description=(
+            "Volume multiplier for generated speech (greater than 0, up to 10). "
+            "1.0 is normal volume."
+        ),
+    )
     group_id: str = Field(
         description="MiniMax Group ID (found in your MiniMax dashboard under Account → Group).",
     )

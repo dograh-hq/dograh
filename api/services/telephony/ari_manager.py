@@ -1220,9 +1220,9 @@ class ARIConnection:
                 )
 
                 # Update transfer state to complete
-                ctx["transfer_state"] = "complete"
                 await db_client.update_workflow_run(
-                    run_id=int(workflow_run_id), gathered_context=ctx
+                    run_id=int(workflow_run_id),
+                    gathered_context={"transfer_state": "complete"},
                 )
 
                 # Clean up only Redis markers for external channel
@@ -1259,9 +1259,9 @@ class ARIConnection:
 
                 # Mark terminal state before issuing ARI deletes so duplicate
                 # StasisEnd events run through the idempotent normal cleanup path.
-                ctx["transfer_state"] = "terminated"
                 await db_client.update_workflow_run(
-                    run_id=int(workflow_run_id), gathered_context=ctx
+                    run_id=int(workflow_run_id),
+                    gathered_context={"transfer_state": "terminated"},
                 )
 
                 await self._delete_bridge(transfer_bridge_id)

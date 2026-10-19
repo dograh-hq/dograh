@@ -31,7 +31,10 @@ from loguru import logger
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiLiveJSONSchemaAdapter,
 )
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     FunctionCallFromLLM,
@@ -56,6 +59,10 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     # seeded contexts. Mirrors the non-realtime ``DograhGoogleLLMService`` fix;
     # ``DograhGeminiLiveVertexLLMService`` inherits this via MRO.
     adapter_class = DograhGeminiLiveJSONSchemaAdapter
+
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(self._session and self._ready_for_realtime_input)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -273,6 +280,7 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     # runtime via _update_settings, not via init).
     # ------------------------------------------------------------------
 
+    @opening_request
     async def _handle_context(self, context: LLMContext | None):
         if context is None:
             logger.warning(f"{self}: received context trigger before context was set")
@@ -327,6 +335,7 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
         await self._prepare_context_for_fresh_session()
         await self._create_prerecorded_greeting_response(transcript)
 
+    @opening_request
     async def _create_prerecorded_greeting_response(self, transcript: str | None):
         """Seed the spoken greeting, leaving the turn open for the caller.
 
@@ -377,6 +386,7 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
 
         self._ready_for_realtime_input = True
 
+    @opening_request
     async def _create_initial_greeting_response(self, greeting_text: str):
         """Ask Gemini Live to speak the configured greeting exactly once."""
         if self._disconnecting:

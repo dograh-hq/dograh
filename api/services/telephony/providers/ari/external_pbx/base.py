@@ -14,6 +14,8 @@ class ExternalPBXResult:
     ok: bool
     action: str
     message: str
+    # Providers explicitly opt transient API failures into recovery.
+    retryable: bool = False
 
 
 class ExternalPBXAdapter(ABC):

@@ -35,10 +35,12 @@ from api.services.pipecat.fallback_llm import FallbackLLMProcessor, FallbackRout
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
+from api.services.pipecat.gemini_spoken_tool_calls import GeminiSpokenToolCallMixin
 from api.services.pipecat.google_credentials import (
     get_google_credentials,
     prepare_google_credentials,
 )
+from api.services.pipecat.openai_spoken_tool_calls import OpenAISpokenToolCallMixin
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameProcessorSetup
@@ -48,7 +50,8 @@ from pipecat.services.assemblyai.stt import (
     is_u3_pro_model,
 )
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
-from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
+from pipecat.services.azure.llm import AzureLLMService as BaseAzureLLMService
+from pipecat.services.azure.llm import AzureLLMSettings
 from pipecat.services.azure.stt import AzureSTTService, AzureSTTSettings
 from pipecat.services.azure.tts import AzureTTSService, AzureTTSSettings
 from pipecat.services.cartesia.stt import CartesiaSTTService, CartesiaSTTSettings
@@ -69,7 +72,7 @@ from pipecat.services.deepgram.flux.tts import (
 from pipecat.services.deepgram.stt import DeepgramSTTService, DeepgramSTTSettings
 from pipecat.services.deepgram.tts import DeepgramTTSService, DeepgramTTSSettings
 from pipecat.services.dograh.flux.stt import DograhFluxSTTService
-from pipecat.services.dograh.llm import DograhLLMService
+from pipecat.services.dograh.llm import DograhLLMService as BaseDograhLLMService
 from pipecat.services.dograh.stt import DograhSTTService, DograhSTTSettings
 from pipecat.services.dograh.tts import DograhTTSService, DograhTTSSettings
 from pipecat.services.elevenlabs.dialogue.tts import (
@@ -90,29 +93,34 @@ from pipecat.services.google.vertex.llm import (
     GoogleVertexLLMService,
     GoogleVertexLLMSettings,
 )
-from pipecat.services.groq.llm import GroqLLMService, GroqLLMSettings
+from pipecat.services.groq.llm import GroqLLMService as BaseGroqLLMService
+from pipecat.services.groq.llm import GroqLLMSettings
 from pipecat.services.huggingface.llm import (
-    HuggingFaceLLMService,
-    HuggingFaceLLMSettings,
+    HuggingFaceLLMService as BaseHuggingFaceLLMService,
 )
+from pipecat.services.huggingface.llm import HuggingFaceLLMSettings
 from pipecat.services.huggingface.stt import (
     HuggingFaceSTTService,
     HuggingFaceSTTSettings,
 )
 from pipecat.services.inworld.tts import InworldTTSService, InworldTTSSettings
-from pipecat.services.minimax.llm import MiniMaxLLMService
+from pipecat.services.minimax.llm import MiniMaxLLMService as BaseMiniMaxLLMService
 from pipecat.services.minimax.tts import MiniMaxTTSService, MiniMaxTTSSettings
 from pipecat.services.openai._constants import OPENAI_SAMPLE_RATE
 from pipecat.services.openai.base_llm import OpenAILLMSettings
-from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.services.openai.llm import OpenAILLMService as BaseOpenAILLMService
 from pipecat.services.openai.stt import (
     OpenAISTTService,
     OpenAISTTSettings,
 )
 from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
-from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
+from pipecat.services.openrouter.llm import (
+    OpenRouterLLMService as BaseOpenRouterLLMService,
+)
+from pipecat.services.openrouter.llm import OpenRouterLLMSettings
 from pipecat.services.rime.tts import RimeTTSService, RimeTTSSettings
-from pipecat.services.sarvam.llm import SarvamLLMService, SarvamLLMSettings
+from pipecat.services.sarvam.llm import SarvamLLMService as BaseSarvamLLMService
+from pipecat.services.sarvam.llm import SarvamLLMSettings
 from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
 from pipecat.services.smallest.stt import SmallestSTTService, SmallestSTTSettings
@@ -122,7 +130,8 @@ from pipecat.services.soniox.stt import (
     SonioxSTTService,
     SonioxSTTSettings,
 )
-from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
+from pipecat.services.speaches.llm import SpeachesLLMService as BaseSpeachesLLMService
+from pipecat.services.speaches.llm import SpeachesLLMSettings
 from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
 from pipecat.services.speaches.tts import SpeachesTTSService, SpeachesTTSSettings
 from pipecat.services.speechmatics.stt import (
@@ -296,11 +305,47 @@ def stt_uses_external_turns(user_config) -> bool:
     return False
 
 
-class DograhGoogleLLMService(GoogleLLMService):
+class AzureLLMService(OpenAISpokenToolCallMixin, BaseAzureLLMService):
+    """Azure streaming service with spoken-tool recovery."""
+
+
+class DograhLLMService(OpenAISpokenToolCallMixin, BaseDograhLLMService):
+    """Dograh streaming service with spoken-tool recovery."""
+
+
+class GroqLLMService(OpenAISpokenToolCallMixin, BaseGroqLLMService):
+    """Groq streaming service with spoken-tool recovery."""
+
+
+class HuggingFaceLLMService(OpenAISpokenToolCallMixin, BaseHuggingFaceLLMService):
+    """HuggingFace streaming service with spoken-tool recovery."""
+
+
+class MiniMaxLLMService(OpenAISpokenToolCallMixin, BaseMiniMaxLLMService):
+    """MiniMax streaming service with spoken-tool recovery."""
+
+
+class OpenAILLMService(OpenAISpokenToolCallMixin, BaseOpenAILLMService):
+    """OpenAI streaming service with spoken-tool recovery."""
+
+
+class OpenRouterLLMService(OpenAISpokenToolCallMixin, BaseOpenRouterLLMService):
+    """OpenRouter streaming service with spoken-tool recovery."""
+
+
+class SarvamLLMService(OpenAISpokenToolCallMixin, BaseSarvamLLMService):
+    """Sarvam streaming service with spoken-tool recovery."""
+
+
+class SpeachesLLMService(OpenAISpokenToolCallMixin, BaseSpeachesLLMService):
+    """Speaches streaming service with spoken-tool recovery."""
+
+
+class DograhGoogleLLMService(GeminiSpokenToolCallMixin, GoogleLLMService):
     adapter_class = DograhGeminiJSONSchemaAdapter
 
 
-class DograhGoogleVertexLLMService(GoogleVertexLLMService):
+class DograhGoogleVertexLLMService(GeminiSpokenToolCallMixin, GoogleVertexLLMService):
     """Vertex text service with Dograh schemas and nonblocking authentication."""
 
     adapter_class = DograhGeminiJSONSchemaAdapter

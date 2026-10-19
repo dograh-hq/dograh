@@ -9,7 +9,7 @@ import httpx
 
 from api.schemas.voices import VoiceInfo
 from api.services.configuration.options.deepgram import DEEPGRAM_DEFAULT_BASE_URL
-from api.services.configuration.options.sarvam import SARVAM_V2_VOICES, SARVAM_V3_VOICES
+from api.services.configuration.options.sarvam import SARVAM_V3_VOICES
 
 
 @dataclass(frozen=True)
@@ -300,11 +300,11 @@ class SarvamVoiceCatalog(VoiceCatalog):
     name = "Sarvam"
 
     async def voices(self, client, query):
-        # Bulbul v2/v3 speakers are static. The separate voice-cloning API uses
+        # Bulbul v3 speakers are static. The separate voice-cloning API uses
         # a different synthesis endpoint that our current service doesn't use.
         # https://docs.sarvam.ai/api/migrations/from-cartesia/text-to-speech
-        options = {"bulbul:v2": SARVAM_V2_VOICES, "bulbul:v3": SARVAM_V3_VOICES}
-        names = options.get(query.model or "bulbul:v2", ())
+        options = {"bulbul:v3": SARVAM_V3_VOICES}
+        names = options.get(query.model or "bulbul:v3", ())
         return [VoiceInfo(voice_id=name, name=name.title()) for name in names]
 
 

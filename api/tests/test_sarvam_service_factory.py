@@ -176,10 +176,6 @@ class TestSarvamSTTServiceFactory:
         assert "saarika:v2.5" not in model_options
         assert "saaras:v3" in model_options
 
-    def test_sarvam_stt_migrates_deprecated_saarika(self):
-        config = SarvamSTTConfiguration(api_key="test-key", model="saarika:v2.5")
-        assert config.model == "saaras:v3"
-
 
 class TestSarvamTTSServiceFactory:
     def test_sarvam_tts_configuration_defaults(self):

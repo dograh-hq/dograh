@@ -2236,12 +2236,6 @@ class SarvamSTTConfiguration(BaseSTTConfiguration):
         },
     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_deprecated_models(cls, data):
-        if isinstance(data, dict) and data.get("model") == "saarika:v2.5":
-            data["model"] = "saaras:v3"
-        return data
 
 
 @register_stt(provider=SPEECHMATICS_PROVIDER)

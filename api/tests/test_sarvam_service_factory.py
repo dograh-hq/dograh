@@ -204,6 +204,62 @@ class TestSarvamSTTServiceFactory:
         assert kwargs["api_key"] == "test-key"
         assert kwargs["settings"].model == "saaras:v4"
 
+    def test_create_sarvam_stt_service_passes_keyterms_for_v4(self):
+        user_config = SimpleNamespace(
+            stt=SimpleNamespace(
+                provider=ServiceProviders.SARVAM.value,
+                model="saaras:v4",
+                api_key="test-key",
+                language="unknown",
+            )
+        )
+        audio_config = AudioConfig(
+            transport_in_sample_rate=16000, transport_out_sample_rate=16000
+        )
+
+        with patch(
+            "api.services.pipecat.service_factory.SarvamSTTService"
+        ) as mock_service:
+            create_stt_service(
+                user_config,
+                audio_config,
+                keyterms=["Sarvam", "Dograh"],
+            )
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["settings"].keyterms == ["Sarvam", "Dograh"]
+
+    def test_create_sarvam_stt_service_omits_keyterms_for_v3(self):
+        user_config = SimpleNamespace(
+            stt=SimpleNamespace(
+                provider=ServiceProviders.SARVAM.value,
+                model="saaras:v3",
+                api_key="test-key",
+                language="unknown",
+            )
+        )
+        audio_config = AudioConfig(
+            transport_in_sample_rate=16000, transport_out_sample_rate=16000
+        )
+
+        with patch(
+            "api.services.pipecat.service_factory.SarvamSTTService"
+        ) as mock_service:
+            create_stt_service(
+                user_config,
+                audio_config,
+                keyterms=["Sarvam", "Dograh"],
+            )
+
+        kwargs = mock_service.call_args.kwargs
+        # For v3, keyterms are not passed to SarvamSTTSettings
+        from pipecat.utils.types import is_given
+
+        assert (
+            not is_given(kwargs["settings"].keyterms)
+            or kwargs["settings"].keyterms is None
+        )
+
 
 class TestSarvamTTSServiceFactory:
     def test_sarvam_tts_configuration_defaults(self):

@@ -2237,7 +2237,6 @@ class SarvamSTTConfiguration(BaseSTTConfiguration):
     )
 
 
-
 @register_stt(provider=SPEECHMATICS_PROVIDER)
 class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SPEECHMATICS] = ServiceProviders.SPEECHMATICS

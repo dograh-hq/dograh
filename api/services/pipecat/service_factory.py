@@ -26,6 +26,7 @@ from api.services.configuration.registry import (
     ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN,
     HOPPER_API_BASE_URL,
     REGISTRY,
+    BaseSTTConfiguration,
     ServiceProviders,
     ServiceType,
 )
@@ -41,7 +42,11 @@ from api.services.pipecat.google_credentials import (
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameProcessorSetup
-from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
+from pipecat.services.assemblyai.stt import (
+    AssemblyAISTTService,
+    AssemblyAISTTSettings,
+    is_u3_pro_model,
+)
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
 from pipecat.services.azure.stt import AzureSTTService, AzureSTTSettings
@@ -124,6 +129,7 @@ from pipecat.services.speechmatics.stt import (
     SpeechmaticsSTTService,
     SpeechmaticsSTTSettings,
 )
+from pipecat.services.stt_service import STTService, STTSettings
 from pipecat.services.tts_service import TextAggregationMode
 from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
 from pipecat.transcriptions.language import Language
@@ -401,6 +407,146 @@ def _google_vertex_location(location: str | None, service: str) -> str:
     return GOOGLE_VERTEX_DEFAULT_LOCATION
 
 
+def _stt_configurable_settings(config, *, for_update: bool = False) -> dict[str, Any]:
+    """Translate workflow settings for both call startup and live updates.
+
+    Connection identity, model and call-owned keyterms/turn detection are not
+    part of this delta. Empty values must be explicit during an update so a
+    destination can clear the preceding agent's language hints.
+    """
+    provider = config.provider
+    language = getattr(config, "language", None)
+    if provider in {ServiceProviders.DEEPGRAM, ServiceProviders.DOGRAH}:
+        is_flux = (
+            config.model in DEEPGRAM_FLUX_MODELS
+            if provider == ServiceProviders.DEEPGRAM
+            else dograh_stt_uses_flux_language(language)
+        )
+        if is_flux:
+            if (
+                provider == ServiceProviders.DEEPGRAM
+                and config.model == "flux-general-en"
+            ):
+                return {}
+            hints = _resolve_deepgram_flux_language_hints(
+                language, getattr(config, "language_hints", None)
+            )
+            return {"language_hints": hints} if hints or for_update else {}
+        return {"language": language or "multi"}
+    if provider == ServiceProviders.GOOGLE:
+        try:
+            languages = [Language(language or "en-US")]
+        except ValueError:
+            # Clear the preferred enum list when switching to a raw BCP-47
+            # code, and clear the raw override when switching back.
+            return {"languages": [], "language_codes": [language]}
+        return {
+            "languages": languages,
+            **({"language_codes": None} if for_update else {}),
+        }
+    if provider == ServiceProviders.CARTESIA:
+        return {} if config.model == "ink-2" else {"language": language or "en"}
+    if provider == ServiceProviders.SARVAM:
+        if not language or language == "unknown":
+            return {"language": None}
+        if language == "od-IN":
+            return {"language": Language.OR_IN}
+        try:
+            return {"language": Language(language)}
+        except ValueError:
+            return {"language": language}
+    if provider == ServiceProviders.SPEACHES:
+        return {"language": language}
+    if provider == ServiceProviders.HUGGINGFACE:
+        return {"return_timestamps": getattr(config, "return_timestamps", False)}
+    if provider == ServiceProviders.ASSEMBLYAI:
+        if is_u3_pro_model(config.model):
+            return {"language_codes": [Language(language)] if language else []}
+        return {}  # Other AssemblyAI models do not support language steering.
+    if provider == ServiceProviders.GLADIA:
+        from pipecat.services.gladia.config import LanguageConfig
+
+        return {
+            "language_config": LanguageConfig(
+                languages=[language or "en"], code_switching=False
+            )
+        }
+    if provider == ServiceProviders.SONIOX:
+        hints = [Language(language)] if language and language != "multi" else []
+        return {"language_hints": hints} if hints or for_update else {}
+    if provider == ServiceProviders.SPEECHMATICS:
+        return {"language": language or "en"}
+    if provider == ServiceProviders.AZURE_SPEECH:
+        language = language or "en-US"
+        try:
+            return {"language": Language(language)}
+        except ValueError:
+            return {"language": language}
+    if provider == ServiceProviders.SMALLEST:
+        try:
+            return {"language": Language(language or "en")}
+        except ValueError:
+            return {"language": Language.EN}
+    if provider == ServiceProviders.ELEVENLABS:
+        return {"language": _resolve_elevenlabs_stt_language(language)}
+    return {}  # OpenAI currently exposes no per-agent settings besides model.
+
+
+def get_stt_settings_update(
+    stt: STTService,
+    call_config: BaseSTTConfiguration,
+    destination_config: BaseSTTConfiguration,
+) -> STTSettings | None:
+    """Build a settings delta only for a compatible, live-updatable service.
+
+    Having an inherited _update_settings method is not proof of support:
+    Gladia and legacy Dograh only change local state, while ink-2 cannot
+    switch languages. Supported services own applying/reconnecting their
+    streams; the handoff must never call socket lifecycle methods itself.
+    """
+    connection_fields = (
+        "provider",
+        "model",
+        "base_url",
+        "credentials",
+        "location",
+        "region",
+        "bill_to",
+    )
+    mismatches = [
+        field
+        for field in connection_fields
+        if getattr(call_config, field, None) != getattr(destination_config, field, None)
+    ]
+    # Reading config.api_key picks a random entry from a pool. Compare the
+    # configured pools without selecting a new key for the live connection.
+    if set(call_config.get_all_api_keys()) != set(
+        destination_config.get_all_api_keys()
+    ):
+        mismatches.append("api_key")
+    if mismatches:
+        logger.info(
+            f"[transfer] Keeping call STT settings; destination changes {mismatches}"
+        )
+        return None
+    provider = destination_config.provider
+    if provider == ServiceProviders.DOGRAH and (
+        not dograh_stt_uses_flux_language(getattr(call_config, "language", None))
+        or not dograh_stt_uses_flux_language(
+            getattr(destination_config, "language", None)
+        )
+    ):
+        logger.info(
+            "[transfer] STT settings update unavailable for legacy Dograh STT or a change of backend"
+        )
+        return None
+    if provider == ServiceProviders.GLADIA:
+        logger.info("[transfer] Gladia does not apply settings to an active session")
+        return None
+    settings = _stt_configurable_settings(destination_config, for_update=True)
+    return type(stt._settings)(**settings) if settings else None
+
+
 @_report_service_factory_failures(ErrorSource.STT, config_section="stt")
 def create_stt_service(
     user_config,
@@ -421,6 +567,7 @@ def create_stt_service(
     # fact about one service, so it belongs on one line.
     is_deepgram = user_config.stt.provider == ServiceProviders.DEEPGRAM.value
     deepgram_base_url = _deepgram_base_url(user_config.stt) if is_deepgram else None
+    configurable_settings = _stt_configurable_settings(user_config.stt)
 
     logger.info(
         f"Creating STT service: provider={user_config.stt.provider}, "
@@ -436,14 +583,8 @@ def create_stt_service(
                 "eot_threshold": 0.7,
                 "eager_eot_threshold": 0.5,
                 "keyterm": keyterms or [],
+                **configurable_settings,
             }
-            if user_config.stt.model == "flux-general-multi":
-                language_hints = _resolve_deepgram_flux_language_hints(
-                    getattr(user_config.stt, "language", None),
-                    getattr(user_config.stt, "language_hints", None),
-                )
-                if language_hints:
-                    settings_kwargs["language_hints"] = language_hints
 
             return DeepgramFluxSTTService(
                 api_key=user_config.stt.api_key,
@@ -456,13 +597,12 @@ def create_stt_service(
 
         # Other models than flux
         # Use language from user config, defaulting to "multi" for multilingual support
-        language = getattr(user_config.stt, "language", None) or "multi"
         return DeepgramSTTService(
             api_key=user_config.stt.api_key,
             # Takes the host and derives the wss and https URLs itself.
             base_url=deepgram_base_url,
             settings=DeepgramSTTSettings(
-                language=language,
+                **configurable_settings,
                 profanity_filter=False,
                 endpointing=100,
                 model=user_config.stt.model,
@@ -484,15 +624,10 @@ def create_stt_service(
             **kwargs,
         )
     elif user_config.stt.provider == ServiceProviders.GOOGLE.value:
-        language = getattr(user_config.stt, "language", None) or "en-US"
         location = getattr(user_config.stt, "location", None) or "global"
         credentials = getattr(user_config.stt, "credentials", None)
 
-        settings_kwargs = {"model": user_config.stt.model}
-        try:
-            settings_kwargs["languages"] = [Language(language)]
-        except ValueError:
-            settings_kwargs["language_codes"] = [language]
+        settings_kwargs = {"model": user_config.stt.model, **configurable_settings}
 
         return GoogleSTTService(
             credentials=credentials,
@@ -508,12 +643,11 @@ def create_stt_service(
                 sample_rate=audio_config.transport_in_sample_rate,
             )
 
-        language = getattr(user_config.stt, "language", None) or "en"
         return CartesiaSTTService(
             api_key=user_config.stt.api_key,
             settings=CartesiaSTTSettings(
                 model=user_config.stt.model,
-                language=language,
+                **configurable_settings,
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
@@ -530,12 +664,8 @@ def create_stt_service(
                 "eot_threshold": 0.7,
                 "eager_eot_threshold": 0.5,
                 "keyterm": keyterms or [],
+                **configurable_settings,
             }
-            language_hints = _resolve_deepgram_flux_language_hints(
-                language, getattr(user_config.stt, "language_hints", None)
-            )
-            if language_hints:
-                settings_kwargs["language_hints"] = language_hints
             return DograhFluxSTTService(
                 base_url=base_url,
                 api_key=user_config.stt.api_key,
@@ -551,55 +681,28 @@ def create_stt_service(
             correlation_id=correlation_id,
             settings=DograhSTTSettings(
                 model=user_config.stt.model,
-                language=language,
+                **configurable_settings,
             ),
             keyterms=keyterms,
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SARVAM.value:
-        language = getattr(user_config.stt, "language", None)
-        language_mapping = {
-            "bn-IN": Language.BN_IN,
-            "gu-IN": Language.GU_IN,
-            "hi-IN": Language.HI_IN,
-            "kn-IN": Language.KN_IN,
-            "ml-IN": Language.ML_IN,
-            "mr-IN": Language.MR_IN,
-            "ta-IN": Language.TA_IN,
-            "te-IN": Language.TE_IN,
-            "pa-IN": Language.PA_IN,
-            "od-IN": Language.OR_IN,
-            "en-IN": Language.EN_IN,
-            "as-IN": Language.AS_IN,
-            "ur-IN": Language.UR_IN,
-            "kok-IN": Language.KOK_IN,
-            "mai-IN": Language.MAI_IN,
-            "sd-IN": Language.SD_IN,
-        }
-        if not language or language == "unknown":
-            pipecat_language = None
-        elif language in language_mapping:
-            pipecat_language = language_mapping[language]
-        else:
-            # Unmapped BCP-47 codes pass through; Sarvam accepts them per https://docs.sarvam.ai/api-reference-docs/speech-to-text/transcribe
-            pipecat_language = language
         return SarvamSTTService(
             api_key=user_config.stt.api_key,
             settings=SarvamSTTSettings(
                 model=user_config.stt.model,
-                language=pipecat_language,
+                **configurable_settings,
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEACHES.value:
-        language = getattr(user_config.stt, "language", None)
         _validate_runtime_service_url(user_config.stt.base_url, "base_url")
         return SpeachesSTTService(
             base_url=user_config.stt.base_url,
             api_key=user_config.stt.api_key or "none",
             settings=SpeachesSTTSettings(
                 model=user_config.stt.model,
-                language=language,
+                **configurable_settings,
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
@@ -615,13 +718,12 @@ def create_stt_service(
             bill_to=getattr(user_config.stt, "bill_to", None),
             settings=HuggingFaceSTTSettings(
                 model=user_config.stt.model,
-                return_timestamps=getattr(user_config.stt, "return_timestamps", False),
+                **configurable_settings,
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.ASSEMBLYAI.value:
-        language = getattr(user_config.stt, "language", None)
-        settings_kwargs = {"model": user_config.stt.model, "language": language}
+        settings_kwargs = {"model": user_config.stt.model, **configurable_settings}
         if keyterms:
             settings_kwargs["keyterms_prompt"] = keyterms
         return AssemblyAISTTService(
@@ -630,25 +732,14 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.GLADIA.value:
-        from pipecat.services.gladia.config import LanguageConfig
-
-        language = getattr(user_config.stt, "language", None) or "en"
-        settings_kwargs = {
-            "model": user_config.stt.model,
-            "language_config": LanguageConfig(
-                languages=[language], code_switching=False
-            ),
-        }
+        settings_kwargs = {"model": user_config.stt.model, **configurable_settings}
         return GladiaSTTService(
             api_key=user_config.stt.api_key,
             settings=GladiaSTTSettings(**settings_kwargs),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SONIOX.value:
-        language = getattr(user_config.stt, "language", None) or "multi"
-        settings_kwargs = {"model": user_config.stt.model}
-        if language != "multi":
-            settings_kwargs["language_hints"] = [Language(language)]
+        settings_kwargs = {"model": user_config.stt.model, **configurable_settings}
         if keyterms:
             settings_kwargs["context"] = SonioxContextObject(terms=keyterms)
         return SonioxSTTService(
@@ -666,7 +757,6 @@ def create_stt_service(
             TurnDetectionMode,
         )
 
-        language = getattr(user_config.stt, "language", None) or "en"
         # Saved configurations may still use the legacy operating-point names.
         model = user_config.stt.model
         if model in ("standard", "enhanced"):
@@ -678,7 +768,7 @@ def create_stt_service(
         return SpeechmaticsSTTService(
             api_key=user_config.stt.api_key,
             settings=SpeechmaticsSTTSettings(
-                language=language,
+                **configurable_settings,
                 model=model,
                 turn_detection_mode=TurnDetectionMode.EXTERNAL,
                 additional_vocab=additional_vocab,
@@ -686,38 +776,23 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.AZURE_SPEECH.value:
-        from pipecat.transcriptions.language import Language as PipecatLanguage
-
-        language_code = getattr(user_config.stt, "language", None) or "en-US"
         region = getattr(user_config.stt, "region", None) or "eastus"
-        try:
-            pipecat_language = PipecatLanguage(language_code)
-        except ValueError:
-            pipecat_language = language_code
         return AzureSTTService(
             api_key=user_config.stt.api_key,
             region=region,
-            settings=AzureSTTSettings(language=pipecat_language),
+            settings=AzureSTTSettings(**configurable_settings),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SMALLEST.value:
-        language_code = getattr(user_config.stt, "language", None) or "en"
-        try:
-            pipecat_language = Language(language_code)
-        except ValueError:
-            pipecat_language = Language.EN
         return SmallestSTTService(
             api_key=user_config.stt.api_key,
             settings=SmallestSTTSettings(
                 model=user_config.stt.model,
-                language=pipecat_language,
+                **configurable_settings,
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.ELEVENLABS.value:
-        language_code = getattr(user_config.stt, "language", None)
-        pipecat_language = _resolve_elevenlabs_stt_language(language_code)
-
         _validate_runtime_service_url(user_config.stt.base_url, "base_url")
         elevenlabs_host = _elevenlabs_realtime_stt_host(user_config.stt.base_url)
 
@@ -727,7 +802,7 @@ def create_stt_service(
             commit_strategy=CommitStrategy.VAD,
             settings=ElevenLabsRealtimeSTTSettings(
                 model=user_config.stt.model,
-                language=pipecat_language,
+                **configurable_settings,
             ),
             should_interrupt=False,
             sample_rate=audio_config.transport_in_sample_rate,

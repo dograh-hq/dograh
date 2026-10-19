@@ -36,6 +36,7 @@ from api.services.pipecat.service_factory import (
     create_llm_service,
     create_tts_service,
     get_llm_runtime_configuration,
+    get_stt_settings_update,
 )
 from api.services.workflow.agent_runtime import AgentRuntime, new_visit_id
 from api.services.workflow.dto import ReactFlowDTO
@@ -43,6 +44,7 @@ from api.services.workflow.run_creation import definition_to_run
 from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.observers.base_observer import BaseObserver
 from pipecat.pipeline.worker import PipelineWorker
+from pipecat.services.stt_service import STTService
 
 
 class AgentBuildError(Exception):
@@ -85,7 +87,9 @@ class AgentRuntimeFactory:
         observers: list[BaseObserver] | None = None,
         run_definition: Any = None,
         run_model_configuration: EffectiveAIModelConfiguration | None = None,
+        stt: STTService | None = None,
     ):
+        self._stt = stt
         self._on_agent_error = on_agent_error
         self._use_draft = use_draft
         self._organization_id = organization_id
@@ -108,6 +112,29 @@ class AgentRuntimeFactory:
     def organization_id(self) -> int:
         """The organization every agent in this call must belong to."""
         return self._organization_id
+
+    async def retune_stt_for(self, runtime: AgentRuntime) -> bool:
+        """Apply a committed destination's supported settings to the call STT."""
+        stt = self._stt
+        if stt is None or self._run_model_configuration is None:
+            return False
+        if runtime.user_config is None or runtime.user_config.stt is None:
+            return False
+
+        delta = get_stt_settings_update(
+            stt, self._run_model_configuration.stt, runtime.user_config.stt
+        )
+        if delta is None:
+            return False
+        # The service owns live configuration and any required stream restart.
+        # In particular, Flux language hints use Configure without reconnecting.
+        changed = await stt._update_settings(delta)
+        if changed:
+            logger.info(
+                f"[transfer] STT settings updated for {runtime.visit_id}: "
+                f"{sorted(changed)}"
+            )
+        return bool(changed)
 
     async def resolve_destination(self, workflow_id: int) -> tuple[Any, Any]:
         """Look up a destination workflow and pin the definition to run.

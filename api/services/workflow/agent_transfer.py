@@ -180,6 +180,15 @@ class AgentTransferCoordinator:
             self._phase = TransferPhase.COMMITTING
             engine.commit_agent(destination, snapshot)
             committed = True
+            # Only committed visits change the shared transcriber. Hold audio
+            # still covers the update and destination generation stays gated.
+            # A provider failure must not strand an already committed handoff.
+            # Let the service own its connection timeouts: cancelling an update
+            # halfway through a stream restart can leave transcription offline.
+            try:
+                await engine.retune_agent_stt(destination)
+            except Exception:  # noqa: BLE001 - The destination still needs to open.
+                logger.exception("[transfer] Failed to update STT settings")
             # Opening can immediately call a tool and request another LLM turn.
             # Finish source cleanup before allowing that destination work to run.
             # The finally path can safely await the same retirement again.

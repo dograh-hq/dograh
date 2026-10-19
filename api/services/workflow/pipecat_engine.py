@@ -2076,6 +2076,11 @@ class PipecatEngine:
             "conversation handed over as one transcript message"
         )
 
+    async def retune_agent_stt(self, runtime: AgentRuntime) -> None:
+        """Update recognition for the committed visit before its opening."""
+        if self._agent_factory is not None:
+            await self._agent_factory.retune_stt_for(runtime)
+
     async def notify_agent_entered(self, runtime: AgentRuntime) -> None:
         node = runtime.current_node
         if self._node_transition_callback:

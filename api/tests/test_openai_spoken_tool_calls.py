@@ -62,7 +62,7 @@ def native(name, args="{}", *, index=0, call_id="native"):
     }
 
 
-def install_stream(service, steps, finish="stop"):
+def install_stream(service, steps, finish="stop", *, paused=None):
     closed = asyncio.Event()
 
     async def stream():
@@ -71,6 +71,8 @@ def install_stream(service, steps, finish="stop"):
                 if isinstance(step, BaseException):
                     raise step
                 if isinstance(step, asyncio.Event):
+                    if paused is not None:
+                        paused.set()
                     await asyncio.wait_for(step.wait(), 2)
                 else:
                     yield chunk(step) if isinstance(step, str) else step
@@ -228,10 +230,10 @@ async def test_stream_failure_closes_stream_and_does_not_reuse_recovery(error):
 async def test_stale_response_cannot_recover(change):
     service, frames, calls = instrument()
     ctx = context()
-    release = asyncio.Event()
-    install_stream(service, ["default_api:end_call{}", release])
+    release, paused = asyncio.Event(), asyncio.Event()
+    install_stream(service, ["default_api:end_call{}", release], paused=paused)
     task = asyncio.create_task(service._process_context(ctx))
-    await asyncio.sleep(0.01)
+    await asyncio.wait_for(paused.wait(), 1)
     if change == "node":
         ctx.set_tools(ToolsSchema(standard_tools=[]))
     elif change == "interruption":

@@ -141,7 +141,9 @@ async def test_openai_role_metadata_does_not_win_or_disable_slow_fallback(monkey
         backup = Stream(chunk("Gemini answer"))
         h.install(0, primary)
         h.install(1, backup)
-        assert await generate(h) == ["Gemini answer"]
+        # The spoken-tool guard may hold a final lexical token until EOF;
+        # fallback correctness depends on the winning text, not frame boundaries.
+        assert "".join(await generate(h)) == "Gemini answer"
         assert primary.closed.is_set() and backup.closed.is_set()
         assert h.llm.fallback_metrics == {"started": 1, "won": 1}
 

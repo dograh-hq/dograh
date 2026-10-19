@@ -77,7 +77,6 @@ class SpokenToolCallGuard:
 
     # An unterminated fragment must not grow without limit or escape to speech.
     MAX_PENDING_CHARS = 16384
-    _NAMESPACE = re.compile(r"(?:[\w]+:)?default_api[:.]([\w]+)")
     _THOUGHT_OBJECT = re.compile(r'^\{\s*"(?:thought|action)"\s*:')
 
     def __init__(self, schemas: dict[str, dict[str, Any]]):
@@ -98,8 +97,27 @@ class SpokenToolCallGuard:
         self._discard_rest = False
         self._at_boundary = True
         self._after_fragment = False
-        names = "|".join(re.escape(name) for name in schemas) or r"(?!)"
-        self._bare_tool = re.compile(rf"(?:[\w]+:\s*)?({names})(?=\W|$)")
+        names = (
+            "|".join(re.escape(name) for name in sorted(schemas, key=len, reverse=True))
+            or r"(?!)"
+        )
+        delimiter = r"(?=$|[\s{}!?<>`]|\.(?=\s|$))"
+        # Prefer exact advertised names, including punctuation. The generic
+        # fallback only suppresses unavailable namespace calls; it cannot run
+        # them because _record still requires the advertised schema.
+        control_names = rf"{names}|[\w.-]+"
+        self._namespace = re.compile(
+            rf"(?:[\w]+:)?default_api[:.]({control_names}){delimiter}"
+        )
+        self._xml_call = re.compile(rf"<call:default_api:({control_names})\s*/>")
+        self._stage_direction = re.compile(
+            rf"\*\(\s*Esegue\s+({control_names})(?:\s+per terminare la chiamata)?\s*\)\*",
+            re.IGNORECASE,
+        )
+        self._bare_tool = re.compile(rf"(?:[\w]+:\s*)?({names}){delimiter}")
+        self._bare_call = re.compile(
+            rf"(?:[\w]+:\s*)?({names})\s*(\{{.*\}})?\.?", re.DOTALL
+        )
         self.calls: list[RecoveredToolCall] = []
 
     def feed(self, text: str) -> str:
@@ -189,24 +207,20 @@ class SpokenToolCallGuard:
             if isinstance(name, str):
                 self._record(name, args)
             return True
-        xml = re.fullmatch(r"<call:default_api:([\w]+)\s*/>", text)
+        xml = self._xml_call.fullmatch(text)
         if xml:
             self._record(xml[1], {})
             return True
-        stage_direction = re.fullmatch(
-            r"\*\(\s*Esegue\s+(\w+)(?:\s+per terminare la chiamata)?\s*\)\*",
-            text,
-            re.IGNORECASE,
-        )
+        stage_direction = self._stage_direction.fullmatch(text)
         if stage_direction and self._at_boundary:
             self._record(stage_direction[1], {})
             return True
-        match = self._NAMESPACE.match(text)
+        match = self._namespace.match(text)
         if match:
             tail = text[match.end() :].strip()
             self._record(match[1], self._arguments(match[1], tail) if tail else {})
             return True
-        bare = re.fullmatch(r"(?:[\w]+:\s*)?([\w]+)\s*(\{.*\})?\.?", text, re.DOTALL)
+        bare = self._bare_call.fullmatch(text)
         if bare and bare[1] in self._schemas and self._at_boundary:
             self._record(bare[1], self._arguments(bare[1], bare[2]) if bare[2] else {})
             return True
@@ -249,6 +263,12 @@ class SpokenToolCallGuard:
                 continue
             if "italics{thought}".startswith(text) and not final:
                 break
+            if self._at_boundary and not final:
+                # A period can be part of a declared tool name. Do not emit it
+                # as punctuation while the next chunk could complete that name.
+                candidate = re.sub(r"^[\w]+:\s*", "", text)
+                if any(name.startswith(candidate) for name in self._schemas):
+                    break
             if (
                 text.startswith("no-thought")
                 and (final or len(text) > len("no-thought"))
@@ -270,6 +290,12 @@ class SpokenToolCallGuard:
                 close = text.find(fence, len(fence))
                 end = close + len(fence) if close >= 0 else None
             elif text.startswith("<"):
+                if "<call:".startswith(text) and not final:
+                    break
+                if not text.startswith("<call:"):
+                    emit("<")
+                    self._buffer = text[1:]
+                    continue
                 close = text.find(">")
                 end = close + 1 if close >= 0 else None
             elif text.startswith("*("):
@@ -291,7 +317,7 @@ class SpokenToolCallGuard:
                 self._buffer = text[end:]
                 continue
 
-            namespace = self._NAMESPACE.match(text)
+            namespace = self._namespace.match(text)
             tool = namespace or self._bare_tool.match(text)
             if tool and (namespace or self._at_boundary):
                 suffix = text[tool.end() :]

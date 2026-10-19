@@ -68,13 +68,15 @@ def chunk(*parts, finish=None):
     )
 
 
-def install_stream(service, steps, finish=FinishReason.STOP):
+def install_stream(service, steps, finish=FinishReason.STOP, *, paused=None):
     async def stream(_):
         async def generate():
             for step in steps:
                 if isinstance(step, BaseException):
                     raise step
                 if isinstance(step, asyncio.Event):
+                    if paused is not None:
+                        paused.set()
                     await asyncio.wait_for(step.wait(), 2)
                 else:
                     yield chunk(Part(text=step)) if isinstance(step, str) else step
@@ -216,10 +218,16 @@ async def test_incomplete_response_is_suppressed_but_not_executed(finish):
 async def test_failed_or_cancelled_stream_never_recovers_tools(error):
     service, frames, calls = instrument()
     install_stream(service, ["default_api:end_call{}", error])
-    try:
+    if isinstance(error, asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError):
+            await service._process_context(context())
+        service.push_error.assert_not_awaited()
+    else:
+        # Gemini catches ordinary stream exceptions and reports an ErrorFrame;
+        # cancellation must still propagate. Exercise both provider contracts.
         await service._process_context(context())
-    except asyncio.CancelledError:
-        assert isinstance(error, asyncio.CancelledError)
+        service.push_error.assert_awaited_once()
+        assert service.push_error.call_args.kwargs["exception"] is error
     assert not calls
     install_stream(service, ["Hello again."])
     await service._process_context(context())
@@ -268,11 +276,13 @@ async def test_multiple_candidates_do_not_combine_into_a_recovered_action():
 @pytest.mark.parametrize("interrupted_during_stream", [False, True])
 async def test_interruption_discards_recovered_calls(interrupted_during_stream):
     service, _frames, calls = instrument()
-    release = asyncio.Event()
-    install_stream(service, ["Buona giornata! default_api:end_call{}", release])
+    release, paused = asyncio.Event(), asyncio.Event()
+    install_stream(
+        service, ["Buona giornata! default_api:end_call{}", release], paused=paused
+    )
     task = asyncio.create_task(service._process_context(context()))
     if interrupted_during_stream:
-        await asyncio.sleep(0.01)
+        await asyncio.wait_for(paused.wait(), 1)
         service._interrupt_tool_response(InterruptionFrame())
         release.set()
         await asyncio.wait_for(task, 2)

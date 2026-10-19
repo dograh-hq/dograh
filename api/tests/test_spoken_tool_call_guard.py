@@ -208,3 +208,43 @@ def test_complete_oversized_fragments_are_rejected_independently_of_chunk_size(w
         {"action": "salva_richiamo", "action_input": {**ARGS, "motivo": "x" * 20000}}
     )
     assert parse([text[i : i + width] for i in range(0, len(text), width)]) == ("", [])
+
+
+@pytest.mark.parametrize("name", ["end-call", "end.call"])
+@pytest.mark.parametrize(
+    "form",
+    [
+        "default_api:{name}{{}}",
+        "default_api.{name}{{}}",
+        "<call:default_api:{name}/>",
+        "{name}{{}}",
+        "`{name}`",
+        "Agent: {name}.",
+        "severe:{name}{{}}",
+        "*(Esegue {name} per terminare la chiamata)*",
+    ],
+)
+def test_advertised_names_with_punctuation_at_every_split(name, form):
+    tools = {name: TOOLS["end_call"], "end": TOOLS["end_call"]}
+    fragment = form.format(name=name)
+    for split in range(len(fragment) + 1):
+        assert parse([fragment[:split], fragment[split:]], tools=tools) == (
+            "",
+            [(name, {})],
+        )
+    assert parse(list(fragment), tools=tools) == ("", [(name, {})])
+
+
+@pytest.mark.parametrize("suffix", ["-unavailable", ".unavailable"])
+def test_namespace_does_not_recover_known_prefix_of_an_unknown_tool(suffix):
+    assert parse(list(f"default_api:end_call{suffix}{{}}")) == ("", [])
+
+
+def test_comparisons_do_not_buffer_or_discard_ordinary_speech():
+    guard = SpokenToolCallGuard(TOOLS)
+    assert guard.feed("<") == ""
+    assert guard.feed(" 5. This is normal speech. ") == "< 5. This is normal speech. "
+    text = "The value is < five. " * 2000
+    assert guard.feed(text) == text
+    assert guard.finish() == ""
+    assert not guard.calls

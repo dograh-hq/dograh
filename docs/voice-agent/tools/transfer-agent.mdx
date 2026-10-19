@@ -71,6 +71,14 @@ Description: Hand the call to the billing agent. Call this only once the
 
 If the model picks the wrong destination, fix the tool descriptions before you touch the prompt — the description is what it routes on.
 
+## Transcription during a transfer
+
+When both agents use the same STT provider, model and connection configuration, a successful handoff sends the destination's supported settings to the call's existing STT service before the destination opens. This includes **Language**, **Language hints**, and Hugging Face's **Return timestamps** option. Credentials, endpoints, regions, keyterms and turn detection stay fixed for the call; a destination requiring a different provider, model or connection keeps the call's existing STT configuration.
+
+The STT service controls how an update takes effect. Multilingual Flux (Deepgram or Dograh) and AssemblyAI U3 Pro update language steering on the existing session. Other streaming services may restart their stream through their settings API; Speaches and Hugging Face use the updated settings on subsequent transcription requests. Choosing automatic language detection clears the preceding agent's language selection where supported.
+
+Some services cannot apply language changes during a call: Gladia, Dograh's legacy STT backend, Cartesia `ink-2`, English-only Flux, and AssemblyAI models without language steering retain their initial settings. Dograh also keeps the existing settings when a language change would switch between its Flux and legacy backends. OpenAI transcription currently exposes no per-agent setting besides its model.
+
 ## Availability
 
 Agent transfer works on every cascade call, including web calls, which is where it differs most from Call Transfer.

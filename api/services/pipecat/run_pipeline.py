@@ -1223,6 +1223,7 @@ async def _run_pipeline_impl(
             observers=[feedback_observer],
             run_definition=run_definition,
             run_model_configuration=user_config,
+            stt=stt,
         )
         engine.set_agent_factory(agent_factory)
         # The agent this call starts on. Its services are populated by the

@@ -645,10 +645,7 @@ async def test_sarvam_reuses_model_options_without_external_requests(
                 v for v in response.voices if v.voice_id == "shubh_enhi_ads"
             )
             assert shubh_voice.name == "Shubh"
-            assert (
-                shubh_voice.description
-                == "English-Hindi • Ads • shubh_enhi_ads"
-            )
+            assert shubh_voice.description == "English-Hindi • Ads • shubh_enhi_ads"
             assert shubh_voice.accent is None
             assert shubh_voice.language == "en-hi"
             kyc_voice = next(
@@ -659,18 +656,14 @@ async def test_sarvam_reuses_model_options_without_external_requests(
             assert kyc_voice.accent is None
             assert kyc_voice.language == "hi"
         elif model == "bulbul:v3":
-            shubh_voice = next(
-                v for v in response.voices if v.voice_id == "shubh"
-            )
+            shubh_voice = next(v for v in response.voices if v.voice_id == "shubh")
             assert shubh_voice.name == "Shubh"
             assert shubh_voice.description == "Multilingual"
     assert requests == []
 
 
 @pytest.mark.asyncio
-async def test_sarvam_v4_voices_allow_cross_lingual_selection(
-    connection, upstream
-):
+async def test_sarvam_v4_voices_allow_cross_lingual_selection(connection, upstream):
     from api.services.configuration.options.sarvam import SARVAM_V4_VOICES
 
     connection.provider = "sarvam"
@@ -681,9 +674,7 @@ async def test_sarvam_v4_voices_allow_cross_lingual_selection(
     )
     # Sarvam Bulbul voices are cross-lingual; passing language must not restrict voice choice
     assert {v.voice_id for v in response.voices} == set(SARVAM_V4_VOICES)
-    pa_voice = next(
-        v for v in response.voices if v.voice_id == "anand_pa_conversation"
-    )
+    pa_voice = next(v for v in response.voices if v.voice_id == "anand_pa_conversation")
     assert pa_voice.language == "pa"
     hi_voice = next(v for v in response.voices if v.voice_id == "shubh_enhi_ads")
     assert hi_voice.language == "en-hi"

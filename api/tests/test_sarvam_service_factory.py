@@ -164,8 +164,8 @@ class TestSarvamTTSServiceFactory:
         config = SarvamTTSConfiguration(api_key="test-key")
 
         assert config.provider == ServiceProviders.SARVAM
-        assert config.model == "bulbul:v4-flash"
-        assert config.voice == "shubh_enhi_ads"
+        assert config.model == "bulbul:v3"
+        assert config.voice == "shubh"
         assert config.language == "hi-IN"
         assert config.speed == 1.0
 
@@ -267,8 +267,8 @@ class TestSarvamTTSServiceFactory:
             create_tts_service(user_config, audio_config)
 
         kwargs = mock_service.call_args.kwargs
-        assert kwargs["settings"].model == "bulbul:v4-flash"
-        assert kwargs["settings"].voice == "shubh_enhi_ads"
+        assert kwargs["settings"].model == "bulbul:v3"
+        assert kwargs["settings"].voice == "shubh"
 
     def test_create_sarvam_tts_service_defaults_blank_voice_id_for_v4_flash(self):
         user_config = SimpleNamespace(

@@ -1610,21 +1610,21 @@ class InworldTTSConfiguration(BaseTTSConfiguration):
 class SarvamTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="bulbul:v4-flash",
+        default="bulbul:v3",
         description="Sarvam TTS model (voice list depends on this).",
         json_schema_extra={"examples": SARVAM_TTS_MODELS},
     )
     voice: str = Field(
-        default="shubh_enhi_ads",
+        default="shubh",
         description="Sarvam voice name or custom voice ID.",
         json_schema_extra={
             "voice_catalog": "dropdown",
-            "examples": SARVAM_V4_VOICES,
+            "examples": SARVAM_V3_VOICES,
             "allow_custom_input": True,
             "reset_on_change": ["model"],
             "model_options": {
-                "bulbul:v4-flash": SARVAM_V4_VOICES,
                 "bulbul:v3": SARVAM_V3_VOICES,
+                "bulbul:v4-flash": SARVAM_V4_VOICES,
             },
         },
     )
@@ -1649,7 +1649,10 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
             if (
                 not voice
                 or not str(voice).strip()
-                or (voice == "shubh_enhi_ads" and model in ("bulbul:v3", "bulbul:v3-beta"))
+                or (
+                    voice == "shubh_enhi_ads"
+                    and model in ("bulbul:v3", "bulbul:v3-beta")
+                )
             ):
                 if model in ("bulbul:v3", "bulbul:v3-beta"):
                     data["voice"] = "shubh"

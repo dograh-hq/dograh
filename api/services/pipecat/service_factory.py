@@ -1132,8 +1132,8 @@ def create_tts_service(
         language = getattr(user_config.tts, "language", None)
         pipecat_language = language_mapping.get(language, Language.HI)
 
-        model = getattr(user_config.tts, "model", None) or "bulbul:v4-flash"
-        default_voice = "shubh_enhi_ads"
+        model = getattr(user_config.tts, "model", None) or "bulbul:v3"
+        default_voice = "shubh"
         if model in ("bulbul:v3", "bulbul:v3-beta"):
             default_voice = "shubh"
         elif model == "bulbul:v4-flash":

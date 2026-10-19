@@ -1,4 +1,4 @@
-SARVAM_TTS_MODELS = ("bulbul:v4-flash", "bulbul:v3")
+SARVAM_TTS_MODELS = ("bulbul:v3", "bulbul:v4-flash")
 SARVAM_V3_VOICES = (
     "shubh",
     "aditya",

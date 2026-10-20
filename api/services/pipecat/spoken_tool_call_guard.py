@@ -3,11 +3,16 @@
 The pending buffer holds a lexical token or a structured fragment, never a second
 sentence aggregation. Calls are candidates only; the response owner decides when
 they may execute, after reconciling native calls and the completion outcome.
+
+Spoken output also drops text that no listener should hear when it opens a
+sentence: identifier tokens, stage directions, markdown structure and JSON
+objects. Text chat keeps those, because a reader may legitimately receive them.
 """
 
 import json
 import math
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -72,6 +77,33 @@ def _object_end(text: str) -> int | None:
     return None
 
 
+def _envelope_text(obj: dict) -> str | None:
+    """Return the reply carried by a chat-completion envelope, if obj is one."""
+    choices = obj.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        return None
+    message = choice.get("message") or choice.get("delta")
+    text = message.get("content") if isinstance(message, dict) else choice.get("text")
+    return text if isinstance(text, str) else None
+
+
+# Tag openers that must be seen whole before "<" can be released as speech.
+_TAG_PREFIXES = ("<call:", "<|", "<think", "<thought", "</think", "</thought")
+_REASONING_TAG = re.compile(r"<(/?)(think|thinking|thought)(?=[\s>/]|$)", re.IGNORECASE)
+# Underscored names are never words; trailing segments such as ":null" or
+# "_0.25" belong to the same token.
+_IDENTIFIER = re.compile(
+    r"[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]*(?:[.:-][A-Za-z0-9_]+)*[.:]?"
+)
+_HEADING = re.compile(r"#{1,6}[ \t]")
+_RULE = re.compile(r"(?:-{3,}|_{3,}|\*{3,})[ \t]*(?:\n|$)")
+_NO_THOUGHT = re.compile(r"(?:no|non)-thought")
+_INVISIBLE = "\ufeff\u200b\u2060"
+
+
 class SpokenToolCallGuard:
     """Suppress tool/thought fragments and collect schema-valid tool candidates."""
 
@@ -79,8 +111,11 @@ class SpokenToolCallGuard:
     MAX_PENDING_CHARS = 16384
     _THOUGHT_OBJECT = re.compile(r'^\{\s*"(?:thought|action)"\s*:')
 
-    def __init__(self, schemas: dict[str, dict[str, Any]]):
+    def __init__(
+        self, schemas: dict[str, dict[str, Any]], *, spoken_output: bool = True
+    ):
         self._schemas = schemas
+        self._spoken_output = spoken_output
         self._validators = {}
         for name, schema in schemas.items():
             schema = {"additionalProperties": False, **schema}
@@ -97,6 +132,13 @@ class SpokenToolCallGuard:
         self._discard_rest = False
         self._at_boundary = True
         self._after_fragment = False
+        # A sentence-initial label or glued token held back until the next
+        # fragment shows whether it prefixes a tool call.
+        self._held = ""
+        self._held_boundary = True
+        self._reasoning_close = None
+        self._tool_fragment = False
+        self._reinject = None
         names = (
             "|".join(re.escape(name) for name in sorted(schemas, key=len, reverse=True))
             or r"(?!)"
@@ -107,16 +149,16 @@ class SpokenToolCallGuard:
         # them because _record still requires the advertised schema.
         control_names = rf"{names}|[\w.-]+"
         self._namespace = re.compile(
-            rf"(?:[\w]+:)?default_api[:.]({control_names}){delimiter}"
+            rf"(?:[\w-]+:)?default_api[:.]({control_names}){delimiter}"
         )
         self._xml_call = re.compile(rf"<call:default_api:({control_names})\s*/>")
         self._stage_direction = re.compile(
             rf"\*\(\s*Esegue\s+({control_names})(?:\s+per terminare la chiamata)?\s*\)\*",
             re.IGNORECASE,
         )
-        self._bare_tool = re.compile(rf"(?:[\w]+:\s*)?({names}){delimiter}")
+        self._bare_tool = re.compile(rf"(?:[\w-]+:\s*)?({names}){delimiter}")
         self._bare_call = re.compile(
-            rf"(?:[\w]+:\s*)?({names})\s*(\{{.*\}})?\.?", re.DOTALL
+            rf"(?:[\w-]+:\s*)?({names})\s*(\{{.*\}})?\.?", re.DOTALL
         )
         self.calls: list[RecoveredToolCall] = []
 
@@ -130,6 +172,7 @@ class SpokenToolCallGuard:
         return self._drain(final=True)
 
     def _record(self, name: str, arguments: Any) -> None:
+        self._tool_fragment = True
         name = re.sub(r"^default_api[:.]", "", name)
         validator = self._validators.get(name)
         valid = False
@@ -145,6 +188,17 @@ class SpokenToolCallGuard:
                 "Spoken tool fragment suppressed: tool={} recovery=invalid_or_unavailable",
                 name,
             )
+
+    @staticmethod
+    def _suppressed(kind: str) -> None:
+        logger.info("Spoken control text suppressed: kind={}", kind)
+
+    def _speakable(self, token: str) -> str:
+        """Drop markdown emphasis and lone table pipes from a spoken token."""
+        if not self._spoken_output:
+            return token
+        token = token.replace("**", "")
+        return token.replace("|", "") if token.strip() == "|" else token
 
     def _arguments(self, name: str, raw: str) -> dict | None:
         try:
@@ -176,6 +230,27 @@ class SpokenToolCallGuard:
                 result[key] = value
         return result
 
+    def _keyed_call(self, obj: dict) -> bool:
+        """Record {"<tool>": {...}} or {"name": "<tool>", "arguments": ...}."""
+        if len(obj) == 1:
+            name, args = next(iter(obj.items()))
+            if name in self._schemas and isinstance(args, dict):
+                self._record(name, args)
+                return True
+        name = obj.get("name")
+        keys = set(obj) - {"name"}
+        if isinstance(name, str) and name in self._schemas and len(keys) == 1:
+            args = obj[keys.pop()] if keys <= {"arguments", "parameters"} else None
+            if isinstance(args, str):
+                try:
+                    args = _json(args)
+                except (ValueError, RecursionError):
+                    args = None
+            if args is not None:
+                self._record(name, args)
+                return True
+        return False
+
     def _structured(self, raw: str) -> bool:
         """Recognize a complete wrapper; return whether it should be suppressed."""
         if len(raw) > self.MAX_PENDING_CHARS:
@@ -183,30 +258,46 @@ class SpokenToolCallGuard:
             logger.info("Spoken tool fragment suppressed: recovery=buffer_limit")
             return True
         text = raw.strip().lstrip("\ufeff")
+        quoted = text.startswith("`") and not text.startswith("```")
         if text.startswith("```"):
             text = re.sub(r"^```(?:json)?\s*", "", text).removesuffix("```").strip()
-        elif text.startswith("`"):
-            text = text.strip("` ")
+        elif quoted:
+            # `name`{args} keeps its arguments outside the quotes.
+            match = re.fullmatch(r"`+([^`]*)`*\s*(\{.*\})?", text, re.DOTALL)
+            text = match[1].strip() + (match[2] or "") if match else text.strip("` ")
         if text.startswith("{"):
             try:
                 obj = _json(text)
             except (ValueError, RecursionError):
+                if self._spoken_output and re.match(r'\{\s*"', text):
+                    self._suppressed("json")
+                    return True
                 return bool(self._THOUGHT_OBJECT.match(text))
             if not isinstance(obj, dict):
                 return False
             if "thought" in obj:
                 return True
-            if "action" not in obj:
-                return False
-            name, args = obj["action"], obj.get("action_input", {})
-            if isinstance(args, str):
-                try:
-                    args = _json(args)
-                except (ValueError, RecursionError):
-                    args = None
-            if isinstance(name, str):
-                self._record(name, args)
-            return True
+            if "action" in obj:
+                name, args = obj["action"], obj.get("action_input", {})
+                if isinstance(args, str):
+                    try:
+                        args = _json(args)
+                    except (ValueError, RecursionError):
+                        args = None
+                if isinstance(name, str):
+                    self._record(name, args)
+                return True
+            reply = _envelope_text(obj)
+            if reply is not None:
+                self._suppressed("json_envelope")
+                self._reinject = reply
+                return True
+            if self._keyed_call(obj):
+                return True
+            if self._spoken_output and obj:
+                self._suppressed("json")
+                return True
+            return False
         xml = self._xml_call.fullmatch(text)
         if xml:
             self._record(xml[1], {})
@@ -221,16 +312,70 @@ class SpokenToolCallGuard:
             self._record(match[1], self._arguments(match[1], tail) if tail else {})
             return True
         bare = self._bare_call.fullmatch(text)
-        if bare and bare[1] in self._schemas and self._at_boundary:
-            self._record(bare[1], self._arguments(bare[1], bare[2]) if bare[2] else {})
-            return True
+        if bare and bare[1] in self._schemas:
+            if self._at_boundary:
+                self._record(
+                    bare[1], self._arguments(bare[1], bare[2]) if bare[2] else {}
+                )
+                return True
+            if quoted and self._spoken_output:
+                # A code-quoted tool name is never speech, but prose around it
+                # is not a request to run it.
+                logger.info(
+                    "Spoken tool fragment suppressed: tool={} recovery=quoted_mention",
+                    bare[1],
+                )
+                return True
         return False
+
+    def _markup_end(self, text: str, final: bool) -> int | None:
+        """Length of sentence-initial markup that is not speech; None to wait."""
+        if re.fullmatch(r"[-_*#]{1,2}", text) and not final:
+            return None
+        rule = _RULE.match(text)
+        if rule:
+            if rule.end() == len(text) and not text.endswith("\n") and not final:
+                return None
+            self._suppressed("markdown")
+            return rule.end() - text[: rule.end()].endswith("\n")
+        if _HEADING.match(text):
+            newline = text.find("\n")
+            if newline < 0 and not final:
+                return None
+            self._suppressed("markdown")
+            return newline if newline >= 0 else len(text)
+        if text.startswith("**"):
+            return 0
+        if text.startswith("*(") or (
+            text.startswith("*") and len(text) > 1 and not text[1].isspace()
+        ):
+            closer = ")*" if text.startswith("*(") else "*"
+            close = text.find(closer, 1)
+            end = close + len(closer) if close >= 0 else None
+        elif text.startswith(("[", "(")):
+            close = text.find("]" if text[0] == "[" else ")")
+            end = close + 1 if close >= 0 else None
+        else:
+            return 0
+        newline = text.find("\n")
+        if newline >= 0 and (end is None or newline < end):
+            end = newline
+        if end is None:
+            if not final:
+                return None
+            end = len(text)
+        if text[0] == "*":
+            # A recognized action still runs; anything else is narration.
+            self._structured(text[:end])
+        elif not any(char.isalpha() for char in text[:end]):
+            return 0
+        self._suppressed("stage_direction")
+        return end
 
     def _drain(self, *, final: bool) -> str:
         output = []
 
-        def emit(text):
-            output.append(text)
+        def advance(text):
             for char in text:
                 if char in ".!?\n":
                     self._at_boundary = True
@@ -239,11 +384,50 @@ class SpokenToolCallGuard:
                 if not char.isspace():
                     self._after_fragment = False
 
+        def emit(text):
+            if self._held:
+                output.append(self._held)
+                self._held = ""
+            output.append(text)
+            advance(text)
+
+        def hold(text):
+            self._held_boundary = self._at_boundary
+            self._held = text
+            advance(text)
+
+        def resolved():
+            # A held label or glued token belongs to the tool call after it.
+            if self._tool_fragment and self._held:
+                self._held = ""
+                self._at_boundary = self._held_boundary
+            self._tool_fragment = False
+
         while self._buffer and not self._discard_rest:
             text = self._buffer
-            if text[0].isspace() or text[0] == "\ufeff":
-                if text[0] != "\ufeff":
+            if self._reasoning_close:
+                index = text.lower().find(self._reasoning_close)
+                close = text.find(">", index) if index >= 0 else -1
+                if close < 0:
+                    # Keep only what could still complete the closing tag.
+                    keep = (
+                        index if index >= 0 else len(text) - len(self._reasoning_close)
+                    )
+                    self._buffer = "" if final else text[max(keep, 0) :]
+                    break
+                self._buffer = text[close + 1 :]
+                self._reasoning_close = None
+                continue
+            if text[0].isspace():
+                if self._held:
+                    self._held += text[0]
+                else:
                     emit(text[0])
+                self._buffer = text[1:]
+                continue
+            if text[0] in _INVISIBLE or unicodedata.category(text[0]) in ("Mn", "Me"):
+                # A zero-width or combining mark cannot start a word; providers
+                # surface mis-decoded control tokens this way.
                 self._buffer = text[1:]
                 continue
             if self._after_fragment and text[0] == "}":
@@ -266,17 +450,26 @@ class SpokenToolCallGuard:
             if self._at_boundary and not final:
                 # A period can be part of a declared tool name. Do not emit it
                 # as punctuation while the next chunk could complete that name.
-                candidate = re.sub(r"^[\w]+:\s*", "", text)
+                candidate = re.sub(r"^[\w-]+:\s*", "", text)
                 if any(name.startswith(candidate) for name in self._schemas):
                     break
+            no_thought = _NO_THOUGHT.match(text)
             if (
-                text.startswith("no-thought")
-                and (final or len(text) > len("no-thought"))
-                and text[len("no-thought") : len("no-thought") + 1]
+                no_thought
+                and (final or len(text) > no_thought.end())
+                and text[no_thought.end() : no_thought.end() + 1]
                 in ("", " ", "\n", ".")
             ):
-                self._buffer = text[len("no-thought") :]
+                self._buffer = text[no_thought.end() :]
                 continue
+            if self._spoken_output and self._at_boundary:
+                markup = self._markup_end(text, final)
+                if markup is None:
+                    break
+                if markup:
+                    resolved()
+                    self._buffer = text[markup:]
+                    continue
             end = None
             if text == "*" and not final:
                 break
@@ -289,9 +482,41 @@ class SpokenToolCallGuard:
                 fence = "```" if text.startswith("```") else "`"
                 close = text.find(fence, len(fence))
                 end = close + len(fence) if close >= 0 else None
-            elif text.startswith("<"):
-                if "<call:".startswith(text) and not final:
+                if fence == "`" and end == len(text) and not final:
                     break
+                if end is not None and fence == "`" and text[end : end + 1] == "{":
+                    # Arguments glued after a quoted name belong to it.
+                    close = _object_end(text[end:])
+                    if close is None and not final:
+                        break
+                    end = end + close if close else len(text)
+            elif text.startswith("<"):
+                lowered = text.lower()
+                if not final and any(p.startswith(lowered) for p in _TAG_PREFIXES):
+                    break
+                if text.startswith("<|"):
+                    close = text.find("|>", 2)
+                    if close < 0 and not final and len(text) < 66:
+                        break
+                    if 2 < close <= 64 and not any(c.isspace() for c in text[2:close]):
+                        # Model special tokens such as <|im_end|> are never text.
+                        self._suppressed("special_token")
+                        self._buffer = text[close + 2 :]
+                        continue
+                tag = _REASONING_TAG.match(text)
+                if tag:
+                    close = text.find(">", tag.end())
+                    if close < 0 and not final and len(text) < 256:
+                        break
+                    if close >= 0 or final:
+                        self._suppressed("reasoning")
+                        if close < 0:
+                            self._buffer = ""
+                            continue
+                        if not tag[1] and text[close - 1] != "/":
+                            self._reasoning_close = "</" + tag[2].lower()
+                        self._buffer = text[close + 1 :]
+                        continue
                 if not text.startswith("<call:"):
                     emit("<")
                     self._buffer = text[1:]
@@ -308,6 +533,12 @@ class SpokenToolCallGuard:
                 raw = text[:end]
                 if self._structured(raw):
                     self._after_fragment = True
+                    resolved()
+                    if self._reinject is not None:
+                        # The reply inside an envelope is ordinary speech.
+                        self._buffer = self._reinject + text[end:]
+                        self._reinject = None
+                        continue
                 else:
                     # Incomplete explicit control syntax is suppressed as well.
                     if not re.match(
@@ -336,20 +567,34 @@ class SpokenToolCallGuard:
                     )
                     self._structured(text[:end])
                     self._after_fragment = True
+                    resolved()
                     self._buffer = text[end:]
                     continue
                 if not stripped or stripped == ".":
                     if not final:
                         break
                     self._structured(text)
+                    resolved()
                     self._buffer = ""
                     continue
                 # A namespace without an argument object is unambiguous only
                 # once a delimiter follows the complete function name.
                 if namespace and suffix and (suffix[0].isspace() or suffix[0] in ".!?"):
                     self._structured(text[: tool.end()])
+                    resolved()
                     self._buffer = suffix
                     continue
+
+            if self._spoken_output and self._at_boundary:
+                identifier = _IDENTIFIER.match(text)
+                if identifier:
+                    after = text[identifier.end() : identifier.end() + 1]
+                    if not after and not final:
+                        break
+                    if not after or after.isspace() or after in ",;!?)]*`":
+                        self._suppressed("identifier")
+                        self._buffer = text[identifier.end() :]
+                        continue
 
             # Retain the current lexical token, including a possible junk prefix.
             boundary = re.search(r"[\s{}<>`!?;,.]", text)
@@ -369,10 +614,25 @@ class SpokenToolCallGuard:
                         break
                 if end == 0:
                     end = 1
-                emit(text[:end])
+                token = text[:end]
+                if self._at_boundary and not self._held:
+                    # Junk joined to a call ("Prime:", "grid`...`") opens the
+                    # sentence; decide once the next fragment is known.
+                    if end == len(text) and token[-1] in ".:" and not final:
+                        break
+                    glued = (
+                        end < len(text)
+                        and not token[-1].isspace()
+                        and not text[end].isspace()
+                    )
+                    if glued or token.rstrip().endswith(":"):
+                        hold(self._speakable(token))
+                        self._buffer = text[end:]
+                        continue
+                emit(self._speakable(token))
                 self._buffer = text[end:]
             elif final:
-                emit(text)
+                emit(self._speakable(text))
                 self._buffer = ""
             else:
                 break
@@ -383,4 +643,7 @@ class SpokenToolCallGuard:
             logger.info("Spoken tool fragment suppressed: recovery=buffer_limit")
         if self._discard_rest:
             self._buffer = ""
+        if self._held and (final or self._discard_rest):
+            output.append(self._held)
+            self._held = ""
         return "".join(output)

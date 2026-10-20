@@ -41,6 +41,7 @@ from api.services.pipecat.google_credentials import (
     prepare_google_credentials,
 )
 from api.services.pipecat.openai_spoken_tool_calls import OpenAISpokenToolCallMixin
+from api.services.pipecat.spoken_tool_calls import SpokenToolCallMixin
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameProcessorSetup
@@ -1847,16 +1848,25 @@ def create_llm_service(
     user_config,
     correlation_id: str | None = None,
     usage_context: str | None = None,
+    *,
+    spoken_output: bool = True,
 ):
-    """Compose independently configured text LLM connections under one policy."""
+    """Compose independently configured text LLM connections under one policy.
+
+    ``spoken_output=False`` marks replies that are read rather than synthesized,
+    so markup and JSON in them are kept.
+    """
     policy = getattr(user_config, "llm_fallback", None)
     if policy is None:
-        return _create_single_llm_service(user_config, correlation_id, usage_context)
+        return _create_single_llm_service(
+            user_config, correlation_id, usage_context, spoken_output=spoken_output
+        )
     primary = _create_single_llm_service(
         user_config,
         correlation_id,
         usage_context,
         enable_direct_mode=bool(policy.rules),
+        spoken_output=spoken_output,
     )
     if not policy.rules:
         return primary
@@ -1873,6 +1883,7 @@ def create_llm_service(
                 correlation_id,
                 usage_context,
                 enable_direct_mode=True,
+                spoken_output=spoken_output,
             )
         routes.append(
             FallbackRoute(condition=rule.condition, service=services[identity])
@@ -1886,6 +1897,7 @@ def _create_single_llm_service(
     usage_context: str | None = None,
     *,
     enable_direct_mode: bool = False,
+    spoken_output: bool = True,
 ):
     """Create and return appropriate LLM service based on user configuration."""
     provider = user_config.llm.provider
@@ -1921,7 +1933,7 @@ def _create_single_llm_service(
     elif provider == ServiceProviders.SARVAM.value:
         kwargs["base_url"] = getattr(user_config.llm, "base_url", None)
 
-    return create_llm_service_from_provider(
+    service = create_llm_service_from_provider(
         provider,
         model,
         api_key,
@@ -1931,6 +1943,9 @@ def _create_single_llm_service(
         enable_direct_mode=enable_direct_mode,
         **kwargs,
     )
+    if isinstance(service, SpokenToolCallMixin):
+        service.spoken_output = spoken_output
+    return service
 
 
 def create_llm_service_with_model_override(

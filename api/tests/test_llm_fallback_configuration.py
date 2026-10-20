@@ -142,6 +142,19 @@ def test_identical_rule_targets_share_one_service():
     assert routes[0].service is routes[1].service
 
 
+def test_replies_are_spoken_unless_the_caller_reads_them():
+    assert create_llm_service(configuration()).spoken_output is True
+    target = {"provider": "openai", "api_key": "test", "model": "gpt-4.1"}
+    with patch(
+        "api.services.pipecat.service_factory.FallbackLLMProcessor"
+    ) as composite:
+        create_llm_service(configuration(error_target=target), spoken_output=False)
+    primary = composite.call_args.args[0]
+    (route,) = composite.call_args.kwargs["routes"]
+    assert primary.spoken_output is False
+    assert route.service.spoken_output is False
+
+
 def test_no_rules_returns_ordinary_service():
     with patch(
         "api.services.pipecat.service_factory.DograhGoogleLLMService"

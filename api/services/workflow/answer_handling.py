@@ -160,12 +160,17 @@ async def _handle_answer(engine: "PipecatEngine", supervisor) -> AnswerAction | 
                 # Realtime caller turns are already committed before the verdict.
                 if interrupted and not engine._is_realtime:
                     interrupted = await engine.greeting.wait_for_turn()
+                if not await engine.wait_for_generation_ready():
+                    return
                 # Commit queued caller speech before opening the inference gate.
                 if not await engine.drain_call_pipeline():
                     await engine.end_call_with_reason(
                         "answer_message_failed", abort_immediately=True
                     )
                     return
+                if not engine._is_realtime and engine.greeting.awaiting_turn:
+                    interrupted = await engine.greeting.wait_for_turn()
+                interrupted = interrupted or engine.greeting.has_completed_turn
                 supervisor.release()
                 engine.call_monitor.activate(waiting_for_user=True)
                 # A pickup after screening is a new human turn. If an opening

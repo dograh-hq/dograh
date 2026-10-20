@@ -407,6 +407,11 @@ class WorkflowRunClient(BaseDBClient):
         extra: dict | None = None,
         model_configuration_snapshot: dict | None = None,
     ) -> WorkflowRunModel:
+        """Merge supplied fields under a row lock.
+
+        Pass only changed context keys, not a previously read context snapshot;
+        incoming values take precedence over the current stored values.
+        """
         async with self.async_session() as session:
             # Use SELECT FOR UPDATE to lock the row during the update
             result = await session.execute(
@@ -463,7 +468,17 @@ class WorkflowRunClient(BaseDBClient):
             if annotations:
                 run.annotations = {**run.annotations, **annotations}
             if extra:
-                run.extra = {**run.extra, **extra}
+                stored_extra = run.extra or {}
+                completion_exists = bool(stored_extra.get("workflow_completion"))
+                completion_update = extra.get("workflow_completion") or {}
+                initializes_completion = completion_update.get("status") == "pending"
+
+                extra_updates = extra.copy()
+                # Repeated initialization must preserve the worker's progress.
+                if completion_exists and initializes_completion:
+                    extra_updates.pop("workflow_completion")
+
+                run.extra = {**stored_extra, **extra_updates}
             if is_completed:
                 run.is_completed = is_completed
             if state:

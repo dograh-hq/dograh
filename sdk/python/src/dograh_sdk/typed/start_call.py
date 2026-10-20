@@ -71,12 +71,29 @@ class StartCall(TypedNode):
 
     greeting_recording_id: Optional[str] = None
     """
-    Pre-recorded audio file played at the start of the call.
+    Pre-recorded audio file played at the start of the call. Required when
+    Greeting Type is Pre-recorded Audio.
+    """
+
+    allow_greeting_interrupt: bool = True
+    """
+    Let the caller interrupt the opening greeting. When off, caller speech
+    is retained until the greeting finishes. Applies to cascade and realtime
+    openings. Realtime uses provider or local speech detection according to
+    the adapter when interruptions are allowed.
+    """
+
+    greeting_interrupt_min_words: int = 2
+    """
+    Cascade only: interrupt when the caller's transcription contains at
+    least this many words. Realtime providers do not support this word
+    threshold; they use provider or local speech detection according to the
+    adapter.
     """
 
     allow_interrupt: bool = False
     """
-    When true, the user can interrupt the agent mid-utterance.
+    Allow the caller to interrupt responses after the opening greeting.
     """
 
     add_global_prompt: bool = True
@@ -87,14 +104,15 @@ class StartCall(TypedNode):
 
     delayed_start: bool = False
     """
-    Set the initial listening window for outbound voicemail and screening
-    handling. A brief human greeting can end the wait sooner.
+    Listen before the opening in cascade and realtime calls. If the caller
+    speaks first, respond to them instead. Enabled voicemail handling can
+    resolve a human answer sooner.
     """
 
     delayed_start_duration: float = 1.2
     """
-    Seconds to listen for a silent answer before opening. 0.1–10. Replaces
-    the default 1.2-second listening window.
+    Seconds to listen for a silent answer before opening. 0–10. With
+    voicemail handling, replaces its default 1.2-second window.
     """
 
     extraction_enabled: bool = False

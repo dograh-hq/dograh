@@ -142,6 +142,19 @@ def test_identical_rule_targets_share_one_service():
     assert routes[0].service is routes[1].service
 
 
+def test_replies_are_spoken_unless_the_caller_reads_them():
+    assert create_llm_service(configuration()).spoken_output is True
+    target = {"provider": "openai", "api_key": "test", "model": "gpt-4.1"}
+    with patch(
+        "api.services.pipecat.service_factory.FallbackLLMProcessor"
+    ) as composite:
+        create_llm_service(configuration(error_target=target), spoken_output=False)
+    primary = composite.call_args.args[0]
+    (route,) = composite.call_args.kwargs["routes"]
+    assert primary.spoken_output is False
+    assert route.service.spoken_output is False
+
+
 def test_no_rules_returns_ordinary_service():
     with patch(
         "api.services.pipecat.service_factory.DograhGoogleLLMService"
@@ -209,7 +222,7 @@ def test_registry_has_no_provider_specific_fallback_fields():
 
 @pytest.mark.asyncio
 async def test_vertex_connections_keep_independent_clients_and_close_them():
-    from pipecat.services.google.vertex.llm import GoogleVertexLLMService
+    from api.services.pipecat.service_factory import DograhGoogleVertexLLMService
 
     credentials = object()
     clients = [MagicMock(), MagicMock()]
@@ -238,7 +251,7 @@ async def test_vertex_connections_keep_independent_clients_and_close_them():
     )
     with (
         patch.object(
-            GoogleVertexLLMService, "_get_credentials", return_value=credentials
+            DograhGoogleVertexLLMService, "_get_credentials", return_value=credentials
         ),
         patch(
             "pipecat.services.google.vertex.llm.Client", side_effect=clients

@@ -574,6 +574,12 @@ class CustomToolManager:
                 engine._format_prompt(str(announcement)) if announcement else None
             )
 
+            greeting_mode = config.get("greeting_mode", "start_greeting")
+            introduction = (
+                config.get("introduction")
+                if greeting_mode == "introduce_and_continue"
+                else None
+            )
             request = TransferRequest(
                 destination_workflow_id=workflow_id,
                 # The tool's own name is what the caller-facing recovery
@@ -581,7 +587,11 @@ class CustomToolManager:
                 destination_label=tool.name,
                 origin_visit_id=self._agent.visit_id,
                 announcement=announcement,
-                play_greeting=config.get("play_greeting", True),
+                greeting_mode=greeting_mode,
+                # Formatted like the announcement so template variables apply.
+                introduction=(
+                    engine._format_prompt(str(introduction)) if introduction else None
+                ),
             )
 
             if not engine.transfer_coordinator.accept(request):

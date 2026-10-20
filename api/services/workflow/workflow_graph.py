@@ -131,6 +131,10 @@ class Node:
         self.greeting = getattr(data, "greeting", None)
         self.greeting_type = getattr(data, "greeting_type", None)
         self.greeting_recording_id = getattr(data, "greeting_recording_id", None)
+        self.allow_greeting_interrupt = getattr(data, "allow_greeting_interrupt", True)
+        self.greeting_interrupt_min_words = getattr(
+            data, "greeting_interrupt_min_words", 2
+        )
         self.delayed_start = getattr(data, "delayed_start", False)
         self.delayed_start_duration = getattr(data, "delayed_start_duration", None)
         self.tool_uuids = getattr(data, "tool_uuids", None)

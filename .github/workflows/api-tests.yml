@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "api/**"
+      - "pipecat" # Gitlink-only upgrades must run the worker contract checks.
       - "pipecat/**"
       - "scripts/**"
       - ".github/workflows/api-tests.yml"

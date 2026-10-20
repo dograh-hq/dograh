@@ -14,6 +14,9 @@ from pipecat.services.llm_service import FunctionCallFromLLM, FunctionCallRunner
 class SpokenToolCallMixin:
     """Validate recovery against the current response and preserve tool timing."""
 
+    # Replies are synthesized to speech unless the owner says they are read.
+    spoken_output = True
+
     def _new_spoken_tool_guard(self, advertised):
         schemas = (
             {
@@ -24,7 +27,7 @@ class SpokenToolCallMixin:
             if isinstance(advertised, ToolsSchema)
             else {}
         )
-        return SpokenToolCallGuard(schemas)
+        return SpokenToolCallGuard(schemas, spoken_output=self.spoken_output)
 
     def _recover_spoken_tool_calls(
         self,

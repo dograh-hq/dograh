@@ -65,7 +65,13 @@ class BuilderChatModel(BaseChatModel):
                 service_key=api_key,
                 model=self.model_name,
                 messages=wire,
-                max_tokens=8000,
+                # Reasoning models (gpt-5, o-series, R1, …) count their
+                # reasoning tokens against this budget, so a small cap starves
+                # the actual tool-call output and truncates its JSON arguments
+                # mid-string. Give enough headroom for reasoning + the full
+                # tool call (e.g. a complete @dograh/sdk workflow in
+                # propose_workflow's args).
+                max_tokens=32000,
                 tools=kwargs.get("tools"),
                 tool_choice=kwargs.get("tool_choice"),
                 metadata={

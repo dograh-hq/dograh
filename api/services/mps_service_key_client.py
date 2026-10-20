@@ -670,7 +670,10 @@ class MPSServiceKeyClient:
         # Only W3C trace context; never forward baggage or caller credentials to
         # another destination. MPS remains responsible for the generation span.
         TraceContextTextMapPropagator().inject(headers)
-        async with httpx.AsyncClient(timeout=httpx.Timeout(110, connect=10)) as client:
+        # Builder-only call. The build stage can generate a full @dograh/sdk
+        # workflow, which can run longer than a chat turn; keep this under the
+        # 300s builder step deadline (service.py) so that stays the outer bound.
+        async with httpx.AsyncClient(timeout=httpx.Timeout(290, connect=10)) as client:
             response = await client.post(
                 f"{self.base_url.rstrip('/')}/api/v1/llm/chat/completions",
                 headers=headers,

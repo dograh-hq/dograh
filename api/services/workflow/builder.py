@@ -8,6 +8,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from fastapi import HTTPException
 from fastmcp import Client
 from loguru import logger
+from pipecat.utils.run_context import set_current_org_id
 
 from api.db import db_client
 from api.db.models import UserModel
@@ -87,6 +88,12 @@ async def call_builder_tool(client, name: str, arguments: dict) -> dict:
 
 
 async def builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
+    # Route builder traces to this org's Langfuse project. `_OrgAttributeSpanProcessor`
+    # stamps `dograh.org_id` from this context var at span start and
+    # `_OrgRoutingExporter` routes on it. Every other trace-producing path sets this;
+    # the builder omitted it, so its spans fell to the env-default exporter (or were
+    # dropped). Set before `builder_trace` so the span is stamped on creation.
+    set_current_org_id(user.selected_organization_id)
     with builder_trace(
         user=user,
         session_id=session_id,
@@ -202,6 +209,7 @@ async def _builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
 
 
 async def save_builder_draft(user, session_id: UUID, checkpoint: str) -> int:
+    set_current_org_id(user.selected_organization_id)
     with builder_trace(
         user=user,
         session_id=session_id,

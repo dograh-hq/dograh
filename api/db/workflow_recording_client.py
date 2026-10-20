@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from loguru import logger
 from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db.base_client import BaseDBClient
 from api.db.models import WorkflowRecordingModel
@@ -162,6 +163,22 @@ class WorkflowRecordingClient(BaseDBClient):
             result = await session.execute(query)
             return result.scalar_one_or_none()
 
+    async def get_active_recording_ids(
+        self, recording_ids: set[int], organization_id: int
+    ) -> set[int]:
+        """Find accessible recording references in one organization-scoped query."""
+        if not recording_ids:
+            return set()
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRecordingModel.id).where(
+                    WorkflowRecordingModel.id.in_(recording_ids),
+                    WorkflowRecordingModel.organization_id == organization_id,
+                    WorkflowRecordingModel.is_active.is_(True),
+                )
+            )
+            return set(result.scalars().all())
+
     async def has_active_recordings(
         self,
         organization_id: int,
@@ -213,7 +230,7 @@ class WorkflowRecordingClient(BaseDBClient):
         new_recording_id: str,
         organization_id: int,
     ) -> Optional[WorkflowRecordingModel]:
-        """Update the recording_id of a recording.
+        """Rename a recording and its workflow references in one transaction.
 
         Args:
             id: Primary key ID of the recording
@@ -224,10 +241,14 @@ class WorkflowRecordingClient(BaseDBClient):
             Updated WorkflowRecordingModel if found, None otherwise
         """
         async with self.async_session() as session:
-            query = select(WorkflowRecordingModel).where(
-                WorkflowRecordingModel.id == id,
-                WorkflowRecordingModel.organization_id == organization_id,
-                WorkflowRecordingModel.is_active == True,
+            query = (
+                select(WorkflowRecordingModel)
+                .where(
+                    WorkflowRecordingModel.id == id,
+                    WorkflowRecordingModel.organization_id == organization_id,
+                    WorkflowRecordingModel.is_active == True,
+                )
+                .with_for_update()
             )
             result = await session.execute(query)
             recording = result.scalar_one_or_none()
@@ -237,28 +258,36 @@ class WorkflowRecordingClient(BaseDBClient):
 
             old_id = recording.recording_id
             recording.recording_id = new_recording_id
+            # Derive the old alias under the row lock so concurrent renames
+            # rewrite the alias committed by the preceding rename.
+            await session.flush()
+            updated = await self._replace_recording_id_in_workflows(
+                session, old_id, new_recording_id, organization_id
+            )
             await session.commit()
             await session.refresh(recording)
 
             logger.info(
                 f"Updated recording ID {old_id} -> {new_recording_id}, "
-                f"org {organization_id}"
+                f"org {organization_id}, {updated} workflow definition(s)"
             )
             return recording
 
-    async def replace_recording_id_in_workflows(
+    async def _replace_recording_id_in_workflows(
         self,
+        session: AsyncSession,
         old_id: str,
         new_id: str,
         organization_id: int,
     ) -> int:
-        """Replace all occurrences of a recording ID in workflow definitions.
+        """Rewrite workflow references within the caller's rename transaction.
 
         Updates both draft definitions (workflows.workflow_definition) and
         versioned definitions (workflow_definitions.workflow_json), skipping
         workflow_definitions with status 'legacy'.
 
         Args:
+            session: Session owning the recording rename; this method never commits
             old_id: The old recording ID to find
             new_id: The new recording ID to replace with
             organization_id: ID of the organization (scopes to org workflows)
@@ -271,52 +300,43 @@ class WorkflowRecordingClient(BaseDBClient):
         new_pattern = f"RECORDING_ID: {new_id}"
 
         total = 0
-        async with self.async_session() as session:
-            # Update workflows.workflow_definition (draft definitions)
-            result = await session.execute(
-                text("""
-                    UPDATE workflows
-                    SET workflow_definition =
-                        REPLACE(workflow_definition::text, :old_pat, :new_pat)::json
-                    WHERE organization_id = :org_id
-                      AND workflow_definition::text LIKE '%%' || :old_pat || '%%'
-                """),
-                {
-                    "old_pat": old_pattern,
-                    "new_pat": new_pattern,
-                    "org_id": organization_id,
-                },
-            )
-            total += result.rowcount
+        # Update workflows.workflow_definition (draft definitions)
+        result = await session.execute(
+            text("""
+                UPDATE workflows
+                SET workflow_definition =
+                    REPLACE(workflow_definition::text, :old_pat, :new_pat)::json
+                WHERE organization_id = :org_id
+                  AND workflow_definition::text LIKE '%%' || :old_pat || '%%'
+            """),
+            {
+                "old_pat": old_pattern,
+                "new_pat": new_pattern,
+                "org_id": organization_id,
+            },
+        )
+        total += result.rowcount
 
-            # Update workflow_definitions.workflow_json (versioned definitions)
-            # Skip legacy definitions
-            result = await session.execute(
-                text("""
-                    UPDATE workflow_definitions wd
-                    SET workflow_json =
-                        REPLACE(wd.workflow_json::text, :old_pat, :new_pat)::json
-                    FROM workflows w
-                    WHERE wd.workflow_id = w.id
-                      AND w.organization_id = :org_id
-                      AND wd.status != 'legacy'
-                      AND wd.workflow_json::text LIKE '%%' || :old_pat || '%%'
-                """),
-                {
-                    "old_pat": old_pattern,
-                    "new_pat": new_pattern,
-                    "org_id": organization_id,
-                },
-            )
-            total += result.rowcount
-
-            await session.commit()
-
-            if total > 0:
-                logger.info(
-                    f"Replaced recording ID '{old_id}' -> '{new_id}' "
-                    f"in {total} workflow definition(s), org {organization_id}"
-                )
+        # Update workflow_definitions.workflow_json (versioned definitions)
+        # Skip legacy definitions
+        result = await session.execute(
+            text("""
+                UPDATE workflow_definitions wd
+                SET workflow_json =
+                    REPLACE(wd.workflow_json::text, :old_pat, :new_pat)::json
+                FROM workflows w
+                WHERE wd.workflow_id = w.id
+                  AND w.organization_id = :org_id
+                  AND wd.status != 'legacy'
+                  AND wd.workflow_json::text LIKE '%%' || :old_pat || '%%'
+            """),
+            {
+                "old_pat": old_pattern,
+                "new_pat": new_pattern,
+                "org_id": organization_id,
+            },
+        )
+        total += result.rowcount
 
         return total
 

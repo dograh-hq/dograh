@@ -11,6 +11,7 @@ from api.db.models import (
 from api.errors.failure import ErrorSource, classify_exception, log_failure
 from api.errors.mps import MPSUnavailableError
 from api.schemas.onboarding_state import OnboardingState, OnboardingStateUpdate
+from api.schemas.voices import VoiceInfo, VoicesResponse
 from api.schemas.widget_texts import WidgetTexts
 from api.schemas.workflow_configurations import (
     CallDispositionOption,
@@ -30,6 +31,7 @@ from api.services.configuration.check_validity import (
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
 from api.services.configuration.masking import mask_user_config
 from api.services.configuration.registry import REGISTRY, ServiceType
+from api.services.configuration.voice_catalog import get_connection_voices
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.organization_preferences import (
     get_organization_preferences,
@@ -370,30 +372,6 @@ async def reactivate_api_key(
 TTSProvider = Literal["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"]
 
 
-class VoiceInfo(BaseModel):
-    voice_id: str
-    name: str
-    description: Optional[str] = None
-    accent: Optional[str] = None
-    gender: Optional[str] = None
-    language: Optional[str] = None
-    preview_url: Optional[str] = None
-
-
-class VoiceFacets(BaseModel):
-    """Distinct selector values across a provider's full voice catalog."""
-
-    genders: List[str] = []
-    accents: List[str] = []
-    languages: List[str] = []
-
-
-class VoicesResponse(BaseModel):
-    provider: str
-    voices: List[VoiceInfo]
-    facets: Optional[VoiceFacets] = None
-
-
 @router.get("/configurations/voices/{provider}")
 async def get_voices(
     provider: TTSProvider,
@@ -402,9 +380,33 @@ async def get_voices(
     q: Optional[str] = None,
     gender: Optional[str] = None,
     accent: Optional[str] = None,
+    provider_connection_uuid: Optional[str] = None,
     user: UserModel = Depends(get_user),
 ) -> VoicesResponse:
-    """Get available voices for a TTS provider."""
+    """Get voices from Dograh's managed catalog or a saved provider connection.
+
+    External providers require provider_connection_uuid for an active connection
+    in the selected organization. Model and language filtering depends on the
+    provider's catalog capabilities.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    if provider != "dograh":
+        if not provider_connection_uuid:
+            raise HTTPException(
+                status_code=400,
+                detail="Select a provider connection to load voices",
+            )
+        return await get_connection_voices(
+            provider,
+            user.selected_organization_id,
+            provider_connection_uuid,
+            model=model,
+            language=language,
+            q=q,
+            gender=gender,
+            accent=accent,
+        )
     try:
         result = await mps_service_key_client.get_voices(
             provider=provider,

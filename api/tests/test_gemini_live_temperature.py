@@ -70,8 +70,7 @@ def test_create_realtime_llm_service_gemini_live_uses_provider_temperature(model
 def test_create_realtime_llm_service_gemini_vertex_uses_provider_temperature(
     monkeypatch,
 ):
-    # Keep this factory test hermetic: the Vertex service normally refreshes
-    # Application Default Credentials during construction.
+    # Temperature behavior is independent of deferred credential preparation.
     monkeypatch.setattr(
         DograhGeminiLiveVertexLLMService,
         "_get_credentials",

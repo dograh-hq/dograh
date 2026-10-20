@@ -18,9 +18,15 @@ const provider = { credential_fields: {}, connection_fields: {}, settings_schema
 } } };
 const elevenlabs = { ...provider, title: "ElevenLabs", connection_fields: { region: { type: "string", title: "Region" } } };
 const catalog: ModelConnectionCatalog = { services: {
-    llm: { openai: provider, google: provider, dograh: { ...provider, settings_schema: { properties: { temperature: { type: "number", title: "Temperature", default: 0.1 } } } } },
-    stt: { openai: provider, dograh: { ...provider, settings_schema: { properties: { language: { type: "string", title: "Language", default: "en" } } } } },
-    tts: { openai: provider, elevenlabs, dograh: { ...provider, settings_schema: { properties: { voice: { type: "string", title: "Voice", default: "Alice" }, speed: { type: "number", title: "Speed", default: 1 } } } } },
+    llm: { openai: provider, google: provider, dograh: { ...provider, settings_schema: { properties: {
+        model: { type: "string", title: "LLM model", default: "default", examples: ["default", "accurate", "fast", "lite", "zen"], option_labels: { default: "default (recommended)" }, allow_custom_input: true },
+        temperature: { type: "number", title: "Temperature", default: 0.1 },
+    } } } },
+    stt: { openai: provider, dograh: { ...provider, settings_schema: { properties: {
+        language: { type: "string", title: "Language", default: "multi", examples: ["multi", "en", "en-GB", "es", "ar"] },
+        language_hints: { type: "array", title: "Language hints", items: { type: "string" }, examples: ["en", "es", "de"], visible_for_languages: ["multi", "en", "es", "de"] },
+    } } } },
+    tts: { openai: provider, elevenlabs, dograh: { ...provider, settings_schema: { properties: { voice: { type: "string", title: "Voice", default: "Alice", voice_catalog: "dialog", allow_custom_input: true }, speed: { type: "number", title: "Speed", default: 1 } } } } },
     embeddings: { openai: provider, dograh: provider },
     realtime: { openai: provider },
 } };
@@ -30,7 +36,7 @@ const connections = [connection("Dograh primary", "dograh"), connection("Dograh 
 function Editor({ available = connections }: { available?: ProviderConnection[] }) {
     const [current, setCurrent] = useState(available);
     const [configuration, setConfiguration] = useState(() => emptyConfiguration(catalog, available));
-    return <form onSubmit={event => { event.preventDefault(); onSubmit(configuration); }}>
+    return <form onSubmit={event => { event.preventDefault(); onSubmit(cleanConfiguration(configuration, catalog, current)); }}>
         <ConfigurationFields catalog={catalog} connections={current} configuration={configuration} onChange={setConfiguration}
             onConnectionAdded={connection => setCurrent(previous => [...previous, connection])} llmActions={<button type="button">Configure fallbacks</button>} />
         <button type="submit">Save</button>
@@ -62,18 +68,47 @@ describe("configuration modes", () => {
 
     it("uses one Dograh account for all services and preserves settings when changing accounts", () => {
         const onChange = vi.fn();
-        const configuration: ConfigurationSpec = { ...emptyConfiguration(catalog, connections), llm: { provider_connection_uuid: "Dograh primary", settings: { temperature: 0.8 } } };
+        const configuration: ConfigurationSpec = { ...emptyConfiguration(catalog, connections), llm: { provider_connection_uuid: "Dograh primary", settings: { model: "zen", temperature: 0.8 } }, stt: { provider_connection_uuid: "Dograh primary", settings: { language: "multi", language_hints: ["en", "es"] } } };
         render(<ConfigurationFields catalog={catalog} connections={connections} configuration={configuration} onChange={onChange} />);
         expect(selectedMode()).toBe("Dograh");
-        expect(screen.getAllByRole("combobox")).toHaveLength(1);
+        expect(screen.getAllByRole("combobox")).toHaveLength(3);
         expect(screen.queryByLabelText("Enable embeddings")).toBeNull();
-        for (const label of ["Temperature", "Voice", "Speed", "Language"]) expect(screen.getByLabelText(label)).toBeDefined();
+        for (const label of ["LLM model", "Temperature", "Voice", "Speed", "Language"]) expect(screen.getByLabelText(label)).toBeDefined();
+        expect(screen.getByRole("checkbox", { name: "English" }).getAttribute("aria-checked")).toBe("true");
+        expect(screen.getByRole("checkbox", { name: "Spanish" }).getAttribute("aria-checked")).toBe("true");
         expect(selectOptions("Dograh account")).toEqual(["Dograh primary", "Dograh secondary", "Add a Dograh account"]);
         selectOption("Dograh account", "Dograh secondary");
         const saved = cleanConfiguration(onChange.mock.calls[0][0], catalog, connections);
         for (const role of ["llm", "stt", "tts", "embeddings"] as const) expect(saved[role]?.provider_connection_uuid).toBe("Dograh secondary");
         expect(saved.llm.settings.temperature).toBe(0.8);
+        expect(saved.llm.settings.model).toBe("zen");
+        expect(saved.stt?.settings.language_hints).toEqual(["en", "es"]);
         expect(saved.tts?.settings.voice).toBe("Alice");
+    });
+
+    it.each(["fast", "zen"])("saves managed model %s with English and Spanish hints", model => {
+        render(<Editor />);
+        selectOption("LLM model", model);
+        fireEvent.click(screen.getByRole("checkbox", { name: "English" }));
+        fireEvent.click(screen.getByRole("checkbox", { name: "Spanish" }));
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+        expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({
+            llm: expect.objectContaining({ settings: { model, temperature: 0.1 } }),
+            stt: expect.objectContaining({ settings: { language: "multi", language_hints: ["en", "es"] } }),
+        }));
+    });
+
+    it("keeps hints for Flux locales and omits them for other transcriber languages", () => {
+        render(<Editor />);
+        fireEvent.click(screen.getByRole("checkbox", { name: "Spanish" }));
+        selectOption("Language", "English (UK)");
+        expect(screen.getByRole("checkbox", { name: "Spanish" }).getAttribute("aria-checked")).toBe("true");
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+        expect(onSubmit.mock.lastCall?.[0].stt.settings).toEqual({ language: "en-GB", language_hints: ["es"] });
+        selectOption("Language", "Arabic");
+        expect(screen.queryByRole("group", { name: "Language hints" })).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+        expect(onSubmit.mock.lastCall?.[0].stt.settings).toEqual({ language: "ar" });
     });
 
     it("shows one tab per service, naming its provider, with only compatible external connections", () => {
@@ -185,10 +220,28 @@ describe("compact density", () => {
         return <ConfigurationFields catalog={catalog} connections={connections} configuration={configuration} onChange={setConfiguration} density="compact" fields={["model", "voice"]} />;
     }
 
+    it("resets a hidden dependent field when a quick field it depends on changes", () => {
+        // The reset must consult the provider's whole schema, not just the fields this editor shows.
+        const deepgram = { credential_fields: {}, connection_fields: {}, title: "Deepgram", settings_schema: { properties: {
+            model: { type: "string", title: "Model", default: "aura-2", enum: ["aura-2", "flux"] },
+            voice: { type: "string", title: "Voice", default: "aura-2-helena-en", reset_on_change: ["model"] },
+        } } };
+        const partial: ModelConnectionCatalog = { services: { llm: { openai: provider }, stt: { openai: provider }, tts: { deepgram }, embeddings: { openai: provider }, realtime: { openai: provider } } };
+        const available = [connection("OpenAI", "openai"), connection("Deepgram", "deepgram")];
+        const onChange = vi.fn();
+        const configuration = emptyConfiguration(partial, available);
+        configuration.tts = { provider_connection_uuid: available[1].uuid, settings: { model: "aura-2", voice: "aura-2-helena-en" } };
+        render(<ConfigurationFields catalog={partial} connections={available} configuration={configuration} onChange={onChange} density="compact" fields={["model"]} />);
+        const panel = servicePanel("TTS");
+        expect(within(panel).queryByLabelText("Voice")).toBeNull();
+        selectOption(within(panel).getByLabelText("Model"), "flux");
+        expect(onChange.mock.lastCall?.[0].tts.settings).toEqual({ model: "flux", voice: null });
+    });
     it("shows only the quick fields and leaves out embeddings", () => {
         render(<CompactEditor />);
         expect(selectedMode()).toBe("Dograh");
         expect(screen.getByLabelText("Voice")).toBeDefined();
+        expect(screen.getByLabelText("LLM model")).toBeDefined();
         expect(screen.queryByLabelText("Speed")).toBeNull();
         expect(screen.queryByLabelText("Temperature")).toBeNull();
         chooseMode("BYOK");

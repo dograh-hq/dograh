@@ -14,7 +14,10 @@
 //
 //    {
 //      id: "devday-2026-11",
+//      eyebrow: "Workshop",          // optional, default "Live virtual session"
+//      pulse: true,                  // optional, default true
 //      title: "Ship a voice agent in an hour.",
+//      titleMobile: "Ship a voice agent fast.", // optional, shown below 768px
 //      subtitle: "Workshop · Thu Nov 12, 10:00 AM PT",
 //      url: "https://lu.ma/...",
 //      cta: "Save your seat",
@@ -50,12 +53,22 @@ export type EventBannerPartner = {
 export type EventBannerEvent = {
   /** Stable slug, also used for the branch name when shipping. */
   id: string;
+  /** Small-caps label before the title. Defaults to "Live virtual session"
+   *  (compacted to "Live" in the 640-767px band). A custom eyebrow renders as
+   *  given at every width, so keep it short. */
+  eyebrow?: string;
+  /** Whether the pulsing accent dot precedes the eyebrow. Default true; set
+   *  false for announcements that are not live events. */
+  pulse?: boolean;
   /** Lead sentence. Always rendered in full — never truncated. */
   title: string;
+  /** Shorter title for viewports below 768px, where the bar has less room.
+   *  Falls back to `title` when absent. Also never truncated. */
+  titleMobile?: string;
   /** Format and timing, e.g. "#SF Tech Week · Tue Oct 6, 12:30 PM PT".
    *  Rendered muted after the title, and dropped on narrow viewports where it
-   *  would not fit whole. */
-  subtitle: string;
+   *  would not fit whole. Omit it when there is nothing to add. */
+  subtitle?: string;
   /** Registration link. The entire bar points here. */
   url: string;
   /** Button label. The arrow is drawn by the component — leave it off unless
@@ -75,6 +88,19 @@ export type EventBannerEvent = {
 };
 
 export const events: EventBannerEvent[] = [
+  {
+    id: "experiments-tts-2026-10",
+    eyebrow: "NEW EXPERIMENT",
+    pulse: false,
+    title: "We tested 7 open TTS models on dates, prices & phone numbers.",
+    titleMobile: "We tested 7 open TTS models on dates & prices.",
+    url: "https://www.dograh.com/hub/experiments/tts-verbalization-benchmark",
+    cta: "Read the results",
+    startsAt: "2026-10-13T00:00:00+05:30",
+    endsAt: "2026-11-10T23:59:59+05:30",
+    analyticsId: "experiments_tts_verbalization",
+    storageKey: "dograh_event_banner_experiments_tts_dismissed",
+  },
   {
     id: "sftechweek-2026-10",
     title: "Own your agentic voice.",

@@ -166,6 +166,10 @@ The dynamic resolver uses `POST` only. If you need custom backend behavior, impl
 
 Call Transfer supports a common pre-transfer message setting for static, context-mapped, and dynamic destinations.
 
+Store it in `definition.messages` as one entry with `event: "start"`. Use `type: "text"` with `text`, or `type: "audio"` with a numeric `recording_id`. An empty array disables the configured message. Call Transfer supports one start message; delayed updates and variants are available on HTTP and MCP tools.
+
+Text announcements are unavailable with realtime agents. Use an audio recording for their configured pre-transfer message.
+
 For static transfers:
 
 1. Dograh resolves the static or template destination.

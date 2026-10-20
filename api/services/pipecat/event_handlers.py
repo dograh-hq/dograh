@@ -1,10 +1,12 @@
 import asyncio
+import time
 
 from loguru import logger
 
 from api.constants import ENABLE_CALL_RECORDING_UPLOAD
 from api.db import db_client
 from api.enums import PostHogEvent, WorkflowRunState
+from api.schemas.answer_supervisor import resolve_listening_window_ms
 from api.services.campaign.campaign_event_publisher import (
     notify_campaign_call_completed,
 )
@@ -181,8 +183,8 @@ def register_event_handlers(
 
         The call-start sequence, the same for every transport and both
         pipeline shapes: ring until the pre-call fetch settles, fold its
-        result into the call, bind the first agent's services, then attach
-        the agent and open its start node.
+        result into the call, bind the first agent's services, then prepare
+        generation while recorded playback and answer supervision proceed.
         """
         if (
             ready_state["pipeline_started"]
@@ -192,6 +194,7 @@ def register_event_handlers(
             ready_state["initial_response_triggered"] = True
 
             if answer_supervisor is not None:
+                answer_supervisor.opening_deadline = engine.opening.deadline
                 answer_supervisor.arm()
 
             asyncio.create_task(
@@ -213,6 +216,9 @@ def register_event_handlers(
             # fetch is the last thing that can change them, so this is the
             # first moment they are known.
             engine.finalize_initial_agent(visit_configuration)
+            engine.active_agent.model_configuration_snapshot = dict(
+                getattr(workflow_run, "model_configuration_snapshot", None) or {}
+            )
             try:
                 await db_client.update_workflow_run(
                     workflow_run_id,
@@ -221,46 +227,58 @@ def register_event_handlers(
             except Exception as e:
                 logger.error(f"Failed to persist call-start context: {e}")
 
-            # Attach and activate the agent this call starts on. On a split
-            # pipeline nothing can generate until this lands: an agent worker
-            # is inactive until told otherwise, and an inactive worker is
-            # handed no frames from the bus.
-            # Disposal precedes retirement, so avoid startup once shutdown begins.
+            # Recognition and recorded playback belong to the call pipeline.
+            # Generation waits on this preparation only when it is needed.
             if engine.is_call_disposed():
                 return
-
-            started = await engine.start_initial_agent()
-
-            # Hangup during startup must skip both opening and failure handling.
-            if engine.is_call_disposed():
-                return
-
-            if not started:
-                logger.error(
-                    f"Initial agent never became ready for run {workflow_run_id}; "
-                    "ending the call"
-                )
-                await engine.end_call_with_reason(EndTaskReason.PIPELINE_ERROR.value)
-                return
-
-            # Set the start node now (after pre-call fetch data is merged)
-            # so that render_template() has the complete _call_context_vars.
-            await engine.set_node(engine.active_agent.workflow.start_node_id)
-            if engine.is_call_disposed():
-                return
+            engine.begin_initial_agent_startup()
             if answer_supervisor is not None:
                 await engine.handle_answer_supervision()
                 return
+            start_node = engine.active_agent.workflow.nodes.get(
+                engine.active_agent.workflow.start_node_id
+            )
+            window_ms = resolve_listening_window_ms(start_node)
+            if not await engine.opening.deadline.wait(window_ms):
+                return
+            gate = engine.opening.input_gate
+            caller_first = bool(window_ms and gate and gate.heard_speech)
+            logger.info(
+                "Opening window released: window_ms={} elapsed_ms={} path={}",
+                window_ms,
+                round(
+                    (
+                        asyncio.get_running_loop().time()
+                        - engine.opening.deadline.armed_at
+                    )
+                    * 1000
+                ),
+                "caller_first" if caller_first else "silent",
+            )
+            if caller_first:
+                if not await engine.wait_for_generation_ready():
+                    return
+                await engine._open_realtime_after_recorded_greeting(None)
+                engine.call_monitor.activate()
+                engine.opening.prepare(engine.release_opening_input())
+                return
+            greeting = engine.get_start_greeting()
+            recorded = greeting and greeting[0] in {"audio", "audio_recording_id"}
+            if not recorded and not await engine.wait_for_generation_ready():
+                return
             engine.call_monitor.activate()
-            await engine.queue_node_opening(
+            opening = await engine.queue_node_opening(
                 node_id=engine.active_agent.workflow.start_node_id,
                 previous_node_id=None,
                 generate_if_no_greeting=True,
             )
+            if gate is not None:
+                engine.opening.prepare(engine.release_opening_input(opening.playback))
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport, _participant):
         logger.debug("In on_client_connected callback handler")
+        engine.opening.deadline.arm()
         await audio_buffer.start_recording()
         ready_state["client_connected"] = True
         await maybe_trigger_initial_response()
@@ -297,32 +315,55 @@ def register_event_handlers(
         ready_state["pipeline_started"] = True
         await maybe_trigger_initial_response()
 
-    async def _record_pipeline_error() -> None:
+    outcome_lock = asyncio.Lock()
+    outcome_recorded = False
+
+    async def _record_pipeline_outcome() -> None:
+        """Own campaign health accounting for every provider, including ARI.
+
+        A carrier's completed callback only means the phone call ended. The
+        engine's final status tells us whether its pipeline failed. Keep this
+        independent of artifact/observer finalization and ignore unfinished
+        teardown rather than inventing a successful outcome.
+        """
+        nonlocal outcome_recorded
         try:
-            gathered_context = await engine.get_gathered_context()
-            if (
-                gathered_context.get("call_status")
-                != EndTaskReason.PIPELINE_ERROR.value
-            ):
-                return
-            workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-            if workflow_run and workflow_run.campaign_id:
-                await circuit_breaker.record_and_evaluate(
-                    campaign_id=workflow_run.campaign_id,
-                    is_failure=True,
-                    workflow_run_id=workflow_run_id,
-                    reason="pipeline_error",
-                )
-            asyncio.create_task(
-                _capture_call_event(
-                    workflow_run_id,
-                    user_provider_id,
-                    PostHogEvent.CALL_FAILED,
-                    extra_properties={"error_reason": "pipeline_error"},
-                )
-            )
+            async with outcome_lock:
+                if outcome_recorded:
+                    return
+                gathered_context = await engine.get_gathered_context()
+                call_status = gathered_context.get("call_status")
+                if (
+                    not call_status
+                    or call_status == EndTaskReason.SYSTEM_CANCELLED.value
+                ):
+                    # Bare framework cancellation has no reliable call outcome.
+                    # Do not invent either a success or a provider failure.
+                    return
+                is_failure = call_status in {
+                    EndTaskReason.PIPELINE_ERROR.value,
+                    EndTaskReason.UNEXPECTED_ERROR.value,
+                }
+                run = await db_client.get_workflow_run_by_id(workflow_run_id)
+                if run and run.campaign_id:
+                    await circuit_breaker.record_and_evaluate(
+                        campaign_id=run.campaign_id,
+                        is_failure=is_failure,
+                        workflow_run_id=workflow_run_id,
+                        reason=call_status,
+                    )
+                outcome_recorded = True
+                if is_failure:
+                    asyncio.create_task(
+                        _capture_call_event(
+                            workflow_run_id,
+                            user_provider_id,
+                            PostHogEvent.CALL_FAILED,
+                            extra_properties={"error_reason": call_status},
+                        )
+                    )
         except Exception as e:
-            logger.error(f"Error recording circuit breaker failure: {e}", exc_info=True)
+            logger.error(f"Error recording circuit breaker outcome: {e}", exc_info=True)
 
     async def dispose_call(reason: str, error: ErrorFrame | None = None) -> None:
         """Dispose of a call whose pipeline asked to stop.
@@ -365,7 +406,7 @@ def register_event_handlers(
         # Count the final call outcome once, including agent-worker failures
         # that bypassed the funnel. Observer or persistence errors below must
         # not suppress this independently protected accounting path.
-        await _record_pipeline_error()
+        await _record_pipeline_outcome()
 
         # Turn and feedback observers run on independent queues. Drain them
         # before finalizing immutable transcripts and taking the DB snapshot.
@@ -400,10 +441,11 @@ def register_event_handlers(
         # copy would only be a second, worse answer.
         await engine.finish_tool_calls()
         gathered_context = await engine.get_gathered_context()
+        final_extraction = engine.final_extraction_metadata()
 
         # Store disposition code in workflow for dynamic filtering
         disposition_code = gathered_context.get("mapped_call_disposition")
-        if disposition_code and workflow_run:
+        if disposition_code and workflow_run and not final_extraction:
             try:
                 await db_client.add_call_disposition_code(
                     workflow_run.workflow_id, disposition_code
@@ -478,24 +520,7 @@ def register_event_handlers(
             list(gathered_context),
         )
 
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id,
-            usage_info=usage_info,
-            gathered_context=gathered_context,
-            is_completed=True,
-            state=WorkflowRunState.COMPLETED.value,
-        )
-        await notify_campaign_call_completed(
-            workflow_run.campaign_id if workflow_run else None, workflow_run_id
-        )
-
-        asyncio.create_task(
-            _capture_call_event(
-                workflow_run_id, user_provider_id, PostHogEvent.CALL_COMPLETED
-            )
-        )
-
-        logs_update: dict[str, object] = {}
+        logs_update: dict[str, object] = engine.final_extraction_logs()
         if not in_memory_logs_buffer.is_empty:
             try:
                 feedback_events = in_memory_logs_buffer.get_events()
@@ -509,15 +534,31 @@ def register_event_handlers(
             logger.info("Logs buffer is empty, skipping save")
 
         logs_update.update(integration_logs)
+        completion: dict[str, object] = {
+            "status": "pending",
+            "created_at": time.time(),
+        }
+        if final_extraction:
+            completion["final_extraction"] = final_extraction
 
-        if logs_update:
-            try:
-                await db_client.update_workflow_run(
-                    run_id=workflow_run_id,
-                    logs=logs_update,
-                )
-            except Exception as e:
-                logger.error(f"Error saving workflow run logs: {e}", exc_info=True)
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id,
+            usage_info=usage_info,
+            gathered_context=gathered_context,
+            logs=logs_update,
+            extra={"workflow_completion": completion},
+            is_completed=True,
+            state=WorkflowRunState.COMPLETED.value,
+        )
+        await notify_campaign_call_completed(
+            workflow_run.campaign_id if workflow_run else None, workflow_run_id
+        )
+
+        asyncio.create_task(
+            _capture_call_event(
+                workflow_run_id, user_provider_id, PostHogEvent.CALL_COMPLETED
+            )
+        )
 
         # Upload artifacts straight from the in-memory buffers so nothing has
         # to cross a process/host boundary via temp files. Must complete
@@ -570,6 +611,7 @@ def register_event_handlers(
         await enqueue_job(
             FunctionNames.PROCESS_WORKFLOW_COMPLETION,
             workflow_run_id,
+            _job_id=f"workflow-completion-{workflow_run_id}",
         )
 
     # Return the buffer so it can be passed to other handlers

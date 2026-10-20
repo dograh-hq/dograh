@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { TransferAgentToolConfig } from "./TransferAgentToolConfig";
+import { TransferAgentToolConfig, type TransferGreetingMode } from "./TransferAgentToolConfig";
 
 const noop = vi.fn();
 
@@ -11,10 +11,17 @@ const AGENTS = [
     { id: 43, name: "Support" },
 ];
 
-function Harness({ initialWorkflowId = "" }: { initialWorkflowId?: string }) {
+function Harness({
+    initialWorkflowId = "",
+    initialGreetingMode = "start_greeting",
+}: {
+    initialWorkflowId?: string;
+    initialGreetingMode?: TransferGreetingMode;
+}) {
     const [workflowId, setWorkflowId] = useState(initialWorkflowId);
     const [message, setMessage] = useState("Connecting you now.");
-    const [playGreeting, setPlayGreeting] = useState(true);
+    const [greetingMode, setGreetingMode] = useState<TransferGreetingMode>(initialGreetingMode);
+    const [introduction, setIntroduction] = useState("");
     return (
         <TransferAgentToolConfig
             name="Transfer to Billing"
@@ -26,8 +33,10 @@ function Harness({ initialWorkflowId = "" }: { initialWorkflowId?: string }) {
             workflows={AGENTS}
             message={message}
             onMessageChange={setMessage}
-            playGreeting={playGreeting}
-            onPlayGreetingChange={setPlayGreeting}
+            greetingMode={greetingMode}
+            onGreetingModeChange={setGreetingMode}
+            introduction={introduction}
+            onIntroductionChange={setIntroduction}
         />
     );
 }
@@ -59,16 +68,45 @@ describe("TransferAgentToolConfig", () => {
         ).toBe("One moment.");
     });
 
-    it("toggles whether the destination plays its greeting", () => {
+    it("plays the destination's greeting by default and asks for no introduction", () => {
         render(<Harness />);
-        const toggle = screen.getByLabelText("Play the destination agent's greeting");
-        expect(toggle.getAttribute("aria-checked")).toBe("true");
-
-        fireEvent.click(toggle);
         expect(
-            screen
-                .getByLabelText("Play the destination agent's greeting")
-                .getAttribute("aria-checked"),
-        ).toBe("false");
+            screen.getByLabelText("When the destination agent picks up").textContent,
+        ).toContain("Play its greeting, then wait");
+        expect(screen.queryByLabelText("Introduction")).toBeNull();
+    });
+
+    it("shows the greeting mode already configured", () => {
+        render(<Harness initialGreetingMode="introduce_and_continue" />);
+        expect(
+            screen.getByLabelText("When the destination agent picks up").textContent,
+        ).toContain("Introduce itself, then continue");
+        expect(screen.getByLabelText("Introduction")).toBeDefined();
+    });
+
+    it("asks for the introduction only when the destination introduces itself", () => {
+        render(<Harness />);
+        const modeSelect = () =>
+            screen.getByLabelText("When the destination agent picks up");
+
+        fireEvent.keyDown(modeSelect(), { key: "ArrowDown" });
+        expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+            "Play its greeting, then wait",
+            "Continue the conversation",
+            "Introduce itself, then continue",
+        ]);
+        fireEvent.click(screen.getByRole("option", { name: "Introduce itself, then continue" }));
+        expect(modeSelect().textContent).toContain("Introduce itself, then continue");
+
+        const field = screen.getByLabelText("Introduction") as HTMLTextAreaElement;
+        fireEvent.change(field, { target: { value: "Billing here, carrying on." } });
+        expect(
+            (screen.getByLabelText("Introduction") as HTMLTextAreaElement).value,
+        ).toBe("Billing here, carrying on.");
+
+        fireEvent.keyDown(modeSelect(), { key: "ArrowDown" });
+        fireEvent.click(screen.getByRole("option", { name: "Continue the conversation" }));
+        expect(modeSelect().textContent).toContain("Continue the conversation");
+        expect(screen.queryByLabelText("Introduction")).toBeNull();
     });
 });

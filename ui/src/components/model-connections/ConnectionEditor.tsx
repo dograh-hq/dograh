@@ -8,6 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { detailFromError } from "@/lib/apiError";
 
+import { clearVoiceCache } from "@/components/VoiceSelector";
+import { clearVoiceInfoCache } from "@/components/VoiceSelectorModal";
+
 import { connectionProviders, schemaDefaults } from "./configuration";
 import { ConfigurationSelect } from "./ConfigurationSelect";
 import { SchemaFields } from "./SchemaFields";
@@ -72,6 +75,8 @@ export function ConnectionEditor({ catalog, connection, onSaved, providerKeys, r
                 : await createProviderConnection({ body: { ...body, provider } });
             if (result.error) throw new Error(detailFromError(result.error, "Failed to save provider connection"));
             if (!result.data) throw new Error("Failed to save provider connection");
+            clearVoiceCache(result.data.uuid);
+            clearVoiceInfoCache(result.data.uuid);
             await onSaved(result.data.uuid, result.data);
         } catch (cause) { setError(cause instanceof Error ? cause.message : "Failed to save provider connection"); }
         finally { setSaving(false); }

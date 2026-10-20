@@ -19,7 +19,6 @@ from api.services.campaign.campaign_event_publisher import (
     notify_campaign_call_completed,
 )
 from api.services.campaign.campaign_retry import schedule_campaign_retry
-from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.workflow.disposition_mapping import map_disposition
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
@@ -43,9 +42,6 @@ IN_FLIGHT_STATUSES = frozenset(
 )
 RETRYABLE_NOT_CONNECTED_STATUSES = frozenset(
     {TelephonyCallStatus.BUSY, TelephonyCallStatus.NO_ANSWER}
-)
-FAILURE_NOT_CONNECTED_STATUSES = frozenset(
-    {TelephonyCallStatus.ERROR, TelephonyCallStatus.FAILED}
 )
 
 
@@ -140,10 +136,8 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
 
         await campaign_call_dispatcher.release_call_slot(workflow_run_id)
 
-        if workflow_run.campaign_id:
-            await circuit_breaker.record_and_evaluate(
-                workflow_run.campaign_id, is_failure=False
-            )
+        # Pipeline finalization owns campaign health accounting. A completed
+        # phone call can still have ended because STT/LLM/TTS failed.
 
         if workflow_run.state != WorkflowRunState.COMPLETED.value:
             await db_client.update_workflow_run(
@@ -158,15 +152,6 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
         )
 
         await campaign_call_dispatcher.release_call_slot(workflow_run_id)
-
-        if workflow_run.campaign_id:
-            is_failure = normalized_status in FAILURE_NOT_CONNECTED_STATUSES
-            await circuit_breaker.record_and_evaluate(
-                workflow_run.campaign_id,
-                is_failure=is_failure,
-                workflow_run_id=workflow_run_id if is_failure else None,
-                reason=normalized_status.value if is_failure else None,
-            )
 
         if (
             normalized_status in RETRYABLE_NOT_CONNECTED_STATUSES
@@ -205,6 +190,16 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
         }
         if status.call_id:
             gathered_context["call_id"] = status.call_id
+
+        # Surface the Twilio failure detail so webhooks can tell an invalid
+        # number from a temporarily-unavailable one. Twilio puts these on the
+        # terminal callback; providers that don't simply omit them.
+        sip_code = status.extra.get("SipResponseCode")
+        error_code = status.extra.get("ErrorCode")
+        if sip_code:
+            gathered_context["telephony_sip_code"] = str(sip_code)
+        if error_code:
+            gathered_context["telephony_error_code"] = str(error_code)
 
         should_run_post_call_integrations = (
             workflow_run.state == WorkflowRunState.INITIALIZED.value

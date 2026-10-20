@@ -516,6 +516,12 @@ export type CalculatorToolDefinition = {
      */
     schema_version?: number;
     /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
+    /**
      * Type
      *
      * Tool type.
@@ -2185,24 +2191,6 @@ export type EmbedTokenResponse = {
  */
 export type EndCallConfig = {
     /**
-     * Messagetype
-     *
-     * Type of goodbye message.
-     */
-    messageType?: 'none' | 'custom' | 'audio';
-    /**
-     * Custommessage
-     *
-     * Custom message to play before ending the call.
-     */
-    customMessage?: string | null;
-    /**
-     * Audiorecordingid
-     *
-     * Recording ID for audio goodbye message.
-     */
-    audioRecordingId?: string | null;
-    /**
      * Endcallreason
      *
      * When enabled, the model must provide a reason for ending the call. The reason is set as call disposition and added to call tags.
@@ -2228,6 +2216,12 @@ export type EndCallToolDefinition = {
      * Schema version.
      */
     schema_version?: number;
+    /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**
      * Type
      *
@@ -2546,24 +2540,6 @@ export type HttpApiConfig = {
      */
     timeout_ms?: number | null;
     /**
-     * Custommessage
-     *
-     * Custom message to play before the tool executes, while the request is in flight.
-     */
-    customMessage?: string | null;
-    /**
-     * Custommessagetype
-     *
-     * Type of custom message.
-     */
-    customMessageType?: 'text' | 'audio' | null;
-    /**
-     * Custommessagerecordingid
-     *
-     * Recording ID for an audio custom message.
-     */
-    customMessageRecordingId?: string | null;
-    /**
      * Body Template
      *
      * Optional JSON body template for POST, PUT, and PATCH requests.
@@ -2591,6 +2567,12 @@ export type HttpApiToolDefinition = {
      * Schema version.
      */
     schema_version?: number;
+    /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**
      * Type
      *
@@ -3101,6 +3083,12 @@ export type McpToolDefinition = {
      * Schema version.
      */
     schema_version?: number;
+    /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**
      * Type
      *
@@ -3647,6 +3635,51 @@ export type PhoneNumberResponse = {
      */
     updated_at: string;
     provider_sync?: ProviderSyncStatus | null;
+};
+
+/**
+ * PhoneNumberSyncResponse
+ *
+ * Outcome of importing the provider account's numbers into a configuration.
+ *
+ * Rows are only ever added or refreshed. A number the provider no longer
+ * reports is listed under ``missing_at_provider`` for the operator to act
+ * on; the sync never deactivates or deletes it, because a transient listing
+ * gap must not silence a live number.
+ */
+export type PhoneNumberSyncResponse = {
+    /**
+     * Created
+     */
+    created: Array<PhoneNumberResponse>;
+    /**
+     * Updated
+     */
+    updated: Array<PhoneNumberResponse>;
+    /**
+     * Skipped
+     */
+    skipped: Array<PhoneNumberSyncSkipped>;
+    /**
+     * Missing At Provider
+     */
+    missing_at_provider: Array<PhoneNumberResponse>;
+};
+
+/**
+ * PhoneNumberSyncSkipped
+ *
+ * A provider number the sync could not import, and why.
+ */
+export type PhoneNumberSyncSkipped = {
+    /**
+     * Address
+     */
+    address: string;
+    /**
+     * Reason
+     */
+    reason: string;
 };
 
 /**
@@ -4980,7 +5013,9 @@ export type TelephonyConfigurationCreateRequest = {
         provider: 'vobiz';
     } & VobizConfigurationRequest) | ({
         provider: 'vonage';
-    } & VonageConfigurationRequest);
+    } & VonageConfigurationRequest) | ({
+        provider: 'whatsapp';
+    } & WhatsAppConfigurationRequest);
 };
 
 /**
@@ -5028,6 +5063,10 @@ export type TelephonyConfigurationDetail = {
         [key: string]: unknown;
     };
     sip_connectivity?: SipConnectivityDetails | null;
+    /**
+     * Supports Outbound
+     */
+    supports_outbound?: boolean;
     setup_checklist?: ProviderSetupChecklist | null;
     /**
      * Supports Trunks
@@ -5037,6 +5076,10 @@ export type TelephonyConfigurationDetail = {
      * Trunks
      */
     trunks?: Array<TrunkResponse>;
+    /**
+     * Supports Phone Number Sync
+     */
+    supports_phone_number_sync?: boolean;
     /**
      * Created At
      */
@@ -5089,6 +5132,10 @@ export type TelephonyConfigurationListItem = {
      * Phone Number Count
      */
     phone_number_count?: number;
+    /**
+     * Supports Outbound
+     */
+    supports_outbound?: boolean;
     /**
      * Is Ready For Outbound
      */
@@ -5146,7 +5193,9 @@ export type TelephonyConfigurationUpdateRequest = {
         provider: 'vobiz';
     } & VobizConfigurationRequest) | ({
         provider: 'vonage';
-    } & VonageConfigurationRequest) | null;
+    } & VonageConfigurationRequest) | ({
+        provider: 'whatsapp';
+    } & WhatsAppConfigurationRequest) | null;
 };
 
 /**
@@ -5167,6 +5216,10 @@ export type TelephonyProviderMetadata = {
      * Connectivity
      */
     connectivity?: 'api' | 'sip';
+    /**
+     * Supports Outbound
+     */
+    supports_outbound?: boolean;
     /**
      * Fields
      */
@@ -5409,6 +5462,50 @@ export type TimeSlotResponse = {
 };
 
 /**
+ * ToolDelayedAudioMessage
+ */
+export type ToolDelayedAudioMessage = {
+    /**
+     * Type
+     */
+    type: 'audio';
+    /**
+     * Recording Id
+     */
+    recording_id: number;
+    /**
+     * Event
+     */
+    event: 'delayed';
+    /**
+     * After Ms
+     */
+    after_ms: number;
+};
+
+/**
+ * ToolDelayedTextMessage
+ */
+export type ToolDelayedTextMessage = {
+    /**
+     * Type
+     */
+    type: 'text';
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Event
+     */
+    event: 'delayed';
+    /**
+     * After Ms
+     */
+    after_ms: number;
+};
+
+/**
  * ToolParameter
  *
  * A parameter that the tool accepts from the model at call time.
@@ -5493,6 +5590,42 @@ export type ToolResponse = {
      */
     updated_at: string | null;
     created_by?: CreatedByResponse | null;
+};
+
+/**
+ * ToolStartAudioMessage
+ */
+export type ToolStartAudioMessage = {
+    /**
+     * Type
+     */
+    type: 'audio';
+    /**
+     * Recording Id
+     */
+    recording_id: number;
+    /**
+     * Event
+     */
+    event: 'start';
+};
+
+/**
+ * ToolStartTextMessage
+ */
+export type ToolStartTextMessage = {
+    /**
+     * Type
+     */
+    type: 'text';
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Event
+     */
+    event: 'start';
 };
 
 /**
@@ -5738,9 +5871,10 @@ export type TrafficVariantStats = {
  *
  * Most of how a handoff sounds is fixed: the caller hears a ringer while the
  * next agent is prepared. The handover line is configurable because it is
- * caller-facing and Dograh runs in more than one language, and so is whether
- * the next agent opens with its greeting, because an agent that greets
- * callers on its own number should not re-introduce itself mid-conversation.
+ * caller-facing and Dograh runs in more than one language, and so is how the
+ * next agent opens: an agent that greets callers on its own number should
+ * not re-introduce itself mid-conversation, and one that only ever answers
+ * handoffs needs a line of its own before it picks the conversation up.
  */
 export type TransferAgentConfig = {
     /**
@@ -5750,17 +5884,17 @@ export type TransferAgentConfig = {
      */
     workflow_id: number;
     /**
-     * Message
+     * Greeting Mode
      *
-     * Spoken by the current agent, in its own voice, before the caller is handed over. Supports template variables. Leave empty to hand over without saying anything.
+     * How the destination agent opens. 'start_greeting' plays its Start Call greeting and waits for the caller. 'continue' skips the greeting and opens with a reply generated from the handover note. 'introduce_and_continue' speaks the introduction in the destination's own voice and then opens with a generated reply, so the caller hears who picked up without having to repeat themselves.
      */
-    message?: string;
+    greeting_mode?: 'start_greeting' | 'continue' | 'introduce_and_continue';
     /**
-     * Play Greeting
+     * Introduction
      *
-     * Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
+     * What the destination agent says as it takes over, in its own voice, before its first generated reply. Required with greeting_mode 'introduce_and_continue' and not accepted otherwise. Supports template variables.
      */
-    play_greeting?: boolean;
+    introduction?: string | null;
 };
 
 /**
@@ -5775,6 +5909,12 @@ export type TransferAgentToolDefinition = {
      * Schema version.
      */
     schema_version?: number;
+    /**
+     * Messages
+     *
+     * One start text message, with template variables supported. Omit to use the default handover line, or send an empty list for a silent handoff.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**
      * Type
      *
@@ -5818,24 +5958,6 @@ export type TransferCallConfig = {
      */
     destination?: string;
     /**
-     * Messagetype
-     *
-     * Type of message to play before transfer.
-     */
-    messageType?: 'none' | 'custom' | 'audio';
-    /**
-     * Custommessage
-     *
-     * Custom message to play before transferring.
-     */
-    customMessage?: string | null;
-    /**
-     * Audiorecordingid
-     *
-     * Recording ID for audio message before transfer.
-     */
-    audioRecordingId?: string | null;
-    /**
      * Timeout
      *
      * Maximum seconds to wait for the destination to answer.
@@ -5875,6 +5997,12 @@ export type TransferCallToolDefinition = {
      * Schema version.
      */
     schema_version?: number;
+    /**
+     * Messages
+     *
+     * Configured speech. An empty list disables announcements. HTTP/MCP choose one start entry and one entry per delayed timing at random. End-call and transfer tools support one start entry only.
+     */
+    messages?: Array<ToolStartTextMessage | ToolStartAudioMessage | ToolDelayedTextMessage | ToolDelayedAudioMessage>;
     /**
      * Type
      *
@@ -6609,6 +6737,42 @@ export type VonageConfigurationRequest = {
  * Webhook credential authentication types
  */
 export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
+
+/**
+ * WhatsAppConfigurationRequest
+ *
+ * Credentials for one WhatsApp Business Account on the Cloud API.
+ *
+ * The account, not a single number, is the unit of configuration: its
+ * numbers are imported from Meta rather than typed in. The webhook verify
+ * token is deliberately not declared here: it is minted by the provider's
+ * save hook and carried forward on update, never read from a request (see
+ * ``_preprocess_credentials_on_save`` in the package).
+ */
+export type WhatsAppConfigurationRequest = {
+    /**
+     * Provider
+     */
+    provider?: 'whatsapp';
+    /**
+     * Access Token
+     *
+     * System user access token from Meta
+     */
+    access_token: string;
+    /**
+     * Waba Id
+     *
+     * WhatsApp Business Account ID from the app's API Setup page
+     */
+    waba_id: string;
+    /**
+     * App Secret
+     *
+     * App secret used to verify webhook signatures
+     */
+    app_secret: string;
+};
 
 /**
  * WidgetTexts
@@ -8010,6 +8174,67 @@ export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostErrors = {
 };
 
 export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Hub.Mode
+         */
+        'hub.mode': string;
+        /**
+         * Hub.Verify Token
+         */
+        'hub.verify_token': string;
+        /**
+         * Hub.Challenge
+         */
+        'hub.challenge': string;
+    };
+    url: '/api/v1/telephony/whatsapp/webhook';
+};
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetError = HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetErrors[keyof HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetErrors];
+
+export type HandleWebhookVerificationApiV1TelephonyWhatsappWebhookGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleWhatsappWebhookApiV1TelephonyWhatsappWebhookPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/whatsapp/webhook';
+};
+
+export type HandleWhatsappWebhookApiV1TelephonyWhatsappWebhookPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleWhatsappWebhookApiV1TelephonyWhatsappWebhookPostResponses = {
     /**
      * Successful Response
      */
@@ -10176,6 +10401,10 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetData = {
          * Accent
          */
         accent?: string | null;
+        /**
+         * Provider Connection Uuid
+         */
+        provider_connection_uuid?: string | null;
     };
     url: '/api/v1/user/configurations/voices/{provider}';
 };
@@ -12217,6 +12446,50 @@ export type CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumb
 };
 
 export type CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponse = CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponses[keyof CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponses];
+
+export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/phone-numbers/sync';
+};
+
+export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostError = SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostErrors[keyof SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostErrors];
+
+export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PhoneNumberSyncResponse;
+};
+
+export type SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponse = SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponses[keyof SyncPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersSyncPostResponses];
 
 export type DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteData = {
     body?: never;

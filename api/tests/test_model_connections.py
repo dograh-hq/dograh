@@ -297,6 +297,35 @@ async def test_hydration_uses_current_credentials_and_saved_model_settings(catal
 
 
 @pytest.mark.asyncio
+async def test_managed_model_and_language_hints_survive_overrides_and_snapshot(catalog):
+    row = connection()
+    config = pipeline(row)
+    config["llm"]["settings"] = {"model": "fast"}
+    config["stt"]["settings"] = {"language": "multi", "language_hints": ["en"]}
+    named = catalog(row, default=True, configuration=config)
+    result = await service.resolve_model_configuration(
+        1,
+        workflow_override={"model_configuration_uuid": named.uuid},
+        api_override={
+            "llm": {"settings": {"model": "zen"}},
+            "stt": {"settings": {"language_hints": ["en", "es"]}},
+        },
+    )
+    assert result.effective.llm.model == "zen"
+    assert result.effective.stt.language_hints == ["en", "es"]
+    hydrated = await service.hydrate_model_configuration_snapshot(1, result.snapshot)
+    assert hydrated.llm.model == "zen"
+    assert hydrated.stt.language == "multi"
+    assert hydrated.stt.language_hints == ["en", "es"]
+
+    cleared = await service.resolve_model_configuration(
+        1, workflow_override={"stt": {"settings": {"language_hints": []}}}
+    )
+    assert cleared.effective.llm.model == "fast"
+    assert cleared.effective.stt.language_hints == []
+
+
+@pytest.mark.asyncio
 async def test_disjoint_dograh_keys_are_rejected(catalog):
     one = connection(keys=["a", "b"])
     two = catalog(connection(keys=["c", "d"]))
@@ -374,7 +403,7 @@ async def test_realtime_requires_text_llm(catalog):
 
 
 @pytest.mark.asyncio
-async def test_computed_tts_model_is_not_an_input_setting(catalog):
+async def test_tts_model_is_inferred_from_the_voice_and_must_agree_with_it(catalog):
     dograh = connection()
     config = pipeline(dograh)
     deepgram = catalog(connection("deepgram"))
@@ -382,11 +411,19 @@ async def test_computed_tts_model_is_not_an_input_setting(catalog):
     catalog(dograh, default=True, configuration=config)
     result = await service.resolve_model_configuration(1)
     assert result.effective.tts.model == "aura-2"
-    assert "model" not in result.snapshot["services"]["tts"]["settings"]
+    # Saved settings predate the field; the snapshot pins what was inferred.
+    assert result.snapshot["services"]["tts"]["settings"]["model"] == "aura-2"
+    # A model switch layered over the saved voice contradicts it.
     with pytest.raises(HTTPException):
         await service.resolve_model_configuration(
-            1, api_override={"tts": {"settings": {"model": "aura-1"}}}
+            1, api_override={"tts": {"settings": {"model": "flux"}}}
         )
+    switched = await service.resolve_model_configuration(
+        1,
+        api_override={"tts": {"settings": {"model": "flux", "voice": "flux-maeve-en"}}},
+    )
+    assert switched.effective.tts.model == "flux"
+    assert switched.effective.tts.voice == "flux-maeve-en"
 
 
 def test_catalog_separates_credentials_connection_and_model_fields():

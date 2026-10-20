@@ -1,7 +1,7 @@
 "use client";
 
 import { ExternalLink, Plus, X } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,11 +14,13 @@ import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 
 import { fieldForModel, isFieldVisible, resolveFieldSchema, schemaDefaults } from "./configuration";
 import { ConfigurationSelect } from "./ConfigurationSelect";
+import { getStaticVoices } from "./staticVoices";
 import type { FieldSchema, ServiceRole } from "./types";
 
 const PROVIDER_DEFAULT = "__provider_default__";
 
-function optionLabel(name: string, value: string) {
+function optionLabel(name: string, value: string, schema: FieldSchema) {
+    if (schema.option_labels?.[value]) return schema.option_labels[value];
     if (name === "language" || name === "language_hints") return LANGUAGE_DISPLAY_NAMES[value] || value;
     return value;
 }
@@ -57,39 +59,44 @@ function StringListInput({ id, name, values, onChange, secret, required }: {
     </div>;
 }
 
-function ValueInput({ id, name, schema, value, onChange, secret, required, provider, role, model }: {
+function ValueInput({ id, name, schema, value, onChange, secret, required, provider, providerConnectionUuid, connectionRevision, model, language }: {
     id: string; name: string; schema: FieldSchema; value: unknown; onChange: (value: unknown) => void;
-    secret: boolean; required: boolean; provider?: string; role?: ServiceRole; model?: string;
+    secret: boolean; required: boolean; provider?: string; providerConnectionUuid?: string; connectionRevision?: number; model?: string; language?: string;
 }) {
     const alternatives = schema.anyOf || [schema];
     const nullable = alternatives.some(option => option.type === "null");
     const concrete = alternatives.find(option => option.type !== "null") || schema;
     const numeric = alternatives.find(option => option.type === "number" || option.type === "integer");
     const canPool = secret && alternatives.some(option => option.type === "array") && alternatives.some(option => option.type === "string");
-    const options = schema.enum || concrete.enum || schema.examples;
+    const enumerated = Boolean(schema.enum || concrete.enum);
+    // Select values are strings; numeric enums are converted back on change.
+    const options = (schema.enum || concrete.enum || schema.examples)?.map(String);
+    const optionsKey = options ? options.join(",") : "";
+    const hasModelOptions = !schema.model_options || Boolean(model && schema.model_options[model]);
+    const staticVoices = useMemo(() => {
+        if (!provider || !hasModelOptions) return undefined;
+        return getStaticVoices(provider, options, model);
+    }, [provider, optionsKey, model, hasModelOptions]);
+    const voiceCatalog = Boolean(schema.voice_catalog && provider);
     const [custom, setCustom] = useState(false);
 
     if (canPool) {
         return <StringListInput id={id} name={name} secret required={required} values={Array.isArray(value) ? value : [String(value || "")]}
             onChange={next => onChange(next.length === 1 ? next[0] : next)} />;
     }
-    if (role === "tts" && name === "voice" && provider) {
-        if (provider === "dograh") return <VoiceSelectorModal id={id} provider={provider} value={String(value || "")} onChange={onChange} allowManualInput={schema.allow_custom_input} />;
-        if (!schema.allow_custom_input && !options?.length) return <VoiceSelector id={id} provider={provider} value={String(value || "")} onChange={onChange} model={model} />;
-    }
     if (concrete.type === "array") {
         if (concrete.items?.type && concrete.items.type !== "string") return <JsonInput id={id} value={value} onChange={onChange} required={required} />;
         const values: string[] = Array.isArray(value) ? value : [];
-        const choices = options || concrete.items?.enum || concrete.items?.examples;
+        const choices = options || (concrete.items?.enum || concrete.items?.examples)?.map(String);
         if (choices?.length) return <div role="group" aria-labelledby={`${id}-label`} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {[...choices, ...values.filter(item => !choices.includes(item))].map(option => <div key={option} className="flex items-center gap-2">
                 <Checkbox id={`${id}-${option}`} checked={values.includes(option)} onCheckedChange={checked => onChange(checked === true ? [...values, option] : values.filter(item => item !== option))} />
-                <Label htmlFor={`${id}-${option}`} className="cursor-pointer text-sm font-normal">{optionLabel(name, option)}</Label>
+                <Label htmlFor={`${id}-${option}`} className="cursor-pointer text-sm font-normal">{optionLabel(name, option, schema)}</Label>
             </div>)}
         </div>;
         return <StringListInput id={id} name={name} secret={secret} required={required} values={values} onChange={onChange} />;
     }
-    if (numeric) {
+    if (numeric && !enumerated) {
         return <Input id={id} type="number" value={value == null ? "" : String(value)} required={required && !nullable}
             min={schema.minimum ?? numeric.minimum} max={schema.maximum ?? numeric.maximum}
             step={numeric.type === "integer" ? 1 : "any"} placeholder={nullable ? "Provider default" : undefined}
@@ -103,19 +110,24 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
     if (concrete.type === "object" || concrete.properties) return <JsonInput id={id} value={value} onChange={onChange} required={required} />;
     if (schema.multiline) return <Textarea id={id} rows={4} required={required} autoComplete="off" spellCheck={false} className="font-mono text-xs"
         value={value == null ? "" : String(value)} onChange={event => onChange(event.target.value || (nullable ? null : ""))} />;
-    if (!secret && options?.length) {
+    if (!secret && (options?.length || voiceCatalog)) {
         const current = value == null ? "" : String(value);
-        const customInput = schema.allow_custom_input && (custom || Boolean(current && !options.includes(current)));
+        // A remote catalog may be loading or omit a saved/custom voice. Keep
+        // browsing available until the user explicitly chooses manual entry.
+        const customInput = schema.allow_custom_input && (custom || (!voiceCatalog && Boolean(current && !options?.includes(current))));
         return <div className="space-y-2">
             {customInput ? <Input id={id} value={current} required={required} placeholder={`Enter ${name.replaceAll("_", " ")}`} onChange={event => onChange(event.target.value)} />
+                : voiceCatalog && provider ? (schema.voice_catalog === "dialog"
+                    ? <VoiceSelectorModal id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} connectionRevision={connectionRevision} value={current} onChange={onChange} model={model} />
+                    : <VoiceSelector id={id} provider={provider} providerConnectionUuid={providerConnectionUuid} connectionRevision={connectionRevision} value={current} onChange={onChange} model={model} language={language} staticVoices={staticVoices} />)
                 : <ConfigurationSelect id={id} value={value == null && nullable ? PROVIDER_DEFAULT : current} required={required}
-                    placeholder={`Select ${name.replaceAll("_", " ")}`} onValueChange={next => onChange(next === PROVIDER_DEFAULT ? null : next)}
+                    placeholder={`Select ${name.replaceAll("_", " ")}`} onValueChange={next => onChange(next === PROVIDER_DEFAULT ? null : numeric ? Number(next) : next)}
                     options={[...(nullable ? [{ value: PROVIDER_DEFAULT, label: "Provider default" }] : []),
-                        ...[...options, ...(!schema.allow_custom_input && current && !options.includes(current) ? [current] : [])].map(option => ({ value: option, label: optionLabel(name, option) }))]} />}
+                        ...[...(options || []), ...(!schema.allow_custom_input && current && !options?.includes(current) ? [current] : [])].map(option => ({ value: option, label: optionLabel(name, option, schema) }))]} />}
             {schema.allow_custom_input && <div className="flex items-center gap-2">
                 <Checkbox id={`${id}-custom`} checked={Boolean(customInput)} onCheckedChange={checked => {
                     setCustom(checked === true);
-                    if (!checked) onChange(options[0]);
+                    if (!checked && !voiceCatalog) onChange(options?.[0]);
                 }} />
                 <Label htmlFor={`${id}-custom`} className="cursor-pointer text-sm font-normal">Enter Custom Value</Label>
             </div>}
@@ -126,10 +138,10 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
         onChange={event => onChange(event.target.value || (nullable ? null : ""))} />;
 }
 
-export function SchemaFields({ schema, values, onChange, secret = false, configuredFields = [], context = {}, provider, role, className = "grid grid-cols-1 gap-4 sm:grid-cols-2" }: {
+export function SchemaFields({ schema, values, onChange, secret = false, configuredFields = [], context = {}, provider, providerConnectionUuid, connectionRevision, role, className = "grid grid-cols-1 gap-4 sm:grid-cols-2" }: {
     schema: FieldSchema; values: Record<string, unknown>; onChange: (name: string, value: unknown) => void;
     secret?: boolean; configuredFields?: string[];
-    context?: Record<string, unknown>; provider?: string; role?: ServiceRole;
+    context?: Record<string, unknown>; provider?: string; providerConnectionUuid?: string; connectionRevision?: number; role?: ServiceRole;
     /** "contents" lays the fields into the parent's two-column grid. */
     className?: string;
 }) {
@@ -139,7 +151,7 @@ export function SchemaFields({ schema, values, onChange, secret = false, configu
     return <div className={className}>
         {Object.entries(schema.properties || {}).map(([name, raw]) => {
             const field = fieldForModel(resolveFieldSchema(raw, schema), { ...context, ...resolvedValues });
-            if (!isFieldVisible(field, resolvedValues.model)) return null;
+            if (!isFieldVisible(field, resolvedValues.model, resolvedValues.language)) return null;
             const id = `${prefix}-${name}`;
             const configured = secret && configuredFields.includes(name);
             const editing = !configured || replacing.includes(name);
@@ -147,11 +159,15 @@ export function SchemaFields({ schema, values, onChange, secret = false, configu
             const suggestions = field.model_options?.[String(resolvedValues.model || "")];
             const label = field.title || name.replaceAll("_", " ");
             const fullWidth = field.multiline || field.type === "array" || field.anyOf?.some(option => option.type === "array") || (role === "tts" && name === "voice");
+            // Remount a dependent input when what it depends on changes, so local
+            // control state such as manual entry does not outlive the old choice.
+            const resetKey = field.reset_on_change?.map(dependency => `${dependency}=${String(resolvedValues[dependency] ?? "")}`).join("|");
             return <div key={name} className={`space-y-1.5 ${fullWidth ? "sm:col-span-2" : ""}`}>
                 <div className="flex min-h-6 items-center justify-between gap-2">
                     <Label id={`${id}-label`} htmlFor={id} className="capitalize">{label}</Label>
                 </div>
-                {editing ? <ValueInput id={id} name={name} provider={provider} role={role} model={String(resolvedValues.model || "") || undefined}
+                {editing ? <ValueInput key={resetKey} id={id} name={name} provider={provider} providerConnectionUuid={providerConnectionUuid} connectionRevision={connectionRevision} model={String(resolvedValues.model || "") || undefined}
+                    language={String(resolvedValues.language || "") || undefined}
                     schema={suggestions ? { ...field, examples: suggestions, enum: field.enum ? suggestions : undefined } : field}
                     value={Object.hasOwn(values, name) ? values[name] : field.default} secret={secret}
                     required={Boolean(schema.required?.includes(name))} onChange={value => onChange(name, value)} />

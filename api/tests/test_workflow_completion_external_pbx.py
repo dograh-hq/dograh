@@ -21,6 +21,11 @@ def stub_completion_steps(monkeypatch):
     """Silence the other completion steps and capture the write-back call."""
     write_back = AsyncMock()
     monkeypatch.setattr(
+        workflow_completion.db_client,
+        "get_workflow_run_with_context",
+        AsyncMock(return_value=(SimpleNamespace(extra={}, gathered_context={}), 7)),
+    )
+    monkeypatch.setattr(
         workflow_completion, "sync_external_pbx_call_record", write_back
     )
     monkeypatch.setattr(

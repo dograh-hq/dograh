@@ -47,6 +47,7 @@ from pipecat.services.llm_service import (
     LLMService,
 )
 
+from api.schemas.tool import ToolMessages
 from api.services.workflow.tool_execution import ToolExecutionOwner
 
 if TYPE_CHECKING:
@@ -90,6 +91,7 @@ class AgentRuntime:
     recording_router: Any = None
     user_config: Any = None
     runtime_configuration: dict[str, Any] = field(default_factory=dict)
+    model_configuration_snapshot: dict[str, Any] = field(default_factory=dict)
     is_realtime: bool = False
     # False for the call-owned runtime, whose worker is the call itself and
     # must never be shut down by a retirement.
@@ -115,7 +117,9 @@ class AgentRuntime:
     )
     _tool_handlers: dict[
         FunctionCallHandler,
-        tuple[FunctionCallHandler, float | None, Callable[[], bool]],
+        tuple[
+            FunctionCallHandler, float | None, Callable[[], bool], ToolMessages | None
+        ],
     ] = field(default_factory=dict, init=False, repr=False)
 
     def bind_tool(
@@ -125,6 +129,7 @@ class AgentRuntime:
         *,
         is_node_transition: bool = False,
         timeout_secs: float | None = None,
+        messages: ToolMessages | None = None,
     ) -> FunctionCallHandler:
         """Keep accepted ordinary tools alive when this visit is cancelled."""
         if self._tool_execution_owner is None:
@@ -145,7 +150,7 @@ class AgentRuntime:
                 )
                 if execution is None and can_accept():
                     execution = self._tool_execution_owner.start(
-                        handler, params, timeout_secs
+                        handler, params, timeout_secs, messages
                     )
                 if execution is not None:
                     await asyncio.shield(execution.task)
@@ -179,7 +184,7 @@ class AgentRuntime:
                 self.tool_tasks.discard(task)
 
         if not is_node_transition:
-            self._tool_handlers[bound] = (handler, timeout_secs, can_accept)
+            self._tool_handlers[bound] = (handler, timeout_secs, can_accept, messages)
         return bound
 
     async def _prepare_tool_calls(
@@ -190,7 +195,7 @@ class AgentRuntime:
             binding = self._tool_handlers.get(item.registry_item.handler)
             if binding is None:
                 continue
-            handler, timeout_secs, can_accept = binding
+            handler, timeout_secs, can_accept, messages = binding
             if not can_accept():
                 continue
             params = FunctionCallParams(
@@ -211,6 +216,7 @@ class AgentRuntime:
                 item.registry_item.timeout_secs
                 or timeout_secs
                 or llm._function_call_timeout_secs,
+                messages,
             )
 
     async def finish_tool_calls(self) -> None:
@@ -219,11 +225,16 @@ class AgentRuntime:
 
     async def cancel_tools(self):
         """Cancel workflow control; independently owned ordinary tools keep running."""
+        self.stop_tool_messages()
         tasks = [t for t in self.tool_tasks if t is not asyncio.current_task()]
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+    def stop_tool_messages(self) -> None:
+        if self._tool_execution_owner is not None:
+            self._tool_execution_owner.stop_messages()
 
     async def close_mcp_sessions(self):
         await self.finish_tool_calls()
@@ -263,11 +274,17 @@ class AgentRuntime:
     async def run_llm(self, context: "LLMContext") -> None:
         """Ask this agent's LLM for a generation against the shared context.
 
-        Queued on the LLM service rather than on the worker so it lands after
-        whatever gate sits in front of the generation stage, matching how the
-        single-worker pipeline has always started a node's opening turn.
+        A child agent's LLM heads its own pipeline, so the request is queued
+        at the worker like any speech queued for that agent, and generation
+        follows that speech in order. The call-owned agent queues on the LLM
+        service itself so the request lands after whatever gate sits in front
+        of the generation stage, matching how the single-worker pipeline has
+        always started a node's opening turn.
         """
-        await self.llm.queue_frame(LLMContextFrame(context))
+        if self.is_child and self.worker is not None:
+            await self.queue_frame(LLMContextFrame(context))
+        else:
+            await self.llm.queue_frame(LLMContextFrame(context))
 
     # -- lifecycle -------------------------------------------------------
 

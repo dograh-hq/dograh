@@ -9,6 +9,8 @@ Covers:
 
 from __future__ import annotations
 
+from typing import get_type_hints
+
 import pytest
 from dograh_sdk import Workflow
 from dograh_sdk._generated_models import NodeSpec
@@ -110,6 +112,25 @@ def test_add_typed_and_add_produce_identical_data(client: _StubClient):
     typed_data = wf_typed.to_json()["nodes"][0]["data"]
     generic_data = wf_generic.to_json()["nodes"][0]["data"]
     assert typed_data == generic_data
+
+
+def test_typed_start_greeting_policy_roundtrips_without_a_recording(
+    client: _StubClient,
+):
+    assert get_type_hints(StartCall)["greeting_interrupt_min_words"] is int
+    workflow = Workflow(client=client)
+    workflow.add_typed(
+        StartCall(
+            name="Greeting",
+            prompt="Greet the caller",
+            allow_greeting_interrupt=False,
+            greeting_interrupt_min_words=4,
+        )
+    )
+    data = ReactFlowDTO.model_validate(workflow.to_json()).nodes[0].data
+    assert data.allow_greeting_interrupt is False
+    assert data.greeting_interrupt_min_words == 4
+    assert data.greeting_recording_id is None
 
 
 def test_webhook_mutable_defaults_dont_share_state(client: _StubClient):

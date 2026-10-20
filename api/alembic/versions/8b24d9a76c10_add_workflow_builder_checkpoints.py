@@ -6,7 +6,7 @@ preserving conversations. The compatibility ledger is retained for existing
 installations; all subsequent schema changes must be explicit Alembic revisions.
 
 Revision ID: 8b24d9a76c10
-Revises: 91a84e0a1947
+Revises: d6a83e2b19f0
 """
 
 import sqlalchemy as sa
@@ -14,7 +14,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "8b24d9a76c10"
-down_revision = "91a84e0a1947"
+down_revision = "d6a83e2b19f0"
 branch_labels = None
 depends_on = None
 

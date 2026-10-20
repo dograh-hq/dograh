@@ -51,7 +51,6 @@ def parse(chunks, tools=TOOLS, spoken_output=True):
         "\u0300call:default_api:end_call{}",
         "`default_api:end_call`{}",
         "grid`default_api:end_call`{}",
-        "junk.end_call{}",
         "Final: default_api:end_call{}",
         '{"end_call": {}}',
         '{"name": "end_call", "arguments": "{}"}',
@@ -67,10 +66,27 @@ def test_goodbye_and_tool_at_every_split(fragment, spoken_output):
     assert parse(list(text), spoken_output=spoken_output)[1] == [("end_call", {})]
 
 
-def test_glued_goodbye_keeps_its_last_word():
-    speech, calls = parse(list("Buona giornata.junk.end_call{}"))
-    assert speech == "Buona giornata."
-    assert calls == [("end_call", {})]
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Goodbye!default_api:end_call{}", "Goodbye!"),
+        ("Arrivederci.severe:end_call{}", "Arrivederci."),
+        ("Grazie.`default_api:end_call`{}", "Grazie."),
+        ("Ok?default_api:end_call{}", "Ok?"),
+        # A junk word that ends like a sentence is spoken rather than risked.
+        ("Buona giornata.junk.end_call{}", "Buona giornata.junk."),
+    ],
+)
+@pytest.mark.parametrize("spoken_output", [True, False])
+def test_finished_sentence_before_a_glued_call_is_spoken(text, expected, spoken_output):
+    for split in range(len(text) + 1):
+        speech, calls = parse([text[:split], text[split:]], spoken_output=spoken_output)
+        assert speech == expected, (split, speech)
+        assert calls == [("end_call", {})], (split, calls)
+    assert parse(list(text), spoken_output=spoken_output) == (
+        expected,
+        [("end_call", {})],
+    )
 
 
 def normalized(speech):
@@ -107,6 +123,12 @@ def normalized(speech):
         ),
         ('{"date": "2026-10-20", "reason": "callback"} <|thought|>Perfect', "Perfect"),
         ('{ "label": "" }', ""),
+        ("{}", ""),
+        ("Ok. {}", "Ok."),
+        (
+            "La funzione end_call{} termina la chiamata.",
+            "La funzione end_call termina la chiamata.",
+        ),
         ('# (No words spoken)\n{\n  "unknown": {}', ""),
         ("It is called `end_call`.", "It is called ."),
     ],
@@ -130,6 +152,9 @@ def test_control_text_is_not_spoken_at_any_split(text, expected):
             "Sure, tomorrow at ten.",
         ),
         ("<THOUGHT>plan</THOUGHT> Sure.", "Sure."),
+        ("<thinking>plan</thinking> Sure.", "Sure."),
+        ("<Thinking>\nplan\n</Thinking>\nSure.", "Sure."),
+        ("</thinking> Sure.", "Sure."),
         ("Sure.<|im_end|>", "Sure."),
         ("Goodbye. non-thought", "Goodbye."),
         (
@@ -239,7 +264,6 @@ def test_thought_scaffolding_is_never_spoken_or_executed(text):
     [
         "Il nome della funzione è end_call.",
         "Non chiamare end_call per ora.",
-        "La funzione end_call{} termina la chiamata.",
         "I thought you wanted a callback.",
         "I had a thought: call tomorrow.",
         "Agent: How can I help?",
@@ -263,6 +287,9 @@ def test_ordinary_prose_is_preserved(text, spoken_output):
     [
         "Il tool si chiama `end_call`.",
         '{"message": "This is legitimate JSON."}',
+        "{}",
+        "Ok. {}",
+        "La funzione end_call{} termina la chiamata.",
         "# Heading\n\n**Bold** text | cell",
         "[Note] (aside) mario_rossi",
         "*waves* hello",

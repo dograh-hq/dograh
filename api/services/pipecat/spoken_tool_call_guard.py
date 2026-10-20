@@ -90,9 +90,23 @@ def _envelope_text(obj: dict) -> str | None:
     return text if isinstance(text, str) else None
 
 
-# Tag openers that must be seen whole before "<" can be released as speech.
-_TAG_PREFIXES = ("<call:", "<|", "<think", "<thought", "</think", "</thought")
+_REASONING_NAMES = ("think", "thinking", "thought")
 _REASONING_TAG = re.compile(r"<(/?)(think|thinking|thought)(?=[\s>/]|$)", re.IGNORECASE)
+
+
+def _may_open_guarded_tag(lowered: str) -> bool:
+    """Whether text starting with "<" could still grow into a guarded tag.
+
+    Such text is held back until the tag is complete or ruled out, so "<" is
+    released as speech only once the opener cannot become a tool call, a
+    special token or a reasoning block.
+    """
+    if any(prefix.startswith(lowered) for prefix in ("<call:", "<|")):
+        return True
+    name = lowered[2:] if lowered.startswith("</") else lowered[1:]
+    return any(candidate.startswith(name) for candidate in _REASONING_NAMES)
+
+
 # Underscored names are never words; trailing segments such as ":null" or
 # "_0.25" belong to the same token.
 _IDENTIFIER = re.compile(
@@ -294,7 +308,7 @@ class SpokenToolCallGuard:
                 return True
             if self._keyed_call(obj):
                 return True
-            if self._spoken_output and obj:
+            if self._spoken_output:
                 self._suppressed("json")
                 return True
             return False
@@ -491,8 +505,7 @@ class SpokenToolCallGuard:
                         break
                     end = end + close if close else len(text)
             elif text.startswith("<"):
-                lowered = text.lower()
-                if not final and any(p.startswith(lowered) for p in _TAG_PREFIXES):
+                if not final and _may_open_guarded_tag(text.lower()):
                     break
                 if text.startswith("<|"):
                     close = text.find("|>", 2)
@@ -616,13 +629,14 @@ class SpokenToolCallGuard:
                     end = 1
                 token = text[:end]
                 if self._at_boundary and not self._held:
-                    # Junk joined to a call ("Prime:", "grid`...`") opens the
-                    # sentence; decide once the next fragment is known.
-                    if end == len(text) and token[-1] in ".:" and not final:
-                        break
+                    # A label ("Prime:") or a word joined to markup ("grid`…`")
+                    # opens the sentence; decide once the next fragment is
+                    # known. A finished sentence ("Goodbye!") is never held:
+                    # it may be the whole reply, and junk is not worth it.
                     glued = (
                         end < len(text)
                         and not token[-1].isspace()
+                        and token[-1] not in ".!?"
                         and not text[end].isspace()
                     )
                     if glued or token.rstrip().endswith(":"):

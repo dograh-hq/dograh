@@ -34,6 +34,7 @@ from api.errors.failure import (
     classify_http_response,
     log_failure,
 )
+from api.services.credential_resolution import resolve_credential
 from api.tasks.function_names import FunctionNames
 from api.utils.credential_auth import build_auth_header
 
@@ -188,11 +189,13 @@ async def _build_headers(delivery: WebhookDeliveryModel, attempt: int) -> dict:
     headers = {"Content-Type": "application/json"}
 
     if delivery.credential_uuid:
-        credential = await db_client.get_credential_by_uuid(
-            delivery.credential_uuid, delivery.organization_id
+        resolution = await resolve_credential(
+            delivery.credential_uuid,
+            delivery.organization_id,
+            propagate_errors=True,
         )
-        if credential:
-            headers.update(build_auth_header(credential))
+        if resolution.credential:
+            headers.update(build_auth_header(resolution.credential))
         else:
             logger.warning(
                 f"Credential {delivery.credential_uuid} not found for webhook "

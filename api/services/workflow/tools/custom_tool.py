@@ -7,7 +7,6 @@ from typing import Any
 import httpx
 from loguru import logger
 
-from api.db import db_client
 from api.errors.failure import (
     DograhFailure,
     ErrorSource,
@@ -18,6 +17,7 @@ from api.errors.failure import (
     redact_failure_message,
 )
 from api.services.configuration.masking import mask_key
+from api.services.credential_resolution import resolve_credential
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import (
     get_nested_value,
@@ -339,39 +339,28 @@ async def execute_http_tool(
     credential_headers: dict[str, str] = {}
     credential_uuid = config.get("credential_uuid")
     if credential_uuid and organization_id:
-        try:
-            credential = await db_client.get_credential_by_uuid(
-                credential_uuid, organization_id
-            )
-            if credential:
-                credential_headers = build_auth_header(credential)
-                headers.update(credential_headers)
-                logger.debug(f"Applied credential '{credential.name}' to tool request")
-            else:
-                log_failure(
-                    DograhFailure(
-                        source=ErrorSource.TOOL,
-                        type=ErrorType.CONFIG_ERROR,
-                        code="custom-http-credential-not-found",
-                        internal_message=f"Credential not found for custom tool '{tool.name}'",
-                        external_message="The credential configured for this tool no longer exists.",
-                        provider="custom-http",
-                        error_owner="user",
-                        retryable=False,
-                    ),
-                    organization_id=organization_id,
-                    tool_name=tool.name,
-                )
-        except Exception as e:
+        resolution = await resolve_credential(
+            credential_uuid,
+            organization_id,
+            source=ErrorSource.TOOL,
+            provider="custom-http",
+            missing_code="custom-http-credential-not-found",
+            missing_internal_message=f"Credential not found for custom tool '{tool.name}'",
+            missing_external_message=(
+                "The credential configured for this tool no longer exists."
+            ),
+        )
+        if resolution.failure:
             log_failure(
-                classify_exception(
-                    e,
-                    source=ErrorSource.TOOL,
-                    provider="custom-http",
-                    error_owner="user",
-                ),
+                resolution.failure,
                 organization_id=organization_id,
                 tool_name=tool.name,
+            )
+        if resolution.credential:
+            credential_headers = build_auth_header(resolution.credential)
+            headers.update(credential_headers)
+            logger.debug(
+                f"Applied credential '{resolution.credential.name}' to tool request"
             )
 
     if form_encoded:

@@ -966,7 +966,7 @@ class TestExecuteHttpTool:
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
-            with patch("api.services.workflow.tools.custom_tool.db_client") as mock_db:
+            with patch("api.services.credential_resolution.db_client") as mock_db:
                 mock_db.get_credential_by_uuid = AsyncMock(return_value=mock_credential)
 
                 result = await execute_http_tool(
@@ -1023,7 +1023,7 @@ class TestExecuteHttpTool:
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
-            with patch("api.services.workflow.tools.custom_tool.db_client") as mock_db:
+            with patch("api.services.credential_resolution.db_client") as mock_db:
                 # Call without organization_id
                 await execute_http_tool(tool, {"data": "test"})
 
@@ -1195,7 +1195,7 @@ class TestExecuteHttpTool:
                 "api.services.workflow.tools.custom_tool.httpx.AsyncClient",
                 side_effect=client_factory,
             ),
-            patch("api.services.workflow.tools.custom_tool.db_client") as mock_db,
+            patch("api.services.credential_resolution.db_client") as mock_db,
         ):
             mock_db.get_credential_by_uuid = AsyncMock(return_value=credential)
             result = await execute_http_tool(

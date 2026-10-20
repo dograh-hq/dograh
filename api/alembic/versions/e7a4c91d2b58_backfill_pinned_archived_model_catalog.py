@@ -432,6 +432,41 @@ def _sections(configuration, organization_services):
     return None
 
 
+def _split_service(role, service):
+    """Split a service and keep a Deepgram TTS family the catalog now stores.
+
+    b3c1d9e4f7a2 drops ``tts.deepgram.model`` because older dumps put the
+    voice id there and the catalog rejected the field. The catalog now stores
+    the family (aura-2, aura-1, flux). A default of ``{"model": "flux"}`` with
+    no voice is completed to the Flux voice when the call starts. Dropping
+    that family makes the new binding speak Aura-2 instead. A voice id left
+    in ``model`` by an older dump is still dropped. An explicit voice from
+    another family wins, so a partial voice override is not paired with the
+    default's previous family.
+    """
+    provider, credentials, connection_settings, settings = _v3.split_service(
+        role, service
+    )
+    if (role, provider) != ("tts", "deepgram"):
+        return provider, credentials, connection_settings, settings
+    model = service.get("model")
+    # Local import: same current catalog rules call start uses to complete
+    # a Deepgram family that was stored without a voice.
+    from api.services.configuration.options.deepgram import (
+        DEEPGRAM_TTS_MODELS,
+        deepgram_tts_model_for_voice,
+    )
+
+    if model not in DEEPGRAM_TTS_MODELS:
+        return provider, credentials, connection_settings, settings
+    voice = service.get("voice")
+    if isinstance(voice, str) and voice:
+        family = deepgram_tts_model_for_voice(voice)
+        if family is not None and family != model:
+            return provider, credentials, connection_settings, settings
+    return provider, credentials, connection_settings, {**settings, "model": model}
+
+
 def _configuration(catalog, mode, sections, name, fallback):
     """Named configuration for these services, keeping the default's fallback.
 
@@ -440,7 +475,7 @@ def _configuration(catalog, mode, sections, name, fallback):
     that policy forward or the next call drops it.
     """
     parts = [
-        (role, _v3.split_service(role, service)) for role, service in sections.items()
+        (role, _split_service(role, service)) for role, service in sections.items()
     ]
     spec = {"version": 3, "mode": mode}
     for role, (provider, credentials, connection_settings, settings) in parts:

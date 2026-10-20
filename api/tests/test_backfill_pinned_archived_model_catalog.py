@@ -777,6 +777,9 @@ async def test_follow_up_binds_released_latest_null_and_current_credential(
     assert full_connection not in {previous_connection, rotated_connection}
     assert credentials[full_connection]["api_key"] == ["dg-key"]
     assert full_spec["tts"]["settings"]["voice"] == "aura-2-thalia-en"
+    # The frozen converter still drops a voice id stored in model. The family
+    # is recovered from the voice; "aura-2-thalia-en" is not a catalog model.
+    assert "model" not in full_spec["tts"]["settings"]
 
     # Already bound, explicitly empty, or not referenced by a live campaign.
     assert definitions[ids["active"]]["model_configuration_override"] == active_binding
@@ -1114,3 +1117,151 @@ async def test_partial_override_drops_fallback_that_repeats_the_primary(
     assert resolved.llm.model == "gpt-4.1-mini"
     assert len(resolved.llm_fallback.rules) == 1
     assert resolved.llm_fallback.rules[0].target.model == "gpt-4.1"
+
+
+async def _point_default_tts_at_flux(factory, organization_id):
+    """Store a Flux family on the live default, with no voice of its own."""
+    async with factory() as session:
+        default_uuid = await session.scalar(
+            select(OrganizationConfigurationModel.value).where(
+                OrganizationConfigurationModel.organization_id == organization_id,
+                OrganizationConfigurationModel.key
+                == "MODEL_CONFIGURATION_DEFAULT_UUID",
+            )
+        )
+        default = await session.scalar(
+            select(NamedModelConfigurationModel).where(
+                NamedModelConfigurationModel.uuid == default_uuid
+            )
+        )
+        deepgram = ProviderConnectionModel(
+            organization_id=organization_id,
+            name="Deepgram Flux",
+            provider="deepgram",
+            credentials={"api_key": "dg-flux-key"},
+            connection_settings={},
+        )
+        session.add(deepgram)
+        await session.flush()
+        spec = json.loads(json.dumps(default.configuration))
+        spec["tts"] = {
+            "provider_connection_uuid": deepgram.uuid,
+            "settings": {"model": "flux"},
+        }
+        named = NamedModelConfigurationModel(
+            organization_id=organization_id,
+            name="Flux default",
+            configuration=spec,
+        )
+        session.add(named)
+        await session.flush()
+        await session.execute(
+            update(OrganizationConfigurationModel)
+            .where(
+                OrganizationConfigurationModel.organization_id == organization_id,
+                OrganizationConfigurationModel.key
+                == "MODEL_CONFIGURATION_DEFAULT_UUID",
+            )
+            .values(value=named.uuid)
+        )
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_partial_override_keeps_catalog_deepgram_flux_model(
+    test_engine,
+):
+    """An unrelated partial override must not drop the default's Flux family.
+
+    The catalog stores ``tts.settings.model = "flux"`` without a voice, and
+    resolution fills the matching voice. The frozen converter drops Deepgram
+    ``model`` because older dumps put a voice id there. Copying the live
+    default through that drop list would bind Aura-2 instead of Flux.
+    """
+    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    previous = db_client.engine, db_client.async_session
+    db_client.engine, db_client.async_session = test_engine, factory
+    ids = None
+    try:
+        async with factory() as session:
+            organization = OrganizationModel(provider_id=f"pinned-flux-{uuid4()}")
+            session.add(organization)
+            await session.flush()
+            user = UserModel(
+                provider_id=f"pinned-flux-{uuid4()}",
+                selected_organization_id=organization.id,
+            )
+            session.add(user)
+            await session.flush()
+            session.add(
+                OrganizationConfigurationModel(
+                    organization_id=organization.id,
+                    key="MODEL_CONFIGURATION_V2",
+                    value=DOGRAH_V2,
+                )
+            )
+            workflow = WorkflowModel(
+                organization_id=organization.id,
+                user_id=user.id,
+                name="Flux pin",
+                status="archived",
+                workflow_configurations={},
+            )
+            session.add(workflow)
+            await session.flush()
+            definition = WorkflowDefinitionModel(
+                workflow_id=workflow.id,
+                workflow_json={},
+                workflow_configurations={
+                    "model_overrides": {"llm": {"temperature": 0.2}}
+                },
+                status="published",
+                is_current=True,
+            )
+            session.add(definition)
+            await session.flush()
+            workflow.released_definition_id = definition.id
+            session.add(
+                CampaignModel(
+                    name="flux-pin",
+                    organization_id=organization.id,
+                    workflow_id=workflow.id,
+                    created_by=user.id,
+                    source_type="csv",
+                    source_id="flux-pin.csv",
+                    state="running",
+                    orchestrator_metadata={},
+                )
+            )
+            await session.commit()
+            ids = {
+                "organization": organization.id,
+                "user": user.id,
+                "definition": definition.id,
+            }
+
+        await _migrate(test_engine, original.migrate)
+        await _point_default_tts_at_flux(factory, ids["organization"])
+        summary = await _migrate(test_engine, follow_up.migrate)
+        assert summary["inherited"] == []
+
+        configurations, definitions, _, _ = await _snapshot(
+            factory, ids["organization"]
+        )
+        binding = definitions[ids["definition"]]["model_configuration_override"]
+        spec = configurations[binding["model_configuration_uuid"]].configuration
+        assert spec["tts"]["settings"]["model"] == "flux"
+        assert "voice" not in spec["tts"]["settings"]
+        assert spec["llm"]["settings"]["temperature"] == 0.2
+
+        resolved = await get_effective_ai_model_configuration_for_workflow(
+            organization_id=ids["organization"],
+            workflow_configurations=definitions[ids["definition"]],
+        )
+        assert resolved.tts.model == "flux"
+        assert resolved.tts.voice == "flux-heather-en"
+        assert resolved.llm.temperature == 0.2
+    finally:
+        db_client.engine, db_client.async_session = previous
+        if ids is not None:
+            await _cleanup(factory, ids)

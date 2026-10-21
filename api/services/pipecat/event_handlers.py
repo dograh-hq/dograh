@@ -349,6 +349,7 @@ def register_event_handlers(
                     await circuit_breaker.record_and_evaluate(
                         campaign_id=run.campaign_id,
                         is_failure=is_failure,
+                        organization_id=run.workflow.organization_id,
                         workflow_run_id=workflow_run_id,
                         reason=call_status,
                     )

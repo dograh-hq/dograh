@@ -16,10 +16,18 @@ from api.services.workflow.builder import (
     builder_turn,
     encode_event,
     load_session,
+    open_workflow_builder,
     save_builder_draft,
 )
 
 router = APIRouter(prefix="/workflow/builder", tags=["Workflow Builder"])
+
+
+@router.post("/workflow/{workflow_id}/session", response_model=BuilderSession)
+async def open_workflow_builder_session(
+    workflow_id: int, user: UserModel = Depends(get_user)
+):
+    return await open_workflow_builder(user, workflow_id)
 
 
 @router.get("/{session_id}", response_model=BuilderSession)
@@ -76,5 +84,7 @@ async def save_builder_session(
     session_id: UUID, request: BuilderSaveRequest, user: UserModel = Depends(get_user)
 ):
     return BuilderSaveResponse(
-        workflow_id=await save_builder_draft(user, session_id, request.checkpoint)
+        workflow_id=await save_builder_draft(
+            user, session_id, request.checkpoint, request.workflow_id
+        )
     )

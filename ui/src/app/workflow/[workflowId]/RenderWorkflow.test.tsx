@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     push: vi.fn(),
     replace: vi.fn(),
     versions: vi.fn(),
+    workflow: vi.fn(),
     updateMetadata: vi.fn(),
     save: vi.fn(),
     state: {
@@ -26,6 +27,7 @@ vi.mock('next/navigation', () => ({
     useSearchParams: () => new URLSearchParams(mocks.query),
 }));
 vi.mock('@/client', () => ({
+    getWorkflowApiV1WorkflowFetchWorkflowIdGet: mocks.workflow,
     getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet: mocks.versions,
     createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost: vi.fn(),
     listDocumentsApiV1KnowledgeBaseDocumentsGet: async () => ({ data: { documents: [] } }),
@@ -44,10 +46,11 @@ vi.mock('@/components/flow/edges/CustomEdge', () => ({ default: () => null }));
 vi.mock('@/components/flow/nodes/GenericNode', () => ({ GenericNode: () => null }));
 vi.mock('./components/PhoneCallDialog', () => ({ PhoneCallDialog: () => null }));
 vi.mock('./components/EditorSetup', () => ({
-    isEditorView: (value: string | null) => value === 'model',
-    EditorSetup: ({ view, onViewChange }: { view: string; onViewChange: (view: string) => void }) => (
+    isEditorView: (value: string | null) => value === 'model' || value === 'builder',
+    EditorSetup: ({ view, onViewChange, onBuilderSaved }: { view: string; onViewChange: (view: string) => void; onBuilderSaved: () => Promise<void> }) => <>
         <button onClick={() => onViewChange(view === 'model' ? 'canvas' : 'model')}>View: {view}</button>
-    ),
+        <button onClick={onBuilderSaved}>Builder saved</button>
+    </>,
 }));
 vi.mock('./components/WorkflowVersionDiffDialog', () => ({ WorkflowVersionDiffDialog: () => null }));
 vi.mock('./components/WorkflowTesterPanel', () => ({
@@ -82,6 +85,20 @@ beforeEach(() => {
     vi.clearAllMocks();
     mocks.query = 'version=3&source=campaign';
     mocks.versions.mockResolvedValue({ data: [version(21, 'draft'), version(20, 'published')] });
+});
+
+it('refreshes the canvas and draft version after saving a retained builder session', async () => {
+    mocks.query = 'view=builder';
+    const nodes = [{ id: 'updated', data: { name: 'Updated step' } }];
+    mocks.workflow.mockResolvedValue({ data: { workflow_definition: { nodes, edges: [] }, version_number: 22, version_status: 'draft' } });
+    render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" initialVersionNumber={21} initialVersionStatus="published" user={{ id: '1' }} />);
+    expect(screen.getByRole('button', { name: 'View: builder' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Builder saved' }));
+    await waitFor(() => expect(mocks.state.setNodes).toHaveBeenCalledWith(nodes));
+    expect(mocks.state.setEdges).toHaveBeenCalledWith([]);
+    expect(mocks.state.setIsDirty).toHaveBeenCalledWith(false);
+    expect(screen.getByTestId('version-label').textContent).toContain('v22');
+    expect(mocks.replace).not.toHaveBeenCalled();
 });
 
 it.each(['archived', 'published'])('opens a linked %s version read-only before history loads', async status => {

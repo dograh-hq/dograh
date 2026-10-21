@@ -1,6 +1,7 @@
 import asyncio
+import json
 from types import SimpleNamespace
-from unittest.mock import ANY, AsyncMock, call, patch
+from unittest.mock import ANY, AsyncMock, Mock, call, patch
 from uuid import uuid4
 
 import httpx
@@ -11,6 +12,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import Field
 
+from api.errors.mps import MPS_UNAVAILABLE_PUBLIC_MESSAGE
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services import mps_service_key_client as mps_client_module
 from api.services.configuration.ai_model_configuration import (
@@ -24,7 +26,7 @@ from api.services.workflow.builder_runtime.agent import (
 from api.services.workflow.builder_runtime.model import BuilderChatModel
 from api.services.workflow.builder_runtime.schemas import BuilderStep, validate_answers
 from api.services.workflow.builder_runtime.service import run_step
-from api.tests.support.workflow_authoring import BRIEF, READY_REVIEW
+from api.tests.support.workflow_authoring import BRIEF, PLAN, READY_REVIEW
 
 
 class ScriptedModel(BuilderChatModel):
@@ -194,7 +196,8 @@ async def test_questions_mcp_proposal_and_replay_survive_rebuilding_agent():
         replies=[
             tool_call("ask_questions", {"questions": [question]}, "question"),
             tool_call("submit_brief", {"brief": BRIEF}, "brief"),
-            tool_call("list_node_types", {}, "catalog"),
+            tool_call("get_voice_prompting_guide", {}, "guide"),
+            tool_call("submit_plan", {"plan": PLAN}, "plan"),
             tool_call(
                 "propose_workflow",
                 {
@@ -211,8 +214,8 @@ async def test_questions_mcp_proposal_and_replay_survive_rebuilding_agent():
     saver = InMemorySaver()
     specs = [
         {
-            "name": "list_node_types",
-            "description": "List node types",
+            "name": "get_voice_prompting_guide",
+            "description": "Voice guidance",
             "inputSchema": {"type": "object", "properties": {}},
         }
     ]
@@ -222,7 +225,7 @@ async def test_questions_mcp_proposal_and_replay_survive_rebuilding_agent():
     first_request = BuilderStep(request_id=uuid4(), message="Build a receptionist")
     first = await run_step(graph, config, session_id, first_request)
     assert first["pending"][0]["kind"] == "questions"
-    assert len(model.replies) == 4
+    assert len(model.replies) == 5
     # Idempotent replay does not invoke the model again.
     assert await run_step(graph, config, session_id, first_request) == first
     # A fresh graph represents a different worker restoring persisted state.
@@ -254,7 +257,7 @@ async def test_questions_mcp_proposal_and_replay_survive_rebuilding_agent():
         ),
     )
     second = await approve_plan(graph, config, session_id, second)
-    assert second["pending"][0]["tool_name"] == "list_node_types"
+    assert second["pending"][0]["tool_name"] == "get_voice_prompting_guide"
     third = await run_step(
         graph,
         config,
@@ -262,7 +265,7 @@ async def test_questions_mcp_proposal_and_replay_survive_rebuilding_agent():
         BuilderStep(
             request_id=uuid4(),
             checkpoint=second["checkpoint"],
-            resume={second["pending"][0]["id"]: {"node_types": []}},
+            resume={second["pending"][0]["id"]: {"topics": []}},
         ),
     )
     assert third["pending"][0]["tool_name"] == "preview_workflow"
@@ -465,12 +468,31 @@ async def test_model_adapter_requires_configured_dograh_key(
 
 
 @pytest.mark.asyncio
-async def test_model_adapter_sanitizes_upstream_errors(managed_builder_config):
+@pytest.mark.parametrize(
+    "upstream_status,status,error_code,message",
+    [
+        (400, 400, "dograh-400", "rejected"),
+        (401, 401, "dograh-401", "Service Key"),
+        (403, 403, "dograh-403", "Service Key"),
+        (402, 402, "dograh-insufficient-credits", "credits"),
+        (429, 429, "dograh-429", "rate limiting"),
+        (500, 503, "dograh-500", MPS_UNAVAILABLE_PUBLIC_MESSAGE),
+        (503, 503, "dograh-503", MPS_UNAVAILABLE_PUBLIC_MESSAGE),
+        (504, 504, "dograh-504", MPS_UNAVAILABLE_PUBLIC_MESSAGE),
+    ],
+)
+async def test_model_adapter_sanitizes_upstream_errors(
+    managed_builder_config, monkeypatch, upstream_status, status, error_code, message
+):
+    from api.services.workflow.builder_runtime import model as adapter
+
+    log = Mock()
+    monkeypatch.setattr(adapter, "log_failure", log)
     model = BuilderChatModel(organization_id=2, user_id="3")
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda request: httpx.Response(
-                401, json={"detail": "sensitive provider error"}
+                upstream_status, json={"detail": "sensitive provider error"}
             )
         )
     )
@@ -479,8 +501,14 @@ async def test_model_adapter_sanitizes_upstream_errors(managed_builder_config):
         pytest.raises(HTTPException) as error,
     ):
         await model.ainvoke([HumanMessage(content="Hello")])
-    assert error.value.status_code == 503
-    assert "sensitive" not in error.value.detail
+    assert error.value.status_code == status
+    assert error.value.error_code == error_code
+    assert error.value.upstream_status_code == upstream_status
+    assert message in error.value.detail
+    assert "sensitive" not in json.dumps(error.value.event())
+    log.assert_called_once()
+    assert log.call_args.args[0].code == error_code
+    assert log.call_args.kwargs["organization_id"] == 2
 
 
 @pytest.mark.asyncio
@@ -503,8 +531,42 @@ async def test_model_adapter_requires_correlation_before_inference(
             [HumanMessage(content="Hello")]
         )
     assert error.value.status_code == 503
+    assert error.value.error_code == (
+        "dograh-connection" if failed_request else "dograh-invalid-response"
+    )
+    assert error.value.detail == MPS_UNAVAILABLE_PUBLIC_MESSAGE
     assert "sensitive" not in error.value.detail
     client.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exception,status,error_code,message",
+    [
+        (httpx.ConnectError, 503, "dograh-connection", MPS_UNAVAILABLE_PUBLIC_MESSAGE),
+        (httpx.ReadTimeout, 504, "dograh-timeout", MPS_UNAVAILABLE_PUBLIC_MESSAGE),
+    ],
+)
+async def test_model_adapter_reports_transport_errors(
+    managed_builder_config, monkeypatch, exception, status, error_code, message
+):
+    from api.services.workflow.builder_runtime import model as adapter
+
+    monkeypatch.setattr(
+        adapter.mps_service_key_client,
+        "create_chat_completion",
+        AsyncMock(side_effect=exception("private provider details")),
+    )
+    with pytest.raises(HTTPException) as error:
+        await BuilderChatModel(organization_id=2, user_id="3").ainvoke(
+            [HumanMessage(content="Hello")]
+        )
+    assert error.value.status_code == status
+    assert error.value.error_code == error_code
+    assert error.value.upstream_status_code is None
+    assert error.value.retryable is True
+    assert message in error.value.detail
+    assert "private provider details" not in json.dumps(error.value.event())
 
 
 @pytest.mark.asyncio
@@ -589,6 +651,7 @@ async def test_postgres_checkpoint_survives_connections_and_excludes_concurrent_
                 "ask",
             ),
             tool_call("submit_brief", {"brief": BRIEF}, "brief"),
+            tool_call("submit_plan", {"plan": PLAN}, "plan"),
             tool_call(
                 "propose_workflow",
                 {"candidate": {"code": "source", "summary": "Receptionist"}},
@@ -659,7 +722,8 @@ async def test_postgres_checkpoint_survives_connections_and_excludes_concurrent_
             values = (await graph.aget_state(config)).values
             assert values["review"]["brief_revision"] == values["brief_revision"] == 1
             assert (
-                values["plan_messages"]
+                values["plan_conversation_messages"]
+                and values["plan_messages"]
                 and values["build_messages"]
                 and values["review_messages"]
             )

@@ -8,8 +8,10 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastmcp import Client
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, ConnectError
 
+from api.errors.failure import ErrorSource, classify_exception
+from api.errors.mps import MPS_UNAVAILABLE_PUBLIC_MESSAGE
 from api.mcp_server.auth import builder_mcp_user
 from api.mcp_server.server import mcp
 from api.schemas.workflow_builder import BuilderTurnRequest
@@ -18,8 +20,9 @@ from api.services.workflow.builder import (
     call_builder_tool,
     save_builder_draft,
 )
+from api.services.workflow.builder_runtime.errors import BuilderModelError
 from api.services.workflow.builder_validation import preview_workflow_code
-from api.tests.support.workflow_authoring import BRIEF, READY_REVIEW
+from api.tests.support.workflow_authoring import BRIEF, PLAN, READY_REVIEW
 from api.tests.test_workflow_builder_tracing import _captured_traces  # noqa: F401
 
 VALID_CODE = """import { Workflow } from "@dograh/sdk";
@@ -162,7 +165,7 @@ async def test_browser_cannot_use_approval_to_resume_other_interrupts(
             )
         ]
     assert events[-1]["type"] == "error"
-    assert "No matching plan" in events[-1]["message"]
+    assert "No matching requirements" in events[-1]["message"]
     assert upstream.await_count == 1
 
 
@@ -226,6 +229,60 @@ async def test_save_revalidates_and_uses_stable_org_scoped_retry_key():
     assert create.call_args_list[0] == create.call_args_list[1]
     assert create.call_args.kwargs["organization_id"] == 7
     assert create.call_args.kwargs["user_id"] == 3
+
+
+@pytest.mark.asyncio
+async def test_stream_preserves_mps_error_code_status_and_trace(
+    monkeypatch, captured_traces
+):
+    from api.routes.workflow_builder import router
+    from api.services.auth.depends import get_user
+    from api.services.workflow import builder
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_user] = lambda: SimpleNamespace(
+        id=3, selected_organization_id=27
+    )
+    failure = classify_exception(
+        ConnectError("private upstream details"),
+        source=ErrorSource.LLM,
+        provider="dograh",
+    )
+    monkeypatch.setattr(
+        builder, "builder_step", AsyncMock(side_effect=BuilderModelError(failure))
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            f"/workflow/builder/{uuid4()}/turn",
+            json={"request_id": str(uuid4()), "message": "Build an agent"},
+        )
+    # Headers are already sent when inference starts; the error belongs in SSE.
+    assert response.status_code == 200
+    events = [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert events[-1] == {
+        "type": "error",
+        "message": MPS_UNAVAILABLE_PUBLIC_MESSAGE,
+        "status_code": 503,
+        "error_code": "dograh-connection",
+        "retryable": True,
+        "upstream_status_code": None,
+    }
+    assert "private upstream details" not in response.text
+    root = next(
+        span
+        for span in captured_traces.get_finished_spans()
+        if span.name == "workflow_builder.turn"
+    )
+    assert root.attributes["builder.error_code"] == "dograh-connection"
+    assert root.attributes["builder.status_code"] == 503
+    assert root.attributes["builder.retryable"] is True
 
 
 @pytest.mark.asyncio
@@ -338,18 +395,8 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     replies = [
         ("ask_questions", {"questions": [question]}),
         ("submit_brief", {"brief": BRIEF}),
-        ("list_node_types", {}),
-        *[
-            call
-            for node_type in ("startCall", "agentNode", "endCall")
-            for call in (
-                ("get_node_type", {"name": node_type}),
-                (
-                    "get_voice_prompting_guide",
-                    {"stage": "create", "node_type": node_type},
-                ),
-            )
-        ],
+        ("get_voice_prompting_guide", {"stage": "create", "node_type": "agentNode"}),
+        ("submit_plan", {"plan": PLAN}),
         (
             "propose_workflow",
             {"candidate": {"code": VALID_CODE, "summary": "An inbound receptionist"}},
@@ -388,7 +435,7 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
         )
         stage = next(
             stage
-            for stage in ("plan", "build", "review")
+            for stage in ("build_requirements", "plan", "build", "review")
             if builder_instructions(stage) == system
         )
         assert body["metadata"]["builder_stage"] == stage
@@ -505,8 +552,6 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     ]
     assert [result["stage"] for result in guide_results] == [
         "create",
-        "create",
-        "create",
         "review",
         "review",
         "review",
@@ -584,6 +629,7 @@ async def test_builder_stream_directs_unconfigured_org_to_model_configurations(
     assert events[-1] == {
         "type": "error",
         "message": "Agent builder is currently only supported with a Dograh Service Key. Set it in /model-configurations.",
+        "status_code": 400,
     }
     config.assert_awaited_once_with(
         27, OrganizationConfigurationKey.MODEL_CONFIGURATION_DEFAULT_UUID.value

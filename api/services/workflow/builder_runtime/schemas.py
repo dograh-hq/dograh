@@ -9,7 +9,7 @@ from api.schemas.workflow_builder import BuilderPlanDecision
 def validate_plan_decision(revision: int, value: Any) -> BuilderPlanDecision:
     decision = BuilderPlanDecision.model_validate(value)
     if decision.brief_revision != revision:
-        raise ValueError("The plan changed; reload and review it again")
+        raise ValueError("The requirements changed; reload and review it again")
     return decision
 
 
@@ -64,6 +64,8 @@ def validate_answers(questions: list[dict], answers: Any) -> dict[str, list[str]
 
 class BuilderStep(BaseModel):
     request_id: UUID
+    # Server-supplied working copy; never accepted from the browser as context.
+    current_workflow: dict[str, Any] | None = None
     message: str | None = Field(default=None, min_length=1, max_length=12000)
     resume: dict[str, Any] | None = None
     checkpoint: str | None = None

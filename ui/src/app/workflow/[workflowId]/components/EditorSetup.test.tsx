@@ -9,6 +9,7 @@ import { describeVariables, EditorSetup, type EditorView, isEditorView, referenc
 
 const model = { summary: "model-a / Alice", dirty: false, pendingSave: false };
 const sections = { dirty: false };
+vi.mock("@/components/workflow-builder/WorkflowBuilder", () => ({ WorkflowBuilder: ({ workflowId }: { workflowId: number }) => <input aria-label="Builder message" data-workflow={workflowId} /> }));
 vi.mock("@/components/model-connections/useWorkflowModelOverride", () => ({ useWorkflowModelOverride: () => model }));
 vi.mock("@/components/model-connections/WorkflowModelPicker", () => ({ WorkflowModelPicker: () => <div>Model picker</div> }));
 vi.mock("../settings/WorkflowSettingsSections", async () => {
@@ -27,14 +28,15 @@ const nodes = [{ id: "start", type: "start", position: { x: 0, y: 0 }, data: { p
 function renderSetup(view: EditorView, overrides: Partial<Parameters<typeof EditorSetup>[0]> = {}) {
     const onViewChange = vi.fn();
     const onSavingChange = vi.fn();
-    render(<UnsavedChangesProvider><EditorSetup
-        view={view} onViewChange={onViewChange} onSavingChange={onSavingChange} workflowId={12} workflowName="Agent" workflowUuid="agent-uuid" nodes={nodes}
+    const element = (activeView: EditorView) => <UnsavedChangesProvider><EditorSetup
+        view={activeView} onViewChange={onViewChange} onSavingChange={onSavingChange} workflowId={12} workflowName="Agent" workflowUuid="agent-uuid" nodes={nodes}
         workflowConfigurations={resolveWorkflowConfigurations(null)} templateContextVariables={{ customer_name: "Ada" }} dictionary=""
         defaultCallDispositions={[]} defaultAnswerClassifierPrompt="" textChatInactivityTimeoutConstraints={null} widgetTextDefaults={null}
         saveWorkflowConfigurations={vi.fn(async () => undefined)} saveTemplateContextVariables={vi.fn(async () => undefined)} saveDictionary={vi.fn(async () => undefined)}
         {...overrides}
-    /></UnsavedChangesProvider>);
-    return { onViewChange, onSavingChange };
+    /></UnsavedChangesProvider>;
+    const result = render(element(view));
+    return { onViewChange, onSavingChange, setView: (next: EditorView) => result.rerender(element(next)) };
 }
 
 const tab = (name: RegExp) => within(screen.getByRole("toolbar", { name: "Editor" })).getByRole("tab", { name });
@@ -46,6 +48,18 @@ beforeEach(() => {
 });
 
 describe("editor setup", () => {
+    it("offers Builder before Canvas and keeps its input mounted across tabs", () => {
+        const { onViewChange, setView } = renderSetup("builder");
+        expect(within(screen.getByRole("toolbar", { name: "Editor" })).getAllByRole("tab").map(item => item.textContent)).toEqual(["Builder", "Canvas", "Model", "Variables", "Settings"]);
+        expect(screen.getByRole("textbox", { name: "Builder message" }).getAttribute("data-workflow")).toBe("12");
+        fireEvent.mouseDown(tab(/^Canvas/));
+        expect(onViewChange).toHaveBeenCalledWith("canvas");
+        fireEvent.change(screen.getByRole("textbox", { name: "Builder message" }), { target: { value: "Keep this edit" } });
+        setView("canvas");
+        expect(screen.queryByRole("textbox", { name: "Builder message" })).toBeNull();
+        setView("builder");
+        expect((screen.getByRole("textbox", { name: "Builder message" }) as HTMLInputElement).value).toBe("Keep this edit");
+    });
     it("recognises the views a URL may name", () => {
         expect(isEditorView("model")).toBe(true);
         expect(isEditorView("recordings")).toBe(false);
@@ -60,9 +74,9 @@ describe("editor setup", () => {
         expect(describeVariables({}, [{ ...nodes[0], data: { prompt: "{{toString}}" } }] as FlowNode[])).toEqual({ text: "0 set, 1 missing", missing: ["toString"] });
     });
 
-    it("offers the four views and switches on click", () => {
+    it("offers all five views for every workflow and switches on click", () => {
         const { onViewChange } = renderSetup("canvas");
-        expect(within(screen.getByRole("toolbar", { name: "Editor" })).getAllByRole("tab").map(item => item.textContent)).toEqual(["Canvas", "Model", "Variables", "Settings"]);
+        expect(within(screen.getByRole("toolbar", { name: "Editor" })).getAllByRole("tab").map(item => item.textContent)).toEqual(["Builder", "Canvas", "Model", "Variables", "Settings"]);
         expect(tab(/^Canvas/).getAttribute("aria-selected")).toBe("true");
         expect(screen.queryByRole("region")).toBeNull();
         fireEvent.mouseDown(tab(/^Model/));

@@ -34,6 +34,7 @@ from api.services.workflow.authoring.contracts import AuthoringStage
 from api.services.workflow.builder import BUILDER_TOOLS
 from api.services.workflow.builder_runtime.agent import (
     ALLOWED_TOOLS,
+    ITERATION_MCP_TOOLS,
     LOCAL_TOOLS,
     STAGE_MCP_TOOLS,
     builder_instructions,
@@ -148,6 +149,9 @@ async def test_guide_only_references_registered_tools():
     referenced = _referenced_tool_names(instructions_module.DOGRAH_MCP_INSTRUCTIONS)
     for stage in AuthoringStage:
         referenced |= _referenced_tool_names(authoring_stage(stage)["instructions"])
+        referenced |= _referenced_tool_names(
+            authoring_stage(stage, iteration=True)["instructions"]
+        )
 
     assert referenced, "no tool references extracted — the regex likely broke"
     unknown = sorted(referenced - registered)
@@ -164,10 +168,15 @@ async def test_builder_guide_only_references_available_tools():
     relayed = ALLOWED_TOOLS - {"preview_workflow"}
     assert relayed <= registered & BUILDER_TOOLS
     for stage, stage_tools in STAGE_MCP_TOOLS.items():
-        available = stage_tools | {tool.name for tool in LOCAL_TOOLS[stage]}
-        referenced = _referenced_tool_names(builder_instructions(stage))
-        assert referenced
-        assert not referenced - available, (stage, referenced - available)
+        for iteration in (False, True):
+            available = stage_tools | {tool.name for tool in LOCAL_TOOLS[stage]}
+            if iteration and stage in ("build", "review"):
+                available |= ITERATION_MCP_TOOLS
+            referenced = _referenced_tool_names(
+                builder_instructions(stage, iteration=iteration)
+            )
+            assert referenced
+            assert not referenced - available, (stage, referenced - available)
 
 
 @pytest.mark.asyncio

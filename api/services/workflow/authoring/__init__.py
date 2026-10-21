@@ -2,7 +2,14 @@
 
 from pathlib import Path
 
-from .contracts import AuthoringStage, BuildResult, CallBrief, ReviewResult
+from .contracts import (
+    AuthoringStage,
+    BuildResult,
+    CallBrief,
+    ConversationPlan,
+    ReviewResult,
+)
+from .sdk_reference import core_sdk_reference
 
 _ASSETS = Path(__file__).parent
 
@@ -17,7 +24,7 @@ def render_authoring_instructions(interface_instructions: str) -> str:
     )
 
 
-def authoring_stage(stage: AuthoringStage | str) -> dict:
+def authoring_stage(stage: AuthoringStage | str, *, iteration: bool = False) -> dict:
     """Return the same instructions and handoff schema through either interface."""
     stage = AuthoringStage(stage)
     parts = [
@@ -26,8 +33,13 @@ def authoring_stage(stage: AuthoringStage | str) -> dict:
     ]
     if stage == AuthoringStage.build:
         parts.append((_ASSETS / "source.md").read_text(encoding="utf-8").strip())
+    if stage in (AuthoringStage.build, AuthoringStage.review):
+        parts.append(core_sdk_reference())
+        if iteration:
+            parts.append((_ASSETS / "iteration.md").read_text(encoding="utf-8").strip())
     contract = {
-        AuthoringStage.plan: CallBrief,
+        AuthoringStage.build_requirements: CallBrief,
+        AuthoringStage.plan: ConversationPlan,
         AuthoringStage.build: BuildResult,
         AuthoringStage.review: ReviewResult,
     }[stage]

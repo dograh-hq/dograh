@@ -11,7 +11,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import { createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost, getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet, listDocumentsApiV1KnowledgeBaseDocumentsGet, listRecordingsApiV1WorkflowRecordingsGet, listToolsApiV1ToolsGet } from '@/client';
+import { createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost, getWorkflowApiV1WorkflowFetchWorkflowIdGet, getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet, listDocumentsApiV1KnowledgeBaseDocumentsGet, listRecordingsApiV1WorkflowRecordingsGet, listToolsApiV1ToolsGet } from '@/client';
 import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse, WorkflowVersionResponse } from '@/client/types.gen';
 import { useNodeSpecs } from "@/components/flow/renderer";
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
@@ -421,6 +421,17 @@ function WorkflowEditor({
     }, [fetchVersions]);
     applySavedVersionRef.current = (version) => { void applySavedVersion(version); };
 
+    const handleBuilderSaved = useCallback(async () => {
+        const response = await getWorkflowApiV1WorkflowFetchWorkflowIdGet({ path: { workflow_id: workflowId } });
+        if (response.error) throw new Error(detailFromError(response.error, 'Draft saved, but the canvas could not be refreshed. Reload to try again.'));
+        if (!response.data) throw new Error('Draft saved, but the workflow could not be loaded.');
+        setNodes((response.data.workflow_definition.nodes ?? []) as FlowNode[]);
+        setEdges((response.data.workflow_definition.edges ?? []) as FlowEdge[]);
+        setIsDirty(false);
+        await applySavedVersion({ versionNumber: response.data.version_number ?? undefined, versionStatus: response.data.version_status ?? undefined });
+        toast.success('Agent draft updated');
+    }, [workflowId, setNodes, setEdges, setIsDirty, applySavedVersion]);
+
     // Compute version label for the header.
     // Uses currentVersionNumber/Status which update immediately from save responses,
     // falling back to the versions list for history navigation.
@@ -784,7 +795,7 @@ function WorkflowEditor({
                                 </TooltipProvider>
                             </div>
 
-                            {/* View switcher (Canvas / Model / Variables / Settings); the other views cover the canvas */}
+                            {/* Editor views cover the canvas while keeping it mounted. */}
                             {!isViewingHistoricalVersion && (
                                 <EditorSetup
                                     view={editorView}
@@ -793,6 +804,8 @@ function WorkflowEditor({
                                     workflowId={workflowId}
                                     workflowName={workflowName}
                                     workflowUuid={workflowUuid}
+                                    builderDisabled={isDirty || settingsSaving}
+                                    onBuilderSaved={handleBuilderSaved}
                                     nodes={nodes}
                                     workflowConfigurations={workflowConfigurations}
                                     defaultCallDispositions={defaultCallDispositions}

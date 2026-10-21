@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from typing import Optional
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from loguru import logger
 from sqlalchemy import func, update
@@ -10,12 +11,14 @@ from sqlalchemy.orm import load_only, selectinload
 from api.db.base_client import BaseDBClient
 from api.db.model_connection_client import ModelCatalogNotFound, ModelConnectionClient
 from api.db.models import (
+    CheckpointModel,
     NamedModelConfigurationModel,
     ProviderConnectionModel,
     WorkflowDefinitionModel,
     WorkflowModel,
     WorkflowRunModel,
 )
+from api.utils.workflow_revision import workflow_revision
 
 
 class WorkflowClient(BaseDBClient):
@@ -27,6 +30,7 @@ class WorkflowClient(BaseDBClient):
         workflow_definition: dict,
         user_id: int,
         organization_id: int,
+        builder_session_id: str | None = None,
     ) -> WorkflowModel:
         """Atomically create an unpublished V1; workflow_uuid is the retry key."""
         async with self.async_session() as session:
@@ -65,6 +69,11 @@ class WorkflowClient(BaseDBClient):
                         is_current=False,
                         workflow_configurations={},
                         template_context_variables={},
+                        extra_metadata={
+                            "builder_sessions": {str(user_id): builder_session_id}
+                        }
+                        if builder_session_id
+                        else {},
                     )
                 )
                 await session.commit()
@@ -79,6 +88,91 @@ class WorkflowClient(BaseDBClient):
                         )
                     return workflow
                 raise
+
+    async def get_workflow_builder_session_id(
+        self,
+        workflow_id: int,
+        *,
+        organization_id: int,
+        user_id: int,
+        create: bool = False,
+    ) -> str | None:
+        """Keep each user's conversation in the first version's existing metadata.
+
+        The original version remains the anchor across publish, new drafts and
+        reverts. Copying workflows does not copy private builder conversations.
+        """
+        async with self.async_session() as session:
+            row = (
+                await session.execute(
+                    select(
+                        WorkflowDefinitionModel,
+                        WorkflowModel.workflow_uuid,
+                        WorkflowModel.user_id,
+                    )
+                    .join(
+                        WorkflowModel,
+                        WorkflowModel.id == WorkflowDefinitionModel.workflow_id,
+                    )
+                    .where(
+                        WorkflowModel.id == workflow_id,
+                        WorkflowModel.organization_id == organization_id,
+                    )
+                    .order_by(WorkflowDefinitionModel.id)
+                    .limit(1)
+                )
+            ).first()
+            if row is None:
+                return None
+            definition, workflow_uuid, creator_id = row
+            sessions = (definition.extra_metadata or {}).get("builder_sessions", {})
+            if session_id := sessions.get(str(user_id)):
+                return session_id
+
+            # Recover pre-existing builder workflows on first open, with no
+            # schema/data migration. Ordinary workflows use random v4 UUIDs.
+            session_id = None
+            if creator_id == user_id and UUID(workflow_uuid).version == 5:
+                prefix = f"workflow-builder:{organization_id}:{user_id}:"
+                threads = (
+                    await session.scalars(
+                        select(CheckpointModel.thread_id)
+                        .where(
+                            CheckpointModel.thread_id.startswith(prefix),
+                            CheckpointModel.checkpoint_ns == "",
+                        )
+                        .distinct()
+                    )
+                ).all()
+                for thread in threads:
+                    try:
+                        candidate = str(UUID(thread.removeprefix(prefix)))
+                    except ValueError:
+                        continue
+                    if (
+                        str(
+                            uuid5(
+                                NAMESPACE_URL,
+                                f"dograh-builder:{organization_id}:{user_id}:{candidate}",
+                            )
+                        )
+                        == workflow_uuid
+                    ):
+                        session_id = candidate
+                        break
+            if session_id is None and not create:
+                return None
+
+            # Serialize concurrent opens and preserve release notes and other
+            # users' sessions when adding a link to the JSON metadata.
+            await self._lock_workflow_model_catalog(session, workflow_id)
+            await session.refresh(definition, with_for_update=True)
+            metadata = dict(definition.extra_metadata or {})
+            sessions = dict(metadata.get("builder_sessions", {}))
+            session_id = sessions.setdefault(str(user_id), session_id or str(uuid4()))
+            definition.extra_metadata = {**metadata, "builder_sessions": sessions}
+            await session.commit()
+            return session_id
 
     async def _lock_workflow_model_catalog(self, session, workflow_id):
         """Serialize catalog references with archive and normalization writes."""
@@ -282,6 +376,7 @@ class WorkflowClient(BaseDBClient):
         workflow_definition: dict | None = None,
         workflow_configurations: dict | None = None,
         template_context_variables: dict | None = None,
+        expected_workflow_revision: str | None = None,
     ) -> WorkflowDefinitionModel:
         """Create or update a draft version for this workflow.
 
@@ -292,6 +387,21 @@ class WorkflowClient(BaseDBClient):
             organization_id = await self._lock_workflow_model_catalog(
                 session, workflow_id
             )
+            if expected_workflow_revision is not None:
+                workflow = await session.scalar(
+                    select(WorkflowModel)
+                    .where(WorkflowModel.id == workflow_id)
+                    .with_for_update()
+                )
+                if (
+                    workflow_revision(workflow.workflow_definition)
+                    != expected_workflow_revision
+                    and workflow.workflow_definition != workflow_definition
+                ):
+                    raise ValueError(
+                        "The workflow changed since this proposal was built. "
+                        "Ask the builder to apply your changes to the latest workflow."
+                    )
             # Check for existing draft
             result = await session.execute(
                 select(WorkflowDefinitionModel).where(

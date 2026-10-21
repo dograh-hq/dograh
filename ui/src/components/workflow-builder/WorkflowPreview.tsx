@@ -13,8 +13,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 type GraphNode = { id: string; type: string; position?: { x: number; y: number }; data: { name?: string; prompt?: string } };
 type GraphEdge = { id: string; source: string; target: string; data?: { label?: string } };
 
-export function WorkflowPreview({ proposal, onSave, disabled, saving }: {
-    proposal: BuilderProposal; onSave: () => void; disabled: boolean; saving: boolean;
+export function WorkflowPreview({ proposal, onSave, disabled, saving, editing = false }: {
+    proposal: BuilderProposal; onSave: () => void; disabled: boolean; saving: boolean; editing?: boolean;
 }) {
     const [selected, setSelected] = useState<GraphNode | null>(null);
     const { resolvedTheme } = useTheme();
@@ -36,6 +36,6 @@ export function WorkflowPreview({ proposal, onSave, disabled, saving }: {
             <TabsContent value="code" className="min-h-[380px] flex-1 overflow-auto p-5"><pre className="whitespace-pre-wrap break-words text-xs leading-relaxed">{proposal.code}</pre></TabsContent>
         </Tabs>
         {selected && <div className="max-h-44 overflow-auto border-t px-5 py-3"><h3 className="mb-1 text-sm font-medium">{selected.data.name}</h3><p className="whitespace-pre-wrap text-sm text-muted-foreground">{selected.data.prompt || 'This node controls the call flow.'}</p></div>}
-        <div className="flex items-center justify-between gap-4 border-t p-5"><p className="text-xs text-muted-foreground">Save a draft to configure and test in the editor.</p><Button onClick={onSave} disabled={disabled || saving}>{saving ? 'Saving…' : 'Save draft'}</Button></div>
+        <div className="flex items-center justify-between gap-4 border-t p-5"><p className="text-xs text-muted-foreground">{editing ? 'Save changes to update this agent’s draft.' : 'Save a draft to configure and test in the editor.'}</p><Button onClick={onSave} disabled={disabled || saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save draft'}</Button></div>
     </div>;
 }

@@ -2,13 +2,16 @@
 
 BRIEF = {
     "goal": "Greet callers and collect their name",
-    "audience": "Customers",
     "direction": "inbound",
-    "trigger": "An incoming phone call",
     "information_to_collect": ["Caller name"],
-    "conversation_steps": ["Greet the caller", "Ask their name", "Say goodbye"],
     "success_criteria": ["The caller's name is collected"],
-    "exit_conditions": ["The caller is ready to end"],
-    "acceptance_scenarios": ["A caller gives their name and the agent says goodbye"],
+}
+PLAN = {
+    "content": (
+        "Welcome (startCall): Greet the caller. Continue to Collect name when ready. "
+        "Collect name (agentNode): Ask for the caller's name and extract caller_name "
+        "as a string. Continue to Goodbye once collected or if the caller declines. "
+        "Goodbye (endCall): Thank the caller and say goodbye."
+    ),
 }
 READY_REVIEW = {"verdict": "ready", "summary": "The workflow implements the brief."}

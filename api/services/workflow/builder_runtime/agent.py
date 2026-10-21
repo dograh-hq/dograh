@@ -1,7 +1,7 @@
-"""Three isolated agents in one checkpointed graph, with explicit handoffs.
+"""Requirements, planning, SDK building, and review with explicit handoffs.
 
 Each agent has a private message channel and an independently bound tool set.
-Only the Planner's conversation and reviewed proposals reach the public transcript.
+Only requirements conversations and reviewed proposals reach the public transcript.
 The flat graph keeps interrupts and checkpoints compatible with the existing relay.
 """
 
@@ -30,6 +30,7 @@ from api.services.workflow.authoring.contracts import (
     AuthoringStage,
     BuildResult,
     CallBrief,
+    ConversationPlan,
     ReviewResult,
 )
 
@@ -42,43 +43,51 @@ from .schemas import (
 
 ASSETS = Path(__file__).parent / "assets"
 STAGE_MCP_TOOLS = {
-    "plan": frozenset(),
-    "build": frozenset(
-        {
-            "list_node_types",
-            "get_node_type",
-            "list_tools",
-            "list_documents",
-            "list_credentials",
-            "list_recordings",
-            "get_voice_prompting_guide",
-        }
-    ),
-    "review": frozenset(
-        {
-            "get_node_type",
-            "list_tools",
-            "list_documents",
-            "list_credentials",
-            "list_recordings",
-            "get_voice_prompting_guide",
-        }
-    ),
+    "build_requirements": frozenset(),
+    "plan": frozenset({"get_voice_prompting_guide"}),
+    "build": frozenset(),
+    "review": frozenset({"get_voice_prompting_guide"}),
 }
-ALLOWED_TOOLS = frozenset.union(*STAGE_MCP_TOOLS.values()) | {"preview_workflow"}
+ITERATION_MCP_TOOLS = frozenset(
+    {
+        "get_node_type",
+        "list_tools",
+        "list_documents",
+        "list_credentials",
+        "list_recordings",
+    }
+)
+ALLOWED_TOOLS = (
+    frozenset.union(*STAGE_MCP_TOOLS.values())
+    | ITERATION_MCP_TOOLS
+    | {"preview_workflow"}
+)
 MAX_VALIDATION_ATTEMPTS = 3
 MAX_REVIEW_ATTEMPTS = 3
 
+# Keep requirements node/channel names already stored in checkpoints. Prompts,
+# tool permissions, and tracing use the new stage terminology.
+_GRAPH_NAMES = {
+    "build_requirements": "plan",
+    "plan": "plan_conversation",
+    "build": "build",
+    "review": "review",
+}
+
 
 class BuilderState(TypedDict, total=False):
+    workflow_id: int | None
+    workflow_revision: str | None
     messages: Annotated[list[AnyMessage], add_messages]
+    plan_conversation_messages: Annotated[list[AnyMessage], add_messages]
     plan_messages: Annotated[list[AnyMessage], add_messages]
     build_messages: Annotated[list[AnyMessage], add_messages]
     review_messages: Annotated[list[AnyMessage], add_messages]
-    phase: Literal["plan", "build", "review", "complete"]
+    phase: Literal["build_requirements", "plan", "build", "review", "complete"]
     brief: dict[str, Any] | None
     brief_revision: int
     approved_brief_revision: int | None
+    conversation_plan: dict[str, Any] | None
     candidate: dict[str, Any] | None
     candidate_revision: int
     previous_code: str | None
@@ -100,7 +109,7 @@ def _fresh_messages(payload: dict) -> list[AnyMessage]:
 def _result(stage: str, call_id: str, payload: dict, **updates) -> Command:
     return Command(
         update={
-            f"{stage}_messages": [
+            f"{_GRAPH_NAMES[stage]}_messages": [
                 ToolMessage(content=json.dumps(payload), tool_call_id=call_id)
             ],
             **updates,
@@ -134,7 +143,13 @@ def ask_questions(
     answers = interrupt({"kind": "questions", **payload})
     validated = validate_answers(payload["questions"], answers)
     message = ToolMessage(content=json.dumps(validated), tool_call_id=tool_call_id)
-    return Command(update={"plan_messages": [message], "messages": [message]})
+    return Command(
+        update={
+            "plan_messages": [message],
+            "messages": [message],
+            "phase": "build_requirements",
+        }
+    )
 
 
 @tool
@@ -143,19 +158,10 @@ def submit_brief(
     state: Annotated[dict, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
 ) -> Command:
-    """Show the complete business plan for human approval before building.
+    """Show the complete business requirements for manual approval before planning.
 
     The user can approve it or request changes. Never assume approval from chat.
     """
-    if brief.open_questions:
-        return _result(
-            "plan",
-            tool_call_id,
-            {
-                "error": "Resolve the blocking questions before building.",
-                "open_questions": brief.open_questions,
-            },
-        )
     revision = state.get("brief_revision", 0) + 1
     # Interrupt before any handoff. On resume LangGraph replays this tool with
     # the checkpointed arguments, so approval is bound to this exact brief.
@@ -173,24 +179,25 @@ def submit_brief(
     previous_code = previous.get("code") or state.get("previous_code")
     if decision.decision == "revise":
         return _result(
-            "plan",
+            "build_requirements",
             tool_call_id,
             {
                 "approved": False,
                 "brief_revision": revision,
                 "feedback": decision.feedback,
             },
-            phase="plan",
+            phase="build_requirements",
             brief=brief.model_dump(),
             brief_revision=revision,
             approved_brief_revision=None,
+            conversation_plan=None,
             previous_code=previous_code,
             candidate=None,
             review=None,
             proposal=None,
             messages=[
                 HumanMessage(
-                    content=f"Changes requested to plan {revision}: {decision.feedback}"
+                    content=f"Changes requested to requirements {revision}: {decision.feedback}"
                 )
             ],
         )
@@ -199,21 +206,24 @@ def submit_brief(
         "",
     )
     return _result(
-        "plan",
+        "build_requirements",
         tool_call_id,
         {"approved": True, "brief_revision": revision},
-        phase="build",
+        phase="plan",
         brief=brief.model_dump(),
         brief_revision=revision,
         approved_brief_revision=revision,
+        conversation_plan=None,
         previous_code=previous_code,
         candidate=None,
         review=None,
         proposal=None,
         validation_attempts=0,
         review_attempts=0,
-        messages=[HumanMessage(content=f"Approved plan {revision}. Build the agent.")],
-        build_messages=_fresh_messages(
+        messages=[
+            HumanMessage(content=f"Approved requirements {revision}. Build the agent.")
+        ],
+        plan_conversation_messages=_fresh_messages(
             {
                 "brief": brief.model_dump(),
                 "brief_revision": revision,
@@ -221,19 +231,56 @@ def submit_brief(
                 "previous_code": previous_code,
             }
         ),
+        build_messages=[RemoveMessage(id=REMOVE_ALL_MESSAGES)],
         review_messages=[RemoveMessage(id=REMOVE_ALL_MESSAGES)],
     )
 
 
-def _planning_gap(
+@tool
+def submit_plan(
+    plan: ConversationPlan,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Hand conversation flow and complete prompts to the SDK Builder.
+
+    Requirements must already be approved. This internal handoff does not ask
+    for a second approval, validate source, or show a proposal.
+    """
+    if (
+        not state.get("brief")
+        or state.get("approved_brief_revision") != state.get("brief_revision")
+    ):
+        return _result(
+            "plan", tool_call_id, {"error": "Approved requirements are required."}
+        )
+    planned = {**plan.model_dump(), "brief_revision": state["brief_revision"]}
+    return _result(
+        "plan",
+        tool_call_id,
+        {"sent_to_builder": True},
+        phase="build",
+        conversation_plan=planned,
+        build_messages=_fresh_messages(
+            {
+                "brief": state["brief"],
+                "conversation_plan": planned,
+                "previous_code": state.get("previous_code"),
+            }
+        ),
+    )
+
+
+def _requirements_gap(
     stage: str, call_id: str, state: dict, reason: str, **updates
 ) -> Command:
     return _result(
         stage,
         call_id,
-        {"returned_to_planner": True},
-        phase="plan",
+        {"returned_to_requirements": True},
+        phase="build_requirements",
         approved_brief_revision=None,
+        conversation_plan=None,
         proposal=None,
         plan_messages=[
             HumanMessage(
@@ -256,11 +303,11 @@ def request_clarification(
     state: Annotated[dict, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
 ) -> Command:
-    """Return a missing business decision or required configuration to the Planner.
+    """Return a missing business decision to the Requirements agent.
 
     Explain the gap and business alternatives. Do not silently omit a requirement.
     """
-    return _planning_gap("build", tool_call_id, state, reason, review=None)
+    return _requirements_gap(state["phase"], tool_call_id, state, reason, review=None)
 
 
 @tool
@@ -276,7 +323,6 @@ def propose_workflow(
     """
     if (
         not state.get("brief")
-        or state["brief"].get("open_questions")
         or state.get("approved_brief_revision") != state.get("brief_revision")
     ):
         return _result(
@@ -284,6 +330,33 @@ def propose_workflow(
             tool_call_id,
             {"error": "A human-approved business brief is required."},
         )
+    plan = state.get("conversation_plan")
+    if not plan or plan.get("brief_revision") != state["brief_revision"]:
+        # A pre-refactor checkpoint may resume without the new conversation plan.
+        return _result(
+            "build",
+            tool_call_id,
+            {"sent_for_planning": True},
+            phase="plan",
+            previous_code=candidate.code,
+            plan_conversation_messages=_fresh_messages(
+                {
+                    "brief": state["brief"],
+                    "previous_code": candidate.code,
+                    "configuration_gaps": candidate.configuration_gaps,
+                }
+            ),
+        )
+    # Preserve explicitly deferred work even if the SDK writer omits it.
+    candidate = candidate.model_copy(
+        update={
+            "configuration_gaps": list(
+                dict.fromkeys(
+                    [*plan["configuration_gaps"], *candidate.configuration_gaps]
+                )
+            )
+        }
+    )
     result = interrupt(
         {
             "kind": "mcp",
@@ -321,7 +394,7 @@ def propose_workflow(
         proposal=None,
         validation_attempts=0,
         review_messages=_fresh_messages(
-            {"brief": state["brief"], "candidate": validated}
+            {"brief": state["brief"], "conversation_plan": plan, "candidate": validated}
         ),
     )
 
@@ -381,7 +454,7 @@ def submit_review(
             review_attempts=attempts,
         )
     if review.verdict == "needs_input":
-        return _planning_gap(
+        return _requirements_gap(
             "review",
             tool_call_id,
             state,
@@ -402,7 +475,8 @@ def submit_review(
 
 
 LOCAL_TOOLS = {
-    "plan": [ask_questions, submit_brief],
+    "build_requirements": [ask_questions, submit_brief],
+    "plan": [request_clarification, submit_plan],
     "build": [request_clarification, propose_workflow],
     "review": [submit_review],
 }
@@ -422,11 +496,15 @@ def relay_tool(spec: dict) -> StructuredTool:
     )
 
 
-def builder_instructions(stage: AuthoringStage | str = AuthoringStage.plan) -> str:
+def builder_instructions(
+    stage: AuthoringStage | str = AuthoringStage.build_requirements,
+    *,
+    iteration: bool = False,
+) -> str:
     stage = AuthoringStage(stage)
     return "\n\n".join(
         [
-            authoring_stage(stage)["instructions"],
+            authoring_stage(stage, iteration=iteration)["instructions"],
             (ASSETS / "instructions.md").read_text(encoding="utf-8").strip(),
             (ASSETS / f"{stage.value}.md").read_text(encoding="utf-8").strip(),
         ]
@@ -437,26 +515,31 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
     graph = StateGraph(BuilderState)
 
     def route(state):
-        phase = state.get("phase", "plan")
-        return END if phase == "complete" else phase
+        phase = state.get("phase", "build_requirements")
+        return END if phase == "complete" else _GRAPH_NAMES[phase]
 
     def add_stage(stage):
-        key = f"{stage}_messages"
-        tools = [
-            *LOCAL_TOOLS[stage],
-            *[
-                relay_tool(spec)
-                for spec in tool_specs
-                if spec["name"] in STAGE_MCP_TOOLS[stage]
-            ],
-        ]
-        agent_model = model.bind_tools(tools, authoring_stage=stage)
-        tool_node = ToolNode(tools, messages_key=key)
+        node_name = _GRAPH_NAMES[stage]
+        key = f"{node_name}_messages"
+
+        def stage_tools(state):
+            allowed = STAGE_MCP_TOOLS[stage]
+            if state.get("previous_code") and stage in ("build", "review"):
+                allowed = allowed | ITERATION_MCP_TOOLS
+            return [
+                *LOCAL_TOOLS[stage],
+                *[relay_tool(spec) for spec in tool_specs if spec["name"] in allowed],
+            ]
 
         async def invoke(state: BuilderState):
+            agent_model = model.bind_tools(stage_tools(state), authoring_stage=stage)
             reply = await agent_model.ainvoke(
                 [
-                    SystemMessage(content=builder_instructions(stage)),
+                    SystemMessage(
+                        content=builder_instructions(
+                            stage, iteration=bool(state.get("previous_code"))
+                        )
+                    ),
                     *state.get(key, []),
                 ]
             )
@@ -464,7 +547,7 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
                 key: [reply],
                 "idle_turns": 0 if reply.tool_calls else state.get("idle_turns", 0) + 1,
             }
-            if stage == "plan":
+            if stage == "build_requirements":
                 updates["messages"] = [reply]
             elif not reply.tool_calls:
                 if updates["idle_turns"] >= 2:
@@ -499,19 +582,21 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
                         for call in calls
                     ]
                 }
-            return await tool_node.ainvoke(state, config)
+            return await ToolNode(stage_tools(state), messages_key=key).ainvoke(
+                state, config
+            )
 
         def after_model(state):
             if state.get("phase") == "complete":
                 return END
             if getattr(state[key][-1], "tool_calls", []):
-                return f"{stage}_tools"
-            return END if stage == "plan" else stage
+                return f"{node_name}_tools"
+            return END if stage == "build_requirements" else node_name
 
-        graph.add_node(stage, invoke)
-        graph.add_node(f"{stage}_tools", execute)
-        graph.add_conditional_edges(stage, after_model)
-        graph.add_conditional_edges(f"{stage}_tools", route)
+        graph.add_node(node_name, invoke)
+        graph.add_node(f"{node_name}_tools", execute)
+        graph.add_conditional_edges(node_name, after_model)
+        graph.add_conditional_edges(f"{node_name}_tools", route)
 
     for stage in STAGE_MCP_TOOLS:
         add_stage(stage)

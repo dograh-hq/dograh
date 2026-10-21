@@ -1,8 +1,11 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
 import pytest
 from loguru import logger
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.minimax.llm import MiniMaxLLMService as RealMiniMaxLLMService
 from pipecat.services.minimax.tts import MiniMaxTTSService
 from pydantic import ValidationError
@@ -14,6 +17,7 @@ from api.services.configuration.registry import (
     ServiceProviders,
 )
 from api.services.pipecat.service_factory import (
+    create_llm_service,
     create_llm_service_from_provider,
     create_tts_service,
 )
@@ -23,8 +27,15 @@ class TestMiniMaxLLMConfiguration:
     def test_default_values(self):
         config = MiniMaxLLMConfiguration(api_key="test-key")
         assert config.provider == ServiceProviders.MINIMAX
-        assert config.model == "MiniMax-M2.7"
+        assert config.model == "MiniMax-M3.1-Flash"
         assert config.base_url == "https://api.minimax.io/v1"
+
+    def test_model_catalog(self):
+        entry = model_connection_catalog()["services"]["llm"]["minimax"]
+        model = entry["settings_schema"]["properties"]["model"]
+        assert model["default"] == "MiniMax-M3.1-Flash"
+        assert model["examples"] == ["MiniMax-M3.1-Flash", "MiniMax-M3"]
+        assert model["allow_custom_input"] is True
 
     def test_custom_model(self):
         config = MiniMaxLLMConfiguration(
@@ -113,6 +124,97 @@ class TestMiniMaxLLMServiceFactory:
             )
         kwargs = mock_service.call_args.kwargs
         assert kwargs["settings"].temperature == 0.3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model",
+    [
+        None,
+        "MiniMax-M3.1-Flash",
+        "MiniMax-M3",
+        "MiniMax-M2.7",
+        "MiniMax-M2.7-highspeed",
+        "custom-model",
+    ],
+)
+@pytest.mark.parametrize(
+    "base_url",
+    [None, "https://api.minimaxi.com/v1", "https://llm.example.test/v1"],
+)
+async def test_minimax_saved_configuration_reaches_http(model, base_url):
+    settings = {}
+    if model is not None:
+        settings["model"] = model
+    if base_url is not None:
+        settings["base_url"] = base_url
+    config = MiniMaxLLMConfiguration(api_key="test-key", **settings)
+    restored = MiniMaxLLMConfiguration.model_validate_json(config.model_dump_json())
+    expected_model = model or "MiniMax-M3.1-Flash"
+    messages = [
+        {"role": "system", "content": "Answer briefly."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Hello"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "https://example.test/image.png"},
+                },
+            ],
+        },
+    ]
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        chunk = {
+            "id": "test-completion",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": expected_model,
+            "choices": [
+                {"index": 0, "delta": {"content": "Hello!"}, "finish_reason": "stop"}
+            ],
+        }
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            text=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n",
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        # Replace only HTTP transport; the factory, adapter and SDK serialize the request.
+        with patch(
+            "pipecat.services.openai.base_llm.DefaultAsyncHttpxClient",
+            return_value=client,
+        ):
+            service = create_llm_service(SimpleNamespace(llm=restored))
+        try:
+            stream = await service.get_chat_completions(LLMContext(messages=messages))
+            chunks = [chunk async for chunk in stream]
+        finally:
+            await service._client.close()
+
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.method == "POST"
+    assert str(request.url) == f"{restored.base_url}/chat/completions"
+    assert request.headers["authorization"] == "Bearer test-key"
+    body = json.loads(request.content)
+    assert body["model"] == expected_model
+    assert body["messages"] == messages
+    assert body["temperature"] == 1.0
+    assert body["stream"] is True
+    # Leave reasoning at the model's API default; Flash rejects disabled thinking.
+    for parameter in (
+        "thinking",
+        "reasoning_effort",
+        "reasoning_split",
+        "service_tier",
+    ):
+        assert parameter not in body
+    assert "".join(chunk.choices[0].delta.content or "" for chunk in chunks) == "Hello!"
 
 
 class TestMiniMaxTTSServiceFactory:

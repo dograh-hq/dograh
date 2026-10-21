@@ -3,6 +3,7 @@ from typing import Optional
 
 from loguru import logger
 from sqlalchemy import func, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 from sqlalchemy.orm import load_only, selectinload
 
@@ -18,6 +19,67 @@ from api.db.models import (
 
 
 class WorkflowClient(BaseDBClient):
+    async def create_builder_draft(
+        self,
+        *,
+        workflow_uuid: str,
+        name: str,
+        workflow_definition: dict,
+        user_id: int,
+        organization_id: int,
+    ) -> WorkflowModel:
+        """Atomically create an unpublished V1; workflow_uuid is the retry key."""
+        async with self.async_session() as session:
+
+            async def existing():
+                return await session.scalar(
+                    select(WorkflowModel).where(
+                        WorkflowModel.workflow_uuid == workflow_uuid,
+                        WorkflowModel.organization_id == organization_id,
+                        WorkflowModel.user_id == user_id,
+                    )
+                )
+
+            if workflow := await existing():
+                if workflow.workflow_definition != workflow_definition:
+                    raise ValueError(
+                        "This conversation already saved a different draft. Continue in the workflow editor or start a new conversation."
+                    )
+                return workflow
+            workflow = WorkflowModel(
+                workflow_uuid=workflow_uuid,
+                name=name,
+                user_id=user_id,
+                organization_id=organization_id,
+                workflow_definition=workflow_definition,
+            )
+            try:
+                session.add(workflow)
+                await session.flush()
+                session.add(
+                    WorkflowDefinitionModel(
+                        workflow_id=workflow.id,
+                        workflow_json=workflow_definition,
+                        status="draft",
+                        version_number=1,
+                        is_current=False,
+                        workflow_configurations={},
+                        template_context_variables={},
+                    )
+                )
+                await session.commit()
+                await session.refresh(workflow)
+                return workflow
+            except IntegrityError:
+                await session.rollback()
+                if workflow := await existing():
+                    if workflow.workflow_definition != workflow_definition:
+                        raise ValueError(
+                            "This conversation already saved a different draft. Continue in the workflow editor or start a new conversation."
+                        )
+                    return workflow
+                raise
+
     async def _lock_workflow_model_catalog(self, session, workflow_id):
         """Serialize catalog references with archive and normalization writes."""
         row = (

@@ -22,7 +22,7 @@ question" yields garbage tips.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,7 +41,11 @@ class StageLens(BaseModel):
     full content."""
 
     relevant: bool = False
-    lens: Optional[str] = None
+    lens: str | None = None
+    required_read: bool = Field(
+        default=False,
+        description="Read the full atom when this lens applies; advisory to the author.",
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -103,13 +107,13 @@ class VoicePromptingTopic(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    def lens_for(self, stage: Stage) -> Optional[str]:
+    def lens_for(self, stage: Stage) -> str | None:
         sl = self.stages.get(stage)
         if sl is None or not sl.relevant:
             return None
         return sl.lens
 
-    def is_relevant_to(self, node_type: Optional[str]) -> bool:
+    def is_relevant_to(self, node_type: str | None) -> bool:
         if node_type is None:
             return True
         # An atom with no `applies_to_node_types` is treated as
@@ -119,10 +123,14 @@ class VoicePromptingTopic(BaseModel):
         return node_type in self.applies_to_node_types
 
     def to_briefing_dict(self, stage: Stage) -> dict[str, Any]:
+        stage_lens = self.stages.get(stage)
         return {
             "id": self.id,
             "title": self.title,
             "lens": self.lens_for(stage) or "",
+            "required_read": bool(
+                stage_lens and stage_lens.relevant and stage_lens.required_read
+            ),
         }
 
     def to_deep_dict(self) -> dict[str, Any]:

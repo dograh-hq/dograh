@@ -1,9 +1,17 @@
+from contextvars import ContextVar
+
 from fastapi import HTTPException
 from fastmcp.server.dependencies import get_http_headers
 from opentelemetry import trace
 
 from api.db.models import UserModel
 from api.services.auth.depends import _handle_api_key_auth
+
+# Set only by the authenticated, in-process builder relay. Never populated from
+# request headers or model arguments; ContextVar keeps concurrent users isolated.
+builder_mcp_user: ContextVar[UserModel | None] = ContextVar(
+    "builder_mcp_user", default=None
+)
 
 
 async def authenticate_mcp_request() -> UserModel:
@@ -12,12 +20,12 @@ async def authenticate_mcp_request() -> UserModel:
     Accepts either `X-API-Key: <key>` or `Authorization: Bearer <key>`,
     reusing the API-key flow from `api.services.auth.depends`.
 
-    Tags the currently-active OTel span with the resolved organization
-    and user identifiers. `_OrgRoutingExporter` reads `dograh.org_id`
-    at export time to dispatch the span to the right Langfuse project;
-    the `langfuse.user.id` / `langfuse.session.id` attributes make the
-    span filterable in the Langfuse UI.
+    Tags the active span with the authenticated identity. MCP authoring spans
+    use the default developer-facing project, not the per-org call exporter.
     """
+    if (user := builder_mcp_user.get()) is not None:
+        _stamp_identity(user)
+        return user
     # FastMCP strips Authorization by default unless explicitly included.
     # Preserve it here so Bearer API keys work for MCP tool invocations.
     headers = get_http_headers(include={"authorization"})
@@ -33,6 +41,11 @@ async def authenticate_mcp_request() -> UserModel:
         )
     user = await _handle_api_key_auth(api_key)
 
+    _stamp_identity(user)
+    return user
+
+
+def _stamp_identity(user: UserModel) -> None:
     span = trace.get_current_span()
     if span.is_recording():
         org_id = user.selected_organization_id
@@ -43,6 +56,4 @@ async def authenticate_mcp_request() -> UserModel:
         # affecting the router.
         span.set_attribute("mcp.org_id", str(org_id))
         span.set_attribute("mcp.user_id", str(user.id))
-        span.set_attribute("langfuse.user.id", str(user.id))
-
-    return user
+        span.set_attribute("user.id", str(user.id))

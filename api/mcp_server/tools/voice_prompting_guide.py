@@ -6,14 +6,14 @@ relevant topics with one-line lenses. Topic calls return the full
 reference content for one atom. No-arg calls return a flat index.
 
 The LLM is expected to read the briefing for the current stage first,
-then drill into specific topics only when complexity warrants it. The
+then read required topics and drill into others when complexity warrants it. The
 authoritative guidance lives in `api.services.voice_prompting_guide`;
 this tool is a thin MCP-facing projection.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -29,24 +29,24 @@ from api.services.voice_prompting_guide import (
 
 @traced_tool
 async def get_voice_prompting_guide(
-    stage: Optional[str] = None,
-    topic: Optional[str] = None,
-    node_type: Optional[str] = None,
+    stage: str | None = None,
+    topic: str | None = None,
+    node_type: str | None = None,
 ) -> dict[str, Any]:
     """Fetch staged voice-prompting guidance for authoring Dograh workflows.
 
     Call this BEFORE composing or revising any prompt field on a node. The
     guide is the authoritative source for prompt-authoring craft (global
     guidelines, turn-taking, tool calls, success criteria, guardrails);
-    product-mechanics questions
-    (how a node type works at runtime) belong in `search_docs` / `read_doc`.
+    product-mechanics questions (how a node type works at runtime) belong in
+    node schemas and the product documentation available in your interface.
 
     Args:
         stage: "plan" | "create" | "review". Returns a stage briefing — a
             short intro plus the list of topics relevant at this stage,
-            each with a one-line lens. Combine with `node_type` during the
-            create stage to narrow to topics that apply to that node type's
-            prompts (e.g. `node_type="agent"`).
+            each with a one-line lens and a required_read flag. Combine with
+            `node_type` during creation or review to narrow to that node type's
+            prompts (e.g. `node_type="agentNode"`).
         topic: A topic id from a prior briefing. Returns the full content
             for that atom. Use after the briefing flags a topic worth
             drilling into. Mutually exclusive with `stage`.
@@ -55,15 +55,13 @@ async def get_voice_prompting_guide(
     Returns:
         - With `topic`: { id, title, severity, content, stages_relevant,
           applies_to_node_types?, cross_refs? }.
-        - With `stage`: { stage, intro, topics: [{id, title, lens}],
+        - With `stage`: { stage, intro, topics: [{id, title, lens, required_read}],
           drill_in, filtered_to_node_type? }.
         - With no args: { topics: [{id, title}], next }.
 
-    Briefings are designed to be cheap — read the lens, decide what to
-    drill into, then ask for full content for the 1–3 topics that matter
-    for the prompt you're about to write. Always drill into
-    topic="common_guidelines" before writing or revising a globalNode so the
-    template content is actually read. Do not pull every topic.
+    Briefings are designed to be cheap — read the lenses, fetch the full content
+    of every applicable topic marked required_read, then drill into other topics
+    that matter for the prompt you're about to write. Do not pull every topic.
     """
     await authenticate_mcp_request()
 

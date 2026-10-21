@@ -7,8 +7,6 @@ in lock-step with their canonical topic file.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from api.services.voice_prompting_guide._base import (
     Stage,
     VoicePromptingTopic,
@@ -49,19 +47,12 @@ _register(instruction_collision.TOPIC)
 
 _STAGE_INTROS: dict[Stage, str] = {
     Stage.plan: (
-        "Plan stage. First extract the business context: what the caller must "
-        "provide, what the agent must decide, and which policies constrain the "
-        "call. Ask the builder for company details, missing domain rules, eligibility or "
-        "disconnect conditions, and details only they know; for a rental agent "
-        "that might include vehicle type, rental length, trip type, start date, "
-        "distance, insurance, deposit method, qualification rules, and whether "
-        "one-way rentals are allowed. Decide the persona, call goal, **minimal** "
-        "ordered node list, edges, exit conditions, and required tools or "
-        "credentials. Do not draft prompts yet; keep the first version simple "
-        "and remove scope that does not serve the call goal. You must think and "
-        "come up with a plan and interactively refine it with user before moving "
-        "to create stage. Interactivity is the key - to be able to gather context "
-        "from the user. Its an art and a matter of taste."
+        "Business discovery belongs to get_workflow_authoring_guide(stage='plan'). "
+        "These optional voice lenses help clarify the call's intended behavior: "
+        "what information the caller provides, what actions should happen and "
+        "when, which business rules constrain them, and what success or failure "
+        "looks like. Reuse settled answers. Leave technical design and prompt "
+        "writing to the build stage."
     ),
     Stage.create: (
         "Create stage. Turn the plan into prompts and SDK TypeScript. Build "
@@ -70,20 +61,14 @@ _STAGE_INTROS: dict[Stage, str] = {
         "transition instructions explicit: if an edge is labeled 'Move to "
         "Rental Details', the prompt should tell the agent when to call the "
         "matching tool, such as 'move_to_rental_details'. For each node type, "
-        "call get_node_type to learn its property schema before emitting it. "
-        "When writing a globalNode, also call "
-        "get_voice_prompting_guide(topic='common_guidelines') and place that "
-        "content in the global node as close to verbatim as possible, adapting "
-        "only details the builder has changed."
+        "call get_node_type to learn its property schema before emitting it."
     ),
     Stage.review: (
         "Review stage. Check that the workflow captures the information the "
         "builder wanted and that each prompt names the conditions for moving "
         "to the next node. Read prompts for global-vs-node instruction "
         "collisions, missing handoff cues, and transitions that depend on "
-        "unstated business rules. For a globalNode, compare against "
-        "get_voice_prompting_guide(topic='common_guidelines') and restore its "
-        "structure unless the builder explicitly changed it."
+        "unstated business rules."
     ),
 }
 
@@ -93,13 +78,13 @@ def list_topic_index() -> list[dict[str, str]]:
     return [{"id": t.id, "title": t.title} for t in _TOPICS.values()]
 
 
-def get_topic(topic_id: str) -> Optional[VoicePromptingTopic]:
+def get_topic(topic_id: str) -> VoicePromptingTopic | None:
     return _TOPICS.get(topic_id)
 
 
 def build_briefing(
     stage: Stage,
-    node_type: Optional[str] = None,
+    node_type: str | None = None,
 ) -> dict:
     """Assemble the stage briefing: intro + relevant topics with lenses.
 
@@ -120,7 +105,8 @@ def build_briefing(
         "topics": [t.to_briefing_dict(stage) for t in topics],
         "drill_in": (
             "Call get_voice_prompting_guide(topic='<id>') for the full content "
-            "of any topic that materially shapes the prompt you're writing."
+            "of each applicable topic marked required_read, and any other topic "
+            "that materially shapes the prompt you're writing."
         ),
     }
     if node_type is not None:

@@ -196,6 +196,7 @@ async def test_save_revalidates_and_uses_stable_org_scoped_retry_key():
         checkpoint="current",
         can_continue=False,
         proposal=SimpleNamespace(code=VALID_CODE),
+        workflow_id=None,
     )
     with (
         patch(

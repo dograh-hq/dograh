@@ -15,6 +15,11 @@ from api.db.models import UserModel
 from api.db.workflow_builder import BuilderBusy
 from api.mcp_server.auth import builder_mcp_user
 from api.mcp_server.server import mcp
+from api.mcp_server.tools._workflow_projection import (
+    project_workflow_to_sdk_view,
+    select_workflow_projection_source,
+)
+from api.mcp_server.ts_bridge import TsBridgeError
 from api.schemas.workflow_builder import BuilderSession, BuilderTurnRequest
 from api.services.observability.trace_payloads import trace_json
 from api.services.workflow.builder_runtime.agent import ALLOWED_TOOLS as BUILDER_TOOLS
@@ -25,6 +30,7 @@ from api.services.workflow.builder_runtime.tracing import (
     record_turn_event,
 )
 from api.services.workflow.builder_validation import preview_workflow_code
+from api.services.workflow.layout import reconcile_positions
 
 TOOL_PROGRESS = {
     "preview_workflow": "Validating your workflow…",
@@ -66,6 +72,42 @@ async def local_step(
 
 async def load_session(user, session_id) -> BuilderSession:
     return BuilderSession.model_validate(await local_step(user, session_id))
+
+
+def _edit_session_id(user, workflow_id: int) -> UUID:
+    # Deterministic per-workflow session so repeated edits continue the same
+    # conversation. Used when the workflow has no stored creation session.
+    return uuid5(
+        NAMESPACE_URL,
+        f"dograh-builder:{user.selected_organization_id}:{user.id}:edit:{workflow_id}",
+    )
+
+
+async def load_edit_session(user, workflow_id: int) -> BuilderSession:
+    """Open the builder on an existing workflow, resuming its conversation."""
+    if not user.selected_organization_id:
+        raise HTTPException(403, "Select an organization first")
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow is None:
+        raise HTTPException(404, "Workflow not found")
+    # Resume the original creation chat when we stored its id; otherwise use the
+    # deterministic per-workflow edit session.
+    stored = (workflow.workflow_configurations or {}).get("builder_session_id")
+    try:
+        session_id = UUID(stored) if stored else _edit_session_id(user, workflow_id)
+    except (ValueError, TypeError):
+        session_id = _edit_session_id(user, workflow_id)
+    try:
+        session = await load_session(user, session_id)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            # No checkpoint yet: a fresh edit session the UI can start into.
+            return BuilderSession(id=session_id, workflow_id=workflow_id)
+        raise
+    session.workflow_id = workflow_id
+    return session
 
 
 async def call_builder_tool(client, name: str, arguments: dict) -> dict:
@@ -154,12 +196,36 @@ async def _builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
                 }
             else:
                 resume = None
+            # Edit mode: seed the build stage from the workflow's live code so a
+            # refinement starts from the current agent, including manual canvas
+            # edits made after it was built. Only a new message starts a build.
+            previous_code = None
+            if request.workflow_id is not None and request.message is not None:
+                workflow = await db_client.get_workflow(
+                    request.workflow_id,
+                    organization_id=user.selected_organization_id,
+                )
+                if workflow is None:
+                    raise HTTPException(404, "Workflow not found")
+                try:
+                    previous_code = (await project_workflow_to_sdk_view(workflow))[
+                        "code"
+                    ]
+                except TsBridgeError:
+                    logger.exception("Failed to project workflow {} for editing", request.workflow_id)
+                    yield {
+                        "type": "error",
+                        "message": "Could not load the current workflow to edit. Try again.",
+                    }
+                    return
             body = {
                 "request_id": str(request.request_id),
                 "checkpoint": request.checkpoint,
                 "message": request.message,
                 "resume": resume,
                 "tools": specs,
+                "workflow_id": request.workflow_id,
+                "previous_code": previous_code,
             }
             yield {"type": "status", "message": "Thinking about your agent…"}
             for _ in range(30):
@@ -240,7 +306,10 @@ async def _save_builder_draft(user, session_id: UUID, checkpoint: str) -> int:
                 "error", "Workflow validation failed; ask the builder to fix it"
             ),
         )
+    if state.workflow_id is not None:
+        return await _save_edit_draft(user, state.workflow_id, result)
     # One workflow per conversation. Existing UUID uniqueness makes retries atomic.
+    # Store the session id so the workflow can later reopen this conversation.
     try:
         workflow = await db_client.create_builder_draft(
             workflow_uuid=str(
@@ -253,10 +322,37 @@ async def _save_builder_draft(user, session_id: UUID, checkpoint: str) -> int:
             workflow_definition=result["workflow"],
             user_id=user.id,
             organization_id=user.selected_organization_id,
+            workflow_configurations={"builder_session_id": str(session_id)},
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     return workflow.id
+
+
+async def _save_edit_draft(user, workflow_id: int, result: dict) -> int:
+    """Save a reviewed edit as a new draft version of an existing workflow."""
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow is None:
+        raise HTTPException(404, "Workflow not found")
+    # The parser drops node positions; fill them back from the working copy so
+    # the canvas keeps its layout, placing only genuinely new nodes.
+    source = await select_workflow_projection_source(workflow)
+    payload = reconcile_positions(result["workflow"], source.payload)
+    if result["name"] and result["name"] != workflow.name:
+        await db_client.update_workflow(
+            workflow_id=workflow_id,
+            name=result["name"],
+            workflow_definition=None,
+            template_context_variables=None,
+            workflow_configurations=None,
+            organization_id=user.selected_organization_id,
+        )
+    await db_client.save_workflow_draft(
+        workflow_id=workflow_id, workflow_definition=payload
+    )
+    return workflow_id
 
 
 def encode_event(event: dict) -> str:

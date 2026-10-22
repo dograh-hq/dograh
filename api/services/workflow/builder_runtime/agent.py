@@ -82,6 +82,7 @@ class BuilderState(TypedDict, total=False):
     candidate: dict[str, Any] | None
     candidate_revision: int
     previous_code: str | None
+    workflow_id: int | None
     review: dict[str, Any] | None
     proposal: dict[str, Any] | None
     validation_attempts: int

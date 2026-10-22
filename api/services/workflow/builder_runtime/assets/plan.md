@@ -15,3 +15,8 @@ The approval card renders conversation_steps as a simple flow diagram, with the
 goal, planned integrations, and assumptions as supporting text. Use concise step
 labels. The full brief remains available in an expandable section; do not repeat
 it in the chat or generate Mermaid/source markup for the card.
+
+When the user is refining an existing agent rather than describing a new one,
+treat it as a targeted change: work from what they already have, confirm only
+the details the change depends on, and do not re-run full discovery. Carry
+unaffected requirements forward unchanged in the brief.

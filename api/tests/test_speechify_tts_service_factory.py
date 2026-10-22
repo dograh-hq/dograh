@@ -332,12 +332,12 @@ def test_speechify_key_validation_rejects_unauthorized_key():
 
 
 def test_speechify_voice_options_cover_every_model():
-    # The voice dropdown is filtered per model via model_options; the API
-    # rejects voices outside a model's allow-list with HTTP 400.
+    # The voice dropdown is filtered per model via model_options; a voice
+    # must list the model in GET /v1/voices or synthesis fails. Every shipped
+    # voice lists all three models, so each model offers the full set.
     assert set(SPEECHIFY_TTS_VOICES_BY_MODEL) == set(SPEECHIFY_TTS_MODELS)
-    assert SPEECHIFY_TTS_VOICES_BY_MODEL["simba-3.2"] == ["beatrice_32", "geffen_32"]
-    # simba-3.5 serves the full shared catalog.
-    assert SPEECHIFY_TTS_VOICES_BY_MODEL["simba-3.5"] == SPEECHIFY_TTS_VOICES
+    for model in SPEECHIFY_TTS_MODELS:
+        assert SPEECHIFY_TTS_VOICES_BY_MODEL[model] == SPEECHIFY_TTS_VOICES
     voice_extra = SpeechifyTTSConfiguration.model_fields["voice"].json_schema_extra
     assert voice_extra["model_options"] is SPEECHIFY_TTS_VOICES_BY_MODEL
     # The default voice must be valid for the default model.

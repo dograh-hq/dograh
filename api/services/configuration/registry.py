@@ -1945,12 +1945,12 @@ SPEECHIFY_TTS_MODELS = [
     "simba-3.0",
 ]
 SPEECHIFY_TTS_VOICES = ["beatrice_32", "geffen_32", "alicia", "alton"]
-# The API rejects voices outside a model's allow-list (HTTP 400): simba-3.2
-# only accepts voices that list it in GET /v1/voices, currently its dedicated
-# "_32" voices. simba-3.5 and simba-3.0 accept the general shared catalog.
+# A voice must list the model in GET /v1/voices or synthesis fails. simba-3.5
+# and simba-3.0 serve the whole shared catalog; simba-3.2 serves its English
+# voices, which covers every voice shipped here (checked live 2026-10-22).
 SPEECHIFY_TTS_VOICES_BY_MODEL = {
     "simba-3.5": SPEECHIFY_TTS_VOICES,
-    "simba-3.2": ["beatrice_32", "geffen_32"],
+    "simba-3.2": SPEECHIFY_TTS_VOICES,
     "simba-3.0": SPEECHIFY_TTS_VOICES,
 }
 # simba-3.5 serves 48 languages under one model id. These are the base codes

@@ -474,6 +474,10 @@ export type BuilderSession = {
      * Model
      */
     model?: string | null;
+    /**
+     * Workflow Id
+     */
+    workflow_id?: number | null;
 };
 
 /**
@@ -501,6 +505,10 @@ export type BuilderTurnRequest = {
         };
     } | null;
     approval?: BuilderPlanApproval | null;
+    /**
+     * Workflow Id
+     */
+    workflow_id?: number | null;
 };
 
 /**
@@ -8393,6 +8401,50 @@ export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses = {
 };
 
 export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponse = GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses[keyof GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses];
+
+export type GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/edit/{workflow_id}';
+};
+
+export type GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetError = GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetErrors[keyof GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetErrors];
+
+export type GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuilderSession;
+};
+
+export type GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetResponse = GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetResponses[keyof GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetResponses];
 
 export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostData = {
     body: BuilderTurnRequest;

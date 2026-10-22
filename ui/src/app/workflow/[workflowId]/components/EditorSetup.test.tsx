@@ -11,6 +11,7 @@ const model = { summary: "model-a / Alice", dirty: false, pendingSave: false };
 const sections = { dirty: false };
 vi.mock("@/components/model-connections/useWorkflowModelOverride", () => ({ useWorkflowModelOverride: () => model }));
 vi.mock("@/components/model-connections/WorkflowModelPicker", () => ({ WorkflowModelPicker: () => <div>Model picker</div> }));
+vi.mock("@/components/workflow-builder/BuilderPanel", () => ({ BuilderPanel: () => <div>Agent builder</div> }));
 vi.mock("../settings/WorkflowSettingsSections", async () => {
     const { useUnsavedChanges } = await import("@/context/UnsavedChangesContext");
     return {
@@ -60,9 +61,9 @@ describe("editor setup", () => {
         expect(describeVariables({}, [{ ...nodes[0], data: { prompt: "{{toString}}" } }] as FlowNode[])).toEqual({ text: "0 set, 1 missing", missing: ["toString"] });
     });
 
-    it("offers the four views and switches on click", () => {
+    it("offers the five views and switches on click", () => {
         const { onViewChange } = renderSetup("canvas");
-        expect(within(screen.getByRole("toolbar", { name: "Editor" })).getAllByRole("tab").map(item => item.textContent)).toEqual(["Canvas", "Model", "Variables", "Settings"]);
+        expect(within(screen.getByRole("toolbar", { name: "Editor" })).getAllByRole("tab").map(item => item.textContent)).toEqual(["Builder", "Canvas", "Model", "Variables", "Settings"]);
         expect(tab(/^Canvas/).getAttribute("aria-selected")).toBe("true");
         expect(screen.queryByRole("region")).toBeNull();
         fireEvent.mouseDown(tab(/^Model/));

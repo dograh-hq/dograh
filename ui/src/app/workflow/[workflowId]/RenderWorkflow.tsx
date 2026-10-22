@@ -790,6 +790,7 @@ function WorkflowEditor({
                                     view={editorView}
                                     onViewChange={setEditorView}
                                     onSavingChange={setSettingsSaving}
+                                    onBuilderSaved={() => { window.location.assign(`/workflow/${workflowId}`); }}
                                     workflowId={workflowId}
                                     workflowName={workflowName}
                                     workflowUuid={workflowUuid}

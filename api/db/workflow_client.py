@@ -27,6 +27,7 @@ class WorkflowClient(BaseDBClient):
         workflow_definition: dict,
         user_id: int,
         organization_id: int,
+        workflow_configurations: dict | None = None,
     ) -> WorkflowModel:
         """Atomically create an unpublished V1; workflow_uuid is the retry key."""
         async with self.async_session() as session:
@@ -52,6 +53,7 @@ class WorkflowClient(BaseDBClient):
                 user_id=user_id,
                 organization_id=organization_id,
                 workflow_definition=workflow_definition,
+                workflow_configurations=workflow_configurations or {},
             )
             try:
                 session.add(workflow)
@@ -63,7 +65,7 @@ class WorkflowClient(BaseDBClient):
                         status="draft",
                         version_number=1,
                         is_current=False,
-                        workflow_configurations={},
+                        workflow_configurations=workflow_configurations or {},
                         template_context_variables={},
                     )
                 )

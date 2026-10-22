@@ -65,6 +65,8 @@ class BuilderSession(BaseModel):
     proposal: BuilderProposal | None = None
     can_continue: bool = False
     model: str | None = None
+    # Set when the session is editing an existing workflow (vs creating one).
+    workflow_id: int | None = None
 
 
 class BuilderTurnRequest(BaseModel):
@@ -73,6 +75,9 @@ class BuilderTurnRequest(BaseModel):
     message: str | None = Field(default=None, min_length=1, max_length=12000)
     answers: dict[str, dict[str, list[str]]] | None = None
     approval: BuilderPlanApproval | None = None
+    # Present on edit sessions: the workflow being revised. Seeds the build
+    # stage from its live code and routes the save to update it in place.
+    workflow_id: int | None = None
 
     @model_validator(mode="after")
     def exclusive_input(self):

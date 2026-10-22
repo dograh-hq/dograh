@@ -66,6 +66,7 @@ def present(snapshot, session_id: UUID) -> dict:
         "proposal": snapshot.values.get("proposal"),
         "can_continue": bool(snapshot.next),
         "model": BUILDER_USAGE_CONTEXT,
+        "workflow_id": snapshot.values.get("workflow_id"),
     }
 
 
@@ -102,6 +103,14 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                 "messages": [message],
                 "plan_messages": [message],
             }
+            if request.workflow_id is not None:
+                # Edit mode: bind the session to the workflow and seed the build
+                # stage from the live code. Clear any prior candidate so
+                # submit_brief falls through to previous_code (the current agent,
+                # including manual canvas edits) instead of a stale build.
+                value["workflow_id"] = request.workflow_id
+                value["previous_code"] = request.previous_code
+                value["candidate"] = None
         elif request.resume is not None:
             pending = {item["id"]: item for item in current["pending"]}
             if set(request.resume) != set(pending):

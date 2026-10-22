@@ -1,6 +1,6 @@
 "use client";
 
-import { Braces, Brain, Settings, Workflow } from "lucide-react";
+import { Braces, Brain, MessagesSquare, Settings, Workflow } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo } from "react";
 
@@ -8,12 +8,13 @@ import type { FlowNode } from "@/components/flow/types";
 import { useWorkflowModelOverride } from "@/components/model-connections/useWorkflowModelOverride";
 import { WorkflowModelPicker } from "@/components/model-connections/WorkflowModelPicker";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BuilderPanel } from "@/components/workflow-builder/BuilderPanel";
 import { useUnsavedChanges, useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
 import { resolveWorkflowConfigurations } from "@/types/workflow-configurations";
 
 import { TemplateVariablesSection, WorkflowSettingsSections, type WorkflowSettingsState } from "../settings/WorkflowSettingsSections";
 
-export const EDITOR_VIEWS = ["canvas", "model", "variables", "settings"] as const;
+export const EDITOR_VIEWS = ["builder", "canvas", "model", "variables", "settings"] as const;
 export type EditorView = (typeof EDITOR_VIEWS)[number];
 
 export function isEditorView(value: string | null | undefined): value is EditorView {
@@ -64,13 +65,15 @@ type EditorSetupProps = WorkflowSettingsState & {
     onViewChange: (view: EditorView) => void;
     /** A model edit is waiting to save or saving; the editor holds publishing and test calls until it lands. */
     onSavingChange?: (saving: boolean) => void;
+    /** The builder saved a new draft of this workflow; reload the editor so the canvas reflects it. */
+    onBuilderSaved?: () => void;
     workflowId: number;
     workflowName: string;
     workflowUuid?: string | null;
     nodes: FlowNode[];
 };
 
-export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, workflowName, workflowUuid, nodes, ...state }: EditorSetupProps) {
+export function EditorSetup({ view, onViewChange, onSavingChange, onBuilderSaved, workflowId, workflowName, workflowUuid, nodes, ...state }: EditorSetupProps) {
     const { confirmNavigate, dirtySections } = useUnsavedChangesContext();
     const { workflowConfigurations, templateContextVariables, saveWorkflowConfigurations, saveTemplateContextVariables } = state;
     // The configurations and variables arrive together; until then the
@@ -102,6 +105,7 @@ export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, wo
             <div role="toolbar" aria-label="Editor" className="nodrag nopan pointer-events-auto rounded-xl border bg-card p-1 shadow-md">
                 <Tabs value={view} onValueChange={next => switchView(next as EditorView)}>
                     <TabsList className="h-8" aria-label="Editor view">
+                        <TabsTrigger value="builder" className={TAB}><MessagesSquare className="h-4 w-4" aria-hidden />Builder</TabsTrigger>
                         <TabsTrigger value="canvas" className={TAB}><Workflow className="h-4 w-4" aria-hidden />Canvas</TabsTrigger>
                         <TabsTrigger value="model" className={TAB} disabled={!ready} title={ready ? model.summary : "Loading…"}>
                             <Brain className="h-4 w-4" aria-hidden />Model
@@ -114,6 +118,12 @@ export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, wo
                 </Tabs>
             </div>
         </div>
+
+        {view === "builder" && <section aria-label="Agent builder" className="absolute inset-0 z-20 overflow-y-auto bg-background">
+            <div className="mx-auto flex min-h-full w-full max-w-[1500px] flex-col px-6 pb-10 pt-20">
+                <BuilderPanel workflowId={workflowId} onSaved={() => onBuilderSaved?.()} />
+            </div>
+        </section>}
 
         {view === "model" && ready && <section aria-label="Model configuration" className="absolute inset-0 z-20 overflow-y-auto bg-background">
             <div className="mx-auto w-full max-w-3xl px-6 pb-16 pt-20">

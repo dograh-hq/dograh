@@ -7,3 +7,6 @@ Submit a BuildResult through `propose_workflow`. This validates the source and
 hands it to the Reviewer; it does not expose a preview yet. Correct validation
 failures, with at most three attempts. If review returns findings, fix them and
 resubmit the complete candidate. Preserve unrelated behavior on revisions.
+When previous source is supplied, prefer the minimal diff: keep existing node
+names, edges, variables, and prompt wording except where the requested change
+requires otherwise.

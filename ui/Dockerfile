@@ -10,6 +10,8 @@ RUN apk add --no-cache python3 make g++ libc6-compat
 
 # Copy package files
 COPY ui/package*.json ./
+COPY ui/.npmrc ./
+COPY shared/workflow-layout /shared/workflow-layout
 
 # Clean install with proper handling of native modules
 RUN --mount=type=cache,target=/root/.npm npm ci

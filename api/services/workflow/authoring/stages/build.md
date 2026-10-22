@@ -12,6 +12,6 @@ Carry the plan's configuration_gaps into the result without claiming they are
 implemented. On iterations preserve unrelated source and existing bindings.
 
 Return a BuildResult with complete code, a short customer-facing summary, and
-configuration_gaps. Validate and correct source errors before review. Return
+configuration_gaps. Validate and correct source errors before submission. Return
 missing business decisions to requirements. Validation is not review, saving,
 publishing, or making a call.

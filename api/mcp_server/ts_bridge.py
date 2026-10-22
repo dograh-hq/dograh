@@ -82,8 +82,11 @@ async def generate_code(workflow: dict[str, Any], *, workflow_name: str = "") ->
     return result["code"]
 
 
-async def parse_code(code: str) -> dict[str, Any]:
+async def parse_code(code: str, *, tidy: bool = False) -> dict[str, Any]:
     """Parse LLM-authored TS back into a workflow JSON.
+
+    Set `tidy` only for initial creation to apply the UI's Tidy Up layout.
+    Updates leave it off so position reconciliation preserves the canvas.
 
     Returns the raw validator response — `{"ok": True, "workflow": {...}}`
     on success, `{"ok": False, "stage": "parse" | "validate", "errors": [...]}`
@@ -93,6 +96,7 @@ async def parse_code(code: str) -> dict[str, Any]:
     return await _invoke(
         {
             "command": "parse",
+            "tidy": tidy,
             "code": code,
             "specs": _specs_payload(),
             "edgeFieldNames": _edge_field_names(),

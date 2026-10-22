@@ -3,6 +3,8 @@
 // success (including validation failures — those are in the JSON), and
 // exits 1 only on internal errors (bad input JSON, unhandled exception).
 
+import { layoutWorkflowNodes } from "@dograh/workflow-layout";
+
 import { generateCode } from "./generate.ts";
 import { parseCode } from "./parse.ts";
 import type { NodeSpec, WireWorkflow } from "./types.ts";
@@ -20,6 +22,7 @@ interface ParseRequest {
     code: string;
     specs: NodeSpec[];
     edgeFieldNames: string[];
+    tidy?: boolean;
 }
 
 type Request = GenerateRequest | ParseRequest;
@@ -60,7 +63,11 @@ async function main(): Promise<void> {
         return;
     }
     if (req.command === "parse") {
-        writeResult(parseCode(req.code, req.specs, req.edgeFieldNames));
+        const result = parseCode(req.code, req.specs, req.edgeFieldNames);
+        if (result.ok && req.tidy) {
+            result.workflow.nodes = layoutWorkflowNodes(result.workflow.nodes, result.workflow.edges);
+        }
+        writeResult(result);
         return;
     }
     writeResult({

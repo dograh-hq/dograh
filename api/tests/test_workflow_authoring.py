@@ -17,7 +17,10 @@ from api.services.workflow.authoring import (
 from api.services.workflow.authoring.contracts import AuthoringStage
 from api.services.workflow.authoring.sdk_reference import CORE_NODE_TYPES
 from api.services.workflow.builder import call_builder_tool
-from api.services.workflow.builder_runtime.agent import builder_instructions
+from api.services.workflow.builder_runtime.agent import (
+    STAGE_MCP_TOOLS,
+    builder_instructions,
+)
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.workflow_graph import WorkflowGraph
 
@@ -45,7 +48,10 @@ async def test_mcp_loads_the_same_stage_guidance_as_each_builder_agent():
                     )
                 ).data
                 assert result == authoring_stage(stage)
-                assert builder_instructions(stage).startswith(result["instructions"])
+                if stage.value in STAGE_MCP_TOOLS:
+                    assert builder_instructions(stage).startswith(
+                        result["instructions"]
+                    )
                 assert result["output_schema"]["required"]
                 if stage == AuthoringStage.build_requirements:
                     assert "open_questions" not in result["output_schema"]["properties"]

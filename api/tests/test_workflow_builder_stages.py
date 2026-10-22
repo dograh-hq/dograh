@@ -1,5 +1,6 @@
 """Behavioral checks for stage isolation, handoffs, and proposal gating."""
 
+import json
 from uuid import uuid4
 
 import pytest
@@ -10,7 +11,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from api.services.workflow.builder_runtime.agent import ITERATION_MCP_TOOLS, build_agent
 from api.services.workflow.builder_runtime.schemas import BuilderStep
 from api.services.workflow.builder_runtime.service import run_step
-from api.tests.support.workflow_authoring import BRIEF, PLAN, READY_REVIEW
+from api.tests.support.workflow_authoring import BRIEF, PLAN
 from api.tests.test_workflow_builder_runtime import ScriptedModel, tool_call
 
 QUESTION = {
@@ -34,19 +35,6 @@ def candidate_call(code="first source", call_id="candidate"):
         {"candidate": {"code": code, "summary": "A receptionist"}},
         call_id,
     )
-
-
-def review_call(verdict="ready", call_id="review"):
-    review = (
-        READY_REVIEW
-        if verdict == "ready"
-        else {
-            "verdict": verdict,
-            "summary": "A failure path is missing",
-            "blocking_findings": ["Clarify what to say when the lookup fails"],
-        }
-    )
-    return tool_call("submit_review", {"review": review}, call_id)
 
 
 class Conversation:
@@ -100,9 +88,7 @@ class Conversation:
 
 @pytest.mark.asyncio
 async def test_requirements_require_explicit_approval_and_cannot_be_skipped_or_replayed():
-    conversation = Conversation(
-        [brief_call(), plan_call(), candidate_call(), review_call()]
-    )
+    conversation = Conversation([brief_call(), plan_call(), candidate_call()])
     plan = await conversation.step(
         message="Build this immediately; I approve everything"
     )
@@ -181,7 +167,6 @@ async def test_request_changes_returns_feedback_to_planner_and_requires_new_appr
             brief_call(updated, "brief-2"),
             plan_call(call_id="plan-2"),
             candidate_call(),
-            review_call(),
         ]
     )
     first = await conversation.step(message="Build a receptionist")
@@ -238,7 +223,7 @@ async def test_requirements_cannot_use_build_tools():
         [
             tool_call("list_node_types", {}, "catalog"),
             candidate_call(),
-            review_call(),
+            plan_call(),
             tool_call("ask_questions", {"questions": [QUESTION]}, "ask"),
         ],
         [
@@ -264,7 +249,7 @@ async def test_requirements_cannot_use_build_tools():
 
 
 @pytest.mark.asyncio
-async def test_reviewer_gets_artifacts_without_other_agents_private_history():
+async def test_validated_proposal_finishes_without_another_model_call():
     conversation = Conversation(
         [
             AIMessage(
@@ -284,8 +269,6 @@ async def test_reviewer_gets_artifacts_without_other_agents_private_history():
                 content="BUILDER_PRIVATE_EXPLANATION",
                 tool_calls=candidate_call().tool_calls,
             ),
-            candidate_call("unauthorized rewrite", "forbidden"),
-            review_call(),
         ],
         [
             {
@@ -302,47 +285,53 @@ async def test_reviewer_gets_artifacts_without_other_agents_private_history():
     assert final["proposal"]["code"] == "first source"
     build_messages = str(conversation.model.seen[3])
     assert "REQUIREMENTS_PRIVATE_EXPLANATION" not in build_messages
-    reviewer_messages = str(conversation.model.seen[-1])
-    for marker in (
-        "REQUIREMENTS_PRIVATE_EXPLANATION",
-        "BUILDER_PRIVATE_EXPLANATION",
-        "PLANNER_GUIDE_ONLY",
-    ):
-        assert marker not in reviewer_messages
-    assert BRIEF["goal"] in reviewer_messages
-    assert "first source" in reviewer_messages
-    error = next(m for m in conversation.model.seen[-1] if isinstance(m, ToolMessage))
-    assert error.status == "error"  # Reviewer cannot change the candidate.
+    assert "PLANNER_GUIDE_ONLY" not in build_messages
+    assert BRIEF["goal"] in build_messages
+    assert (
+        json.loads(conversation.model.seen[3][1].content)["conversation_plan"][
+            "content"
+        ]
+        == PLAN["content"]
+    )
+    assert len(conversation.model.seen) == 4
+    assert not conversation.model.replies
+    assert not final["pending"] and not final["can_continue"]
+    state = await conversation.state()
+    assert state["phase"] == "complete"
+    assert state["review"] is None
+    assert not state["review_messages"]
+    assert json.loads(state["build_messages"][-1].content) == {"valid": True}
+    assert final["proposal"]["workflow"] == {"nodes": [], "edges": []}
     assert all(
         "BUILDER_PRIVATE_EXPLANATION" not in m["content"] for m in final["messages"]
     )
 
 
 @pytest.mark.asyncio
-async def test_review_findings_force_revalidation_and_fresh_review():
+async def test_validation_errors_return_to_builder_before_exposing_corrected_source():
     conversation = Conversation(
         [
             brief_call(),
             plan_call(),
             candidate_call(),
-            review_call("revise"),
             candidate_call("revised source", "candidate-2"),
-            review_call(call_id="review-2"),
         ]
     )
     await conversation.step(message="Build a receptionist")
     await conversation.approve()
-    second = await conversation.validate()
+    second = await conversation.resume({"valid": False, "error": "Invalid edge"})
     assert second["proposal"] is None
-    assert (await conversation.state())["review"]["verdict"] == "revise"
+    error = conversation.model.seen[-1][-1]
+    assert isinstance(error, ToolMessage)
+    assert json.loads(error.content) == {"valid": False, "error": "Invalid edge"}
     final = await conversation.validate("revised source")
     state = await conversation.state()
     assert final["proposal"]["code"] == "revised source"
-    assert state["review"]["candidate_revision"] == state["candidate_revision"] == 2
-    assert "first source" not in str(conversation.model.seen[-1])
-    assert "revise" not in str(conversation.model.seen[-1][1].content).replace(
-        "revised source", ""
-    )
+    assert state["candidate_revision"] == 1
+    assert state["validation_attempts"] == 0
+    assert state["review"] is None
+    assert not final["can_continue"]
+    assert not conversation.model.replies
 
 
 @pytest.mark.asyncio
@@ -352,18 +341,19 @@ async def test_business_gap_returns_to_planner_and_resumes_with_new_brief():
         [
             brief_call(),
             plan_call(),
-            candidate_call(),
-            review_call("needs_input"),
+            tool_call(
+                "request_clarification",
+                {"reason": "Clarify what to say when the lookup fails"},
+                "gap",
+            ),
             tool_call("ask_questions", {"questions": [QUESTION]}, "ask"),
             brief_call(updated, "brief-2"),
             plan_call(call_id="plan-2"),
             candidate_call("updated source", "candidate-2"),
-            review_call(call_id="review-2"),
         ]
     )
     await conversation.step(message="Build a receptionist")
-    await conversation.approve()
-    question = await conversation.validate()
+    question = await conversation.approve()
     assert question["pending"][0]["kind"] == "questions"
     assert question["proposal"] is None
     assert (await conversation.state())["phase"] == "build_requirements"
@@ -374,7 +364,7 @@ async def test_business_gap_returns_to_planner_and_resumes_with_new_brief():
     assert state["review"] is None
     final = await conversation.validate("updated source")
     assert final["proposal"]["brief_revision"] == 2
-    assert (await conversation.state())["review"]["brief_revision"] == 2
+    assert (await conversation.state())["candidate"]["brief_revision"] == 2
 
 
 @pytest.mark.asyncio
@@ -385,7 +375,6 @@ async def test_user_revision_invalidates_proposal_and_preserves_source_across_re
             brief_call(),
             plan_call(),
             candidate_call(),
-            review_call(),
             tool_call("ask_questions", {"questions": [QUESTION]}, "question-1"),
             brief_call(changed, "brief-2"),
             plan_call(call_id="plan-2"),
@@ -398,7 +387,6 @@ async def test_user_revision_invalidates_proposal_and_preserves_source_across_re
             brief_call(changed, "brief-3"),
             plan_call(call_id="plan-3"),
             candidate_call("outbound source", "candidate-2"),
-            review_call(call_id="review-2"),
         ]
     )
     await conversation.step(message="Build a receptionist")
@@ -422,7 +410,7 @@ async def test_user_revision_invalidates_proposal_and_preserves_source_across_re
 
 
 @pytest.mark.asyncio
-async def test_validation_failure_never_reaches_review_and_stops_after_three_attempts():
+async def test_validation_failure_never_exposes_proposal_and_stops_after_three_attempts():
     conversation = Conversation(
         [
             brief_call(),
@@ -444,57 +432,117 @@ async def test_validation_failure_never_reaches_review_and_stops_after_three_att
 
 
 @pytest.mark.asyncio
-async def test_repeated_review_failures_never_expose_a_proposal():
-    conversation = Conversation(
-        [
-            brief_call(),
-            plan_call(),
-            *[
-                call
-                for i in range(3)
-                for call in (
-                    candidate_call(call_id=f"candidate-{i}"),
-                    review_call("revise", f"review-{i}"),
-                )
-            ],
-        ]
+@pytest.mark.parametrize("stage", ["plan", "build"])
+async def test_parallel_reads_resume_after_reload_with_distinct_results(stage):
+    names = (
+        ["list_tools", "list_documents"]
+        if stage == "build"
+        else ["get_voice_prompting_guide"] * 2
     )
-    await conversation.step(message="Build a receptionist")
+    calls = [
+        tool_call(name, {"topic": topic} if stage != "build" else {}, topic)
+        for name, topic in zip(names, ["common_guidelines", "turn_taking"], strict=True)
+    ]
+    batch = AIMessage(content="", tool_calls=[c.tool_calls[0] for c in calls])
+    replies = [brief_call(), plan_call(), candidate_call()]
+    replies.insert({"plan": 1, "build": 2}[stage], batch)
+    conversation = Conversation(
+        replies,
+        [
+            {
+                "name": name,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"topic": {"type": "string"}},
+                },
+            }
+            for name in set(names)
+        ],
+    )
+    await conversation.step(
+        message="Build a receptionist",
+        current_workflow={"id": 41, "revision": "saved", "code": "current source"}
+        if stage == "build"
+        else None,
+    )
     await conversation.approve()
-    for _ in range(3):
-        await conversation.validate()
-        assert conversation.current["proposal"] is None
-    assert not conversation.current["can_continue"]
-    assert "three reviews" in conversation.current["messages"][-1]["content"]
+    pending = conversation.current["pending"]
+    assert len(pending) == len({item["id"] for item in pending}) == 2
+    assert all(item["kind"] == "mcp" for item in pending)
+    assert {item["tool_name"] for item in pending} == set(names)
+    # A fresh graph/worker must recover both interrupts without another model call.
+    model_calls = len(conversation.model.seen)
+    assert (await conversation.step())["pending"] == pending
+    assert len(conversation.model.seen) == model_calls
+    with pytest.raises(HTTPException) as error:
+        await conversation.step(resume={pending[0]["id"]: {"content": "partial"}})
+    assert error.value.status_code == 409
+    results = {
+        item["id"]: {"content": item["arguments"].get("topic", item["tool_name"])}
+        for item in pending
+    }
+    request = BuilderStep(
+        request_id=uuid4(),
+        checkpoint=conversation.current["checkpoint"],
+        resume=results,
+    )
+    conversation.current = await run_step(
+        conversation.graph, conversation.config, conversation.session, request
+    )
+    key = "plan_conversation_messages" if stage == "plan" else f"{stage}_messages"
+    responses = {
+        message.tool_call_id: json.loads(message.content)
+        for message in (await conversation.state())[key]
+        if isinstance(message, ToolMessage)
+        and message.tool_call_id in {"common_guidelines", "turn_taking"}
+    }
+    assert responses == {
+        c.tool_calls[0]["id"]: {
+            "content": c.tool_calls[0]["args"].get("topic", c.tool_calls[0]["name"])
+        }
+        for c in calls
+    }
+    model_calls = len(conversation.model.seen)
+    assert (
+        await run_step(
+            conversation.graph, conversation.config, conversation.session, request
+        )
+        == conversation.current
+    )
+    assert len(conversation.model.seen) == model_calls
+    await conversation.validate()
+    assert conversation.current["proposal"]
 
 
 @pytest.mark.asyncio
-async def test_inconsistent_review_verdict_is_rejected_before_exposing_proposal():
+@pytest.mark.parametrize("other", ["submit_plan", "list_documents"])
+async def test_read_batches_cannot_include_handoffs_or_unavailable_tools(other):
     conversation = Conversation(
         [
             brief_call(),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    *tool_call("get_voice_prompting_guide", {}, "guide").tool_calls,
+                    *tool_call(
+                        other, {"plan": PLAN} if other == "submit_plan" else {}, "other"
+                    ).tool_calls,
+                ],
+            ),
             plan_call(),
             candidate_call(),
-            tool_call(
-                "submit_review",
-                {
-                    "review": {
-                        **READY_REVIEW,
-                        "blocking_findings": ["A required behavior is absent"],
-                    }
-                },
-                "invalid-review",
-            ),
-            review_call(),
-        ]
+        ],
+        [
+            {"name": name, "inputSchema": {"type": "object", "properties": {}}}
+            for name in ("get_voice_prompting_guide", "list_documents")
+        ],
     )
     await conversation.step(message="Build a receptionist")
     await conversation.approve()
-    await conversation.validate()
-    error = next(m for m in conversation.model.seen[-1] if isinstance(m, ToolMessage))
-    assert error.status == "error"
-    assert "Ready requires no blockers" in error.content
-    assert conversation.current["proposal"]
+    # Neither the read nor the other tool ran; the model had to retry its handoff.
+    assert conversation.current["pending"][0]["tool_name"] == "preview_workflow"
+    errors = [m for m in conversation.model.seen[2] if isinstance(m, ToolMessage)]
+    assert len(errors) == 2 and all(m.status == "error" for m in errors)
 
 
 @pytest.mark.asyncio
@@ -532,7 +580,6 @@ async def test_planning_never_gets_resource_tools_and_build_only_gets_them_for_i
             plan_call(),
             tool_call("list_documents", {}, "build-catalog"),
             candidate_call(),
-            review_call(),
         ],
         specs,
     )
@@ -570,14 +617,13 @@ async def test_planning_never_gets_resource_tools_and_build_only_gets_them_for_i
 
 
 @pytest.mark.asyncio
-async def test_plan_prompts_and_deferred_connections_reach_builder_review_and_preview():
+async def test_plan_prompts_and_deferred_connections_reach_builder_and_preview():
     gap = "Connect the calendar before confirming bookings."
     conversation = Conversation(
         [
             brief_call(),
             plan_call({**PLAN, "configuration_gaps": [gap]}),
             candidate_call(),
-            review_call(),
         ]
     )
     await conversation.step(message="Collect appointment requests")
@@ -626,7 +672,7 @@ async def test_pre_refactor_requirements_interrupt_resumes_into_new_planning_sta
     graph.add_edge("plan_tools", END)
     conversation = Conversation(
         ([brief_call()] if pending_kind == "questions" else [])
-        + [plan_call(), candidate_call(), review_call()]
+        + [plan_call(), candidate_call()]
     )
     legacy = graph.compile(checkpointer=conversation.saver)
     request = HumanMessage(content="Build a receptionist")
@@ -680,7 +726,7 @@ async def test_pre_refactor_validation_interrupt_replans_without_losing_approved
     graph.add_edge(START, "build")
     graph.add_edge("build", "build_tools")
     graph.add_edge("build_tools", END)
-    conversation = Conversation([plan_call(), candidate_call(), review_call()])
+    conversation = Conversation([plan_call(), candidate_call()])
     legacy = graph.compile(checkpointer=conversation.saver)
     await legacy.ainvoke(
         {
@@ -700,3 +746,123 @@ async def test_pre_refactor_validation_interrupt_replans_without_losing_approved
     assert conversation.current["pending"][0]["tool_name"] == "preview_workflow"
     assert (await conversation.state())["approved_brief_revision"] == 1
     assert (await conversation.validate())["proposal"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pending_reads", [0, 1, 2])
+async def test_legacy_review_checkpoint_finishes_without_model_calls(pending_reads):
+    from langgraph.graph import END, START, StateGraph
+    from langgraph.prebuilt import ToolNode
+    from langgraph.types import Send
+
+    from api.services.workflow.builder_runtime.agent import BuilderState, relay_tool
+    from api.services.workflow.builder_runtime.service import present
+
+    spec = {
+        "name": "get_voice_prompting_guide",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"topic": {"type": "string"}},
+        },
+    }
+    calls = [
+        tool_call("get_voice_prompting_guide", {"topic": topic}, topic).tool_calls[0]
+        for topic in ("common_guidelines", "turn_taking")[:pending_reads]
+    ]
+    old = StateGraph(BuilderState)
+    old.add_node("build", lambda state: {"phase": "review"})
+    old.add_node(
+        "review",
+        lambda state: {"review_messages": [AIMessage(content="", tool_calls=calls)]},
+    )
+    old.add_node(
+        "review_tools", ToolNode([relay_tool(spec)], messages_key="review_messages")
+    )
+    old.add_edge(START, "build")
+    old.add_edge("build", "review")
+    old.add_conditional_edges(
+        "review",
+        lambda state: (
+            [
+                Send(
+                    "review_tools",
+                    {"review_messages": [AIMessage(content="", tool_calls=[call])]},
+                )
+                for call in calls
+            ]
+            if pending_reads > 1
+            else "review_tools"
+        ),
+    )
+    old.add_edge("review_tools", END)
+    conversation = Conversation([])
+    legacy = old.compile(
+        checkpointer=conversation.saver,
+        interrupt_before=["review"] if not pending_reads else None,
+    )
+    gap = "Configure the intake line before deploying."
+    candidate = {
+        "valid": True,
+        "code": "validated source",
+        "name": "Receptionist",
+        "summary": "A receptionist",
+        "configuration_gaps": [gap],
+        "workflow": {"nodes": [], "edges": []},
+        "brief_revision": 1,
+        "candidate_revision": 1,
+    }
+    await legacy.ainvoke(
+        {
+            "brief": BRIEF,
+            "brief_revision": 1,
+            "approved_brief_revision": 1,
+            "candidate": candidate,
+        },
+        conversation.config,
+    )
+    conversation.current = present(
+        await legacy.aget_state(conversation.config), conversation.session
+    )
+    assert len(conversation.current["pending"]) == pending_reads
+    assert conversation.current["can_continue"]
+    if pending_reads:
+        final = await conversation.step(
+            resume={item["id"]: {} for item in conversation.current["pending"]}
+        )
+    else:
+        final = await conversation.step()
+    assert final["proposal"]["code"] == candidate["code"]
+    assert gap in final["proposal"]["summary"]
+    assert not final["pending"] and not final["can_continue"]
+    assert not conversation.model.seen
+
+
+@pytest.mark.asyncio
+async def test_legacy_review_cannot_expose_candidate_from_another_brief():
+    conversation = Conversation([candidate_call("current source")])
+    conversation.graph = build_agent(conversation.model, conversation.saver, [])
+    await conversation.graph.aupdate_state(
+        conversation.config,
+        {
+            "phase": "review",
+            "brief": BRIEF,
+            "brief_revision": 2,
+            "approved_brief_revision": 2,
+            "conversation_plan": {
+                **PLAN,
+                "brief_revision": 2,
+                "configuration_gaps": [],
+            },
+            "candidate": {"valid": True, "code": "stale", "brief_revision": 1},
+        },
+        as_node="build_tools",
+    )
+    conversation.current = await run_step(
+        conversation.graph, conversation.config, conversation.session, None
+    )
+    current = await conversation.step()
+    assert current["proposal"] is None
+    assert current["pending"][0]["tool_name"] == "preview_workflow"
+    assert (await conversation.validate("current source"))["proposal"][
+        "brief_revision"
+    ] == 2

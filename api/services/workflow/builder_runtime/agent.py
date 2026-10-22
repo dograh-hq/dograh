@@ -1,7 +1,7 @@
-"""Requirements, planning, SDK building, and review with explicit handoffs.
+"""Requirements, planning, and SDK building with explicit handoffs.
 
 Each agent has a private message channel and an independently bound tool set.
-Only requirements conversations and reviewed proposals reach the public transcript.
+Only requirements conversations and validated proposals reach the public transcript.
 The flat graph keeps interrupts and checkpoints compatible with the existing relay.
 """
 
@@ -21,7 +21,7 @@ from langchain_core.tools import InjectedToolCallId, StructuredTool, tool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import REMOVE_ALL_MESSAGES, add_messages
 from langgraph.prebuilt import InjectedState, ToolNode
-from langgraph.types import Command, interrupt
+from langgraph.types import Command, Send, interrupt
 from pydantic import Field
 from typing_extensions import TypedDict
 
@@ -31,7 +31,6 @@ from api.services.workflow.authoring.contracts import (
     BuildResult,
     CallBrief,
     ConversationPlan,
-    ReviewResult,
 )
 
 from .schemas import (
@@ -46,7 +45,6 @@ STAGE_MCP_TOOLS = {
     "build_requirements": frozenset(),
     "plan": frozenset({"get_voice_prompting_guide"}),
     "build": frozenset(),
-    "review": frozenset({"get_voice_prompting_guide"}),
 }
 ITERATION_MCP_TOOLS = frozenset(
     {
@@ -63,7 +61,6 @@ ALLOWED_TOOLS = (
     | {"preview_workflow"}
 )
 MAX_VALIDATION_ATTEMPTS = 3
-MAX_REVIEW_ATTEMPTS = 3
 
 # Keep requirements node/channel names already stored in checkpoints. Prompts,
 # tool permissions, and tracing use the new stage terminology.
@@ -71,7 +68,7 @@ _GRAPH_NAMES = {
     "build_requirements": "plan",
     "plan": "plan_conversation",
     "build": "build",
-    "review": "review",
+    "review": "review",  # Resume checkpoints created before review was removed.
 }
 
 
@@ -247,9 +244,8 @@ def submit_plan(
     Requirements must already be approved. This internal handoff does not ask
     for a second approval, validate source, or show a proposal.
     """
-    if (
-        not state.get("brief")
-        or state.get("approved_brief_revision") != state.get("brief_revision")
+    if not state.get("brief") or state.get("approved_brief_revision") != state.get(
+        "brief_revision"
     ):
         return _result(
             "plan", tool_call_id, {"error": "Approved requirements are required."}
@@ -316,14 +312,13 @@ def propose_workflow(
     state: Annotated[dict, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
 ) -> Command:
-    """Validate complete workflow source and hand it to the independent Reviewer.
+    """Validate complete workflow source and show the preview to the user.
 
-    This does not display, save, or publish a proposal. Fix validation errors
-    and retry. The runtime exposes a proposal only after the Reviewer accepts it.
+    Fix validation errors and retry. Successful validation finishes the turn
+    and exposes the proposal. Saving remains a separate user action.
     """
-    if (
-        not state.get("brief")
-        or state.get("approved_brief_revision") != state.get("brief_revision")
+    if not state.get("brief") or state.get("approved_brief_revision") != state.get(
+        "brief_revision"
     ):
         return _result(
             "build",
@@ -386,99 +381,46 @@ def propose_workflow(
     return _result(
         "build",
         tool_call_id,
-        {"valid": True, "sent_for_review": True},
-        phase="review",
+        {"valid": True},
         candidate=validated,
         candidate_revision=revision,
-        review=None,
-        proposal=None,
         validation_attempts=0,
-        review_messages=_fresh_messages(
-            {"brief": state["brief"], "conversation_plan": plan, "candidate": validated}
-        ),
+        **_proposal_updates(validated),
     )
 
 
-@tool
-def submit_review(
-    review: ReviewResult,
-    state: Annotated[dict, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-) -> Command:
-    """Return independent findings. Only ready exposes a proposal; other verdicts route back."""
-    candidate = state.get("candidate")
-    if not candidate or candidate.get("brief_revision") != state.get("brief_revision"):
-        return _result(
-            "review",
-            tool_call_id,
-            {"error": "No validated candidate for the current brief."},
+def _proposal_updates(candidate: dict) -> dict:
+    summary = candidate["summary"]
+    if candidate["configuration_gaps"]:
+        summary += "\n\nStill to configure:\n" + "\n".join(
+            f"- {gap}" for gap in candidate["configuration_gaps"]
         )
-    result = {
-        **review.model_dump(),
-        "brief_revision": state["brief_revision"],
-        "candidate_revision": candidate["candidate_revision"],
+    return {
+        "phase": "complete",
+        "review": None,
+        "proposal": {**candidate, "summary": summary},
+        "messages": [AIMessage(content=summary)],
     }
-    attempts = state.get("review_attempts", 0) + 1
-    if review.verdict == "ready":
-        summary = candidate["summary"]
-        if candidate["configuration_gaps"]:
-            summary += "\n\nStill to configure:\n" + "\n".join(
-                f"- {gap}" for gap in candidate["configuration_gaps"]
-            )
-        if review.advisories:
-            summary += "\n\nReview notes:\n" + "\n".join(
-                f"- {note}" for note in review.advisories
-            )
-        return _result(
-            "review",
-            tool_call_id,
-            {"ready": True},
-            phase="complete",
-            review=result,
-            review_attempts=attempts,
-            proposal={**candidate, "summary": summary},
-            messages=[
-                AIMessage(
-                    content=summary
-                    + "\n\nReview the preview and save a draft when ready."
-                )
-            ],
-        )
-    if attempts >= MAX_REVIEW_ATTEMPTS:
-        return _stop(
-            "review",
-            tool_call_id,
-            "The workflow still needs changes after three reviews:\n"
-            + "\n".join(f"- {finding}" for finding in review.blocking_findings),
-            review=result,
-            review_attempts=attempts,
-        )
-    if review.verdict == "needs_input":
-        return _requirements_gap(
-            "review",
-            tool_call_id,
-            state,
-            "\n".join(review.blocking_findings),
-            review=result,
-            review_attempts=attempts,
-        )
-    return _result(
-        "review",
-        tool_call_id,
-        {"returned_to_builder": True},
-        phase="build",
-        review=result,
-        review_attempts=attempts,
-        proposal=None,
-        build_messages=[HumanMessage(content=json.dumps({"review_findings": result}))],
-    )
+
+
+def _finish_legacy_review(state: BuilderState) -> dict:
+    """Finish previously validated candidates when resuming an old checkpoint."""
+    candidate = state.get("candidate")
+    if (
+        not candidate
+        or not candidate.get("valid")
+        or not state.get("brief")
+        or candidate.get("brief_revision") != state.get("brief_revision")
+        or state.get("approved_brief_revision") != state.get("brief_revision")
+    ):
+        return {"phase": "build", "review": None, "proposal": None}
+    return _proposal_updates(candidate)
 
 
 LOCAL_TOOLS = {
     "build_requirements": [ask_questions, submit_brief],
     "plan": [request_clarification, submit_plan],
     "build": [request_clarification, propose_workflow],
-    "review": [submit_review],
 }
 
 
@@ -502,6 +444,8 @@ def builder_instructions(
     iteration: bool = False,
 ) -> str:
     stage = AuthoringStage(stage)
+    if stage.value not in STAGE_MCP_TOOLS:
+        raise ValueError(f"Unsupported in-app builder stage: {stage.value}")
     return "\n\n".join(
         [
             authoring_stage(stage, iteration=iteration)["instructions"],
@@ -522,13 +466,20 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
         node_name = _GRAPH_NAMES[stage]
         key = f"{node_name}_messages"
 
-        def stage_tools(state):
+        def stage_mcp_tools(state):
             allowed = STAGE_MCP_TOOLS[stage]
-            if state.get("previous_code") and stage in ("build", "review"):
+            if state.get("previous_code") and stage == "build":
                 allowed = allowed | ITERATION_MCP_TOOLS
+            return allowed
+
+        def stage_tools(state):
             return [
                 *LOCAL_TOOLS[stage],
-                *[relay_tool(spec) for spec in tool_specs if spec["name"] in allowed],
+                *[
+                    relay_tool(spec)
+                    for spec in tool_specs
+                    if spec["name"] in stage_mcp_tools(state)
+                ],
             ]
 
         async def invoke(state: BuilderState):
@@ -571,11 +522,15 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
         async def execute(state: BuilderState, config):
             calls = state[key][-1].tool_calls
             if len(calls) != 1:
-                # Avoid concurrent stage changes and ambiguous interrupt replay.
+                # Read batches are split into separate tasks by after_model.
+                # Questions and stage handoffs must run on their own.
                 return {
                     key: [
                         ToolMessage(
-                            content="Call exactly one tool at a time.",
+                            content=(
+                                "Only independent read tools can run in parallel. "
+                                "Call questions and stage handoffs on their own."
+                            ),
                             tool_call_id=call["id"],
                             status="error",
                         )
@@ -589,7 +544,23 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
         def after_model(state):
             if state.get("phase") == "complete":
                 return END
-            if getattr(state[key][-1], "tool_calls", []):
+            reply = state[key][-1]
+            calls = getattr(reply, "tool_calls", [])
+            read_tools = stage_mcp_tools(state) & {spec["name"] for spec in tool_specs}
+            if len(calls) > 1 and all(call["name"] in read_tools for call in calls):
+                # Each read needs its own task/interrupt ID so results survive
+                # checkpoint reloads and resume against the correct tool call.
+                return [
+                    Send(
+                        f"{node_name}_tools",
+                        {
+                            "previous_code": state.get("previous_code"),
+                            key: [AIMessage(content="", tool_calls=[call])],
+                        },
+                    )
+                    for call in calls
+                ]
+            if calls:
                 return f"{node_name}_tools"
             return END if stage == "build_requirements" else node_name
 
@@ -600,5 +571,11 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
 
     for stage in STAGE_MCP_TOOLS:
         add_stage(stage)
+    # Old checkpoints can be paused before review or inside its read tools.
+    # Drain those tasks, then expose the validated candidate without inference.
+    graph.add_node("review_tools", lambda state: {})
+    graph.add_edge("review_tools", "review")
+    graph.add_node("review", _finish_legacy_review)
+    graph.add_conditional_edges("review", route)
     graph.add_conditional_edges(START, route)
     return graph.compile(checkpointer=checkpointer)

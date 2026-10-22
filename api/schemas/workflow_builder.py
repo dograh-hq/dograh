@@ -86,7 +86,9 @@ class BuilderTurnRequest(BaseModel):
             )
             > 1
         ):
-            raise ValueError("Send a message, question answers, or a requirements decision")
+            raise ValueError(
+                "Send a message, question answers, or a requirements decision"
+            )
         return self
 
 

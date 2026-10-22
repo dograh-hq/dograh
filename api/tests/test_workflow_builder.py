@@ -22,7 +22,7 @@ from api.services.workflow.builder import (
 )
 from api.services.workflow.builder_runtime.errors import BuilderModelError
 from api.services.workflow.builder_validation import preview_workflow_code
-from api.tests.support.workflow_authoring import BRIEF, PLAN, READY_REVIEW
+from api.tests.support.workflow_authoring import BRIEF, PLAN
 from api.tests.test_workflow_builder_tracing import _captured_traces  # noqa: F401
 
 VALID_CODE = """import { Workflow } from "@dograh/sdk";
@@ -106,6 +106,62 @@ async def test_mcp_relay_keeps_concurrent_organizations_separate():
         first, second = await asyncio.gather(call(1), call(2))
     assert first[0]["tool_uuid"] == "org-1"
     assert second[0]["tool_uuid"] == "org-2"
+    assert builder_mcp_user.get() is None
+
+
+@pytest.mark.asyncio
+async def test_turn_relays_reads_concurrently_and_keeps_results_matched():
+    user = SimpleNamespace(id=3, selected_organization_id=27)
+    session_id = uuid4()
+    pending = [
+        {
+            "id": topic,
+            "kind": "mcp",
+            "tool_name": "get_voice_prompting_guide",
+            "arguments": {"topic": topic},
+        }
+        for topic in ("common_guidelines", "turn_taking")
+    ]
+    started = set()
+    both_started = asyncio.Event()
+    second_finished = asyncio.Event()
+
+    async def read(client, name, arguments):
+        assert builder_mcp_user.get() is user
+        topic = arguments["topic"]
+        started.add(topic)
+        if len(started) == 2:
+            both_started.set()
+        # A sequential relay would time out here. Complete in reverse order.
+        await asyncio.wait_for(both_started.wait(), timeout=2)
+        if topic == "common_guidelines":
+            await asyncio.wait_for(second_finished.wait(), timeout=2)
+        else:
+            second_finished.set()
+        return {"content": topic}
+
+    with (
+        patch(
+            "api.services.workflow.builder.local_step",
+            AsyncMock(
+                side_effect=[
+                    {"id": str(session_id), "checkpoint": "reads", "pending": pending},
+                    {"id": str(session_id), "checkpoint": "done", "pending": []},
+                ]
+            ),
+        ) as step,
+        patch("api.services.workflow.builder.call_builder_tool", side_effect=read),
+    ):
+        events = [
+            event
+            async for event in builder_turn(
+                user, session_id, BuilderTurnRequest(request_id=uuid4())
+            )
+        ]
+    assert events[-1]["type"] == "done", events
+    assert step.await_args_list[1].args[2]["resume"] == {
+        item["id"]: {"content": item["arguments"]["topic"]} for item in pending
+    }
     assert builder_mcp_user.get() is None
 
 
@@ -226,6 +282,7 @@ async def test_save_revalidates_and_uses_stable_org_scoped_retry_key():
         assert await save_builder_draft(user, session_id, "current") == 41
         assert await save_builder_draft(user, session_id, "current") == 41
     assert preview.call_args.args == (VALID_CODE, 7)
+    assert preview.call_args.kwargs == {"tidy": True}
     assert create.call_args_list[0] == create.call_args_list[1]
     assert create.call_args.kwargs["organization_id"] == 7
     assert create.call_args.kwargs["user_id"] == 3
@@ -401,14 +458,6 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
             "propose_workflow",
             {"candidate": {"code": VALID_CODE, "summary": "An inbound receptionist"}},
         ),
-        *[
-            (
-                "get_voice_prompting_guide",
-                {"stage": "review", "node_type": node_type},
-            )
-            for node_type in ("startCall", "agentNode", "endCall")
-        ],
-        ("submit_review", {"review": READY_REVIEW}),
     ]
     expected_calls = len(replies)
     calls = []
@@ -435,7 +484,7 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
         )
         stage = next(
             stage
-            for stage in ("build_requirements", "plan", "build", "review")
+            for stage in ("build_requirements", "plan", "build")
             if builder_instructions(stage) == system
         )
         assert body["metadata"]["builder_stage"] == stage
@@ -550,12 +599,7 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
         for message in call["messages"][-1:]
         if message["role"] == "tool" and "stage" in json.loads(message["content"])
     ]
-    assert [result["stage"] for result in guide_results] == [
-        "create",
-        "review",
-        "review",
-        "review",
-    ]
+    assert [result["stage"] for result in guide_results] == ["create"]
     assert all(result["topics"] for result in guide_results)
     assert not replies
     assert builder_mcp_user.get() is None

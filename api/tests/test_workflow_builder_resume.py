@@ -77,7 +77,7 @@ async def test_save_continued_session_updates_its_existing_draft():
         patch(
             "api.services.workflow.builder.preview_workflow_code",
             AsyncMock(return_value={"valid": True, "workflow": previous}),
-        ),
+        ) as preview,
         patch(
             "api.services.workflow.builder.db_client.save_workflow_draft", AsyncMock()
         ) as save,
@@ -86,6 +86,7 @@ async def test_save_continued_session_updates_its_existing_draft():
         ) as create,
     ):
         assert await save_builder_draft(user, session, "new", 41) == 41
+        preview.assert_awaited_once_with("source", 7, tidy=False)
         save.assert_awaited_once_with(
             41,
             workflow_definition=previous,

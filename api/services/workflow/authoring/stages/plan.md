@@ -6,9 +6,10 @@ ConversationPlan containing the flow and complete prompts, not source code.
 1. Use only shared instructions (globalNode), an opening (startCall), focused
    conversation steps (agentNode), and endings (endCall). Add a step only when
    its responsibility or branching needs one. No integration-node discovery.
-2. Before writing prompts, retrieve `get_voice_prompting_guide` with stage="create"
-   for the relevant core node types. Read topics marked required_read and other
-   topics that materially affect this conversation. Apply the existing guidance
+2. Before writing prompts, retrieve `get_voice_prompting_guide` once with
+   stage="create" (the guide's prompt-writing guidance) and no node_type filter.
+   Fetch applicable required_read topics and other topics that materially affect
+   this conversation in parallel; read each topic only once. Apply the guidance
    for shared rules, turn-taking, success criteria, transitions, and endings.
 3. Write the shared prompt and each step's prompt. Give steps clear names and
    outgoing transition conditions; identify values to extract and where they
@@ -21,6 +22,6 @@ Never invent business content or claim an unconnected action succeeds. Return
 missing business decisions to requirements; do not restart discovery for a
 connection that is deliberately deferred.
 
-On an iteration, use the current source and approved change. Preserve unrelated
-behavior and existing integrations; describe only the requested changes. The
-Builder handles any explicitly requested resource binding.
+Keep things as simple as possible in the first iteration. Try to keep the split
+of logic between agentNode at minimum. In further iteration we will split logic
+based on user feedbacks.

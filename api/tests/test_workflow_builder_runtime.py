@@ -26,7 +26,7 @@ from api.services.workflow.builder_runtime.agent import (
 from api.services.workflow.builder_runtime.model import BuilderChatModel
 from api.services.workflow.builder_runtime.schemas import BuilderStep, validate_answers
 from api.services.workflow.builder_runtime.service import run_step
-from api.tests.support.workflow_authoring import BRIEF, PLAN, READY_REVIEW
+from api.tests.support.workflow_authoring import BRIEF, PLAN
 
 
 class ScriptedModel(BuilderChatModel):
@@ -208,7 +208,6 @@ async def test_questions_mcp_proposal_and_replay_survive_rebuilding_agent():
                 },
                 "proposal",
             ),
-            tool_call("submit_review", {"review": READY_REVIEW}, "review"),
         ],
     )
     saver = InMemorySaver()
@@ -225,7 +224,7 @@ async def test_questions_mcp_proposal_and_replay_survive_rebuilding_agent():
     first_request = BuilderStep(request_id=uuid4(), message="Build a receptionist")
     first = await run_step(graph, config, session_id, first_request)
     assert first["pending"][0]["kind"] == "questions"
-    assert len(model.replies) == 5
+    assert len(model.replies) == 4
     # Idempotent replay does not invoke the model again.
     assert await run_step(graph, config, session_id, first_request) == first
     # A fresh graph represents a different worker restoring persisted state.
@@ -287,7 +286,7 @@ async def test_questions_mcp_proposal_and_replay_survive_rebuilding_agent():
     )
     assert final["proposal"]["name"] == "Receptionist"
     assert not final["can_continue"]
-    assert "save a draft" in final["messages"][-1]["content"]
+    assert final["messages"][-1]["content"] == final["proposal"]["summary"]
     assert any(
         builder_instructions() in str(message.content)
         for message in model.seen[0]
@@ -657,7 +656,6 @@ async def test_postgres_checkpoint_survives_connections_and_excludes_concurrent_
                 {"candidate": {"code": "source", "summary": "Receptionist"}},
                 "candidate",
             ),
-            tool_call("submit_review", {"review": READY_REVIEW}, "review"),
         ],
     )
     session_id = uuid4()
@@ -720,12 +718,13 @@ async def test_postgres_checkpoint_survives_connections_and_excludes_concurrent_
             assert not final["can_continue"]
             assert final["proposal"]["code"] == "source"
             values = (await graph.aget_state(config)).values
-            assert values["review"]["brief_revision"] == values["brief_revision"] == 1
+            assert values["proposal"]["brief_revision"] == values["brief_revision"] == 1
+            assert values["review"] is None
+            assert not values["review_messages"]
             assert (
                 values["plan_conversation_messages"]
                 and values["plan_messages"]
                 and values["build_messages"]
-                and values["review_messages"]
             )
             assert any(
                 message["content"] == "What should it do?: Qualify leads"

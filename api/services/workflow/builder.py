@@ -227,16 +227,22 @@ async def _builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
                 if not pending or any(item["kind"] != "mcp" for item in pending):
                     yield {"type": "done"}
                     return
-                results = {}
                 for item in pending:
                     name = item["tool_name"]
                     yield {
                         "type": "status",
                         "message": TOOL_PROGRESS.get(name, "Checking your agent…"),
                     }
-                    results[item["id"]] = await call_builder_tool(
-                        client, name, item["arguments"]
-                    )
+                outputs = await asyncio.gather(
+                    *[
+                        call_builder_tool(client, item["tool_name"], item["arguments"])
+                        for item in pending
+                    ]
+                )
+                results = {
+                    item["id"]: output
+                    for item, output in zip(pending, outputs, strict=True)
+                }
                 body = {
                     "request_id": str(uuid5(request.request_id, state["checkpoint"])),
                     "checkpoint": state["checkpoint"],
@@ -296,7 +302,7 @@ async def _save_builder_draft(
             409, "Finish building and review the latest proposal before saving"
         )
     result = await preview_workflow_code(
-        state.proposal.code, user.selected_organization_id
+        state.proposal.code, user.selected_organization_id, tidy=workflow_id is None
     )
     if not result["valid"]:
         raise HTTPException(

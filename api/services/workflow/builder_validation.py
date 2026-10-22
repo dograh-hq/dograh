@@ -15,11 +15,13 @@ from api.services.workflow.trigger_paths import validate_trigger_paths
 from api.services.workflow.workflow_graph import WorkflowGraph
 
 
-async def preview_workflow_code(code: str, organization_id: int) -> dict[str, Any]:
+async def preview_workflow_code(
+    code: str, organization_id: int, *, tidy: bool = False
+) -> dict[str, Any]:
     if len(code) > 100_000:
         return {"valid": False, "error": "Workflow code exceeds 100,000 characters."}
     try:
-        parsed = await parse_code(code)
+        parsed = await parse_code(code, tidy=tidy)
     except TsBridgeError:
         return {
             "valid": False,
@@ -30,7 +32,7 @@ async def preview_workflow_code(code: str, organization_id: int) -> dict[str, An
     name = (parsed.get("workflowName") or "").strip()
     if not name or len(name) > 200:
         return {"valid": False, "error": "Provide a workflow name of 1–200 characters."}
-    payload = reconcile_positions(parsed["workflow"], None)
+    payload = parsed["workflow"] if tidy else reconcile_positions(parsed["workflow"], None)
     try:
         dto = ReactFlowDTO.model_validate(payload)
         WorkflowGraph(dto)

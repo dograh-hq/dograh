@@ -50,10 +50,6 @@ async def test_create_workflow_rejects_duplicate_api_triggers():
             ),
         ),
         patch(
-            "api.mcp_server.tools.create_workflow.reconcile_positions",
-            return_value=payload,
-        ),
-        patch(
             "api.mcp_server.tools.create_workflow.db_client.create_workflow",
             AsyncMock(),
         ) as create_mock,

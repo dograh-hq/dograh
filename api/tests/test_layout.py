@@ -41,6 +41,28 @@ def test_named_match_preserves_position():
     assert out["nodes"][0]["position"] == {"x": 100, "y": 200}
 
 
+def test_existing_node_at_origin_is_not_repositioned_on_update():
+    previous = {
+        "nodes": [
+            _node("10", "startCall", name="greeting", x=100, y=200),
+            _node("20", "agentNode", name="reply", x=0, y=0),
+        ],
+        "edges": [_edge("10", "20")],
+    }
+    new = {
+        "nodes": [
+            _node("1", "startCall", name="greeting"),
+            _node("2", "agentNode", name="reply"),
+        ],
+        "edges": [_edge("1", "2")],
+    }
+    out = reconcile_positions(new, previous)
+    assert [node["position"] for node in out["nodes"]] == [
+        {"x": 100, "y": 200},
+        {"x": 0, "y": 0},
+    ]
+
+
 def test_unnamed_match_by_type_ordering():
     previous = {
         "nodes": [

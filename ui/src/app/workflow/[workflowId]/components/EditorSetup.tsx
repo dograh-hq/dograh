@@ -71,9 +71,10 @@ type EditorSetupProps = WorkflowSettingsState & {
     nodes: FlowNode[];
     builderDisabled?: boolean;
     onBuilderSaved?: () => Promise<void>;
+    onBuilderBusyChange?: (busy: boolean) => void;
 };
 
-export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, workflowName, workflowUuid, nodes, builderDisabled, onBuilderSaved, ...state }: EditorSetupProps) {
+export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, workflowName, workflowUuid, nodes, builderDisabled, onBuilderSaved, onBuilderBusyChange, ...state }: EditorSetupProps) {
     // Keep the conversation and any in-flight turn mounted when changing tabs.
     const [builderOpened, setBuilderOpened] = useState(view === "builder");
     useEffect(() => { if (view === "builder") setBuilderOpened(true); }, [view]);
@@ -124,7 +125,7 @@ export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, wo
 
         {builderOpened && <section aria-label="Agent builder" hidden={view !== "builder"} className="absolute inset-0 z-20 overflow-y-auto bg-background">
             <div className="mx-auto w-full max-w-[1500px] px-6 pb-10 pt-20">
-                <WorkflowBuilder workflowId={workflowId} disabled={builderDisabled} onSaved={onBuilderSaved} />
+                <WorkflowBuilder workflowId={workflowId} disabled={builderDisabled} onSaved={onBuilderSaved} onBusyChange={onBuilderBusyChange} />
             </div>
         </section>}
 

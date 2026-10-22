@@ -8,6 +8,7 @@ import httpx
 import pytest
 from pipecat.transcriptions.language import Language
 
+from api.constants import APP_VERSION
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.registry import (
     SPEECHIFY_SIMBA_35_LANGUAGES,
@@ -225,6 +226,29 @@ def test_speechify_service_sends_simba_35_language_code():
     assert payload["language"] == "ja"
 
 
+@pytest.mark.skipif(
+    not _speechify_pipecat_module_present(),
+    reason="pinned pipecat lacks the Speechify module",
+)
+def test_speechify_service_attributes_requests_to_dograh():
+    # pipecat names itself in Speechify's caller headers; the wrapper must
+    # replace that with Dograh while keeping the auth header intact.
+    from pipecat.services.speechify.tts import SpeechifyTTSSettings
+
+    from api.services.pipecat.speechify_tts import SpeechifyOwnedSessionTTSService
+
+    service = SpeechifyOwnedSessionTTSService(
+        api_key="test-key",
+        aiohttp_session=MagicMock(),
+        sample_rate=24000,
+        settings=SpeechifyTTSSettings(voice="alicia", model="simba-3.5"),
+    )
+
+    assert service._headers["Authorization"] == "Bearer test-key"
+    assert service._headers["Speechify-Caller"] == "dograh"
+    assert service._headers["Speechify-Caller-Version"] == APP_VERSION
+
+
 def test_create_speechify_tts_service_passes_custom_language_through(
     speechify_pipecat_stub,
 ):
@@ -299,6 +323,9 @@ def test_speechify_key_validation_accepts_valid_key():
     assert called_url == "https://api.speechify.ai/v1/voices?limit=1"
     headers = mock_get.call_args.kwargs["headers"]
     assert headers["Authorization"] == "Bearer sk-valid-key"
+    # Speechify credits usage to the integration named in this pair.
+    assert headers["Speechify-Caller"] == "dograh"
+    assert headers["Speechify-Caller-Version"] == APP_VERSION
 
 
 def test_speechify_key_validation_treats_non_auth_errors_as_inconclusive():

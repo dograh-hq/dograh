@@ -9,6 +9,7 @@ from groq import Groq
 #     from pyneuphonic import Neuphonic
 # except ImportError:
 #     Neuphonic = None
+from api.constants import SPEECHIFY_CALLER_HEADERS
 from api.schemas.ai_model_configuration import (
     EffectiveAIModelConfiguration,
 )
@@ -491,7 +492,10 @@ class UserConfigurationValidator:
         try:
             response = httpx.get(
                 "https://api.speechify.ai/v1/voices?limit=1",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    **SPEECHIFY_CALLER_HEADERS,
+                },
                 timeout=10.0,
             )
         except httpx.RequestError:

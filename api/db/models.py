@@ -1598,3 +1598,63 @@ class KnowledgeBaseChunkModel(Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
+
+
+class SmsConversationModel(Base):
+    """Maps an SMS sender (per receiving number) to its active text-chat run.
+
+    The SMS analogue of ``EmbedSessionModel``: the sender's phone number is the
+    session key instead of a browser session token. A row is "active" while
+    ``expires_at`` lies in the future and the linked run is not completed.
+    """
+
+    __tablename__ = "sms_conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phone = Column(String(32), nullable=False)
+    to_number = Column(String(32), nullable=False)
+    workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    workflow_run_id = Column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=True
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    last_activity_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    workflow_run = relationship("WorkflowRunModel")
+
+    __table_args__ = (
+        Index("ix_sms_conversations_phone_to_number", "phone", "to_number"),
+    )
+
+
+class SmsInboundMessageModel(Base):
+    """Idempotency ledger for inbound Twilio SMS (one row per MessageSid).
+
+    Twilio re-delivers webhooks on timeouts/5xx; the unique ``message_sid``
+    guarantees a message drives at most one assistant turn. ``response_text``
+    is kept so a redelivered webhook can replay the original reply.
+    """
+
+    __tablename__ = "sms_inbound_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_sid = Column(String(64), unique=True, nullable=False, index=True)
+    conversation_id = Column(
+        Integer,
+        ForeignKey("sms_conversations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    workflow_run_id = Column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    from_number = Column(String(32), nullable=True)
+    to_number = Column(String(32), nullable=True)
+    # processing | done | failed
+    status = Column(String(16), nullable=False, default="processing")
+    response_text = Column(Text, nullable=True)
+    received_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    completed_at = Column(DateTime(timezone=True), nullable=True)

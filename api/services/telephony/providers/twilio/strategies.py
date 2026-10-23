@@ -4,6 +4,8 @@ This module contains the business logic for Twilio call operations,
 maintaining proper separation of concerns between protocol handling and business logic.
 """
 
+import os
+
 from typing import Any, Dict
 
 import aiohttp
@@ -40,8 +42,8 @@ class TwilioConferenceStrategy(TransferStrategy):
             account_sid = context["account_sid"]
             auth_token = context["auth_token"]
             call_sid = context["call_sid"]
-            region = context.get("region")
-            edge = context.get("edge")
+            region = context.get("region") or os.environ.get("TWILIO_API_REGION", "ie1")
+            edge = context.get("edge") or os.environ.get("TWILIO_API_EDGE", "dublin")
 
             # 1. Find active transfer context for this call
             transfer_context = await self._find_transfer_context_for_call(call_sid)
@@ -183,8 +185,8 @@ class TwilioHangupStrategy(HangupStrategy):
             account_sid = context.get("account_sid")
             auth_token = context.get("auth_token")
             call_sid = context.get("call_sid")
-            region = context.get("region")
-            edge = context.get("edge")
+            region = context.get("region") or os.environ.get("TWILIO_API_REGION", "ie1")
+            edge = context.get("edge") or os.environ.get("TWILIO_API_EDGE", "dublin")
 
             if not account_sid or not auth_token:
                 log_failure(

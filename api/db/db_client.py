@@ -10,6 +10,7 @@ from api.db.organization_client import OrganizationClient
 from api.db.organization_configuration_client import OrganizationConfigurationClient
 from api.db.organization_usage_client import OrganizationUsageClient
 from api.db.reports_client import ReportsClient
+from api.db.sms_conversation_client import SmsConversationClient
 from api.db.telephony_configuration_client import TelephonyConfigurationClient
 from api.db.telephony_phone_number_client import TelephonyPhoneNumberClient
 from api.db.telephony_trunk_client import TelephonyTrunkClient
@@ -41,6 +42,7 @@ class DBClient(
     ReportsClient,
     APIKeyClient,
     EmbedTokenClient,
+    SmsConversationClient,
     AgentTriggerClient,
     WebhookCredentialClient,
     WebhookDeliveryClient,
@@ -68,6 +70,7 @@ class DBClient(
     - ReportsClient: handles reports and analytics operations
     - APIKeyClient: handles API key operations
     - EmbedTokenClient: handles embed token and session operations
+    - SmsConversationClient: handles inbound SMS conversations and MessageSid ledger
     - AgentTriggerClient: handles agent trigger operations for API-based call triggering
     - WebhookCredentialClient: handles webhook credential operations
     - WebhookDeliveryClient: handles durable outbound webhook delivery records

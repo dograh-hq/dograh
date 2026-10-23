@@ -3,11 +3,12 @@ from typing import Annotated
 from fastapi import Depends, Header, HTTPException, Query, WebSocket
 from loguru import logger
 
-from api.constants import AUTH_PROVIDER
+from api.constants import AUTH_PROVIDER, DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent
 from api.services.auth.stack_auth import stackauth
+from api.services.mps_billing import ensure_signup_grant
 from api.services.organization_bootstrap import ensure_organization_bootstrapped
 from api.services.posthog_client import (
     POSTHOG_ORGANIZATION_GROUP_TYPE,
@@ -149,7 +150,51 @@ async def get_user(
         created_by=str(stack_user["id"]),
     )
 
+    # Preserve the hosted signup trial without requiring email verification.
+    # Retry on later authenticated requests if MPS was unavailable at signup.
+    await ensure_signup_grant(organization.id, created_by=str(stack_user["id"]))
+
     return user_model
+
+
+async def get_service_key_user(
+    user: UserModel = Depends(get_user),
+    authorization: Annotated[str | None, Header()] = None,
+) -> UserModel:
+    """Preserve local OSS issuance; hosted account keys require verified email."""
+    if DEPLOYMENT_MODE == "oss":
+        return user
+    return await get_verified_stack_user(user, authorization)
+
+
+async def get_verified_stack_user(
+    user: UserModel = Depends(get_user),
+    authorization: Annotated[str | None, Header()] = None,
+) -> UserModel:
+    """Key issuance requires a current verified Stack identity, never OSS/API auth."""
+    if AUTH_PROVIDER != "stack" or DEPLOYMENT_MODE == "oss":
+        raise HTTPException(
+            status_code=403,
+            detail="Get a service key at https://app.dograh.com/get-service-key",
+        )
+    identity = await stackauth.get_user(authorization)
+    if not identity or str(identity.get("id")) != str(user.provider_id):
+        raise HTTPException(
+            status_code=401, detail="Sign in with your verified email to create a key"
+        )
+    if not identity.get("primary_email_verified") or not identity.get("primary_email"):
+        raise HTTPException(
+            status_code=403, detail="Verify your email before creating a service key"
+        )
+    team_id = identity.get("selected_team_id") or (
+        identity.get("selected_team") or {}
+    ).get("id")
+    organization = await db_client.get_organization_by_id(user.selected_organization_id)
+    if not team_id or not organization or organization.provider_id != team_id:
+        raise HTTPException(
+            status_code=403, detail="Selected team does not match your organization"
+        )
+    return user
 
 
 def _sync_created_organization_to_posthog(

@@ -583,6 +583,7 @@ async def create_workflow_from_template(
                 call_type=request.call_type.upper(),
                 use_case=request.use_case,
                 activity_description=request.activity_description,
+                organization_id=user.selected_organization_id,
                 created_by=str(user.provider_id),
             )
         else:

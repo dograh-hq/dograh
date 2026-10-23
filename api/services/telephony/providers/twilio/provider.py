@@ -3,6 +3,7 @@ Twilio implementation of the TelephonyProvider interface.
 """
 
 import json
+import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
@@ -56,7 +57,8 @@ class TwilioProvider(TelephonyProvider):
         if isinstance(self.from_numbers, str):
             self.from_numbers = [self.from_numbers]
 
-        self.base_url = f"https://api.twilio.com/2010-04-01/Accounts/{self.account_sid}"
+        twilio_host = os.environ.get("TWILIO_API_HOST", "").strip() or "api.dublin.ie1.twilio.com"
+        self.base_url = f"https://{twilio_host}/2010-04-01/Accounts/{self.account_sid}"
 
     async def initiate_call(
         self,

@@ -94,6 +94,52 @@ async def test_selected_dograh_key_takes_precedence(custom_models, connections):
     connections.assert_not_awaited()
 
 
+async def test_oss_workflow_without_organization_uses_legacy_owner_headers(
+    monkeypatch,
+):
+    monkeypatch.setattr(client_module, "DEPLOYMENT_MODE", "oss")
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(
+            200, json={"workflow_definition": {"nodes": [], "edges": []}}
+        )
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    client = MPSServiceKeyClient()
+    lookup = AsyncMock()
+    monkeypatch.setattr(client, "_runtime_service_key", lookup)
+    result = await client.call_workflow_api(
+        "INBOUND", "support", "Answer questions", created_by="oss_1_user"
+    )
+    assert result == {"workflow_definition": {"nodes": [], "edges": []}}
+    assert len(requests) == 1
+    assert requests[0].headers["X-Created-By"] == "oss_1_user"
+    assert "Authorization" not in requests[0].headers
+    assert "X-Secret-Key" not in requests[0].headers
+    assert "X-Stack-Team-Id" not in requests[0].headers
+    lookup.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mode,created_by", [("saas", "stack-user"), ("oss", None)])
+async def test_workflow_without_organization_rejects_missing_oss_identity(
+    monkeypatch, mode, created_by
+):
+    monkeypatch.setattr(client_module, "DEPLOYMENT_MODE", mode)
+    with pytest.raises(HTTPException) as error:
+        await MPSServiceKeyClient().call_workflow_api(
+            "INBOUND", "support", "Answer questions", created_by=created_by
+        )
+    assert error.value.status_code == 400
+    assert error.value.detail == "No organization selected"
+
+
 async def test_utility_fallback_reads_current_credentials(custom_models, connections):
     connection = connections.return_value[-1]
     connection.credentials["api_key"] = ["mps_sk_first", "mps_sk_second"]

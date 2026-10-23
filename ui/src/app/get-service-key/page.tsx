@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 function VerifiedServiceKeyForm() {
     const app = useStackApp();
@@ -76,7 +77,7 @@ function VerifiedServiceKeyForm() {
             <Label htmlFor="service-key">Your service key</Label>
             <Input id="service-key" readOnly value={key} autoComplete="off" className="font-mono" />
             <Button onClick={async () => {
-                try { await navigator.clipboard.writeText(key); setCopied(true); }
+                try { await copyTextToClipboard(key); setCopied(true); }
                 catch { setError('Copy the key from the field above.'); }
             }}>{copied ? 'Copied' : 'Copy key'}</Button>
             <p className="text-sm">Save this key now; it is only shown once. In your OSS installation, add a <strong>Dograh</strong> provider, paste the key, and select that provider in your model configuration.</p>

@@ -1094,6 +1094,7 @@ class MPSServiceKeyClient:
         Call the MPS workflow creation API using the configured service key.
 
         Uses the selected Dograh provider or an active saved Dograh connection.
+        OSS users without an organization retain legacy owner-based access.
 
         Args:
             call_type: INBOUND or OUTBOUND
@@ -1108,7 +1109,11 @@ class MPSServiceKeyClient:
         Raises:
             HTTPException: If the API call fails
         """
-        service_key = await self._runtime_service_key(organization_id)
+        if DEPLOYMENT_MODE == "oss" and organization_id is None and created_by:
+            headers = self._get_headers(created_by=created_by)
+        else:
+            service_key = await self._runtime_service_key(organization_id)
+            headers = {"Authorization": f"Bearer {service_key}"}
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
             response = await client.post(
                 f"{self.base_url}/api/v1/workflow/create-workflow",
@@ -1117,7 +1122,7 @@ class MPSServiceKeyClient:
                     "use_case": use_case,
                     "activity_description": activity_description,
                 },
-                headers={"Authorization": f"Bearer {service_key}"},
+                headers=headers,
             )
 
             if response.status_code == 200:

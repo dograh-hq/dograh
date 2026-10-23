@@ -3,6 +3,8 @@ from typing import Optional
 from loguru import logger
 
 from api.constants import DEPLOYMENT_MODE
+from api.db import db_client
+from api.enums import OrganizationConfigurationKey
 from api.services.mps_service_key_client import mps_service_key_client
 
 
@@ -25,25 +27,34 @@ async def ensure_hosted_mps_billing_account_v2(
     )
 
 
-# Cache only successful, idempotent claims. A failed dependency call is retried
-# on the next authenticated request; it never prevents signup or authentication.
-_signup_grants: set[tuple[int, str]] = set()
+_SIGNUP_GRANT_KEY = OrganizationConfigurationKey.MPS_SIGNUP_GRANT.value
 
 
 async def ensure_signup_grant(organization_id: int, *, created_by: str) -> None:
-    if DEPLOYMENT_MODE == "oss" or (organization_id, created_by) in _signup_grants:
+    """Remember successful claims per organization across members and workers.
+
+    MPS makes the grant idempotent, including concurrent first requests. A grant
+    completes the team; a denial only completes that actor's attempt, since an
+    eligible teammate can still claim. Dependency failures remain retryable
+    without preventing authentication.
+    """
+    if DEPLOYMENT_MODE == "oss":
         return
+    actor_key = f"{_SIGNUP_GRANT_KEY}:{created_by}"
     try:
-        await mps_service_key_client.claim_signup_grant(
+        state = await db_client.get_configuration_values(
+            organization_id, [_SIGNUP_GRANT_KEY, actor_key]
+        )
+        if state.get(_SIGNUP_GRANT_KEY) is True or state.get(actor_key) is True:
+            return
+        result = await mps_service_key_client.claim_signup_grant(
             organization_id=organization_id,
             created_by=created_by,
         )
+        key = _SIGNUP_GRANT_KEY if result["granted"] is True else actor_key
+        await db_client.upsert_configuration(organization_id, key, True)
     except Exception:
         logger.warning(
             "Signup grant unavailable for organization {}; will retry",
             organization_id,
         )
-        return
-    if len(_signup_grants) >= 10000:
-        _signup_grants.clear()
-    _signup_grants.add((organization_id, created_by))

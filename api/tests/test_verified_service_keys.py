@@ -119,22 +119,97 @@ async def test_key_routes_preserve_missing_stack_team_error(monkeypatch, operati
     assert caught.value is error
 
 
-async def test_signup_grant_retries_failure_and_caches_success(monkeypatch):
+@pytest.fixture
+def signup_state(monkeypatch):
     monkeypatch.setattr(mps_billing, "DEPLOYMENT_MODE", "saas")
-    monkeypatch.setattr(mps_billing, "_signup_grants", set())
+    values = {}
+
+    async def read(organization_id, keys):
+        return {
+            key: values[organization_id, key]
+            for key in keys
+            if (organization_id, key) in values
+        }
+
+    async def write(organization_id, key, value):
+        values[organization_id, key] = value
+
+    state = SimpleNamespace(
+        read=AsyncMock(side_effect=read), write=AsyncMock(side_effect=write)
+    )
+    monkeypatch.setattr(mps_billing.db_client, "get_configuration_values", state.read)
+    monkeypatch.setattr(mps_billing.db_client, "upsert_configuration", state.write)
+    return state
+
+
+async def test_signup_grant_retries_failure_and_caches_success(
+    monkeypatch, signup_state
+):
     claim = AsyncMock(side_effect=[RuntimeError("temporary outage"), {"granted": True}])
     monkeypatch.setattr(mps_billing.mps_service_key_client, "claim_signup_grant", claim)
     for _ in range(3):
         await mps_billing.ensure_signup_grant(42, created_by=USER)
     assert claim.await_count == 2
+    assert signup_state.write.await_count == 1
 
 
-async def test_oss_never_requests_signup_grants(monkeypatch):
+async def test_signup_grant_is_shared_by_members_but_scoped_to_organization(
+    monkeypatch, signup_state
+):
+    claim = AsyncMock(return_value={"granted": True})
+    monkeypatch.setattr(mps_billing.mps_service_key_client, "claim_signup_grant", claim)
+
+    await mps_billing.ensure_signup_grant(42, created_by=USER)
+    await mps_billing.ensure_signup_grant(42, created_by="another-member")
+    claim.assert_awaited_once_with(organization_id=42, created_by=USER)
+
+    await mps_billing.ensure_signup_grant(43, created_by="another-member")
+    assert claim.await_count == 2
+    claim.assert_awaited_with(organization_id=43, created_by="another-member")
+
+
+@pytest.mark.parametrize("operation", ["read", "write"])
+async def test_signup_grant_storage_failures_do_not_prevent_authentication(
+    monkeypatch, signup_state, operation
+):
+    claim = AsyncMock(return_value={"granted": True})
+    monkeypatch.setattr(mps_billing.mps_service_key_client, "claim_signup_grant", claim)
+    storage = getattr(signup_state, operation)
+    original = storage.side_effect
+    storage.side_effect = RuntimeError("database unavailable")
+    await mps_billing.ensure_signup_grant(42, created_by=USER)
+
+    storage.side_effect = original
+    await mps_billing.ensure_signup_grant(42, created_by=USER)
+    await mps_billing.ensure_signup_grant(42, created_by="another-member")
+    assert claim.await_count == (1 if operation == "read" else 2)
+
+
+async def test_denied_signup_claim_does_not_block_an_eligible_teammate(
+    monkeypatch, signup_state
+):
+    claim = AsyncMock(side_effect=[{"granted": False}, {"granted": True}])
+    monkeypatch.setattr(mps_billing.mps_service_key_client, "claim_signup_grant", claim)
+
+    # This person may already have received their one-time grant in another team.
+    await mps_billing.ensure_signup_grant(42, created_by=USER)
+    await mps_billing.ensure_signup_grant(42, created_by=USER)
+    claim.assert_awaited_once_with(organization_id=42, created_by=USER)
+
+    await mps_billing.ensure_signup_grant(42, created_by="eligible-member")
+    claim.assert_awaited_with(organization_id=42, created_by="eligible-member")
+    await mps_billing.ensure_signup_grant(42, created_by="third-member")
+    assert claim.await_count == 2
+
+
+async def test_oss_never_requests_signup_grants(monkeypatch, signup_state):
     monkeypatch.setattr(mps_billing, "DEPLOYMENT_MODE", "oss")
     claim = AsyncMock()
     monkeypatch.setattr(mps_billing.mps_service_key_client, "claim_signup_grant", claim)
     await mps_billing.ensure_signup_grant(42, created_by="oss_1_user")
     claim.assert_not_awaited()
+    signup_state.read.assert_not_awaited()
+    signup_state.write.assert_not_awaited()
 
 
 @pytest.mark.parametrize("mode", ["oss", "saas"])

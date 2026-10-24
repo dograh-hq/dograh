@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.50.0 (2026-10-24)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add shared tool messages with start and delayed variants by @a6kme in https://github.com/dograh-hq/dograh/pull/890
+* feat(telephony): add WhatsApp inbound calling integration by @amitbhakt in https://github.com/dograh-hq/dograh/pull/732
+* feat(ui): event banner for the TTS verbalization benchmark by @sandeepvemu-dograh in https://github.com/dograh-hq/dograh/pull/895
+* feat(tts): Deepgram Flux voices, explicit model setting, clearer handshake errors by @a6kme in https://github.com/dograh-hq/dograh/pull/896
+* feat(telephony): key WhatsApp on the Business Account and sync its numbers from Meta by @a6kme in https://github.com/dograh-hq/dograh/pull/901
+* feat(transfer): replace play_greeting with greeting_mode and a spoken introduction by @a6kme in https://github.com/dograh-hq/dograh/pull/917
+* feat(tts): support Sarvam AI Bulbul v4 Flash model and client-side voice selection by @amitbhakt in https://github.com/dograh-hq/dograh/pull/909
+* feat(tuner): send selected call variables as metadata by @nihalfares23 in https://github.com/dograh-hq/dograh/pull/928
+* feat(mps): use Stack-team billing and verified service keys by @a6kme in https://github.com/dograh-hq/dograh/pull/934
+### Bug Fixes
+* fix(greeting): consistent playback accounting and interruption controls by @a6kme in https://github.com/dograh-hq/dograh/pull/911
+* fix: unify call opening and remove avoidable startup delays by @a6kme in https://github.com/dograh-hq/dograh/pull/913
+* fix(voice): run final extraction after hangup by @a6kme in https://github.com/dograh-hq/dograh/pull/915
+* fix(voice): recover tool calls emitted as spoken text by @a6kme in https://github.com/dograh-hq/dograh/pull/920
+* fix(tts): stop offering Assamese for Sarvam TTS by @ANDROIDHASSAN in https://github.com/dograh-hq/dograh/pull/902
+* fix(voice): keep model control text out of spoken replies by @a6kme in https://github.com/dograh-hq/dograh/pull/926
+### Documentation
+* docs(whatsapp): add setup screenshots and Graph API calling settings curl by @amitbhakt in https://github.com/dograh-hq/dograh/pull/892
+### Other Changes
+* Expose MiniMax volume and save clean assistant recordings by @a6kme in https://github.com/dograh-hq/dograh/pull/916
+* Update supported STT settings on agent transfer by @a6kme in https://github.com/dograh-hq/dograh/pull/918
+
+## New Contributors
+* @ANDROIDHASSAN made their first contribution in https://github.com/dograh-hq/dograh/pull/902
+* @nihalfares23 made their first contribution in https://github.com/dograh-hq/dograh/pull/928
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.49.0...dograh-v1.50.0
+
 ## 1.49.0 (2026-10-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

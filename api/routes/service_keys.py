@@ -10,7 +10,7 @@ from api.schemas.service_key import (
     CreateServiceKeyResponse,
     ServiceKeyResponse,
 )
-from api.services.auth.depends import get_user, get_service_key_user
+from api.services.auth.depends import get_service_key_user, get_user
 from api.services.mps_service_key_client import mps_service_key_client
 
 router = APIRouter()

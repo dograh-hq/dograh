@@ -7,6 +7,7 @@ from pipecat.transcriptions.language import Language
 
 from api.services.configuration.registry import (
     SarvamLLMConfiguration,
+    SarvamSTTConfiguration,
     SarvamTTSConfiguration,
     ServiceProviders,
 )
@@ -157,6 +158,107 @@ class TestSarvamSTTServiceFactory:
 
         kwargs = mock_service.call_args.kwargs
         assert kwargs["settings"].language == expected_language
+
+    def test_sarvam_stt_configuration_defaults(self):
+        config = SarvamSTTConfiguration(api_key="test-key")
+
+        assert config.provider == ServiceProviders.SARVAM
+        assert config.model == "saaras:v4"
+        assert config.language == "unknown"
+
+    def test_sarvam_stt_schema_includes_saaras_v4(self):
+        schema = SarvamSTTConfiguration.model_json_schema()["properties"]
+        model_examples = schema["model"].get("examples", [])
+        assert "saaras:v4" in model_examples
+        assert "saaras:v3" in model_examples
+        assert "saarika:v2.5" not in model_examples
+
+        model_options = schema["language"].get("model_options", {})
+        assert "saaras:v4" in model_options
+        assert "saaras:v3" in model_options
+        assert "saarika:v2.5" not in model_options
+
+    def test_sarvam_stt_migrates_deprecated_saarika(self):
+        config = SarvamSTTConfiguration(api_key="test-key", model="saarika:v2.5")
+        assert config.model == "saaras:v4"
+
+    def test_create_sarvam_stt_service_with_v4(self):
+        user_config = SimpleNamespace(
+            stt=SimpleNamespace(
+                provider=ServiceProviders.SARVAM.value,
+                model="saaras:v4",
+                api_key="test-key",
+                language="unknown",
+            )
+        )
+        audio_config = AudioConfig(
+            transport_in_sample_rate=16000, transport_out_sample_rate=16000
+        )
+
+        with patch(
+            "api.services.pipecat.service_factory.SarvamSTTService"
+        ) as mock_service:
+            create_stt_service(user_config, audio_config)
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["api_key"] == "test-key"
+        assert kwargs["settings"].model == "saaras:v4"
+
+    def test_create_sarvam_stt_service_passes_keyterms_for_v4(self):
+        user_config = SimpleNamespace(
+            stt=SimpleNamespace(
+                provider=ServiceProviders.SARVAM.value,
+                model="saaras:v4",
+                api_key="test-key",
+                language="unknown",
+            )
+        )
+        audio_config = AudioConfig(
+            transport_in_sample_rate=16000, transport_out_sample_rate=16000
+        )
+
+        with patch(
+            "api.services.pipecat.service_factory.SarvamSTTService"
+        ) as mock_service:
+            create_stt_service(
+                user_config,
+                audio_config,
+                keyterms=["Sarvam", "Dograh"],
+            )
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["settings"].keyterms == ["Sarvam", "Dograh"]
+
+    def test_create_sarvam_stt_service_omits_keyterms_for_v3(self):
+        user_config = SimpleNamespace(
+            stt=SimpleNamespace(
+                provider=ServiceProviders.SARVAM.value,
+                model="saaras:v3",
+                api_key="test-key",
+                language="unknown",
+            )
+        )
+        audio_config = AudioConfig(
+            transport_in_sample_rate=16000, transport_out_sample_rate=16000
+        )
+
+        with patch(
+            "api.services.pipecat.service_factory.SarvamSTTService"
+        ) as mock_service:
+            create_stt_service(
+                user_config,
+                audio_config,
+                keyterms=["Sarvam", "Dograh"],
+            )
+
+        kwargs = mock_service.call_args.kwargs
+        # For v3, keyterms are not passed to SarvamSTTSettings
+        from pipecat.utils.types import is_given
+
+        assert (
+            not is_given(kwargs["settings"].keyterms)
+            or kwargs["settings"].keyterms is None
+        )
 
 
 class TestSarvamTTSServiceFactory:

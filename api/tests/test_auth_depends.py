@@ -50,6 +50,7 @@ def _patch_get_user_dependencies(
         "ensure_organization_bootstrapped",
         bootstrap,
     )
+    monkeypatch.setattr(auth_depends, "ensure_signup_grant", AsyncMock())
     monkeypatch.setattr(
         auth_depends,
         "group_identify",

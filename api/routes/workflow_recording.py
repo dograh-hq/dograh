@@ -325,6 +325,7 @@ async def transcribe_audio(
                 filename=file.filename or "audio.wav",
                 content_type=file.content_type or "audio/wav",
                 language=language,
+                organization_id=user.selected_organization_id,
                 created_by=str(user.provider_id),
             )
         else:
@@ -338,6 +339,8 @@ async def transcribe_audio(
 
         return result
 
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(f"Error transcribing audio: {exc}")
         raise HTTPException(

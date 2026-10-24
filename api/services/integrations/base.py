@@ -54,6 +54,30 @@ CompletionHandler = Callable[
 
 
 @dataclass(frozen=True)
+class IntegrationTool:
+    """An LLM function that an integration adds to every Start Call and Agent node."""
+
+    name: str
+    description: str
+    properties: dict[str, Any]
+    required: tuple[str, ...]
+    handler: Callable[[Any], Awaitable[None]]
+
+
+ToolFactory = Callable[..., list[IntegrationTool]]
+"""Called as ``factory(workflow_graph, realtime=...)`` for each Start Call and Agent node."""
+
+ContextProvider = Callable[[str], Awaitable[str | None]]
+"""Knowledge to add to the system instruction for the turn that answers ``user_text``.
+
+Runs before every cascade or text chat inference, so it must answer in
+milliseconds. Returns None when it has nothing for this turn.
+"""
+
+ContextProviderFactory = Callable[[Any], list[ContextProvider]]
+
+
+@dataclass(frozen=True)
 class IntegrationNodeRegistration:
     type_name: str
     data_model: type[BaseNodeData]
@@ -69,3 +93,5 @@ class IntegrationPackageSpec:
     create_runtime_sessions: RuntimeFactory | None = None
     run_completion: CompletionHandler | None = None
     call_event_sink: CallEventSinkRegistration | None = None
+    create_tools: ToolFactory | None = None
+    create_context_providers: ContextProviderFactory | None = None

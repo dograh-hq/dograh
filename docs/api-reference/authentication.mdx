@@ -33,6 +33,23 @@ For self-hosted deployments using local auth, sign up and log in via the dashboa
 
 Archiving a key immediately revokes it. All subsequent requests using that key return `401`.
 
+## Using self-hosted Swagger UI
+
+When testing a protected operation in your instance's `/docs`, enter your API
+key in the `X-API-Key` field before selecting **Execute**. Create the key in the
+dashboard first, as described above.
+
+<Note>
+The `authorization` field currently shown as a regular header parameter is not
+forwarded by Swagger UI. This is tracked in
+[issue #710](https://github.com/dograh-hq/dograh/issues/710). To test JWT
+authentication, use an HTTP client that sends the `Authorization` header, rather
+than entering the token in that Swagger parameter field.
+</Note>
+
+If you send both headers from an HTTP client, `X-API-Key` takes precedence over
+`Authorization`.
+
 ---
 
 ## Error responses

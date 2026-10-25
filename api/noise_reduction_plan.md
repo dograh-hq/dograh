@@ -40,6 +40,31 @@ Findings that changed the plan:
   build librnnoise per architecture in the Dockerfile, ideally with x86 RTCD/AVX2
   for a further speed-up.
 
+### Benchmark findings (`evals/noise_reduction/`, 2.8 GHz Xeon)
+
+| Measure | Result |
+|---|---|
+| Time per 20 ms frame (8 kHz) | p50 0.69 ms, p99 1.27 ms. pipecat's `RNNoiseFilter` takes p50 2.35 ms on the same input. |
+| CPU per call | ~3.9% of one core |
+| Startup | 2.3 ms library load once per process, 0.11 ms per call |
+| Added audio delay | 20 ms at 8, 16, 24 and 48 kHz |
+| Calls per event loop (inline) | Saturates at ~25 calls. Event-loop lag p99 63–460 ms at 25 calls, depending on other load. |
+| Calls per event loop (thread pool, prototype) | 25 calls: lag p99 3 ms, ~1.5 cores. The GIL caps it near 2.2 cores (~35–40 calls). |
+| Stationary noise (white, pink, hum, keyboard, office) | Removes 30–90 dB in noise-only stretches. PESQ improves at ≤10 dB SNR (e.g. keyboard 0 dB, 8 kHz: 1.17 → 1.80; STOI 0.47 → 0.65). |
+| Clean or lightly noisy speech | Gets worse. Clean 8 kHz PESQ 4.22 → 2.00, STOI 0.99 → 0.71; PESQ drops at 20 dB SNR for every noise type. Studio-clean synthetic clips are untouched (PESQ 4.5); some real recordings lose a large share of speech frames. |
+| Babble (background talkers) | Gets worse. STOI 0.70 → 0.32 at 10 dB. Silero false speech starts rise from 56 to 86 per min at 0 dB. |
+| Silero false starts on non-speech noise | 0 per minute both with and without the filter. Silero already rejects these noises at the tested levels. |
+| Speech clips found by VAD | Better under loud hum and music at 0 dB (2/8 → 7/8, 2/8 → 6/8). Otherwise unchanged. |
+| DTMF tones | 21–24 dB quieter. Providers deliver DTMF out of band, so call handling is unaffected; recordings lose the tones. |
+| STT accuracy | **Not measured.** It needs a production STT provider. Local pocketsphinx is too unstable to use: inaudible noise at 40 dB SNR changes 52% of its words. |
+
+What this means for rollout:
+
+* Keep the default **off**. Turn it on per workflow for callers in steady noise (fans, traffic, hum, typing).
+* Do not use it for call-center babble.
+* Before any default-on decision, measure WER with a real STT provider (`evals/stt` with Deepgram) on denoised audio. The clean-speech damage above may raise it.
+* Move the engine to a dedicated thread pool before enabling it widely. Building librnnoise with AVX2 is the other lever for CPU.
+
 ---
 
 ## 1. What exists today

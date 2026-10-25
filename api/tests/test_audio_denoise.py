@@ -18,6 +18,7 @@ from api.services.pipecat.noise_reduction.file_denoise import (
     denoise_audio_file,
     denoise_pcm_48k,
 )
+from api.services.pipecat.noise_reduction.speech_gate import SpeechGatedDenoiser
 
 SPEECH_WAV = (
     APP_ROOT_DIR.parent / "pipecat/scripts/provider-watch/assets/speech-16k.wav"
@@ -77,7 +78,7 @@ def test_denoise_pcm_48k_is_aligned_with_input():
 async def test_denoise_file_keeps_length_and_rate_and_removes_noise():
     _, noisy = _noisy_speech()
 
-    result = await denoise_audio_file(_wav_bytes(noisy, 16000))
+    result = await denoise_audio_file(_wav_bytes(noisy, 16000), mode="full")
     out, rate = _read_wav(result.audio)
 
     assert result.media_type == "audio/wav"
@@ -94,7 +95,9 @@ async def test_denoise_file_keeps_length_and_rate_and_removes_noise():
 async def test_denoise_file_resamples_to_requested_rate(sample_rate):
     _, noisy = _noisy_speech()
 
-    result = await denoise_audio_file(_wav_bytes(noisy, 16000), sample_rate=sample_rate)
+    result = await denoise_audio_file(
+        _wav_bytes(noisy, 16000), sample_rate=sample_rate, mode="full"
+    )
     out, rate = _read_wav(result.audio)
 
     assert rate == sample_rate
@@ -107,7 +110,9 @@ async def test_denoise_file_resamples_to_requested_rate(sample_rate):
 async def test_denoise_file_encodes_requested_format(output_format, codec):
     _, noisy = _noisy_speech()
 
-    result = await denoise_audio_file(_wav_bytes(noisy, 16000), output_format)
+    result = await denoise_audio_file(
+        _wav_bytes(noisy, 16000), output_format, mode="full"
+    )
 
     probe = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "stream=codec_name,channels"]
@@ -129,7 +134,7 @@ async def test_denoise_file_accepts_compressed_stereo_input():
         check=True,
     ).stdout
 
-    result = await denoise_audio_file(stereo_mp3)
+    result = await denoise_audio_file(stereo_mp3, mode="full")
     out, rate = _read_wav(result.audio)
 
     assert rate == 44100
@@ -148,6 +153,102 @@ async def test_denoise_file_rejects_audio_over_the_duration_limit(monkeypatch):
 
     with pytest.raises(AudioTooLongError):
         await denoise_audio_file(_wav_bytes(noisy, 16000))
+
+
+# --- speech mode (what STT would receive) ----------------------------------
+
+
+def _office_noise(length: int, level: float) -> np.ndarray:
+    with wave.open(str(APP_ROOT_DIR / "assets/office-ambience-16000-mono.wav")) as wav:
+        noise = np.frombuffer(wav.readframes(length), np.int16).astype(np.float64)
+    return noise / _rms(noise) * level
+
+
+async def test_speech_mode_returns_silence_for_noise_only_audio():
+    noise = _office_noise(16000 * 5, 1500).astype(np.int16)
+
+    result = await denoise_audio_file(_wav_bytes(noise, 16000))
+    out, rate = _read_wav(result.audio)
+
+    assert rate == 16000
+    assert result.speech_segments == 0
+    assert result.speech_secs == 0
+    assert np.all(out == 0)
+
+
+async def test_speech_mode_keeps_denoised_speech_and_silences_the_rest():
+    speech = _speech()
+    lead = 16000 * 2
+    clean = np.concatenate([np.zeros(lead, np.int16), speech, np.zeros(lead, np.int16)])
+    noise = _office_noise(len(clean), _rms(speech) / 4)  # ~12 dB SNR
+    noisy = np.clip(clean + noise, -32768, 32767).astype(np.int16)
+
+    result = await denoise_audio_file(_wav_bytes(noisy, 16000))
+    out, _ = _read_wav(result.audio)
+
+    assert len(out) == len(noisy)
+    assert result.speech_segments >= 1
+    assert 0.5 * len(speech) / 16000 < result.speech_secs < len(speech) / 16000 + 1.5
+    # Noise before the caller talks (minus the 0.4 s pre-roll) and after the
+    # VAD hangover is silenced entirely.
+    assert np.all(out[: lead - 16000 // 2] == 0)
+    assert np.all(out[-lead // 2 :] == 0)
+    speech_out = out[lead : lead + len(speech)]
+    level_change_db = 20 * np.log10(_rms(speech_out) / _rms(speech))
+    assert -6 < level_change_db < 2
+
+
+async def test_speech_mode_does_not_cut_the_first_word():
+    speech = _speech()
+    lead = 16000
+    clean = np.concatenate([np.zeros(lead, np.int16), speech])
+    onset = lead + int(np.argmax(np.abs(speech) > 1000))
+
+    result = await denoise_audio_file(_wav_bytes(clean, 16000))
+    out, _ = _read_wav(result.audio)
+
+    # VAD confirms speech ~0.2 s after onset; the pre-roll must cover that.
+    first = slice(onset, onset + 16000 // 4)
+    assert _rms(out[first]) > 0.5 * _rms(clean[first])
+
+
+async def test_speech_mode_simulates_phone_line_at_8khz():
+    _, noisy = _noisy_speech()
+
+    result = await denoise_audio_file(_wav_bytes(noisy, 16000), sample_rate=8000)
+    out, rate = _read_wav(result.audio)
+
+    assert rate == 8000
+    assert abs(len(out) - len(noisy) // 2) <= 8
+    assert result.speech_segments >= 1
+
+
+async def test_gate_streams_silence_then_burst_then_speech():
+    speech = _speech()
+    stream = np.concatenate(
+        [np.zeros(16000, np.int16), speech, np.zeros(16000, np.int16)]
+    )
+    gate = SpeechGatedDenoiser(16000)
+    await gate.start()
+    results = [
+        await gate.process(stream[i : i + 320].tobytes())
+        for i in range(0, len(stream) - 319, 320)
+    ]
+    await gate.stop()
+
+    opened = next(i for i, r in enumerate(results) if r.speaking)
+    assert all(r.stt_audio == b"\x00" * 640 for r in results[:opened])
+    # Opening releases the pre-roll ahead of the current frame.
+    assert len(results[opened].stt_audio) > 640 * 10
+    assert not results[-1].speaking
+    assert results[-1].stt_audio == b"\x00" * 640
+    assert len(gate.segments) >= 1
+    assert all(end is not None for _, end in gate.segments)
+
+
+def test_gate_rejects_unsupported_rates():
+    with pytest.raises(ValueError):
+        SpeechGatedDenoiser(44100)
 
 
 # --- route -----------------------------------------------------------------
@@ -169,7 +270,7 @@ def test_route_returns_denoised_file(client):
     response = client.post(
         "/audio/denoise",
         files={"file": ("my call;1.wav", _wav_bytes(noisy, 16000), "audio/wav")},
-        data={"output_format": "wav"},
+        data={"output_format": "wav", "mode": "full"},
     )
 
     assert response.status_code == 200
@@ -185,6 +286,20 @@ def test_route_returns_denoised_file(client):
     assert int(response.headers["x-processing-time-ms"]) >= 0
     out, _ = _read_wav(response.content)
     assert _rms(out[8000:16000]) < _rms(noisy[8000:16000]) * 0.1
+
+
+def test_route_speech_mode_is_default_and_reports_speech(client):
+    _, noisy = _noisy_speech()
+
+    response = client.post(
+        "/audio/denoise",
+        files={"file": ("call.wav", _wav_bytes(noisy, 16000), "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["x-audio-sample-rate"] == "16000"
+    assert int(response.headers["x-speech-segments"]) >= 1
+    assert float(response.headers["x-speech-seconds"]) > 1
 
 
 def test_route_rejects_garbage_with_400(client):
@@ -215,7 +330,12 @@ def test_route_rejects_oversized_upload_with_413(client, monkeypatch):
 
 @pytest.mark.parametrize(
     "data",
-    [{"output_format": "ogg"}, {"sample_rate": "4000"}, {"sample_rate": "96000"}],
+    [
+        {"output_format": "ogg"},
+        {"sample_rate": "4000"},
+        {"sample_rate": "96000"},
+        {"mode": "everything"},
+    ],
 )
 def test_route_validates_options(client, data):
     _, noisy = _noisy_speech()

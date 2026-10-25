@@ -14,6 +14,7 @@ from api.services.pipecat.noise_reduction.file_denoise import (
     MIN_SAMPLE_RATE,
     AudioDecodeError,
     AudioTooLongError,
+    DenoiseMode,
     OutputFormat,
     denoise_audio_file,
 )
@@ -37,21 +38,35 @@ router = APIRouter(prefix="/audio", tags=["audio"])
 async def denoise_audio(
     user: Annotated[UserModel, Depends(get_user)],
     file: Annotated[UploadFile, File(description="Audio in any common format.")],
+    mode: Annotated[
+        DenoiseMode,
+        Form(
+            description=(
+                "`speech`: what a live agent's STT would receive, the user's "
+                "denoised speech with silence wherever VAD hears no speech. "
+                "`full`: denoise the whole file."
+            )
+        ),
+    ] = "speech",
     output_format: Annotated[OutputFormat, Form()] = "wav",
     sample_rate: Annotated[
         int | None,
         Form(
             ge=MIN_SAMPLE_RATE,
             le=MAX_SAMPLE_RATE,
-            description="Output rate in Hz. Defaults to the input's rate.",
+            description=(
+                "Output rate in Hz. Defaults to 16000 in `speech` mode (8000 "
+                "simulates a phone line) and to the input's rate in `full` mode."
+            ),
         ),
     ] = None,
 ) -> Response:
     """Upload an audio file and get back the same audio with background noise removed.
 
-    Steady noise (fans, hum, traffic, typing, office ambience) is removed well.
-    Background voices are not, and very clean recordings can lose some quality.
-    The output is mono and lines up sample for sample with the input.
+    In `speech` mode (default) the file is replayed through the same speech
+    gate a live call would use: Silero VAD with the agent's settings decides
+    when the user is speaking, that speech is denoised, and everything else is
+    silence. The output is mono and lines up sample for sample with the input.
     """
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
@@ -80,5 +95,13 @@ async def denoise_audio(
             "X-Audio-Duration-Seconds": f"{result.duration_secs:.3f}",
             "X-Audio-Sample-Rate": str(result.sample_rate),
             "X-Processing-Time-Ms": f"{result.processing_ms:.0f}",
+            **(
+                {
+                    "X-Speech-Segments": str(result.speech_segments),
+                    "X-Speech-Seconds": f"{result.speech_secs:.3f}",
+                }
+                if result.speech_segments is not None
+                else {}
+            ),
         },
     )

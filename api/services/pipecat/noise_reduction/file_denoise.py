@@ -1,10 +1,17 @@
-"""Denoise a whole audio file: decode, run RNNoise at 48 kHz, re-encode.
+"""Denoise a whole audio file and re-encode it.
 
-Unlike the per-call filter, the whole signal is known up front, so the
-engine's fixed delay is trimmed and the output lines up sample for sample
-with the input. The DSP runs in a worker thread (ctypes releases the GIL), and
-a semaphore bounds how many files are processed at once so uploads cannot
-starve the live calls sharing the worker.
+Two modes:
+
+- ``speech`` (default) replays the file through :class:`SpeechGatedDenoiser`
+  in 20 ms frames at 16 kHz (8 kHz when 8 kHz output is asked for), exactly as
+  a live call would feed it, so the result is what STT would receive: the
+  user's denoised speech, silence everywhere else.
+- ``full`` denoises the whole file with RNNoise at its native 48 kHz in a
+  worker thread (ctypes releases the GIL).
+
+In both modes the engine's fixed delay is trimmed so the output lines up with
+the input. A semaphore bounds how many files are processed at once so uploads
+cannot starve the live calls sharing the worker.
 """
 
 import asyncio
@@ -24,8 +31,14 @@ from api.services.pipecat.noise_reduction.rnnoise import (
     RNNOISE_SAMPLE_RATE,
     load_rnnoise_library,
 )
+from api.services.pipecat.noise_reduction.speech_gate import (
+    DENOISER_DELAY_SECS,
+    SpeechGatedDenoiser,
+    gate_mask,
+)
 
 OutputFormat = Literal["wav", "mp3", "flac"]
+DenoiseMode = Literal["speech", "full"]
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_DURATION_SECS = 600
@@ -63,51 +76,68 @@ class DenoisedAudio:
     sample_rate: int
     duration_secs: float
     processing_ms: float
+    speech_segments: int | None = None
+    speech_secs: float | None = None
 
 
 async def denoise_audio_file(
     data: bytes,
     output_format: OutputFormat = "wav",
     sample_rate: int | None = None,
+    mode: DenoiseMode = "speech",
 ) -> DenoisedAudio:
     """Return a denoised, mono copy of the audio file in ``data``.
 
     Args:
         data: The uploaded file, in any format ffmpeg can decode.
         output_format: Container/codec of the result.
-        sample_rate: Output rate in Hz; defaults to the input's rate, clamped
-            to 8-48 kHz.
+        sample_rate: Output rate in Hz. Defaults to the processing rate (16 kHz)
+            in ``speech`` mode and to the input's rate, clamped to 8-48 kHz, in
+            ``full`` mode.
+        mode: ``speech`` for what STT would receive, ``full`` to denoise
+            everything.
 
     Raises:
         AudioDecodeError: ``data`` is not decodable audio.
         AudioTooLongError: The audio is longer than ``MAX_DURATION_SECS``.
     """
     started = time.perf_counter()
+    speech_segments = speech_secs = None
     async with _job_slots:
-        if sample_rate is None:
-            sample_rate = await _probe_sample_rate(data)
+        if mode == "speech":
+            work_rate = 8000 if sample_rate == 8000 else 16000
+            sample_rate = sample_rate or work_rate
+        else:
+            work_rate = RNNOISE_SAMPLE_RATE
+            if sample_rate is None:
+                sample_rate = await _probe_sample_rate(data)
         sample_rate = min(max(sample_rate, MIN_SAMPLE_RATE), MAX_SAMPLE_RATE)
 
         pcm = await _run_ffmpeg(
-            ["-i", "pipe:0", "-ac", "1", "-ar", str(RNNOISE_SAMPLE_RATE)]
+            ["-i", "pipe:0", "-ac", "1", "-ar", str(work_rate)]
             + ["-f", "s16le", "-acodec", "pcm_s16le", "pipe:1"],
             data,
         )
         samples = np.frombuffer(pcm, dtype=np.int16)
         if samples.size == 0:
             raise AudioDecodeError("No audio found in the file")
-        duration_secs = samples.size / RNNOISE_SAMPLE_RATE
+        duration_secs = samples.size / work_rate
         if duration_secs > MAX_DURATION_SECS:
             raise AudioTooLongError(
                 f"Audio is {duration_secs:.0f} s long; "
                 f"the limit is {MAX_DURATION_SECS} s"
             )
 
-        denoised = await asyncio.to_thread(denoise_pcm_48k, samples)
+        if mode == "speech":
+            denoised, segments = await gate_speech(samples, work_rate)
+            speech_segments = len(segments)
+            speech_secs = sum(end - start for start, end in segments) / work_rate
+        else:
+            denoised = await asyncio.to_thread(denoise_pcm_48k, samples)
 
         encoder_args, media_type = _ENCODERS[output_format]
         audio = await _run_ffmpeg(
-            ["-f", "s16le", "-ar", str(RNNOISE_SAMPLE_RATE), "-ac", "1", "-i", "pipe:0"]
+            ["-f", "s16le", "-ar", str(work_rate), "-ac", "1", "-i", "pipe:0"]
             + ["-ar", str(sample_rate), *encoder_args, "pipe:1"],
             denoised.tobytes(),
         )
@@ -120,7 +150,44 @@ async def denoise_audio_file(
         sample_rate=sample_rate,
         duration_secs=duration_secs,
         processing_ms=(time.perf_counter() - started) * 1000,
+        speech_segments=speech_segments,
+        speech_secs=speech_secs,
     )
+
+
+async def gate_speech(
+    samples: np.ndarray, sample_rate: int
+) -> tuple[np.ndarray, list[tuple[int, int]]]:
+    """Run ``samples`` through the live speech gate in 20 ms frames.
+
+    Returns the gated audio aligned with ``samples`` and the speech spans in
+    input samples. Live, STT gets the pre-roll as a burst when the gate opens;
+    here the same audio is placed back at its original position in time.
+    """
+    gate = SpeechGatedDenoiser(sample_rate)
+    await gate.start()
+    chunk = sample_rate // 50
+    denoised_parts = []
+    try:
+        for i in range(0, samples.size, chunk):
+            result = await gate.process(samples[i : i + chunk].tobytes())
+            denoised_parts.append(result.denoised)
+    finally:
+        await gate.stop()
+
+    denoised = np.frombuffer(b"".join(denoised_parts), dtype=np.int16)
+    mask = gate_mask(gate.segments, denoised.size, gate.fade_samples)
+    gated = (denoised.astype(np.float32) * mask).astype(np.int16)
+
+    delay = round(DENOISER_DELAY_SECS * sample_rate)
+    aligned = np.zeros(samples.size, dtype=np.int16)
+    tail = gated[delay : delay + samples.size]
+    aligned[: tail.size] = tail
+    spans = [
+        (max(0, start - delay), (denoised.size if end is None else end) - delay)
+        for start, end in gate.segments
+    ]
+    return aligned, spans
 
 
 def denoise_pcm_48k(samples: np.ndarray) -> np.ndarray:

@@ -31,6 +31,7 @@ from api.services.knowledge_base_content import (
     update_document_content,
 )
 from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import tenant_properties
 from api.services.storage import storage_fs
 
 router = APIRouter(prefix="/knowledge-base", tags=["knowledge-base"])
@@ -196,7 +197,7 @@ async def process_document(
                 "document_uuid": str(request.document_uuid),
                 "filename": filename,
                 "retrieval_mode": request.retrieval_mode,
-                "organization_id": user.selected_organization_id,
+                **await tenant_properties(user.selected_organization_id),
             },
         )
 
@@ -407,7 +408,7 @@ async def save_document_content(
             "document_uuid": updated.document_uuid,
             "retrieval_mode": updated.retrieval_mode,
             "reprocessing": updated.processing_status == "pending",
-            "organization_id": user.selected_organization_id,
+            **await tenant_properties(user.selected_organization_id),
         },
     )
 

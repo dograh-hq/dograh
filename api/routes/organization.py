@@ -65,6 +65,7 @@ from api.services.organization_preferences import (
 )
 from api.services.pipecat.tracing_config import normalize_langfuse_host
 from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import tenant_properties
 from api.services.telephony import registry as telephony_registry
 from api.services.telephony.base import ProviderPhoneNumberLookupError
 from api.services.telephony.factory import (
@@ -696,7 +697,7 @@ async def create_telephony_configuration(
         event=PostHogEvent.TELEPHONY_CONFIGURED,
         properties={
             "provider": request.config.provider,
-            "organization_id": user.selected_organization_id,
+            **await tenant_properties(user.selected_organization_id),
             "config_id": row.id,
         },
     )

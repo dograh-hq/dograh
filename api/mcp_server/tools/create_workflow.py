@@ -32,6 +32,7 @@ from api.mcp_server.auth import authenticate_mcp_request
 from api.mcp_server.tracing import traced_tool
 from api.mcp_server.ts_bridge import TsBridgeError, parse_code
 from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import tenant_properties
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.layout import reconcile_positions
 from api.services.workflow.tool_name_validation import (
@@ -180,7 +181,7 @@ async def create_workflow(code: str) -> dict[str, Any]:
             "workflow_id": workflow.id,
             "workflow_name": workflow.name,
             "source": "mcp",
-            "organization_id": user.selected_organization_id,
+            **await tenant_properties(user.selected_organization_id),
         },
     )
 

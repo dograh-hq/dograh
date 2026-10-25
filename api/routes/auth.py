@@ -8,6 +8,7 @@ from api.schemas.auth import AuthResponse, LoginRequest, SignupRequest, UserResp
 from api.services.auth.depends import get_user, require_local_auth
 from api.services.organization_bootstrap import ensure_organization_bootstrapped
 from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import tenant_properties
 from api.utils.auth import create_jwt_token, hash_password, verify_password
 
 router = APIRouter(
@@ -65,7 +66,7 @@ async def signup(request: SignupRequest):
         distinct_id=str(user.provider_id),
         event=PostHogEvent.SIGNED_UP,
         properties={
-            "organization_id": organization.id,
+            **await tenant_properties(organization.id),
             "auth_provider": "local",
         },
     )
@@ -104,7 +105,7 @@ async def login(request: LoginRequest):
         distinct_id=str(user.provider_id),
         event=PostHogEvent.SIGNED_IN,
         properties={
-            "organization_id": user.selected_organization_id,
+            **await tenant_properties(user.selected_organization_id),
             "auth_provider": "local",
         },
     )

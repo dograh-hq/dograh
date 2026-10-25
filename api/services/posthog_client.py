@@ -7,7 +7,11 @@ from api.constants import POSTHOG_API_KEY, POSTHOG_HOST
 
 _posthog_client: Posthog | None = None
 POSTHOG_SERVER_GROUP_IDENTIFY_DISTINCT_ID = "server-group-identify"
-POSTHOG_ORGANIZATION_GROUP_TYPE = "organization"
+# Keyed by the organization's provider id (the Stack team id on hosted
+# deployments), the tenant identity every deployment and MPS share. The older
+# "organization" group was keyed by the local organization id, which is only
+# unique within one deployment, and is no longer sent.
+POSTHOG_ACCOUNT_GROUP_TYPE = "account"
 
 
 def get_posthog() -> Posthog | None:

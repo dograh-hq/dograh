@@ -9,6 +9,7 @@ from api.db import db_client
 from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.services.call_concurrency.rate_limiter import rate_limiter
 from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import tenant_properties
 
 
 @dataclass(frozen=True)
@@ -149,7 +150,6 @@ class CallConcurrencyService:
                 )
                 properties = {
                     "event_source": "dograh",
-                    "organization_id": organization_id,
                     "source": source,
                     "max_concurrent": max_concurrent,
                     "active_calls": current_count,
@@ -179,10 +179,11 @@ class CallConcurrencyService:
         how MPS emits org-scoped billing events (billing_posthog_service.py)
         into the shared PostHog project. Never raises.
 
-        NOTE: intentionally NOT attaching ``$groups`` (organization) to this
+        NOTE: intentionally NOT attaching ``$groups`` (account) to this
         event. PostHog evaluates a $groups event at both person and group
         scope, which double-triggers person-scoped workflows enrolled on the
-        event. The org is still available as the ``organization_id`` property.
+        event. The tenant is still available as the ``organization_provider_id``
+        property.
         """
         try:
             members = await db_client.get_organization_users(organization_id)
@@ -192,6 +193,7 @@ class CallConcurrencyService:
                     "concurrent-call-limit PostHog event"
                 )
                 return
+            properties = {**properties, **await tenant_properties(organization_id)}
             for member in members:
                 capture_event(
                     distinct_id=str(member.provider_id),

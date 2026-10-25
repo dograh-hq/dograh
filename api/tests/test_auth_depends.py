@@ -106,19 +106,16 @@ async def test_get_user_bootstraps_new_org(monkeypatch):
     assert result.selected_organization_id == 42
     bootstrap.assert_awaited_once_with(42, created_by="stack-user-1")
 
-    assert len(group_calls) == 1
-    group_args, group_kwargs = group_calls[0]
-    assert group_args == (
-        "organization",
-        "42",
-        {
-            "organization_id": 42,
-            "organization_provider_id": "team-1",
-            "auth_provider": "stack",
-            "created_by_provider_id": "stack-user-1",
-        },
-    )
-    assert group_kwargs == {"distinct_id": "stack-user-1"}
+    assert group_calls == [
+        (
+            (
+                "account",
+                "team-1",
+                {"organization_provider_id": "team-1", "auth_provider": "stack"},
+            ),
+            {"distinct_id": "stack-user-1"},
+        )
+    ]
 
     assert len(person_calls) == 1
     person_args, person_kwargs = person_calls[0]
@@ -127,7 +124,6 @@ async def test_get_user_bootstraps_new_org(monkeypatch):
         {
             "user_id": 7,
             "user_provider_id": "stack-user-1",
-            "selected_organization_id": 42,
             "selected_organization_provider_id": "team-1",
         },
     )
@@ -138,12 +134,12 @@ async def test_get_user_bootstraps_new_org(monkeypatch):
     assert org_created_args == ()
     assert org_created_kwargs["distinct_id"] == "stack-user-1"
     assert org_created_kwargs["event"] == auth_depends.PostHogEvent.ORGANIZATION_CREATED
-    assert org_created_kwargs["groups"] == {"organization": "42"}
+    assert org_created_kwargs["groups"] == {"account": "team-1"}
     assert org_created_kwargs["properties"] == {
-        "organization_id": 42,
         "organization_provider_id": "team-1",
         "auth_provider": "stack",
         "created_by_provider_id": "stack-user-1",
+        "deployment_id": auth_depends.DOGRAH_DEPLOYMENT_ID,
     }
 
     association_args, association_kwargs = capture_calls[1]
@@ -153,13 +149,13 @@ async def test_get_user_bootstraps_new_org(monkeypatch):
         association_kwargs["event"]
         == auth_depends.PostHogEvent.ORGANIZATION_USER_ASSOCIATED
     )
-    assert association_kwargs["groups"] == {"organization": "42"}
+    assert association_kwargs["groups"] == {"account": "team-1"}
     assert association_kwargs["properties"] == {
         "user_id": 7,
-        "organization_id": 42,
         "organization_provider_id": "team-1",
         "auth_provider": "stack",
         "organization_was_created": True,
+        "deployment_id": auth_depends.DOGRAH_DEPLOYMENT_ID,
     }
 
 
@@ -311,7 +307,7 @@ async def test_oss_auth_rejects_unknown_user(monkeypatch):
     bootstrap.assert_not_awaited()
 
 
-def test_associate_user_with_posthog_org_supports_backfill_arguments(monkeypatch):
+def test_associate_user_with_posthog_org_uses_selected_provider_id(monkeypatch):
     user = SimpleNamespace(
         id=7,
         email="user@example.com",
@@ -338,8 +334,6 @@ def test_associate_user_with_posthog_org_supports_backfill_arguments(monkeypatch
         organization=organization,
         user_distinct_id="stack-user-1",
         org_was_created=False,
-        organization_ids=[42, 99],
-        selected_organization_id=99,
         selected_organization_provider_id="team-99",
     )
 
@@ -350,9 +344,7 @@ def test_associate_user_with_posthog_org_supports_backfill_arguments(monkeypatch
                 {
                     "user_id": 7,
                     "user_provider_id": "stack-user-1",
-                    "selected_organization_id": 99,
                     "selected_organization_provider_id": "team-99",
-                    "organization_ids": [42, 99],
                     "email": "user@example.com",
                 },
             ),
@@ -367,13 +359,13 @@ def test_associate_user_with_posthog_org_supports_backfill_arguments(monkeypatch
         capture_kwargs["event"]
         == auth_depends.PostHogEvent.ORGANIZATION_USER_ASSOCIATED
     )
-    assert capture_kwargs["groups"] == {"organization": "42"}
+    assert capture_kwargs["groups"] == {"account": "team-1"}
     assert capture_kwargs["properties"] == {
         "user_id": 7,
-        "organization_id": 42,
         "organization_provider_id": "team-1",
         "auth_provider": "stack",
         "organization_was_created": False,
+        "deployment_id": auth_depends.DOGRAH_DEPLOYMENT_ID,
     }
     assert "backfilled" not in capture_kwargs["properties"]
 
@@ -399,18 +391,43 @@ def test_sync_created_organization_to_posthog_with_provider_id(monkeypatch):
         created_by_provider_id="stack-user-1",
     )
 
-    group_args, group_kwargs = group_calls[0]
-    assert group_args == (
-        "organization",
-        "42",
-        {
-            "organization_id": 42,
-            "organization_provider_id": "team-1",
-            "auth_provider": "stack",
-            "created_by_provider_id": "stack-user-1",
-        },
-    )
-    assert group_kwargs == {"distinct_id": "stack-user-1"}
+    assert group_calls == [
+        (
+            (
+                "account",
+                "team-1",
+                {"organization_provider_id": "team-1", "auth_provider": "stack"},
+            ),
+            {"distinct_id": "stack-user-1"},
+        )
+    ]
 
     _, capture_kwargs = capture_calls[0]
     assert capture_kwargs["distinct_id"] == "stack-user-1"
+    assert capture_kwargs["groups"] == {"account": "team-1"}
+    assert "organization_id" not in capture_kwargs["properties"]
+
+
+def test_sync_created_organization_without_provider_id_sends_no_group(
+    monkeypatch,
+):
+    group_calls = []
+    capture_calls = []
+    monkeypatch.setattr(
+        auth_depends,
+        "group_identify",
+        lambda *args, **kwargs: group_calls.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        auth_depends,
+        "capture_event",
+        lambda *args, **kwargs: capture_calls.append((args, kwargs)),
+    )
+
+    auth_depends._sync_created_organization_to_posthog(
+        organization=SimpleNamespace(id=42, provider_id=None),
+        created_by_provider_id="stack-user-1",
+    )
+
+    assert group_calls == []
+    assert capture_calls[0][1]["groups"] == {}

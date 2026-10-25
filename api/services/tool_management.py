@@ -22,6 +22,7 @@ from api.schemas.tool import (
     ToolResponse,
 )
 from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import tenant_properties
 from api.services.workflow.mcp_tool_session import discover_mcp_tools
 from api.services.workflow.tools.mcp_tool import (
     McpDefinitionError,
@@ -233,7 +234,7 @@ async def create_tool_for_user(
             "tool_name": request.name,
             "tool_category": request.category,
             "source": source,
-            "organization_id": user.selected_organization_id,
+            **await tenant_properties(user.selected_organization_id),
         },
     )
 

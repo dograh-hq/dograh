@@ -276,3 +276,34 @@ OSS_JWT_SECRET = os.getenv("OSS_JWT_SECRET", "change-me-in-production")
 OSS_JWT_EXPIRY_HOURS = int(os.getenv("OSS_JWT_EXPIRY_HOURS", "720"))  # 30 days
 
 TUNER_BASE_URL = os.getenv("TUNER_BASE_URL", "https://api.usetuner.ai")
+
+
+# --- Inbound SMS (Twilio) ---------------------------------------------------
+# Region-specific (IE1) auth token, used ONLY to verify ``X-Twilio-Signature`` on
+# inbound SMS webhooks and (optionally) for the asynchronous reply fallback.
+# Never logged. When unset the SMS webhook answers 503 — it is never left open.
+TWILIO_IE1_AUTH_TOKEN = os.getenv("TWILIO_IE1_AUTH_TOKEN") or None
+# Account SID for the asynchronous reply fallback (Twilio REST API, region ie1 /
+# edge dublin) used when an assistant turn exceeds the synchronous deadline.
+TWILIO_IE1_ACCOUNT_SID = os.getenv("TWILIO_IE1_ACCOUNT_SID") or None
+# Exact public URL Twilio calls (as configured in the Twilio console). Primary
+# signature candidate; derived from BACKEND_API_ENDPOINT / forwarded headers
+# when unset.
+SMS_INBOUND_WEBHOOK_URL = os.getenv("SMS_INBOUND_WEBHOOK_URL") or None
+# JSON map "<E.164 SMS number>" -> {"workflow_id": int, "organization_id": int}.
+# Numbers absent from the map fall back to telephony_phone_numbers (twilio).
+SMS_INBOUND_NUMBER_MAP = os.getenv("SMS_INBOUND_NUMBER_MAP", "")
+# A sender keeps talking to the same text-chat run until this inactivity window
+# elapses (or the run is completed by the agent / inactivity sweeper).
+SMS_CONVERSATION_TTL_SECONDS = int(os.getenv("SMS_CONVERSATION_TTL_SECONDS", "86400"))
+SMS_MAX_MESSAGE_CHARS = int(os.getenv("SMS_MAX_MESSAGE_CHARS", "1500"))
+SMS_MAX_MESSAGES_PER_REPLY = int(os.getenv("SMS_MAX_MESSAGES_PER_REPLY", "3"))
+SMS_MAX_TURNS = int(os.getenv("SMS_MAX_TURNS", "50"))
+# Twilio aborts a messaging webhook after 15 s. Turns still running at this
+# deadline get an empty TwiML reply and are delivered via the REST fallback.
+SMS_SYNC_REPLY_TIMEOUT_SECONDS = float(os.getenv("SMS_SYNC_REPLY_TIMEOUT_SECONDS", "12"))
+SMS_MESSAGE_RATE_LIMIT_PER_SECOND = int(os.getenv("SMS_MESSAGE_RATE_LIMIT_PER_SECOND", "2"))
+SMS_ERROR_REPLY_TEXT = os.getenv(
+    "SMS_ERROR_REPLY_TEXT",
+    "Entschuldigung, ich kann gerade nicht antworten. Bitte versuchen Sie es in ein paar Minuten erneut.",
+)

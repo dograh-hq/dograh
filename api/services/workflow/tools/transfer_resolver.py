@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 import httpx
 from loguru import logger
 
-from api.db import db_client
+from api.services.credential_resolution import resolve_credential
 from api.services.workflow.tools.custom_tool import _resolve_preset_parameters
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
@@ -290,11 +290,11 @@ async def _execute_http_resolver(
 
     credential_uuid = resolver.get("credential_uuid")
     if credential_uuid and organization_id:
-        credential = await db_client.get_credential_by_uuid(
-            credential_uuid, organization_id
+        resolution = await resolve_credential(
+            credential_uuid, organization_id, propagate_errors=True
         )
-        if credential:
-            headers.update(build_auth_header(credential))
+        if resolution.credential:
+            headers.update(build_auth_header(resolution.credential))
         else:
             raise TransferResolutionError(
                 "credential_not_found",

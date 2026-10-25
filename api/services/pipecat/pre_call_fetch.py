@@ -10,7 +10,6 @@ from typing import Any, Dict, Optional
 import httpx
 from loguru import logger
 
-from api.db import db_client
 from api.errors.failure import (
     DograhFailure,
     ErrorSource,
@@ -20,6 +19,7 @@ from api.errors.failure import (
     log_failure,
     redact_failure_message,
 )
+from api.services.credential_resolution import resolve_credential
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.utils.credential_auth import build_auth_header
 
@@ -122,38 +122,25 @@ async def execute_pre_call_fetch_result(
         payload["call_inbound"]["workflow_run_id"] = workflow_run_id
 
     if credential_uuid:
-        try:
-            credential = await db_client.get_credential_by_uuid(
-                credential_uuid, organization_id
-            )
-            if credential:
-                headers.update(build_auth_header(credential))
-            else:
-                log_failure(
-                    DograhFailure(
-                        source=ErrorSource.INTEGRATION,
-                        type=ErrorType.CONFIG_ERROR,
-                        code="pre-call-fetch-credential-not-found",
-                        internal_message="Pre-call fetch credential was not found",
-                        external_message="The credential configured for pre-call fetch no longer exists.",
-                        provider="pre-call-fetch",
-                        error_owner="user",
-                        retryable=False,
-                    ),
-                    organization_id=organization_id,
-                    workflow_id=workflow_id,
-                )
-        except Exception as e:
+        resolution = await resolve_credential(
+            credential_uuid,
+            organization_id,
+            source=ErrorSource.INTEGRATION,
+            provider="pre-call-fetch",
+            missing_code="pre-call-fetch-credential-not-found",
+            missing_internal_message="Pre-call fetch credential was not found",
+            missing_external_message=(
+                "The credential configured for pre-call fetch no longer exists."
+            ),
+        )
+        if resolution.failure:
             log_failure(
-                classify_exception(
-                    e,
-                    source=ErrorSource.INTEGRATION,
-                    provider="pre-call-fetch",
-                    error_owner="user",
-                ),
+                resolution.failure,
                 organization_id=organization_id,
                 workflow_id=workflow_id,
             )
+        if resolution.credential:
+            headers.update(build_auth_header(resolution.credential))
 
     logger.info(f"Pre-call fetch: POST {redact_failure_message(url)}")
 

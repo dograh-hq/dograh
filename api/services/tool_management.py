@@ -21,6 +21,7 @@ from api.schemas.tool import (
     McpRefreshResponse,
     ToolResponse,
 )
+from api.services.credential_resolution import resolve_credential
 from api.services.posthog_client import capture_event
 from api.services.workflow.mcp_tool_session import discover_mcp_tools
 from api.services.workflow.tools.mcp_tool import (
@@ -91,13 +92,10 @@ def _credential_uuids_from_definition(definition: dict[str, Any]) -> list[str]:
 
 async def fetch_credential(credential_uuid: Optional[str], organization_id: int):
     """Best-effort credential lookup for MCP auth/discovery."""
-    if not credential_uuid:
-        return None
-    try:
-        return await db_client.get_credential_by_uuid(credential_uuid, organization_id)
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"Tool credential fetch failed: {e}")
-        return None
+    resolution = await resolve_credential(credential_uuid, organization_id)
+    if resolution.fetch_error:
+        logger.warning(f"Tool credential fetch failed: {resolution.fetch_error}")
+    return resolution.credential
 
 
 async def validate_tool_references(
@@ -112,10 +110,10 @@ async def validate_tool_references(
     where the tool runs, because there the failure lands mid-call.
     """
     for credential_uuid in _credential_uuids_from_definition(definition):
-        credential = await db_client.get_credential_by_uuid(
-            credential_uuid, organization_id
+        resolution = await resolve_credential(
+            credential_uuid, organization_id, propagate_errors=True
         )
-        if not credential:
+        if resolution.credential is None:
             raise ToolManagementError(
                 "credential_not_found",
                 (

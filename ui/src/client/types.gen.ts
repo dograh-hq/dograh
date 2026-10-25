@@ -3037,6 +3037,23 @@ export type NodeTypesResponse = {
 };
 
 /**
+ * NoiseReductionConfigurationDefaults
+ *
+ * Background noise removal applied to caller audio before VAD and STT.
+ */
+export type NoiseReductionConfigurationDefaults = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Engine
+     */
+    engine?: 'rnnoise';
+    [key: string]: unknown;
+};
+
+/**
  * NumberInputOptions
  *
  * Renderer hints for numeric inputs.
@@ -6587,6 +6604,7 @@ export type WidgetTexts = {
 export type WorkflowConfigurationDefaults = {
     model_configuration_override?: ModelConfigurationOverride | null;
     ambient_noise_configuration?: AmbientNoiseConfigurationDefaults;
+    noise_reduction_configuration?: NoiseReductionConfigurationDefaults;
     /**
      * Max Call Duration
      */

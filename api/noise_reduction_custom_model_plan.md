@@ -151,7 +151,7 @@ ml/denoise/                          # training repo area (own requirements, not
 ├── train.py, eval.py, export_onnx.py, quantize.py
 └── configs/
 
-api/services/audio_processing/noise_reduction/engines/dograh.py   # runtime engine
+api/services/pipecat/noise_reduction/dograh.py   # runtime engine
 ```
 
 - **Export:** ONNX with explicit state tensors, then **INT8 dynamic quantization**.

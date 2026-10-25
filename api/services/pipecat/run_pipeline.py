@@ -396,9 +396,13 @@ async def _run_pipeline_telephony_impl(
     set_current_org_id(workflow.organization_id)
 
     ambient_noise_config = None
+    noise_reduction_config = None
     if workflow.workflow_configurations:
         ambient_noise_config = workflow.workflow_configurations.get(
             "ambient_noise_configuration"
+        )
+        noise_reduction_config = workflow.workflow_configurations.get(
+            "noise_reduction_configuration"
         )
 
     # The telephony config id is stamped on the workflow run when it's created
@@ -443,6 +447,7 @@ async def _run_pipeline_telephony_impl(
         audio_config,
         workflow.organization_id,
         ambient_noise_config=ambient_noise_config,
+        noise_reduction_config=noise_reduction_config,
         telephony_configuration_id=telephony_configuration_id,
         is_realtime=is_realtime,
         **transport_kwargs,
@@ -536,6 +541,11 @@ async def _run_pipeline_smallwebrtc_impl(
             ambient_noise_config = workflow.workflow_configurations[
                 "ambient_noise_configuration"
             ]
+    noise_reduction_config = (
+        workflow.workflow_configurations.get("noise_reduction_configuration")
+        if workflow and workflow.workflow_configurations
+        else None
+    )
 
     # Create audio configuration for WebRTC
     audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
@@ -571,6 +581,7 @@ async def _run_pipeline_smallwebrtc_impl(
         workflow_run_id,
         audio_config,
         ambient_noise_config,
+        noise_reduction_config=noise_reduction_config,
         is_realtime=is_realtime,
     )
     await _run_pipeline_impl(

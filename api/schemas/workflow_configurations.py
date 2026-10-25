@@ -122,6 +122,15 @@ class AmbientNoiseConfigurationDefaults(BaseModel):
     volume: float = 0.3
 
 
+class NoiseReductionConfigurationDefaults(BaseModel):
+    """Background noise removal applied to caller audio before VAD and STT."""
+
+    model_config = ConfigDict(extra="allow")
+
+    enabled: bool = False
+    engine: Literal["rnnoise"] = "rnnoise"
+
+
 class WorkflowConfigurationDefaults(BaseModel):
     model_config = ConfigDict(extra="allow")
     model_configuration_override: ModelConfigurationOverride | None = None
@@ -138,6 +147,9 @@ class WorkflowConfigurationDefaults(BaseModel):
 
     ambient_noise_configuration: AmbientNoiseConfigurationDefaults = Field(
         default_factory=AmbientNoiseConfigurationDefaults
+    )
+    noise_reduction_configuration: NoiseReductionConfigurationDefaults = Field(
+        default_factory=NoiseReductionConfigurationDefaults
     )
     max_call_duration: int = Field(
         default=DEFAULT_MAX_CALL_DURATION_SECONDS,

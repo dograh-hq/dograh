@@ -8,6 +8,40 @@ Vobiz, Cloudonix, ARI, WebRTC) picks up through one hook.
 
 ---
 
+## 0. Status: Phase 1 shipped
+
+Built in `api/services/pipecat/noise_reduction/`. It lives under `services/pipecat/`
+next to the ambient-noise mixer it mirrors, not in a new `audio_processing/` tree.
+
+| Piece | File | Notes |
+|---|---|---|
+| RNNoise engine | `rnnoise.py` | Calls the vendored `api/native/rnnoise/librnnoise.so` over ctypes and resamples with soxr. It does **not** use pipecat's `RNNoiseFilter`/`pyrnnoise` (see below). |
+| Fail-open wrapper | `safe_filter.py` | Passthrough if start fails. Trips after 5 errors or 50 consecutive frames over 10 ms. Logs a per-call timing summary on stop. |
+| Factory | `factory.py` | `build_audio_in_filter(config)` returns a fresh filter per call, or `None`. |
+| Kill switch | `api/constants.py` | `NOISE_REDUCTION_ENABLED=false` forces passthrough everywhere. |
+| Schema | `api/schemas/workflow_configurations.py` | `noise_reduction_configuration: {enabled: false, engine: "rnnoise"}` |
+| Wiring | every `telephony/providers/*/transport.py`, `pipecat/transport_setup.py`, `pipecat/run_pipeline.py` | `audio_in_filter=build_audio_in_filter(noise_reduction_config)` |
+| UI | `WorkflowSettingsSections.tsx` | "Noise Reduction" on/off switch below Ambient Noise. Engine picker comes in Phase 3. |
+| Tests | `api/tests/test_noise_reduction.py` | Factory, kill switch, schema, engine pacing at 8/16/24/48 kHz, suppression, per-call isolation, breaker. |
+
+Findings that changed the plan:
+
+* **pipecat's `RNNoiseFilter` is too slow.** It costs ~3.4 ms per 20 ms frame at 8 kHz.
+  `pyrnnoise`'s bundled library build is ~3.5x slower than the vendored one, and the
+  package adds libav graph overhead on top. The direct engine costs ~0.7 ms per frame
+  in a real pipeline, about 3.5% of one core per call, measured on a 2.8 GHz Xeon.
+  So `api/native/rnnoise/` is now **used**, not dead code, and the Dockerfile needs
+  no `rnnoise` extra. Only the unused `librnnoise_path` variable was removed.
+* **The resampler quality matters for latency.** soxr "HQ" buffers ~220 ms at
+  8 kHz, and "MQ"/"LQ" buffer 36–48 ms. "QQ" adds ~0.25 ms, so it is the default.
+* **arm64:** the vendored library is x86-64 only. On arm64 images the engine falls back
+  to `pyrnnoise`'s library if that package is installed, or to `RNNOISE_LIBRARY_PATH`.
+  Otherwise `SafeAudioFilter` passes audio through and logs a warning. Follow-up:
+  build librnnoise per architecture in the Dockerfile, ideally with x86 RTCD/AVX2
+  for a further speed-up.
+
+---
+
 ## 1. What exists today
 
 | Piece | Where | Relevance |
@@ -67,12 +101,9 @@ api/services/audio_processing/noise_reduction/
 1. `run_pipeline.py` reads `workflow_configurations["noise_reduction_configuration"]`
    next to `ambient_noise_configuration` (around line 398, plus the WebRTC path).
 2. Every transport factory (`api/services/telephony/providers/*/transport.py` and
-   `api/services/pipecat/transport_setup.py`) takes `noise_reduction_config` and sets:
-   ```python
-   audio_in_filter=build_audio_in_filter(
-       audio_config.transport_in_sample_rate, noise_reduction_config, organization_id
-   ),
-   ```
+   `api/services/pipecat/transport_setup.py`) takes `noise_reduction_config` and
+   passes `audio_in_filter=build_audio_in_filter(noise_reduction_config)` into its
+   transport params.
    To avoid editing ten files every time a knob is added, put both the mixer and the
    filter behind one helper: `build_audio_params(audio_config, ambient_cfg, nr_cfg)`.
    It returns a kwargs dict that is splatted into `TransportParams`, like

@@ -1,17 +1,11 @@
 """Shared helper for building audio output mixers used by telephony transports."""
 
-import os
-
 from loguru import logger
 
 from api.constants import APP_ROOT_DIR
 from api.services.pipecat.audio_file_cache import get_cached_ambient_noise_path
 from pipecat.audio.mixers.silence_mixer import SilenceAudioMixer
 from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
-
-librnnoise_path = os.path.normpath(
-    str(APP_ROOT_DIR / "native" / "rnnoise" / "librnnoise.so")
-)
 
 
 async def build_audio_out_mixer(

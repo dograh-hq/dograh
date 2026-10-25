@@ -125,6 +125,11 @@ POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
 ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
 SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"
 
+# Deployment-wide kill switch for caller-audio noise reduction. Setting it to
+# "false" makes every call pass audio through untouched, whatever the workflow
+# configures.
+NOISE_REDUCTION_ENABLED = os.getenv("NOISE_REDUCTION_ENABLED", "true").lower() == "true"
+
 # Whether the end-of-call audio recordings (mixed / user / bot tracks) are
 # uploaded to object storage. Deployments that must not retain call audio, or
 # that simply do not want to pay for the storage, can turn this off. The

@@ -195,7 +195,8 @@ async def test_speech_mode_keeps_denoised_speech_and_silences_the_rest():
     assert np.all(out[-lead // 2 :] == 0)
     speech_out = out[lead : lead + len(speech)]
     level_change_db = 20 * np.log10(_rms(speech_out) / _rms(speech))
-    assert -6 < level_change_db < 2
+    # The speech floor adds back a share of the original, noise included.
+    assert -6 < level_change_db < 3
 
 
 async def test_speech_mode_does_not_cut_the_first_word():
@@ -300,6 +301,22 @@ def test_route_speech_mode_is_default_and_reports_speech(client):
     assert response.headers["x-audio-sample-rate"] == "16000"
     assert int(response.headers["x-speech-segments"]) >= 1
     assert float(response.headers["x-speech-seconds"]) > 1
+
+
+def test_route_full_mode_denoises_without_gating(client):
+    _, noisy = _noisy_speech()
+
+    response = client.post(
+        "/audio/denoise",
+        files={"file": ("call.wav", _wav_bytes(noisy, 16000), "audio/wav")},
+        data={"mode": "full"},
+    )
+
+    assert response.status_code == 200
+    assert "x-speech-segments" not in response.headers
+    out, _ = _read_wav(response.content)
+    # Full mode never hard-gates, so the noise-only lead-in is not digital silence.
+    assert np.count_nonzero(out[:16000]) > 1000
 
 
 def test_route_rejects_garbage_with_400(client):

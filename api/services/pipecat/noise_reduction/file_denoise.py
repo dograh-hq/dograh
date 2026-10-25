@@ -156,7 +156,7 @@ async def denoise_audio_file(
 
 
 async def gate_speech(
-    samples: np.ndarray, sample_rate: int
+    samples: np.ndarray, sample_rate: int, **gate_options
 ) -> tuple[np.ndarray, list[tuple[int, int]]]:
     """Run ``samples`` through the live speech gate in 20 ms frames.
 
@@ -164,7 +164,7 @@ async def gate_speech(
     input samples. Live, STT gets the pre-roll as a burst when the gate opens;
     here the same audio is placed back at its original position in time.
     """
-    gate = SpeechGatedDenoiser(sample_rate)
+    gate = SpeechGatedDenoiser(sample_rate, **gate_options)
     await gate.start()
     chunk = sample_rate // 50
     denoised_parts = []

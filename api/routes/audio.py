@@ -78,7 +78,7 @@ async def denoise_audio(
         raise HTTPException(status_code=400, detail="File is empty")
 
     try:
-        result = await denoise_audio_file(data, output_format, sample_rate)
+        result = await denoise_audio_file(data, output_format, sample_rate, mode)
     except AudioTooLongError as e:
         raise HTTPException(status_code=413, detail=str(e)) from e
     except AudioDecodeError as e:

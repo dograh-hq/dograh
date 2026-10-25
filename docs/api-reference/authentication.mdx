@@ -48,7 +48,8 @@ than entering the token in that Swagger parameter field.
 </Note>
 
 If you send both headers from an HTTP client, `X-API-Key` takes precedence over
-`Authorization`.
+`Authorization`. An invalid or archived key returns `401` even if the JWT is
+valid. Remove the `X-API-Key` header to authenticate with the JWT instead.
 
 ---
 

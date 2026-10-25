@@ -1,0 +1,138 @@
+{
+  "when": "2026-10-25 17:44",
+  "machine": "Machine: Intel(R) Xeon(R) Processor @ 2.80GHz, 4 vCPU, Python 3.13.17",
+  "startup": {
+    "library_load_ms": 2.282721000000265,
+    "per_call_start_ms": 0.11283550000484865
+  },
+  "speed": [
+    {
+      "engine": "dograh RNNoiseAudioFilter",
+      "sample_rate": 8000,
+      "frame_ms": 10,
+      "p50": 0.366298,
+      "p95": 0.6536705,
+      "p99": 0.7936439100000005,
+      "max": 9.55544,
+      "mean": 0.40822073766666667,
+      "cpu_pct_of_one_core": 4.082207376666667
+    },
+    {
+      "engine": "dograh RNNoiseAudioFilter",
+      "sample_rate": 8000,
+      "frame_ms": 20,
+      "p50": 0.6911054999999999,
+      "p95": 1.1546279999999998,
+      "p99": 1.2694515199999983,
+      "max": 2.901556,
+      "mean": 0.7672030156666666,
+      "cpu_pct_of_one_core": 3.8360150783333333
+    },
+    {
+      "engine": "pipecat RNNoiseFilter (pyrnnoise)",
+      "sample_rate": 8000,
+      "frame_ms": 20,
+      "p50": 2.34815,
+      "p95": 4.10914295,
+      "p99": 4.7509779,
+      "max": 6.76787,
+      "mean": 2.549883065,
+      "cpu_pct_of_one_core": 12.749415325
+    },
+    {
+      "engine": "dograh RNNoiseAudioFilter",
+      "sample_rate": 8000,
+      "frame_ms": 40,
+      "p50": 1.2837415,
+      "p95": 1.4018049,
+      "p99": 1.6458749799999999,
+      "max": 2.838689,
+      "mean": 1.3021034473333333,
+      "cpu_pct_of_one_core": 3.255258618333333
+    },
+    {
+      "engine": "dograh RNNoiseAudioFilter",
+      "sample_rate": 16000,
+      "frame_ms": 10,
+      "p50": 0.36735799999999996,
+      "p95": 0.6043223,
+      "p99": 0.69249274,
+      "max": 2.951681,
+      "mean": 0.4017347553333333,
+      "cpu_pct_of_one_core": 4.017347553333333
+    },
+    {
+      "engine": "dograh RNNoiseAudioFilter",
+      "sample_rate": 16000,
+      "frame_ms": 20,
+      "p50": 0.713318,
+      "p95": 1.08790425,
+      "p99": 1.2124741199999995,
+      "max": 8.085384,
+      "mean": 0.7776069656666666,
+      "cpu_pct_of_one_core": 3.8880348283333332
+    },
+    {
+      "engine": "pipecat RNNoiseFilter (pyrnnoise)",
+      "sample_rate": 16000,
+      "frame_ms": 20,
+      "p50": 2.0782075,
+      "p95": 3.690820299999997,
+      "p99": 4.5046812299999965,
+      "max": 6.533948,
+      "mean": 2.2781408633333333,
+      "cpu_pct_of_one_core": 11.390704316666667
+    },
+    {
+      "engine": "dograh RNNoiseAudioFilter",
+      "sample_rate": 16000,
+      "frame_ms": 40,
+      "p50": 1.302813,
+      "p95": 2.3263465500000002,
+      "p99": 2.43773944,
+      "max": 4.454574,
+      "mean": 1.4443029593333334,
+      "cpu_pct_of_one_core": 3.610757398333333
+    }
+  ],
+  "latency": [
+    {
+      "sample_rate": 8000,
+      "added_delay_ms": 20.0,
+      "empty_frames_at_start": 0
+    },
+    {
+      "sample_rate": 16000,
+      "added_delay_ms": 20.0,
+      "empty_frames_at_start": 0
+    },
+    {
+      "sample_rate": 24000,
+      "added_delay_ms": 19.958333333333336,
+      "empty_frames_at_start": 0
+    },
+    {
+      "sample_rate": 48000,
+      "added_delay_ms": 19.979166666666664,
+      "empty_frames_at_start": 0
+    }
+  ],
+  "dtmf": [
+    {
+      "key": "1",
+      "tone_level_change_db": -21.604034423828125
+    },
+    {
+      "key": "5",
+      "tone_level_change_db": -20.760316848754883
+    },
+    {
+      "key": "9",
+      "tone_level_change_db": -21.809314727783203
+    },
+    {
+      "key": "0",
+      "tone_level_change_db": -23.8320369720459
+    }
+  ]
+}

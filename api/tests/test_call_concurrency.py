@@ -93,9 +93,15 @@ async def test_acquire_org_slot_fires_usage_event_per_org_member_when_limit_reac
             "api.services.call_concurrency.service.rate_limiter"
         ) as mock_rate_limiter,
         patch("api.services.call_concurrency.service.capture_event") as mock_capture,
+        patch("api.services.posthog_tenant.get_posthog", return_value=object()),
+        patch("api.services.posthog_tenant._provider_ids", {}),
+        patch("api.services.posthog_tenant.db_client") as mock_tenant_db,
     ):
         mock_db.get_configuration = AsyncMock(return_value=None)
         mock_db.get_organization_users = AsyncMock(return_value=members)
+        mock_tenant_db.get_organization_by_id = AsyncMock(
+            return_value=SimpleNamespace(id=199, provider_id="team-199")
+        )
         mock_rate_limiter.try_acquire_concurrent_slot_details = AsyncMock(
             return_value=None
         )
@@ -114,6 +120,7 @@ async def test_acquire_org_slot_fires_usage_event_per_org_member_when_limit_reac
         assert "groups" not in kwargs
         assert kwargs["properties"]["event_source"] == "dograh"
         assert "organization_id" not in kwargs["properties"]
+        assert kwargs["properties"]["organization_provider_id"] == "team-199"
         assert "deployment_id" in kwargs["properties"]
         assert kwargs["properties"]["source"] == "webrtc"
         assert kwargs["properties"]["active_calls"] == 10

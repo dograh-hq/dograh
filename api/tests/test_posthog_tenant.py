@@ -42,6 +42,16 @@ async def test_tenant_properties_skip_lookup_without_posthog(monkeypatch, lookup
 
 
 @pytest.mark.asyncio
+async def test_failed_lookup_still_returns_the_deployment(monkeypatch, lookup):
+    monkeypatch.setattr(posthog_tenant, "get_posthog", lambda: object())
+    lookup.side_effect = RuntimeError("database unavailable")
+
+    assert await posthog_tenant.tenant_properties(42) == {
+        "deployment_id": posthog_tenant.DOGRAH_DEPLOYMENT_ID
+    }
+
+
+@pytest.mark.asyncio
 async def test_unknown_organization_is_not_cached(monkeypatch, lookup):
     monkeypatch.setattr(posthog_tenant, "get_posthog", lambda: object())
     lookup.return_value = None

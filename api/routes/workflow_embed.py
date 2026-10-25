@@ -12,6 +12,7 @@ from api.db.models import EmbedTokenModel, UserModel
 from api.enums import PostHogEvent
 from api.services.auth.depends import get_user
 from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import tenant_properties
 
 router = APIRouter(prefix="/workflow")
 
@@ -118,7 +119,7 @@ async def create_or_update_embed_token(
             "workflow_id": workflow_id,
             "is_new_token": len(existing_tokens) == 0,
             "has_domain_restriction": bool(embed_request.allowed_domains),
-            "organization_id": user.selected_organization_id,
+            **await tenant_properties(user.selected_organization_id),
         },
     )
 

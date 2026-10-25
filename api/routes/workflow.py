@@ -36,6 +36,7 @@ from api.services.configuration.masking import (
 )
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import tenant_properties
 from api.services.reports import generate_workflow_report_csv
 from api.services.storage import storage_fs
 from api.services.workflow.configuration_policy import (
@@ -527,7 +528,7 @@ async def create_workflow(
             "workflow_id": workflow.id,
             "workflow_name": workflow.name,
             "source": "direct",
-            "organization_id": user.selected_organization_id,
+            **await tenant_properties(user.selected_organization_id),
         },
     )
 
@@ -628,7 +629,7 @@ async def create_workflow_from_template(
                 "source": "template",
                 "call_type": request.call_type,
                 "use_case": request.use_case,
-                "organization_id": user.selected_organization_id,
+                **await tenant_properties(user.selected_organization_id),
             },
         )
 
@@ -993,7 +994,7 @@ async def publish_workflow(
         properties={
             "workflow_id": workflow_id,
             "version_number": published.version_number,
-            "organization_id": user.selected_organization_id,
+            **await tenant_properties(user.selected_organization_id),
         },
     )
 
@@ -1353,7 +1354,7 @@ async def duplicate_workflow_endpoint(
                 "workflow_id": workflow.id,
                 "workflow_name": workflow.name,
                 "source_workflow_id": workflow_id,
-                "organization_id": user.selected_organization_id,
+                **await tenant_properties(user.selected_organization_id),
             },
         )
 

@@ -113,7 +113,8 @@ async def test_acquire_org_slot_fires_usage_event_per_org_member_when_limit_reac
         assert kwargs["event"] == PostHogEvent.USAGE_CONCURRENT_CALL_LIMIT_REACHED
         assert "groups" not in kwargs
         assert kwargs["properties"]["event_source"] == "dograh"
-        assert kwargs["properties"]["organization_id"] == 199
+        assert "organization_id" not in kwargs["properties"]
+        assert "deployment_id" in kwargs["properties"]
         assert kwargs["properties"]["source"] == "webrtc"
         assert kwargs["properties"]["active_calls"] == 10
         assert kwargs["properties"]["max_concurrent"] == 10

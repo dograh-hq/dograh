@@ -7,6 +7,7 @@ from pipecat.transcriptions.language import Language
 
 from api.services.configuration.registry import (
     SarvamLLMConfiguration,
+    SarvamSTTConfiguration,
     SarvamTTSConfiguration,
     ServiceProviders,
 )
@@ -157,6 +158,23 @@ class TestSarvamSTTServiceFactory:
 
         kwargs = mock_service.call_args.kwargs
         assert kwargs["settings"].language == expected_language
+
+    def test_sarvam_stt_configuration_defaults(self):
+        config = SarvamSTTConfiguration(api_key="test-key")
+
+        assert config.provider == ServiceProviders.SARVAM
+        assert config.model == "saaras:v3"
+        assert config.language == "unknown"
+
+    def test_sarvam_stt_schema_excludes_saarika(self):
+        schema = SarvamSTTConfiguration.model_json_schema()["properties"]
+        model_examples = schema["model"].get("examples", [])
+        assert "saarika:v2.5" not in model_examples
+        assert "saaras:v3" in model_examples
+
+        model_options = schema["language"].get("model_options", {})
+        assert "saarika:v2.5" not in model_options
+        assert "saaras:v3" in model_options
 
 
 class TestSarvamTTSServiceFactory:

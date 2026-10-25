@@ -54,7 +54,6 @@ from api.services.configuration.options import (
     SARVAM_LANGUAGES,
     SARVAM_LLM_MODELS,
     SARVAM_STT_LANGUAGES_V3,
-    SARVAM_STT_LANGUAGES_V25,
     SARVAM_STT_MODELS,
     SARVAM_TTS_MODELS,
     SARVAM_V3_VOICES,
@@ -2220,11 +2219,8 @@ class DograhSTTService(BaseSTTConfiguration):
 class SarvamSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="saarika:v2.5",
-        description=(
-            "Sarvam STT model. saarika:v2.5 transcribes in the spoken language; "
-            "saaras:v3 is the recommended model with flexible output modes."
-        ),
+        default="saaras:v3",
+        description="Sarvam STT model with flexible output modes.",
         json_schema_extra={"examples": SARVAM_STT_MODELS},
     )
     language: str = Field(
@@ -2233,9 +2229,8 @@ class SarvamSTTConfiguration(BaseSTTConfiguration):
             "BCP-47 language code. Use unknown for automatic language detection."
         ),
         json_schema_extra={
-            "examples": SARVAM_STT_LANGUAGES_V25,
+            "examples": SARVAM_STT_LANGUAGES_V3,
             "model_options": {
-                "saarika:v2.5": SARVAM_STT_LANGUAGES_V25,
                 "saaras:v3": SARVAM_STT_LANGUAGES_V3,
             },
         },

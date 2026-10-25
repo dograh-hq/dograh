@@ -129,6 +129,66 @@ async def test_acquire_org_slot_fires_usage_event_per_org_member_when_limit_reac
 
 
 @pytest.mark.asyncio
+async def test_limit_event_labels_carry_no_database_ids():
+    """A campaign id is only unique within one deployment, so the source and
+    scope labels lose it before they reach PostHog."""
+    from types import SimpleNamespace
+
+    service = CallConcurrencyService()
+
+    with (
+        patch("api.services.call_concurrency.service.db_client") as mock_db,
+        patch(
+            "api.services.call_concurrency.service.rate_limiter"
+        ) as mock_rate_limiter,
+        patch("api.services.call_concurrency.service.capture_event") as mock_capture,
+        patch("api.services.posthog_tenant.get_posthog", return_value=object()),
+        patch("api.services.posthog_tenant._provider_ids", {}),
+        patch("api.services.posthog_tenant.db_client") as mock_tenant_db,
+    ):
+        mock_db.get_configuration = AsyncMock(return_value=None)
+        mock_db.get_organization_users = AsyncMock(
+            return_value=[SimpleNamespace(provider_id="user-a")]
+        )
+        mock_tenant_db.get_organization_by_id = AsyncMock(
+            return_value=SimpleNamespace(id=199, provider_id="team-199")
+        )
+        mock_rate_limiter.try_acquire_concurrent_slot_details = AsyncMock(
+            return_value=None
+        )
+        mock_rate_limiter.get_concurrent_count = AsyncMock(return_value=10)
+
+        with pytest.raises(CallConcurrencyLimitError):
+            await service.acquire_org_slot(
+                199,
+                source="campaign:4521",
+                timeout=0,
+                scope_key="campaign:4521",
+                scope_max_concurrent=3,
+            )
+
+    properties = mock_capture.call_args.kwargs["properties"]
+    assert properties["source"] == "campaign"
+    assert properties["scope_key"] == "campaign"
+    assert properties["scope_max_concurrent"] == 3
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("webrtc", "webrtc"),
+        ("inbound:twilio", "inbound:twilio"),
+        ("campaign:4521", "campaign"),
+        ("public_embed_chat:messages:88123", "public_embed_chat:messages"),
+    ],
+)
+def test_without_ids_strips_only_trailing_ids(label, expected):
+    from api.services.call_concurrency.service import _without_ids
+
+    assert _without_ids(label) == expected
+
+
+@pytest.mark.asyncio
 async def test_acquire_org_slot_passes_scope_to_rate_limiter():
     service = CallConcurrencyService()
 

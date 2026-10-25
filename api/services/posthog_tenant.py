@@ -1,10 +1,14 @@
 """Name the tenant on PostHog events.
 
-An organization id is only unique within one deployment (EU org 1 and US org 1
-are different tenants sharing one PostHog project), so events never carry it.
-They carry the organization's provider id instead, which is the Stack team id
-on hosted deployments, and the deployment. The ``account`` group is keyed by
-that provider id.
+Every deployment reports to one PostHog project, and database ids are only
+unique within one deployment: EU org 1 and US org 1 are different tenants, as
+are their workflow 1, run 1 and user 1. So nothing sent to PostHog carries a
+database id. People are keyed by their provider id (the Stack user id), the
+tenant by its organization's provider id (the Stack team id on hosted
+deployments) plus the deployment, and records by their UUID where they have
+one. A record without a UUID goes unnamed rather than misnamed.
+
+The ``account`` group is keyed by the organization's provider id.
 """
 
 from typing import Any, Optional
@@ -13,12 +17,19 @@ from loguru import logger
 
 from api.constants import DOGRAH_DEPLOYMENT_ID
 from api.db import db_client
-from api.services.posthog_client import POSTHOG_ACCOUNT_GROUP_TYPE, get_posthog
+from api.services.posthog_client import (
+    POSTHOG_ACCOUNT_GROUP_TYPE,
+    capture_event,
+    get_posthog,
+    group_identify,
+)
 
 # An organization's provider id never changes, so lookups are cached per
 # process. Bounded so a long-lived worker cannot grow it without limit.
 _PROVIDER_ID_CACHE_SIZE = 10_000
 _provider_ids: dict[int, str] = {}
+# Accounts whose group this process has already identified.
+_identified_accounts: set[str] = set()
 
 
 async def organization_provider_id(organization_id: int) -> Optional[str]:
@@ -57,7 +68,59 @@ async def tenant_properties(organization_id: Optional[int]) -> dict[str, Any]:
 
 
 def tenant_groups(provider_id: Optional[str]) -> dict[str, str]:
-    """``$groups`` for organization lifecycle events, empty without a provider id."""
+    """``$groups`` naming the account, empty without a provider id."""
     if not provider_id:
         return {}
     return {POSTHOG_ACCOUNT_GROUP_TYPE: str(provider_id)}
+
+
+async def capture_tenant_event(
+    *,
+    distinct_id: str,
+    event: str,
+    organization_id: Optional[int],
+    properties: Optional[dict[str, Any]] = None,
+) -> None:
+    """Capture an event about one tenant, in its ``account`` group.
+
+    Not for events that start person-scoped PostHog workflows (signed_up,
+    signed_in) or that fan out to every member of an organization: PostHog
+    evaluates a ``$groups`` event at both person and group scope, which
+    double-triggers those workflows.
+    """
+    tenant = await tenant_properties(organization_id)
+    capture_event(
+        distinct_id=distinct_id,
+        event=event,
+        properties={**(properties or {}), **tenant},
+        groups=tenant_groups(tenant.get("organization_provider_id")),
+    )
+
+
+def identify_account(
+    provider_id: Optional[str],
+    *,
+    name: Optional[str] = None,
+    distinct_id: Optional[str] = None,
+) -> None:
+    """Create or refresh the ``account`` group, once per process per account.
+
+    Runs for existing accounts too, not only new ones, so every account an
+    authenticated request touches has a group for its events to join. One
+    account spans deployments, so the group holds only what every deployment
+    agrees on: the provider id and the team's name.
+    """
+    if not provider_id or get_posthog() is None:
+        return
+    group_key = str(provider_id)
+    if group_key in _identified_accounts:
+        return
+    properties: dict[str, Any] = {"organization_provider_id": group_key}
+    if name:
+        properties["name"] = name
+    group_identify(
+        POSTHOG_ACCOUNT_GROUP_TYPE, group_key, properties, distinct_id=distinct_id
+    )
+    if len(_identified_accounts) >= _PROVIDER_ID_CACHE_SIZE:
+        _identified_accounts.clear()
+    _identified_accounts.add(group_key)

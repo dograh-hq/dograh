@@ -56,7 +56,6 @@ export function MediaPreviewDialog() {
                     const text = await response.text();
                     setTranscriptContent(text);
                     posthog.capture(PostHogEvent.TRANSCRIPT_VIEWED, {
-                        run_id: runId,
                         source: 'media_preview_dialog',
                         transcript_length: text.length,
                     });
@@ -108,7 +107,6 @@ export function MediaPreviewDialog() {
                             autoPlay
                             className="w-full mt-4"
                             onPlay={() => posthog.capture(PostHogEvent.RECORDING_PLAYED, {
-                                run_id: selectedRunId,
                                 source: 'media_preview_dialog',
                             })}
                         />

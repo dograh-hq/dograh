@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -134,11 +135,46 @@ def signup_state(monkeypatch):
     async def write(organization_id, key, value):
         values[organization_id, key] = value
 
+    # Single-winner semantics of claim_configuration_lease, without staleness.
+    async def claim_lease(organization_id, key, stale_after):
+        if (organization_id, key) in values:
+            return None
+        token = f"token-{organization_id}-{key}"
+        values[organization_id, key] = {"status": "pending", "owner_token": token}
+        return token
+
+    def held(organization_id, key, owner_token):
+        value = values.get((organization_id, key))
+        return isinstance(value, dict) and value.get("owner_token") == owner_token
+
+    async def complete_lease(organization_id, key, owner_token):
+        if held(organization_id, key, owner_token):
+            values[organization_id, key] = {"status": "completed"}
+
+    async def release_lease(organization_id, key, owner_token):
+        if held(organization_id, key, owner_token):
+            del values[organization_id, key]
+
     state = SimpleNamespace(
-        read=AsyncMock(side_effect=read), write=AsyncMock(side_effect=write)
+        values=values,
+        read=AsyncMock(side_effect=read),
+        write=AsyncMock(side_effect=write),
+        claim_lease=AsyncMock(side_effect=claim_lease),
+        release_lease=AsyncMock(side_effect=release_lease),
     )
     monkeypatch.setattr(mps_billing.db_client, "get_configuration_values", state.read)
     monkeypatch.setattr(mps_billing.db_client, "upsert_configuration", state.write)
+    monkeypatch.setattr(
+        mps_billing.db_client, "claim_configuration_lease", state.claim_lease
+    )
+    monkeypatch.setattr(
+        mps_billing.db_client,
+        "complete_configuration_lease",
+        AsyncMock(side_effect=complete_lease),
+    )
+    monkeypatch.setattr(
+        mps_billing.db_client, "release_configuration_lease", state.release_lease
+    )
     return state
 
 
@@ -200,6 +236,59 @@ async def test_denied_signup_claim_does_not_block_an_eligible_teammate(
     claim.assert_awaited_with(organization_id=42, created_by="eligible-member")
     await mps_billing.ensure_signup_grant(42, created_by="third-member")
     assert claim.await_count == 2
+
+
+async def test_concurrent_first_requests_claim_the_signup_grant_once(
+    monkeypatch, signup_state
+):
+    release = asyncio.Event()
+
+    async def slow_claim(**kwargs):
+        await release.wait()
+        return {"granted": False}
+
+    claim = AsyncMock(side_effect=slow_claim)
+    monkeypatch.setattr(mps_billing.mps_service_key_client, "claim_signup_grant", claim)
+
+    # A first page load authenticates several requests at once.
+    requests = [
+        asyncio.create_task(mps_billing.ensure_signup_grant(42, created_by=USER))
+        for _ in range(4)
+    ]
+    await asyncio.sleep(0)
+    release.set()
+    await asyncio.gather(*requests)
+
+    claim.assert_awaited_once_with(organization_id=42, created_by=USER)
+    await mps_billing.ensure_signup_grant(42, created_by=USER)
+    assert claim.await_count == 1
+
+
+async def test_signup_claims_recorded_before_the_lease_are_still_done(
+    monkeypatch, signup_state
+):
+    claim = AsyncMock(return_value={"granted": True})
+    monkeypatch.setattr(mps_billing.mps_service_key_client, "claim_signup_grant", claim)
+    signup_state.values[42, f"MPS_SIGNUP_GRANT:{USER}"] = True
+
+    await mps_billing.ensure_signup_grant(42, created_by=USER)
+    claim.assert_not_awaited()
+    signup_state.claim_lease.assert_not_awaited()
+
+
+async def test_failed_signup_claim_releases_the_lease_for_the_next_request(
+    monkeypatch, signup_state
+):
+    claim = AsyncMock(side_effect=[RuntimeError("temporary outage"), {"granted": True}])
+    monkeypatch.setattr(mps_billing.mps_service_key_client, "claim_signup_grant", claim)
+
+    await mps_billing.ensure_signup_grant(42, created_by=USER)
+    signup_state.release_lease.assert_awaited_once()
+    assert (42, f"MPS_SIGNUP_GRANT:{USER}") not in signup_state.values
+
+    await mps_billing.ensure_signup_grant(42, created_by=USER)
+    assert claim.await_count == 2
+    assert signup_state.values[42, "MPS_SIGNUP_GRANT"] is True
 
 
 async def test_oss_never_requests_signup_grants(monkeypatch, signup_state):

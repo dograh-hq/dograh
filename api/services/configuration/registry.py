@@ -1685,7 +1685,7 @@ class CambTTSConfiguration(BaseTTSConfiguration):
 
 
 RIME_TTS_MODELS = ["arcana", "mistv3", "mistv2", "mist"]
-RIME_TTS_LANGUAGES = ["en", "de", "fr", "es", "hi"]
+RIME_TTS_LANGUAGES = ["en", "de", "fr", "es", "hi", "ar", "it", "ja", "pt"]
 
 
 @register_tts(provider=RIME_PROVIDER)

@@ -1093,14 +1093,10 @@ def create_tts_service(
     elif user_config.tts.provider == ServiceProviders.RIME.value:
         speed = getattr(user_config.tts, "speed", None)
         language_code = getattr(user_config.tts, "language", None) or "en"
-        rime_language_mapping = {
-            "en": Language.EN,
-            "de": Language.DE,
-            "fr": Language.FR,
-            "es": Language.ES,
-            "hi": Language.HI,
-        }
-        pipecat_language = rime_language_mapping.get(language_code, Language.EN)
+        try:
+            pipecat_language = Language(language_code)
+        except ValueError:
+            pipecat_language = Language.EN
         settings_kwargs = {
             "voice": user_config.tts.voice,
             "model": user_config.tts.model,

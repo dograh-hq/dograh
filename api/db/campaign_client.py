@@ -841,7 +841,13 @@ class CampaignClient(BaseDBClient):
             ]
 
     async def get_campaign_by_id(self, campaign_id: int) -> Optional[CampaignModel]:
-        """Get campaign by ID without organization check (for internal use)"""
+        """Get campaign by ID WITHOUT tenant scoping.
+
+        Explicit unscoped variant of ``get_campaign``. Only for system/runtime
+        contexts that legitimately have just a campaign_id and derive the org
+        from the campaign itself (e.g. ARQ workers, event workers). Never call
+        this with a request-supplied id on a user-facing path.
+        """
         async with self.async_session() as session:
             query = select(CampaignModel).where(CampaignModel.id == campaign_id)
             result = await session.execute(query)

@@ -393,6 +393,7 @@ class CircuitBreaker:
         campaign_id: int,
         is_failure: bool,
         *,
+        organization_id: int,
         workflow_run_id: int,
         reason: Optional[str] = None,
     ) -> None:
@@ -402,6 +403,10 @@ class CircuitBreaker:
         It handles fetching campaign config, recording the outcome, and
         pausing + publishing an event if the breaker trips.
 
+        ``organization_id`` scopes the campaign read and the pause write: the
+        campaign_id travels here from external status callbacks, so every
+        caller must pass the org it already derived from the loaded run row.
+
         ``workflow_run_id`` deduplicates both successes and failures. Failed
         runs and their reasons are also appended to a capped Redis list so the
         trip log can name the calls that pushed it over the threshold.
@@ -409,7 +414,7 @@ class CircuitBreaker:
         Exceptions are caught internally so this never disrupts the caller.
         """
         try:
-            campaign = await db_client.get_campaign_by_id(campaign_id)
+            campaign = await db_client.get_campaign(campaign_id, organization_id)
             if not campaign or campaign.state != "running":
                 return
 
@@ -435,7 +440,11 @@ class CircuitBreaker:
                     campaign_id, since=time.time() - stats["window_seconds"]
                 )
 
-                await db_client.update_campaign(campaign_id=campaign_id, state="paused")
+                await db_client.update_campaign_state(
+                    campaign_id=campaign_id,
+                    state="paused",
+                    organization_id=organization_id,
+                )
                 await db_client.append_campaign_log(
                     campaign_id=campaign_id,
                     level="warning",

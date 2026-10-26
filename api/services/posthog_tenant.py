@@ -28,8 +28,8 @@ from api.services.posthog_client import (
 # process. Bounded so a long-lived worker cannot grow it without limit.
 _PROVIDER_ID_CACHE_SIZE = 10_000
 _provider_ids: dict[int, str] = {}
-# Accounts whose group this process has already identified.
-_identified_accounts: set[str] = set()
+# Accounts whose group this process has identified, with the name it sent.
+_identified_accounts: dict[str, Optional[str]] = {}
 
 
 async def organization_provider_id(organization_id: int) -> Optional[str]:
@@ -76,12 +76,16 @@ def tenant_groups(provider_id: Optional[str]) -> dict[str, str]:
 
 async def capture_tenant_event(
     *,
-    distinct_id: str,
+    distinct_id: Optional[str],
     event: str,
     organization_id: Optional[int],
     properties: Optional[dict[str, Any]] = None,
 ) -> None:
     """Capture an event about one tenant, in its ``account`` group.
+
+    Identifies the group first, so accounts reached only through API keys or
+    local auth have one too. Without a ``distinct_id`` (a call no user
+    started) the event is personless but still counts toward the account.
 
     Not for events that start person-scoped PostHog workflows (signed_up,
     signed_in) or that fan out to every member of an organization: PostHog
@@ -89,11 +93,13 @@ async def capture_tenant_event(
     double-triggers those workflows.
     """
     tenant = await tenant_properties(organization_id)
+    provider_id = tenant.get("organization_provider_id")
+    identify_account(provider_id, distinct_id=distinct_id)
     capture_event(
         distinct_id=distinct_id,
         event=event,
         properties={**(properties or {}), **tenant},
-        groups=tenant_groups(tenant.get("organization_provider_id")),
+        groups=tenant_groups(provider_id),
     )
 
 
@@ -103,24 +109,30 @@ def identify_account(
     name: Optional[str] = None,
     distinct_id: Optional[str] = None,
 ) -> None:
-    """Create or refresh the ``account`` group, once per process per account.
+    """Create the ``account`` group, or update its name when it changes.
 
-    Runs for existing accounts too, not only new ones, so every account an
-    authenticated request touches has a group for its events to join. One
-    account spans deployments, so the group holds only what every deployment
-    agrees on: the provider id and the team's name.
+    Sends at most once per process per account and name, for existing
+    accounts as well as new ones. One account spans deployments, so the group
+    holds only what every deployment agrees on: the provider id and the
+    team's name. A call without a name never clears one already sent.
     """
     if not provider_id or get_posthog() is None:
         return
     group_key = str(provider_id)
-    if group_key in _identified_accounts:
+    if group_key in _identified_accounts and (
+        name is None or _identified_accounts[group_key] == name
+    ):
         return
     properties: dict[str, Any] = {"organization_provider_id": group_key}
     if name:
         properties["name"] = name
-    group_identify(
+    if not group_identify(
         POSTHOG_ACCOUNT_GROUP_TYPE, group_key, properties, distinct_id=distinct_id
-    )
-    if len(_identified_accounts) >= _PROVIDER_ID_CACHE_SIZE:
+    ):
+        return
+    if (
+        group_key not in _identified_accounts
+        and len(_identified_accounts) >= _PROVIDER_ID_CACHE_SIZE
+    ):
         _identified_accounts.clear()
-    _identified_accounts.add(group_key)
+    _identified_accounts[group_key] = name or _identified_accounts.get(group_key)

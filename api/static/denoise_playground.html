@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Denoise Playground</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #f0f2f5;
+    --border: #dde1e7;
+    --text: #1b1f24;
+    --muted: #5f6b7a;
+    --accent: #2f6fde;
+    --accent-text: #ffffff;
+    --danger: #c9372c;
+    --ok: #1f8a4c;
+    --wave-raw: #9aa5b4;
+    --wave-clean: #2f6fde;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #111418;
+      --surface: #1a1e24;
+      --surface-2: #232830;
+      --border: #313844;
+      --text: #e6e9ee;
+      --muted: #97a1ae;
+      --accent: #5b8ff0;
+      --accent-text: #0d1117;
+      --danger: #f0776c;
+      --ok: #4cc283;
+      --wave-raw: #66707e;
+      --wave-clean: #6d9cf5;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #111418;
+    --surface: #1a1e24;
+    --surface-2: #232830;
+    --border: #313844;
+    --text: #e6e9ee;
+    --muted: #97a1ae;
+    --accent: #5b8ff0;
+    --accent-text: #0d1117;
+    --danger: #f0776c;
+    --ok: #4cc283;
+    --wave-raw: #66707e;
+    --wave-clean: #6d9cf5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 20px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 12px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input[type=text], input[type=password], select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--text);
+    font: inherit;
+  }
+  .tabs { display: flex; gap: 4px; background: var(--surface-2); padding: 4px; border-radius: 8px; margin-bottom: 14px; }
+  .tabs button {
+    flex: 1; border: 0; padding: 8px; border-radius: 6px; background: transparent;
+    color: var(--muted); font: inherit; cursor: pointer;
+  }
+  .tabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text); font: inherit; cursor: pointer;
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  .btn.rec { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .meter { flex: 1; min-width: 120px; height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; }
+  .meter > div { height: 100%; width: 0; background: var(--ok); transition: width .05s linear; }
+  .timer { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 48px; }
+  .drop {
+    border: 2px dashed var(--border); border-radius: var(--radius); padding: 24px; text-align: center;
+    color: var(--muted); cursor: pointer;
+  }
+  .drop.over { border-color: var(--accent); color: var(--text); }
+  .source-info { margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .hidden { display: none !important; }
+  .status { margin-top: 12px; font-size: 14px; }
+  .status.error { color: var(--danger); }
+  .players { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 720px) { .players { grid-template-columns: 1fr 1fr; } }
+  .player h3 { font-size: 14px; margin: 0 0 8px; }
+  audio { width: 100%; }
+  canvas { width: 100%; height: 72px; display: block; background: var(--surface-2); border-radius: 8px; margin-bottom: 8px; }
+  .stats { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-top: 16px; }
+  .stat { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; }
+  .stat .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .spinner { width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Denoise Playground</h1>
+  <p class="lead">Record or upload audio, send it to <code>POST /api/v1/audio/denoise</code>, and compare the result.</p>
+
+  <section class="card">
+    <h2>Connection</h2>
+    <div class="grid">
+      <div>
+        <label for="baseUrl">API base URL</label>
+        <input id="baseUrl" type="text" placeholder="http://localhost:8000">
+      </div>
+      <div>
+        <label for="authType">Auth</label>
+        <select id="authType">
+          <option value="apikey">API key (X-API-Key)</option>
+          <option value="bearer">Bearer token</option>
+        </select>
+      </div>
+      <div>
+        <label for="secret">Key / token</label>
+        <input id="secret" type="password" autocomplete="off" placeholder="Paste your API key">
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Audio</h2>
+    <div class="tabs" role="tablist">
+      <button id="tabRecord" role="tab" aria-selected="true">Record</button>
+      <button id="tabUpload" role="tab" aria-selected="false">Upload</button>
+    </div>
+
+    <div id="panelRecord">
+      <div class="row">
+        <button id="recBtn" class="btn rec">● Record</button>
+        <span id="timer" class="timer">0:00</span>
+        <div class="meter"><div id="level"></div></div>
+      </div>
+      <label class="check">
+        <input id="rawMic" type="checkbox" checked>
+        Turn off the browser's own noise suppression, echo cancellation and gain control
+      </label>
+    </div>
+
+    <div id="panelUpload" class="hidden">
+      <div id="drop" class="drop">Drop an audio file here, or click to choose one</div>
+      <input id="fileInput" type="file" accept="audio/*,video/*" class="hidden">
+    </div>
+
+    <div id="sourceInfo" class="source-info"></div>
+  </section>
+
+  <section class="card">
+    <h2>Options</h2>
+    <div class="grid">
+      <div>
+        <label for="mode">Mode</label>
+        <select id="mode">
+          <option value="speech">Speech only (STT input)</option>
+          <option value="full">Whole file</option>
+        </select>
+      </div>
+      <div>
+        <label for="format">Output format</label>
+        <select id="format">
+          <option value="wav">WAV</option>
+          <option value="mp3">MP3</option>
+          <option value="flac">FLAC</option>
+        </select>
+      </div>
+      <div>
+        <label for="rate">Sample rate</label>
+        <select id="rate">
+          <option value="">Default</option>
+          <option value="16000">16 kHz (web)</option>
+          <option value="8000">8 kHz (phone line)</option>
+          <option value="24000">24 kHz</option>
+          <option value="48000">48 kHz</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button id="processBtn" class="btn primary" disabled>Denoise</button>
+    </div>
+    <div id="status" class="status"></div>
+  </section>
+
+  <section id="results" class="card hidden">
+    <h2>Result</h2>
+    <div class="players">
+      <div class="player">
+        <h3>Original</h3>
+        <canvas id="waveRaw"></canvas>
+        <audio id="audioRaw" controls></audio>
+      </div>
+      <div class="player">
+        <h3>Denoised</h3>
+        <canvas id="waveClean"></canvas>
+        <audio id="audioClean" controls></audio>
+        <div style="margin-top:6px"><a id="download" href="#">Download</a></div>
+      </div>
+    </div>
+    <div id="stats" class="stats"></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } },
+  };
+
+  // Connection defaults: same origin when served by the API, otherwise localhost.
+  const sameOrigin = location.protocol.startsWith("http");
+  $("baseUrl").value = store.get("dn.baseUrl") || (sameOrigin ? location.origin : "http://localhost:8000");
+  $("authType").value = store.get("dn.authType") || "apikey";
+  $("secret").value = store.get("dn.secret") || "";
+  for (const id of ["baseUrl", "authType", "secret"]) {
+    $(id).addEventListener("change", () => store.set("dn." + id, $(id).value));
+  }
+
+  let source = null;      // { blob, name }
+  let rawUrl = null;
+  let cleanUrl = null;
+
+  function setSource(blob, name) {
+    source = { blob, name };
+    $("sourceInfo").textContent = `${name} · ${(blob.size / 1024).toFixed(0)} KB`;
+    $("processBtn").disabled = false;
+    $("results").classList.add("hidden");
+    setStatus("");
+  }
+
+  function setStatus(text, kind) {
+    const el = $("status");
+    el.className = "status" + (kind === "error" ? " error" : "");
+    el.innerHTML = "";
+    if (kind === "busy") {
+      const s = document.createElement("span");
+      s.className = "spinner";
+      const row = document.createElement("span");
+      row.className = "row";
+      row.append(s, document.createTextNode(text));
+      el.append(row);
+    } else {
+      el.textContent = text;
+    }
+  }
+
+  // Tabs
+  function selectTab(record) {
+    $("tabRecord").setAttribute("aria-selected", record);
+    $("tabUpload").setAttribute("aria-selected", !record);
+    $("panelRecord").classList.toggle("hidden", !record);
+    $("panelUpload").classList.toggle("hidden", record);
+  }
+  $("tabRecord").onclick = () => selectTab(true);
+  $("tabUpload").onclick = () => selectTab(false);
+
+  // Upload
+  const drop = $("drop");
+  drop.onclick = () => $("fileInput").click();
+  $("fileInput").onchange = (e) => {
+    const f = e.target.files[0];
+    if (f) setSource(f, f.name);
+  };
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    const f = e.dataTransfer.files[0];
+    if (f) setSource(f, f.name);
+  };
+
+  // Recording
+  let recorder = null, stream = null, chunks = [], startedAt = 0, tick = null, meterCtx = null, rafId = null;
+
+  async function startRecording() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus("This browser cannot record here. Open the page over https or localhost.", "error");
+      return;
+    }
+    const raw = $("rawMic").checked;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: !raw, noiseSuppression: !raw, autoGainControl: !raw, channelCount: 1 },
+      });
+    } catch (err) {
+      setStatus("Microphone access was refused: " + err.message, "error");
+      return;
+    }
+    const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"]
+      .find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recorder = rec;
+    chunks = [];
+    rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    // Fires after stopRecording() has cleared `recorder`, so use the local.
+    rec.onstop = () => {
+      const type = rec.mimeType || "audio/webm";
+      const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
+      setSource(new Blob(chunks, { type }), `recording.${ext}`);
+    };
+    rec.start(250);
+    startedAt = performance.now();
+    tick = setInterval(() => {
+      const s = Math.floor((performance.now() - startedAt) / 1000);
+      $("timer").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    }, 200);
+    startMeter(stream);
+    $("recBtn").textContent = "■ Stop";
+  }
+
+  function stopRecording() {
+    recorder?.stop();
+    stream?.getTracks().forEach((t) => t.stop());
+    clearInterval(tick);
+    cancelAnimationFrame(rafId);
+    meterCtx?.close();
+    meterCtx = null;
+    $("level").style.width = "0";
+    $("recBtn").textContent = "● Record";
+    recorder = null;
+  }
+
+  function startMeter(s) {
+    meterCtx = new AudioContext();
+    const analyser = meterCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    meterCtx.createMediaStreamSource(s).connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    const loop = () => {
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += v * v;
+      const db = 20 * Math.log10(Math.sqrt(sum / buf.length) + 1e-9);
+      $("level").style.width = Math.max(0, Math.min(100, (db + 60) * 100 / 60)) + "%";
+      rafId = requestAnimationFrame(loop);
+    };
+    loop();
+  }
+
+  $("recBtn").onclick = () => (recorder ? stopRecording() : startRecording());
+
+  // Waveforms
+  async function drawWave(canvas, blob, color) {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.clientWidth * dpr;
+    canvas.height = canvas.clientHeight * dpr;
+    const g = canvas.getContext("2d");
+    g.clearRect(0, 0, canvas.width, canvas.height);
+    try {
+      const ctx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 1, 44100);
+      const audio = await ctx.decodeAudioData(await blob.arrayBuffer());
+      const data = audio.getChannelData(0);
+      const step = Math.max(1, Math.floor(data.length / canvas.width));
+      const mid = canvas.height / 2;
+      g.fillStyle = color;
+      for (let x = 0; x < canvas.width; x++) {
+        let peak = 0;
+        const start = x * step;
+        for (let i = start; i < start + step && i < data.length; i++) {
+          const v = Math.abs(data[i]);
+          if (v > peak) peak = v;
+        }
+        const h = Math.max(1, peak * mid);
+        g.fillRect(x, mid - h, 1, h * 2);
+      }
+    } catch {
+      g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--muted");
+      g.font = `${12 * dpr}px system-ui`;
+      g.fillText("Waveform unavailable for this format", 8 * dpr, 20 * dpr);
+    }
+  }
+
+  function stat(value, label) {
+    const d = document.createElement("div");
+    d.className = "stat";
+    const v = document.createElement("div");
+    v.className = "v";
+    v.textContent = value;
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = label;
+    d.append(v, k);
+    return d;
+  }
+
+  // Process
+  $("processBtn").onclick = async () => {
+    if (!source) return;
+    const base = $("baseUrl").value.trim().replace(/\/+$/, "");
+    const secret = $("secret").value.trim();
+    const headers = {};
+    if (secret) {
+      if ($("authType").value === "bearer") headers["Authorization"] = "Bearer " + secret;
+      else headers["X-API-Key"] = secret;
+    }
+    const form = new FormData();
+    form.append("file", source.blob, source.name);
+    form.append("mode", $("mode").value);
+    form.append("output_format", $("format").value);
+    if ($("rate").value) form.append("sample_rate", $("rate").value);
+
+    $("processBtn").disabled = true;
+    setStatus("Uploading and denoising…", "busy");
+    const t0 = performance.now();
+    let response;
+    try {
+      response = await fetch(`${base}/api/v1/audio/denoise`, { method: "POST", headers, body: form });
+    } catch (err) {
+      setStatus(`Could not reach ${base}: ${err.message}`, "error");
+      $("processBtn").disabled = false;
+      return;
+    }
+    const roundTripMs = performance.now() - t0;
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const body = await response.json();
+        detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      } catch { /* not JSON */ }
+      const hint = response.status === 401 || response.status === 403 ? " (check the key)" : "";
+      setStatus(`Error ${response.status}: ${detail}${hint}`, "error");
+      $("processBtn").disabled = false;
+      return;
+    }
+
+    const blob = await response.blob();
+    if (rawUrl) URL.revokeObjectURL(rawUrl);
+    if (cleanUrl) URL.revokeObjectURL(cleanUrl);
+    rawUrl = URL.createObjectURL(source.blob);
+    cleanUrl = URL.createObjectURL(blob);
+    $("audioRaw").src = rawUrl;
+    $("audioClean").src = cleanUrl;
+    const ext = $("format").value;
+    $("download").href = cleanUrl;
+    $("download").download = source.name.replace(/\.[^.]+$/, "") + `-denoised.${ext}`;
+
+    const h = (n) => response.headers.get(n);
+    const duration = parseFloat(h("X-Audio-Duration-Seconds"));
+    const processing = parseFloat(h("X-Processing-Time-Ms"));
+    const stats = $("stats");
+    stats.innerHTML = "";
+    if (!isNaN(duration)) stats.append(stat(duration.toFixed(1) + " s", "Audio length"));
+    if (!isNaN(processing)) stats.append(stat((processing / 1000).toFixed(2) + " s", "Processing time (server)"));
+    if (!isNaN(duration) && processing > 0) stats.append(stat((duration * 1000 / processing).toFixed(1) + "×", "Faster than real time"));
+    stats.append(stat((roundTripMs / 1000).toFixed(2) + " s", "Total round trip"));
+    if (h("X-Speech-Segments") !== null) {
+      stats.append(stat(h("X-Speech-Segments"), "Speech segments"));
+      const sp = parseFloat(h("X-Speech-Seconds"));
+      stats.append(stat(sp.toFixed(1) + " s", "Speech passed to STT"));
+      if (!isNaN(duration) && duration > 0) stats.append(stat(Math.round(100 * (1 - sp / duration)) + "%", "Silenced (no speech)"));
+    }
+    if (h("X-Audio-Sample-Rate")) stats.append(stat((h("X-Audio-Sample-Rate") / 1000) + " kHz", "Output sample rate"));
+
+    $("results").classList.remove("hidden");
+    setStatus("Done.");
+    $("processBtn").disabled = false;
+    const css = getComputedStyle(document.documentElement);
+    drawWave($("waveRaw"), source.blob, css.getPropertyValue("--wave-raw").trim());
+    drawWave($("waveClean"), blob, css.getPropertyValue("--wave-clean").trim());
+  };
+})();
+</script>
+</body>
+</html>

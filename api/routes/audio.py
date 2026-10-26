@@ -5,7 +5,9 @@ from pathlib import PurePath
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import FileResponse
 
+from api.constants import APP_ROOT_DIR
 from api.db.models import UserModel
 from api.services.auth.depends import get_user
 from api.services.pipecat.noise_reduction.file_denoise import (
@@ -20,6 +22,27 @@ from api.services.pipecat.noise_reduction.file_denoise import (
 )
 
 router = APIRouter(prefix="/audio", tags=["audio"])
+
+PLAYGROUND_PAGE = APP_ROOT_DIR / "static" / "denoise_playground.html"
+
+# Read by the playground page; browsers hide response headers from
+# cross-origin callers unless CORS exposes them.
+DENOISE_RESPONSE_HEADERS = [
+    "X-Audio-Duration-Seconds",
+    "X-Audio-Sample-Rate",
+    "X-Processing-Time-Ms",
+    "X-Speech-Segments",
+    "X-Speech-Seconds",
+]
+
+
+@router.get("/denoise/playground", include_in_schema=False)
+async def denoise_playground() -> FileResponse:
+    """Browser page for recording or uploading audio and calling ``/denoise``.
+
+    The page holds no data; requests it makes carry the caller's own key.
+    """
+    return FileResponse(PLAYGROUND_PAGE, media_type="text/html")
 
 
 @router.post(

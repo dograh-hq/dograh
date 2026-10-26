@@ -366,6 +366,25 @@ def test_route_validates_options(client, data):
     assert response.status_code == 422
 
 
+def test_playground_page_is_served_without_auth():
+    app = FastAPI()
+    app.include_router(router)
+
+    response = TestClient(app).get("/audio/denoise/playground")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "/api/v1/audio/denoise" in response.text
+
+
+def test_app_exposes_denoise_headers_to_cross_origin_pages():
+    from api.app import app
+    from api.routes.audio import DENOISE_RESPONSE_HEADERS
+
+    cors = next(m for m in app.user_middleware if m.cls.__name__ == "CORSMiddleware")
+    assert set(DENOISE_RESPONSE_HEADERS) <= set(cors.kwargs["expose_headers"])
+
+
 def test_route_requires_authentication():
     app = FastAPI()
     app.include_router(router)

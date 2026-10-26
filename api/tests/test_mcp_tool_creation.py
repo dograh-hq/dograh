@@ -72,7 +72,9 @@ async def test_mcp_create_tool_creates_reusable_tool(authed_user: MagicMock):
             "api.services.tool_management.db_client.create_tool",
             create_tool_mock,
         ),
-        patch("api.services.tool_management.capture_event") as capture_event_mock,
+        patch(
+            "api.services.tool_management.capture_tenant_event"
+        ) as capture_event_mock,
     ):
         result = await create_tool(_http_tool_request())
 

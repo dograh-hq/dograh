@@ -29,7 +29,7 @@ from api.services.pipecat.termination_funnel_processor import (
 )
 from api.services.pipecat.tracing_config import get_trace_url
 from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
-from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import capture_tenant_event
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow_run_artifacts import upload_workflow_run_artifacts
@@ -54,9 +54,11 @@ async def _capture_call_event(
     Meant to be run via asyncio.create_task() so it never blocks the pipeline."""
     try:
         workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+        workflow = workflow_run.workflow if workflow_run else None
+        # The run id is only unique within this deployment and the run has no
+        # UUID, so the event names the workflow by its UUID and not the run.
         properties = {
-            "workflow_run_id": workflow_run_id,
-            "workflow_id": workflow_run.workflow_id if workflow_run else None,
+            "workflow_uuid": workflow.workflow_uuid if workflow else None,
             "call_type": workflow_run.mode if workflow_run else None,
             "call_direction": (
                 (workflow_run.initial_context or {}).get("direction", "outbound")
@@ -66,9 +68,10 @@ async def _capture_call_event(
         }
         if extra_properties:
             properties.update(extra_properties)
-        capture_event(
+        await capture_tenant_event(
             distinct_id=user_provider_id,
             event=event,
+            organization_id=workflow.organization_id if workflow else None,
             properties=properties,
         )
     except Exception:

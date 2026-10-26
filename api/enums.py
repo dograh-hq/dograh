@@ -180,6 +180,7 @@ class OrganizationConfigurationKey(Enum):
     ORGANIZATION_BOOTSTRAP = (
         "ORGANIZATION_BOOTSTRAP"  # Single-winner lease for post-signup provisioning
     )
+    MPS_SIGNUP_GRANT = "MPS_SIGNUP_GRANT"  # Team grant / per-actor claim results
 
 
 class UserConfigurationKey(Enum):

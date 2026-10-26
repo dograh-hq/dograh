@@ -333,7 +333,7 @@ async def get_billing_credits(
             total_quota=balance + total_debits,
             account=MPSBillingAccountResponse(
                 id=int(account["id"]),
-                organization_id=int(account["organization_id"]),
+                organization_id=organization_id,
                 billing_mode=str(account["billing_mode"]),
                 cached_balance_credits=balance,
                 currency=str(account.get("currency") or "USD"),

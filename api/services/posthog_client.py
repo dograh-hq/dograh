@@ -7,7 +7,11 @@ from api.constants import POSTHOG_API_KEY, POSTHOG_HOST
 
 _posthog_client: Posthog | None = None
 POSTHOG_SERVER_GROUP_IDENTIFY_DISTINCT_ID = "server-group-identify"
-POSTHOG_ORGANIZATION_GROUP_TYPE = "organization"
+# Keyed by the organization's provider id (the Stack team id on hosted
+# deployments), the tenant identity every deployment and MPS share. The older
+# "organization" group was keyed by the local organization id, which is only
+# unique within one deployment, and is no longer sent.
+POSTHOG_ACCOUNT_GROUP_TYPE = "account"
 
 
 def get_posthog() -> Posthog | None:
@@ -41,12 +45,14 @@ def flush_posthog() -> None:
 
 
 def capture_event(
-    distinct_id: str,
+    distinct_id: Optional[str],
     event: str,
     properties: dict[str, Any] | None = None,
     groups: Optional[dict[str, str]] = None,
 ) -> None:
-    """Fire a PostHog event. Silently no-ops if PostHog is not configured."""
+    """Fire a PostHog event. Silently no-ops if PostHog is not configured.
+
+    Without a ``distinct_id`` the SDK sends a personless event."""
     client = get_posthog()
     if not client:
         return
@@ -69,11 +75,12 @@ def group_identify(
     properties: dict[str, Any],
     *,
     distinct_id: Optional[str] = None,
-) -> None:
-    """Set PostHog group properties. Silently no-ops if PostHog is not configured."""
+) -> bool:
+    """Set PostHog group properties. Returns whether the update was queued;
+    silently no-ops if PostHog is not configured."""
     client = get_posthog()
     if not client:
-        return
+        return False
     try:
         client.group_identify(
             group_type,
@@ -81,8 +88,10 @@ def group_identify(
             properties,
             distinct_id=distinct_id or POSTHOG_SERVER_GROUP_IDENTIFY_DISTINCT_ID,
         )
+        return True
     except Exception:
         logger.exception("Failed to identify PostHog group")
+        return False
 
 
 def set_person_properties(distinct_id: str, properties: dict[str, Any]) -> None:

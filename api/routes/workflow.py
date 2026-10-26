@@ -35,7 +35,7 @@ from api.services.configuration.masking import (
     merge_workflow_api_keys,
 )
 from api.services.mps_service_key_client import mps_service_key_client
-from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import capture_tenant_event
 from api.services.reports import generate_workflow_report_csv
 from api.services.storage import storage_fs
 from api.services.workflow.configuration_policy import (
@@ -526,14 +526,14 @@ async def create_workflow(
         user.selected_organization_id,
     )
 
-    capture_event(
+    await capture_tenant_event(
         distinct_id=str(user.provider_id),
         event=PostHogEvent.WORKFLOW_CREATED,
+        organization_id=user.selected_organization_id,
         properties={
-            "workflow_id": workflow.id,
+            "workflow_uuid": workflow.workflow_uuid,
             "workflow_name": workflow.name,
             "source": "direct",
-            "organization_id": user.selected_organization_id,
         },
     )
 
@@ -589,6 +589,7 @@ async def create_workflow_from_template(
                 call_type=request.call_type.upper(),
                 use_case=request.use_case,
                 activity_description=request.activity_description,
+                organization_id=user.selected_organization_id,
                 created_by=str(user.provider_id),
             )
         else:
@@ -624,16 +625,16 @@ async def create_workflow_from_template(
             organization_id=user.selected_organization_id,
         )
 
-        capture_event(
+        await capture_tenant_event(
             distinct_id=str(user.provider_id),
             event=PostHogEvent.WORKFLOW_CREATED,
+            organization_id=user.selected_organization_id,
             properties={
-                "workflow_id": workflow.id,
+                "workflow_uuid": workflow.workflow_uuid,
                 "workflow_name": workflow.name,
                 "source": "template",
                 "call_type": request.call_type,
                 "use_case": request.use_case,
-                "organization_id": user.selected_organization_id,
             },
         )
 
@@ -1008,13 +1009,13 @@ async def publish_workflow(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    capture_event(
+    await capture_tenant_event(
         distinct_id=str(user.provider_id),
         event=PostHogEvent.WORKFLOW_PUBLISHED,
+        organization_id=user.selected_organization_id,
         properties={
-            "workflow_id": workflow_id,
+            "workflow_uuid": workflow.workflow_uuid,
             "version_number": published.version_number,
-            "organization_id": user.selected_organization_id,
         },
     )
 
@@ -1367,14 +1368,13 @@ async def duplicate_workflow_endpoint(
             user_id=user.id,
         )
 
-        capture_event(
+        await capture_tenant_event(
             distinct_id=str(user.provider_id),
             event=PostHogEvent.WORKFLOW_DUPLICATED,
+            organization_id=user.selected_organization_id,
             properties={
-                "workflow_id": workflow.id,
+                "workflow_uuid": workflow.workflow_uuid,
                 "workflow_name": workflow.name,
-                "source_workflow_id": workflow_id,
-                "organization_id": user.selected_organization_id,
             },
         )
 

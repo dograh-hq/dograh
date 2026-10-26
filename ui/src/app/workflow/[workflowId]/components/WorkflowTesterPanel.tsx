@@ -114,8 +114,6 @@ export function WorkflowTesterPanel({
 
             markActionCompleted("web_call_started");
             posthog.capture(PostHogEvent.WEB_CALL_INITIATED, {
-                workflow_id: workflowId,
-                workflow_run_id: response.data.id,
                 source: "workflow_editor",
             });
             setVoiceRunId(response.data.id);

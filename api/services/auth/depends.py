@@ -10,13 +10,8 @@ from api.enums import PostHogEvent
 from api.services.auth.stack_auth import stackauth
 from api.services.mps_billing import ensure_signup_grant
 from api.services.organization_bootstrap import ensure_organization_bootstrapped
-from api.services.posthog_client import (
-    POSTHOG_ACCOUNT_GROUP_TYPE,
-    capture_event,
-    group_identify,
-    set_person_properties,
-)
-from api.services.posthog_tenant import tenant_groups
+from api.services.posthog_client import capture_event, set_person_properties
+from api.services.posthog_tenant import identify_account, tenant_groups
 from api.utils.auth import decode_jwt_token
 
 
@@ -91,6 +86,8 @@ async def get_user(
                 event=PostHogEvent.SIGNED_UP,
                 properties={
                     "auth_provider": "stack",
+                    "organization_provider_id": selected_team_id,
+                    "deployment_id": DOGRAH_DEPLOYMENT_ID,
                 },
             )
     except Exception as e:
@@ -108,6 +105,11 @@ async def get_user(
             org_was_created,
         ) = await db_client.get_or_create_organization_by_provider_id(
             org_provider_id=selected_team_id, user_id=user_model.id
+        )
+        identify_account(
+            selected_team_id,
+            name=_stack_team_name(stack_user),
+            distinct_id=str(stack_user["id"]),
         )
         if org_was_created:
             _sync_created_organization_to_posthog(
@@ -198,44 +200,38 @@ async def get_verified_stack_user(
     return user
 
 
+def _stack_team_name(stack_user: dict) -> str | None:
+    return (stack_user.get("selected_team") or {}).get("display_name") or None
+
+
 def _sync_created_organization_to_posthog(
     *,
     organization,
     stack_user: dict | None = None,
     created_by_provider_id: str | None = None,
 ) -> None:
-    """Create/update the PostHog account group for a newly-created org."""
+    """Record organization_created in the new organization's account group.
+
+    The group itself is identified by get_user, for new and existing accounts.
+    """
     try:
         organization_provider_id = getattr(organization, "provider_id", None)
         created_by = created_by_provider_id
         if created_by is None and stack_user and stack_user.get("id"):
             created_by = str(stack_user["id"])
-        properties = {
-            "organization_provider_id": organization_provider_id,
-            "auth_provider": "stack",
-        }
-        if created_by:
-            properties["created_by_provider_id"] = created_by
-
-        if organization_provider_id:
-            # One account spans deployments, so its group keeps only what
-            # every deployment agrees on.
-            group_identify(
-                POSTHOG_ACCOUNT_GROUP_TYPE,
-                str(organization_provider_id),
-                {
-                    "organization_provider_id": organization_provider_id,
-                    "auth_provider": "stack",
-                },
-                distinct_id=created_by,
-            )
-        if created_by:
-            capture_event(
-                distinct_id=created_by,
-                event=PostHogEvent.ORGANIZATION_CREATED,
-                properties={**properties, "deployment_id": DOGRAH_DEPLOYMENT_ID},
-                groups=tenant_groups(organization_provider_id),
-            )
+        if not created_by:
+            return
+        capture_event(
+            distinct_id=created_by,
+            event=PostHogEvent.ORGANIZATION_CREATED,
+            properties={
+                "organization_provider_id": organization_provider_id,
+                "auth_provider": "stack",
+                "created_by_provider_id": created_by,
+                "deployment_id": DOGRAH_DEPLOYMENT_ID,
+            },
+            groups=tenant_groups(organization_provider_id),
+        )
     except Exception:
         logger.exception("Failed to sync created organization to PostHog")
 
@@ -258,7 +254,6 @@ def _associate_user_with_posthog_organization(
             else:
                 user_distinct_id = str(user.provider_id)
         person_properties = {
-            "user_id": user.id,
             "user_provider_id": user_distinct_id,
             "selected_organization_provider_id": (
                 selected_organization_provider_id or organization_provider_id
@@ -268,7 +263,6 @@ def _associate_user_with_posthog_organization(
             person_properties["email"] = user.email
         set_person_properties(user_distinct_id, person_properties)
         event_properties = {
-            "user_id": user.id,
             "organization_provider_id": organization_provider_id,
             "auth_provider": "stack",
             "organization_was_created": org_was_created,

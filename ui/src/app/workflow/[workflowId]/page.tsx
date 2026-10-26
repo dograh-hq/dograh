@@ -88,7 +88,7 @@ export default function WorkflowDetailPage() {
                 }
                 setLoaded({ key: requestKey, workflow, version: selectedVersion });
                 posthog.capture(PostHogEvent.WORKFLOW_EDITOR_OPENED, {
-                    workflow_id: workflow.id,
+                    workflow_uuid: workflow.workflow_uuid ?? null,
                     workflow_name: workflow.name,
                 });
             } catch (err) {

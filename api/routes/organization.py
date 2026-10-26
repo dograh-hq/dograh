@@ -64,8 +64,7 @@ from api.services.organization_preferences import (
     update_organization_preferences,
 )
 from api.services.pipecat.tracing_config import normalize_langfuse_host
-from api.services.posthog_client import capture_event
-from api.services.posthog_tenant import tenant_properties
+from api.services.posthog_tenant import capture_tenant_event
 from api.services.telephony import registry as telephony_registry
 from api.services.telephony.base import ProviderPhoneNumberLookupError
 from api.services.telephony.factory import (
@@ -692,13 +691,12 @@ async def create_telephony_configuration(
             detail="Telephony configuration violates a uniqueness constraint.",
         )
 
-    capture_event(
+    await capture_tenant_event(
         distinct_id=str(user.provider_id),
         event=PostHogEvent.TELEPHONY_CONFIGURED,
+        organization_id=user.selected_organization_id,
         properties={
             "provider": request.config.provider,
-            **await tenant_properties(user.selected_organization_id),
-            "config_id": row.id,
         },
     )
 

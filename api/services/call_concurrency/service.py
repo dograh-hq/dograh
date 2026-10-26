@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 from dataclasses import dataclass
 
@@ -10,6 +11,15 @@ from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.services.call_concurrency.rate_limiter import rate_limiter
 from api.services.posthog_client import capture_event
 from api.services.posthog_tenant import tenant_properties
+
+# Trailing ":<id>" segments, e.g. the campaign id in "campaign:123".
+_TRAILING_IDS = re.compile(r"(:\d+)+$")
+
+
+def _without_ids(label: str) -> str:
+    """A source or scope label without its database ids, which are only unique
+    within one deployment and so never go to PostHog."""
+    return _TRAILING_IDS.sub("", label)
 
 
 @dataclass(frozen=True)
@@ -150,13 +160,13 @@ class CallConcurrencyService:
                 )
                 properties = {
                     "event_source": "dograh",
-                    "source": source,
+                    "source": _without_ids(source),
                     "max_concurrent": max_concurrent,
                     "active_calls": current_count,
                     "waited_seconds": round(wait_time, 1),
                 }
                 if scope_key:
-                    properties["scope_key"] = scope_key
+                    properties["scope_key"] = _without_ids(scope_key)
                     properties["scope_max_concurrent"] = scope_max_concurrent
                 await self._notify_limit_reached(organization_id, properties)
                 raise CallConcurrencyLimitError(

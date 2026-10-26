@@ -160,6 +160,13 @@ async def test_tenant_event_without_a_person_is_still_sent(
 
     assert captured[0]["distinct_id"] is None
     assert captured[0]["groups"] == {"account": "team-1"}
+    # group_identify falls back to its server distinct id when given None.
+    assert identified == [
+        (
+            ("account", "team-1", {"organization_provider_id": "team-1"}),
+            {"distinct_id": None},
+        )
+    ]
 
 
 def test_identify_account_once_per_process(monkeypatch, identified):

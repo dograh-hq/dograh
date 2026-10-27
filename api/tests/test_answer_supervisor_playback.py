@@ -42,14 +42,18 @@ class Passthrough(FrameProcessor):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("screened", [False, True])
+@pytest.mark.parametrize(
+    "enabled, screened", [(False, False), (True, False), (True, True)]
+)
 @pytest.mark.parametrize(
     "greeting_type, expected_generations", [("text", 0), ("audio", 0), ("llm", 1)]
 )
 async def test_hello_produces_exactly_one_opening(
-    simple_workflow, greeting_type, expected_generations, screened
+    simple_workflow, greeting_type, expected_generations, screened, enabled
 ):
     node = simple_workflow.nodes[simple_workflow.start_node_id]
+    node.delayed_start = True
+    node.delayed_start_duration = 0.5
     node.greeting_type = greeting_type
     node.greeting = "Welcome." if greeting_type == "text" else None
     node.greeting_recording_id = "9" if greeting_type == "audio" else None
@@ -86,8 +90,7 @@ async def test_hello_produces_exactly_one_opening(
     supervisor = AnswerSupervisor(
         resolve_answer_supervisor_config(
             {
-                "enabled": True,
-                "listening_window_ms": 500,
+                "enabled": enabled,
                 "human_utterance_max_ms": 60,
                 "screening_message": {"text": "Alex calling about your appointment."},
             },

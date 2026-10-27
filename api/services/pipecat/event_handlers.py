@@ -238,6 +238,9 @@ def register_event_handlers(
             if answer_supervisor is not None:
                 await engine.handle_answer_supervision()
                 return
+            # Cascade calls always use the shared opening supervisor, even when
+            # machine detection is off. Realtime adapters own response generation
+            # and still need their audio-retention handoff below.
             start_node = engine.active_agent.workflow.nodes.get(
                 engine.active_agent.workflow.start_node_id
             )
@@ -245,7 +248,9 @@ def register_event_handlers(
             if not await engine.opening.deadline.wait(window_ms):
                 return
             gate = engine.opening.input_gate
-            caller_first = bool(window_ms and gate and gate.heard_speech)
+            caller_first = bool(
+                engine._is_realtime and window_ms and gate and gate.heard_speech
+            )
             logger.info(
                 "Opening window released: window_ms={} elapsed_ms={} path={}",
                 window_ms,

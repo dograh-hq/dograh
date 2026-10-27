@@ -103,6 +103,14 @@ CASES = [
         ),
         "Ready. Welcome.",
     ),
+    (
+        (
+            "Ready. <call:default_api:task_update_inventory>Private planning. "
+            "</call:default_api:task_update_inventory_extra>Private continuation. "
+            "default_api:close_session{}</call:default_api:task_update_inventory> Welcome."
+        ),
+        "Ready. Welcome.",
+    ),
 ]
 
 TOOL_SCHEMAS = {

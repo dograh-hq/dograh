@@ -108,6 +108,50 @@ def test_paired_call_envelopes_do_not_execute_nested_tool_text(spoken_output, cl
     assert calls == []
 
 
+@pytest.mark.parametrize("spoken_output", [True, False])
+@pytest.mark.parametrize("closed", [True, False])
+@pytest.mark.parametrize("prefix", ["Stage: ", "Stage:", "Ready. Stage: ", "stage"])
+def test_paired_call_envelopes_drop_held_speech_labels(prefix, closed, spoken_output):
+    text = prefix + "<call:default_api:schedule_visit>Private. default_api:end_call{}"
+    if closed:
+        text += "</call:default_api:schedule_visit>Done."
+    expected_prefix = "Ready. " if prefix.startswith("Ready.") else ""
+    if not spoken_output:
+        expected_prefix = prefix
+    expected = normalized(expected_prefix + ("Done." if closed else ""))
+    for chunks in [
+        *[[text[:split], text[split:]] for split in range(len(text) + 1)],
+        list(text),
+    ]:
+        speech, calls = parse(chunks, spoken_output=spoken_output)
+        assert normalized(speech) == expected, chunks
+        assert calls == [], chunks
+
+
+@pytest.mark.parametrize("spoken_output", [True, False])
+@pytest.mark.parametrize("closed", [True, False])
+@pytest.mark.parametrize(
+    "tag_name", ["call:default_api:schedule_visit", "think", "thinking", "thought"]
+)
+def test_suppressed_envelopes_require_the_complete_closing_name(
+    tag_name, closed, spoken_output
+):
+    text = f"Ready. <{tag_name}>Private."
+    for suffix in ("extra", "_extra", ":extra", ".extra", "1", "/"):
+        text += f"</{tag_name}{suffix}>Private. default_api:end_call{{}}"
+    if closed:
+        # Matching is case-insensitive and tolerates whitespace before ">".
+        text += f"</{tag_name.upper()} \n> Continue."
+    expected = "Ready. Continue." if closed else "Ready."
+    for chunks in [
+        *[[text[:split], text[split:]] for split in range(len(text) + 1)],
+        list(text),
+    ]:
+        speech, calls = parse(chunks, spoken_output=spoken_output)
+        assert normalized(speech) == expected, chunks
+        assert calls == [], chunks
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [

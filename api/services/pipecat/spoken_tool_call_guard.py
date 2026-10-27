@@ -416,7 +416,12 @@ class SpokenToolCallGuard:
         while self._buffer and not self._discard_rest:
             text = self._buffer
             if self._suppressed_tag_close:
-                index = text.lower().find(self._suppressed_tag_close)
+                match = re.search(
+                    re.escape(self._suppressed_tag_close) + r"(?=[\s>])",
+                    text,
+                    re.IGNORECASE,
+                )
+                index = match.start() if match else -1
                 close = text.find(">", index) if index >= 0 else -1
                 if close < 0:
                     # Keep only what could still complete the closing tag.
@@ -537,6 +542,9 @@ class SpokenToolCallGuard:
                     # A paired call envelope is control data, including any
                     # apparent tool calls inside its body.
                     self._suppressed("paired_call")
+                    if self._spoken_output and self._held:
+                        self._held = ""
+                        self._at_boundary = self._held_boundary
                     self._suppressed_tag_close = "</" + text[1:close].split()[0].lower()
                     self._buffer = text[close + 1 :]
                     continue

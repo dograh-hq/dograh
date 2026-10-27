@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pipecat.frames.frames import (
@@ -30,6 +30,7 @@ from api.schemas.answer_supervisor import resolve_answer_supervisor_config
 from api.services.pipecat.pipeline_builder import build_pipeline
 from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
 from api.services.pipecat.run_pipeline import _create_user_mute_strategies
+from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from pipecat.tests import MockLLMService, MockTTSService
@@ -78,6 +79,8 @@ async def test_hello_produces_exactly_one_opening(
         call_context_vars={},
         workflow_run_id=1,
     )
+    greeting_finished = Mock(wraps=engine.speech_playback.on_greeting_finished)
+    engine.speech_playback.on_greeting_finished = greeting_finished
     engine.set_transport_output(transport.output())
     engine.set_fetch_recording_audio(
         AsyncMock(
@@ -171,6 +174,12 @@ async def test_hello_produces_exactly_one_opening(
         assert [m["content"] for m in context.messages if m.get("role") == "user"] == [
             "Hello?"
         ]
+        greeting_finished.assert_called_once()
+        speech = greeting_finished.call_args.args[0]
+        assert speech.outcome is PlaybackOutcome.PLAYED
+        assert speech.has_output
+        assert speech.played_seconds > 0
+        assert speech.delivered_text == "Welcome."
         assert not engine.speech_playback.pending
         assert not supervisor.blocks_workflow
     finally:

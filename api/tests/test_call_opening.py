@@ -9,13 +9,27 @@ from pipecat.audio.vad.vad_analyzer import VADState
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
+    Frame,
     InputAudioRawFrame,
+    InterimTranscriptionFrame,
+    InterruptionFrame,
+    LLMContextFrame,
     ProposedUserStartedSpeakingFrame,
     ProposedUserStoppedSpeakingFrame,
     StopFrame,
     TranscriptionFrame,
 )
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMUserAggregator,
+    LLMUserAggregatorParams,
+)
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.tests.utils import SleepFrame, run_test
+from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
+from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from api.services.pipecat.call_opening import OpeningInputGate
 from api.services.pipecat.run_pipeline import _create_opening_input_gate
@@ -273,6 +287,60 @@ async def test_cascade_retains_turn_boundaries_with_their_transcript():
     retained.push_frame.assert_not_awaited()
     await retained.release()
     assert [call.args[0] for call in retained.push_frame.await_args_list] == frames
+
+
+@pytest.mark.parametrize("finalized", [False, True])
+@pytest.mark.asyncio
+async def test_buffered_transcript_survives_turn_start_interruption(finalized):
+    class Release(Frame):
+        pass
+
+    class Gate(OpeningInputGate):
+        async def process_frame(self, frame, direction):
+            if isinstance(frame, Release):
+                await self.release()
+                return
+            await super().process_frame(frame, direction)
+
+    context = LLMContext()
+    user = LLMUserAggregator(
+        context,
+        params=LLMUserAggregatorParams(
+            user_turn_strategies=UserTurnStrategies(
+                start=[MinWordsUserTurnStartStrategy(min_words=1)],
+                stop=[ExternalUserTurnStopStrategy(timeout=30)],
+            ),
+            user_turn_stop_timeout=30,
+        ),
+    )
+    interim = InterimTranscriptionFrame("Hello", "caller", "")
+    buffered = TranscriptionFrame("Hello.", "caller", "", finalized=finalized)
+    live = TranscriptionFrame("Can you help?", "caller", "", finalized=True)
+
+    downstream, _ = await run_test(
+        Pipeline([Gate(), user]),
+        frames_to_send=[
+            ProposedUserStartedSpeakingFrame(),
+            interim,
+            buffered,
+            ProposedUserStoppedSpeakingFrame(),
+            Release(),
+            SleepFrame(0.1),
+            ProposedUserStartedSpeakingFrame(),
+            live,
+            ProposedUserStoppedSpeakingFrame(),
+            SleepFrame(0.1),
+        ],
+    )
+
+    assert context.messages == [
+        {"role": "user", "content": "Hello."},
+        {"role": "user", "content": "Can you help?"},
+    ]
+    assert sum(isinstance(frame, LLMContextFrame) for frame in downstream) == 2
+    assert sum(isinstance(frame, InterruptionFrame) for frame in downstream) == 2
+    assert interim.interruptible
+    assert live.interruptible
 
 
 @pytest.mark.parametrize("terminal", [CancelFrame, EndFrame, StopFrame])

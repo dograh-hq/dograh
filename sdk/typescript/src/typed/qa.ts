@@ -43,7 +43,7 @@ export interface Qa {
     /**
      * LLM provider used for the QA pass.
      */
-    qa_provider?: "openai" | "azure" | "openrouter" | "anthropic";
+    qa_provider?: "openai" | "azure" | "openrouter" | "google" | "anthropic";
     /**
      * Model identifier (e.g., 'gpt-4o', 'claude-sonnet-4-6'). Provider-specific.
      */

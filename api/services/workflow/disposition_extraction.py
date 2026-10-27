@@ -24,7 +24,7 @@ that happened to be active when it ended.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from loguru import logger
@@ -46,6 +46,9 @@ from api.services.pipecat.tracing_config import ensure_tracing
 from api.services.workflow.conversation_history import (
     build_conversation_history,
     has_user_turns,
+)
+from api.services.workflow.pipecat_engine_variable_extractor import (
+    ExtractionResponseError,
 )
 from api.utils.template_renderer import render_template
 
@@ -84,15 +87,26 @@ class DispositionExtractionService:
     def __init__(
         self,
         *,
-        llm: Any,
+        llm: Any = None,
         context: LLMContext,
         options: Sequence[CallDispositionOption],
-        template_context: Mapping[str, Any],
+        template_context: Mapping[str, Any] | None,
+        llm_getter: Callable[[], Any] | None = None,
     ) -> None:
-        self._llm = llm
+        # The run's extraction client is bound after the caller is connected
+        # (it depends on the pre-call fetch), so the engine passes a getter
+        # that is resolved at extraction time.
+        self._get_llm = llm_getter if llm_getter is not None else (lambda: llm)
         self._context = context
         self._options = tuple(options)
-        self._template_context = dict(template_context)
+        # None means descriptions were rendered when the call was snapshotted.
+        self._template_context = (
+            dict(template_context) if template_context is not None else None
+        )
+
+    @property
+    def _llm(self) -> Any:
+        return self._get_llm()
 
     async def extract(
         self,
@@ -100,12 +114,13 @@ class DispositionExtractionService:
         parent_context: Any = None,
         organization_id: int | None = None,
         workflow_run_id: int | None = None,
+        raise_on_error: bool = False,
     ) -> str | None:
         """Return the configured disposition supported by the conversation."""
         if not self._options or self._llm is None or self._context is None:
             return None
         if not has_user_turns(self._context):
-            logger.debug(
+            logger.info(
                 "No user speech in the conversation; skipping disposition extraction"
             )
             return None
@@ -121,6 +136,8 @@ class DispositionExtractionService:
             )
 
             if response is None:
+                if raise_on_error:
+                    raise ExtractionResponseError("Empty disposition response")
                 logger.warning(
                     "Disposition extractor returned no response; keeping the fallback"
                 )
@@ -128,16 +145,29 @@ class DispositionExtractionService:
 
             extracted = parse_llm_json(response)
             if not isinstance(extracted, dict):
+                if raise_on_error:
+                    raise ExtractionResponseError("Invalid disposition response")
                 logger.warning(
                     "Disposition extractor returned non-object JSON; keeping the fallback"
                 )
                 return None
 
-            return _validate_disposition(
+            if raise_on_error and "call_disposition" not in extracted:
+                raise ExtractionResponseError("Missing disposition in response")
+            disposition = _validate_disposition(
                 extracted.get(CALL_DISPOSITION_CONTEXT_KEY),
                 (option.code for option in self._options),
             )
+            if (
+                raise_on_error
+                and extracted.get("call_disposition") is not None
+                and disposition is None
+            ):
+                raise ExtractionResponseError("Unsupported disposition")
+            return disposition
         except Exception as error:
+            if raise_on_error:
+                raise
             metadata = failure_metadata_for_processor(self._llm)
             log_failure(
                 classify_exception(
@@ -160,6 +190,8 @@ class DispositionExtractionService:
                         option.description,
                         self._template_context,
                     )
+                    if self._template_context is not None
+                    else option.description
                 }
             ).model_dump()
             for option in self._options

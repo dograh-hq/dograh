@@ -1,7 +1,8 @@
 import random
 from collections.abc import Iterable
+from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Annotated, Dict, Literal, Type, TypeVar, Union
+from typing import Annotated, ClassVar, Dict, Literal, Type, TypeVar, Union
 
 from pydantic import (
     BaseModel,
@@ -9,6 +10,7 @@ from pydantic import (
     Field,
     computed_field,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -32,6 +34,7 @@ from api.services.configuration.options import (
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
+    DEEPGRAM_TTS_DEFAULT_VOICES,
     ELEVENLABS_STT_LANGUAGES,
     ELEVENLABS_STT_MODELS,
     GLADIA_STT_LANGUAGES,
@@ -54,8 +57,8 @@ from api.services.configuration.options import (
     SARVAM_STT_LANGUAGES_V25,
     SARVAM_STT_MODELS,
     SARVAM_TTS_MODELS,
-    SARVAM_V2_VOICES,
     SARVAM_V3_VOICES,
+    SARVAM_V4_VOICES,
     SMALLEST_TTS_LANGUAGES,
     SMALLEST_TTS_MODELS,
     SMALLEST_TTS_PRO_VOICES,
@@ -63,11 +66,16 @@ from api.services.configuration.options import (
     SONIOX_STT_LANGUAGES,
     SONIOX_STT_MODELS,
     SPEECHMATICS_STT_LANGUAGES,
+    deepgram_tts_model_for_voice,
 )
 from api.services.configuration.options.google import (
     GOOGLE_VERTEX_DEFAULT_LOCATION,
     GOOGLE_VERTEX_LOCATIONS,
     GOOGLE_VERTEX_MODELS,
+)
+from api.services.configuration.temperature import (
+    resolve_temperature,
+    temperature_field,
 )
 
 
@@ -82,6 +90,7 @@ class ServiceType(Enum):
 class ServiceProviders(str, Enum):
     OPENAI = "openai"
     ATLASCLOUD = "atlascloud"
+    HOPPER = "hopper"
     DEEPGRAM = "deepgram"
     GROQ = "groq"
     OPENROUTER = "openrouter"
@@ -118,10 +127,35 @@ class ServiceProviders(str, Enum):
     SONIOX = "soniox"
 
 
+@dataclass(frozen=True)
+class Provider:
+    """Account identity and display metadata shared by registered services."""
+
+    id: str
+    title: str
+    description: str | None = None
+    provider_docs_url: str | None = None
+
+    def __post_init__(self):
+        if not self.id.strip() or not self.title.strip():
+            raise ValueError("Provider ID and title are required")
+
+    @property
+    def schema_config(self) -> ConfigDict:
+        extra = {}
+        if self.description is not None:
+            extra["description"] = self.description
+        if self.provider_docs_url is not None:
+            extra["provider_docs_url"] = self.provider_docs_url
+        return ConfigDict(title=self.title, json_schema_extra=extra)
+
+
 class BaseServiceConfiguration(BaseModel):
+    provider_definition: ClassVar[Provider]
     provider: Literal[
         ServiceProviders.OPENAI,
         ServiceProviders.ATLASCLOUD,
+        ServiceProviders.HOPPER,
         ServiceProviders.DEEPGRAM,
         ServiceProviders.GROQ,
         ServiceProviders.OPENROUTER,
@@ -188,6 +222,42 @@ class BaseLLMConfiguration(BaseServiceConfiguration):
     model: str
 
 
+class BaseChatLLMConfiguration(BaseLLMConfiguration):
+    # Realtime services intentionally do not inherit chat sampling settings.
+    temperature: float | None
+
+    @model_serializer(mode="wrap")
+    def serialize_temperature(self, handler, info):
+        data = handler(self)
+        # Configuration persistence and secret merging exclude None values.
+        # Temperature's explicit None must survive: omission restores the
+        # application default (often 0.1) rather than the provider default.
+        if (
+            info.exclude_none
+            and self.temperature is None
+            and (not info.exclude_unset or "temperature" in self.model_fields_set)
+            and (info.include is None or "temperature" in info.include)
+            and (info.exclude is None or "temperature" not in info.exclude)
+        ):
+            data["temperature"] = None
+        return data
+
+    @model_validator(mode="after")
+    def validate_model_temperature(self):
+        # Normalization must not mark an omitted field as explicitly supplied.
+        object.__setattr__(
+            self,
+            "temperature",
+            resolve_temperature(
+                self.provider,
+                self.model,
+                self.temperature,
+                base_url=getattr(self, "base_url", None),
+            ),
+        )
+        return self
+
+
 class BaseTTSConfiguration(BaseServiceConfiguration):
     model: str
 
@@ -200,7 +270,8 @@ class BaseEmbeddingsConfiguration(BaseServiceConfiguration):
     model: str
 
 
-# Unified registry for all service types
+# Runtime IDs stay stable for saved configurations and service factories.
+# Each registered class also carries its shared account provider definition.
 REGISTRY: Dict[ServiceType, Dict[str, Type[BaseServiceConfiguration]]] = {
     ServiceType.LLM: {},
     ServiceType.TTS: {},
@@ -256,91 +327,120 @@ def match_registered_provider(
     return max(matches, key=lambda match: (match[0], match[1]))[1]
 
 
-def register_service(service_type: ServiceType):
-    """Generic decorator for registering service configurations"""
+def get_provider_definition(provider_id: str) -> Provider | None:
+    """Accept account IDs and historical runtime IDs using registration metadata."""
+    for configurations in REGISTRY.values():
+        for runtime_id, cls in configurations.items():
+            definition = cls.provider_definition
+            if provider_id in (runtime_id, definition.id):
+                return definition
+    return None
+
+
+def get_service_configuration(
+    service_type: ServiceType, provider_id: str
+) -> Type[BaseServiceConfiguration] | None:
+    definition = get_provider_definition(provider_id)
+    if definition is None:
+        return None
+    return next(
+        (
+            cls
+            for cls in REGISTRY[service_type].values()
+            if cls.provider_definition.id == definition.id
+        ),
+        None,
+    )
+
+
+def register_service(service_type: ServiceType, *, provider: Provider):
+    """Register one service per account provider and role, retaining runtime IDs."""
 
     def decorator(cls: Type[T]) -> Type[T]:
-        # Get provider from class attributes or field defaults
-        provider = getattr(cls, "provider", None)
-        if provider is None:
-            # Try to get from model fields
-            provider = cls.model_fields.get("provider", None)
-            if provider is not None:
-                provider = provider.default
-        if provider is None:
-            raise ValueError(f"Provider not specified for {cls.__name__}")
+        field = cls.model_fields.get("provider")
+        if field is None or field.is_required() or not isinstance(field.default, str):
+            raise ValueError(f"Runtime provider default required for {cls.__name__}")
+        runtime_id = field.default
+        for role, configurations in REGISTRY.items():
+            for existing_id, existing in configurations.items():
+                definition = existing.provider_definition
+                if definition.id == provider.id:
+                    if definition != provider:
+                        raise ValueError(
+                            f"Conflicting metadata for provider {provider.id}"
+                        )
+                    if role == service_type:
+                        raise ValueError(
+                            f"Duplicate {service_type.name} provider {provider.id}"
+                        )
+                elif (
+                    runtime_id in (existing_id, definition.id)
+                    or provider.id == existing_id
+                ):
+                    raise ValueError(f"Ambiguous provider identity for {cls.__name__}")
 
-        REGISTRY[service_type][provider] = cls
+        cls.provider_definition = provider
+        cls.model_config = {**cls.model_config, **provider.schema_config}
+        cls.model_rebuild(force=True)
+        REGISTRY[service_type][runtime_id] = cls
         return cls
 
     return decorator
 
 
 # Convenience decorators
-def register_llm(cls: Type[BaseLLMConfiguration]):
-    return register_service(ServiceType.LLM)(cls)
+def register_llm(*, provider: Provider):
+    return register_service(ServiceType.LLM, provider=provider)
 
 
-def register_tts(cls: Type[BaseTTSConfiguration]):
-    return register_service(ServiceType.TTS)(cls)
+def register_tts(*, provider: Provider):
+    return register_service(ServiceType.TTS, provider=provider)
 
 
-def register_stt(cls: Type[BaseSTTConfiguration]):
-    return register_service(ServiceType.STT)(cls)
+def register_stt(*, provider: Provider):
+    return register_service(ServiceType.STT, provider=provider)
 
 
-def register_embeddings(cls: Type[BaseEmbeddingsConfiguration]):
-    return register_service(ServiceType.EMBEDDINGS)(cls)
-
-
-def provider_model_config(
-    title: str,
-    *,
-    description: str | None = None,
-    provider_docs_url: str | None = None,
-) -> ConfigDict:
-    json_schema_extra: dict[str, str] = {}
-    if description is not None:
-        json_schema_extra["description"] = description
-    if provider_docs_url is not None:
-        json_schema_extra["provider_docs_url"] = provider_docs_url
-    if json_schema_extra:
-        return ConfigDict(title=title, json_schema_extra=json_schema_extra)
-    return ConfigDict(title=title)
+def register_embeddings(*, provider: Provider):
+    return register_service(ServiceType.EMBEDDINGS, provider=provider)
 
 
 ###################################################### LLM ########################################################################
 
-# Suggested models for each provider (used for UI dropdown)
-OPENAI_PROVIDER_MODEL_CONFIG = provider_model_config("OpenAI")
-ATLASCLOUD_PROVIDER_MODEL_CONFIG = provider_model_config(
+# Account identities and labels are shared by each provider's services.
+OPENAI_PROVIDER = Provider("openai", "OpenAI")
+ATLASCLOUD_PROVIDER = Provider(
+    "atlascloud",
     "Atlas Cloud",
     description="Atlas Cloud OpenAI-compatible LLM API.",
 )
-GOOGLE_PROVIDER_MODEL_CONFIG = provider_model_config("Google")
-GROQ_PROVIDER_MODEL_CONFIG = provider_model_config("Groq")
-OPENROUTER_PROVIDER_MODEL_CONFIG = provider_model_config("Open Router")
-AZURE_OPENAI_PROVIDER_MODEL_CONFIG = provider_model_config("Azure OpenAI")
-DOGRAH_PROVIDER_MODEL_CONFIG = provider_model_config("Dograh")
-AWS_BEDROCK_PROVIDER_MODEL_CONFIG = provider_model_config("AWS Bedrock")
-GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG = provider_model_config("Google Vertex")
-OPENAI_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("OpenAI")
-GROK_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Grok Realtime")
-ULTRAVOX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Ultravox Realtime")
-GOOGLE_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Google Realtime")
-GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
-    "Google Vertex Realtime"
+HOPPER_PROVIDER = Provider(
+    "hopper",
+    "Hopper",
+    provider_docs_url="https://docs.withhopper.com",
 )
-DEEPGRAM_PROVIDER_MODEL_CONFIG = provider_model_config("Deepgram")
-ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
-CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
-XAI_PROVIDER_MODEL_CONFIG = provider_model_config("xAI")
-LMNT_PROVIDER_MODEL_CONFIG = provider_model_config("LMNT")
-SPEECHIFY_PROVIDER_MODEL_CONFIG = provider_model_config(
+GOOGLE_PROVIDER = Provider("google", "Google")
+GROQ_PROVIDER = Provider("groq", "Groq")
+OPENROUTER_PROVIDER = Provider("openrouter", "Open Router")
+AZURE_OPENAI_PROVIDER = Provider("azure", "Azure OpenAI")
+DOGRAH_PROVIDER = Provider("dograh", "Dograh")
+AWS_BEDROCK_PROVIDER = Provider("aws_bedrock", "AWS Bedrock")
+GOOGLE_VERTEX_PROVIDER = Provider("google_vertex", "Google Vertex")
+GROK_REALTIME_PROVIDER = Provider("grok_realtime", "Grok")
+ULTRAVOX_REALTIME_PROVIDER = Provider("ultravox_realtime", "Ultravox")
+DEEPGRAM_PROVIDER = Provider("deepgram", "Deepgram")
+ELEVENLABS_PROVIDER = Provider("elevenlabs", "ElevenLabs")
+CARTESIA_PROVIDER = Provider("cartesia", "Cartesia")
+XAI_PROVIDER = Provider("xai", "xAI")
+LMNT_PROVIDER = Provider("lmnt", "LMNT")
+MINIMAX_PROVIDER = Provider("minimax", "MiniMax")
+SPEECHIFY_PROVIDER = Provider(
+    "speechify",
     "Speechify",
     provider_docs_url="https://docs.speechify.ai",
 )
-INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
+INWORLD_PROVIDER = Provider(
+    "inworld",
     "Inworld",
     description=(
         "Inworld AI streaming text-to-speech with built-in and cloned voices. "
@@ -348,15 +448,15 @@ INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
     ),
     provider_docs_url="https://docs.inworld.ai/tts/tts",
 )
-SARVAM_PROVIDER_MODEL_CONFIG = provider_model_config("Sarvam")
-CAMB_PROVIDER_MODEL_CONFIG = provider_model_config("Camb.ai")
-RIME_PROVIDER_MODEL_CONFIG = provider_model_config("Rime")
-GOOGLE_CLOUD_PROVIDER_MODEL_CONFIG = provider_model_config("Google Cloud")
-SPEECHMATICS_PROVIDER_MODEL_CONFIG = provider_model_config("Speechmatics")
-ASSEMBLYAI_PROVIDER_MODEL_CONFIG = provider_model_config("AssemblyAI")
-GLADIA_PROVIDER_MODEL_CONFIG = provider_model_config("Gladia")
-SONIOX_PROVIDER_MODEL_CONFIG = provider_model_config("Soniox")
-SPEACHES_PROVIDER_MODEL_CONFIG = provider_model_config(
+SARVAM_PROVIDER = Provider("sarvam", "Sarvam")
+CAMB_PROVIDER = Provider("camb", "Camb.ai")
+RIME_PROVIDER = Provider("rime", "Rime")
+SPEECHMATICS_PROVIDER = Provider("speechmatics", "Speechmatics")
+ASSEMBLYAI_PROVIDER = Provider("assemblyai", "AssemblyAI")
+GLADIA_PROVIDER = Provider("gladia", "Gladia")
+SONIOX_PROVIDER = Provider("soniox", "Soniox")
+SPEACHES_PROVIDER = Provider(
+    "speaches",
     "Local Models (Speaches)",
     description=(
         "Self-hosted OpenAI-compatible local models. See the Speaches project "
@@ -364,22 +464,26 @@ SPEACHES_PROVIDER_MODEL_CONFIG = provider_model_config(
     ),
     provider_docs_url="https://github.com/speaches-ai/speaches",
 )
-HUGGINGFACE_PROVIDER_MODEL_CONFIG = provider_model_config(
+HUGGINGFACE_PROVIDER = Provider(
+    "huggingface",
     "Hugging Face",
     description="Hosted Hugging Face Inference Providers API for usage-based inference.",
     provider_docs_url="https://huggingface.co/docs/inference-providers/en/index",
 )
-AZURE_SPEECH_PROVIDER_MODEL_CONFIG = provider_model_config(
+AZURE_SPEECH_PROVIDER = Provider(
+    "azure_speech",
     "Azure Speech Services",
     description="Azure Cognitive Services Speech — TTS and STT via the Azure Speech SDK.",
     provider_docs_url="https://learn.microsoft.com/en-us/azure/ai-services/speech-service/",
 )
-AZURE_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
+AZURE_REALTIME_PROVIDER = Provider(
+    "azure_realtime",
     "Azure OpenAI Realtime",
     description="Azure OpenAI Realtime API — low-latency speech-to-speech conversations.",
     provider_docs_url="https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/realtime-audio-quickstart",
 )
-AWS_NOVA_SONIC_PROVIDER_MODEL_CONFIG = provider_model_config(
+AWS_NOVA_SONIC_PROVIDER = Provider(
+    "aws_nova_sonic",
     "AWS Nova 2 Sonic",
     description=(
         "Amazon Bedrock's realtime speech-to-speech model. Uses AWS IAM "
@@ -401,9 +505,15 @@ OPENAI_MODELS = [
     "gpt-3.5-turbo",
 ]
 
+ATLASCLOUD_API_BASE_URL = "https://api.atlascloud.ai/v1"
 ATLASCLOUD_MODELS = [
     "qwen/qwen3.5-flash",
     "deepseek-ai/deepseek-v4-pro",
+]
+
+HOPPER_API_BASE_URL = "https://api.withhopper.com/v1"
+HOPPER_MODELS = [
+    "gemma-4-31b",
 ]
 
 GROQ_MODELS = [
@@ -429,9 +539,9 @@ AWS_BEDROCK_MODELS = [
 ]
 
 
-@register_llm
-class OpenAILLMService(BaseLLMConfiguration):
-    model_config = OPENAI_PROVIDER_MODEL_CONFIG
+@register_llm(provider=OPENAI_PROVIDER)
+class OpenAILLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("openai", 0.1)
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: str = Field(
         default="gpt-4.1",
@@ -444,9 +554,9 @@ class OpenAILLMService(BaseLLMConfiguration):
     )
 
 
-@register_llm
-class AtlasCloudLLMService(BaseLLMConfiguration):
-    model_config = ATLASCLOUD_PROVIDER_MODEL_CONFIG
+@register_llm(provider=ATLASCLOUD_PROVIDER)
+class AtlasCloudLLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("atlascloud", 0.1)
     provider: Literal[ServiceProviders.ATLASCLOUD] = ServiceProviders.ATLASCLOUD
     model: str = Field(
         default="qwen/qwen3.5-flash",
@@ -454,14 +564,32 @@ class AtlasCloudLLMService(BaseLLMConfiguration):
         json_schema_extra={"examples": ATLASCLOUD_MODELS, "allow_custom_input": True},
     )
     base_url: str = Field(
-        default="https://api.atlascloud.ai/v1",
+        default=ATLASCLOUD_API_BASE_URL,
         description="Atlas Cloud OpenAI-compatible API endpoint.",
     )
 
 
-@register_llm
-class GoogleLLMService(BaseLLMConfiguration):
-    model_config = GOOGLE_PROVIDER_MODEL_CONFIG
+@register_llm(provider=HOPPER_PROVIDER)
+class HopperLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("hopper", 0.1)
+    provider: Literal[ServiceProviders.HOPPER] = ServiceProviders.HOPPER
+    api_key: str | list[str] = Field(
+        description="API key from your Hopper console.",
+        json_schema_extra={
+            "docs_url": "https://withhopper.com/console/keys",
+            "docs_label": "Create a key",
+        },
+    )
+    model: str = Field(
+        default="gemma-4-31b",
+        description="Hopper chat model.",
+        json_schema_extra={"examples": HOPPER_MODELS, "allow_custom_input": True},
+    )
+
+
+@register_llm(provider=GOOGLE_PROVIDER)
+class GoogleLLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("google", 0.1)
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
     model: str = Field(
         default="gemini-3.5-flash",
@@ -470,9 +598,9 @@ class GoogleLLMService(BaseLLMConfiguration):
     )
 
 
-@register_llm
-class GoogleVertexLLMConfiguration(BaseLLMConfiguration):
-    model_config = GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG
+@register_llm(provider=GOOGLE_VERTEX_PROVIDER)
+class GoogleVertexLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("google_vertex", 0.1)
     provider: Literal[ServiceProviders.GOOGLE_VERTEX] = ServiceProviders.GOOGLE_VERTEX
     model: str = Field(
         default="gemini-3.5-flash",
@@ -514,9 +642,9 @@ class GoogleVertexLLMConfiguration(BaseLLMConfiguration):
     )
 
 
-@register_llm
-class GroqLLMService(BaseLLMConfiguration):
-    model_config = GROQ_PROVIDER_MODEL_CONFIG
+@register_llm(provider=GROQ_PROVIDER)
+class GroqLLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("groq", 0.1)
     provider: Literal[ServiceProviders.GROQ] = ServiceProviders.GROQ
     model: str = Field(
         default="llama-3.3-70b-versatile",
@@ -525,9 +653,9 @@ class GroqLLMService(BaseLLMConfiguration):
     )
 
 
-@register_llm
-class OpenRouterLLMConfiguration(BaseLLMConfiguration):
-    model_config = OPENROUTER_PROVIDER_MODEL_CONFIG
+@register_llm(provider=OPENROUTER_PROVIDER)
+class OpenRouterLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("openrouter", 0.1)
     provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
     model: str = Field(
         default="openai/gpt-4.1",
@@ -550,9 +678,9 @@ class OpenRouterLLMConfiguration(BaseLLMConfiguration):
     )
 
 
-@register_llm
-class AzureLLMService(BaseLLMConfiguration):
-    model_config = AZURE_OPENAI_PROVIDER_MODEL_CONFIG
+@register_llm(provider=AZURE_OPENAI_PROVIDER)
+class AzureLLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("azure", 0.1)
     provider: Literal[ServiceProviders.AZURE] = ServiceProviders.AZURE
     model: str = Field(
         default="gpt-4.1-mini",
@@ -565,20 +693,25 @@ class AzureLLMService(BaseLLMConfiguration):
     )
 
 
-@register_llm
-class DograhLLMService(BaseLLMConfiguration):
-    model_config = DOGRAH_PROVIDER_MODEL_CONFIG
+@register_llm(provider=DOGRAH_PROVIDER)
+class DograhLLMService(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("dograh", None)
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
         default="default",
+        title="LLM model",
         description="Dograh-hosted model tier.",
-        json_schema_extra={"examples": DOGRAH_LLM_MODELS, "allow_custom_input": True},
+        json_schema_extra={
+            "examples": DOGRAH_LLM_MODELS,
+            "option_labels": {"default": "default (recommended)"},
+            "allow_custom_input": True,
+        },
     )
 
 
-@register_llm
-class AWSBedrockLLMConfiguration(BaseLLMConfiguration):
-    model_config = AWS_BEDROCK_PROVIDER_MODEL_CONFIG
+@register_llm(provider=AWS_BEDROCK_PROVIDER)
+class AWSBedrockLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("aws_bedrock", None)
     provider: Literal[ServiceProviders.AWS_BEDROCK] = ServiceProviders.AWS_BEDROCK
     model: str = Field(
         default="us.amazon.nova-pro-v1:0",
@@ -606,9 +739,9 @@ class AWSBedrockLLMConfiguration(BaseLLMConfiguration):
 SPEACHES_LLM_MODELS = ["llama3", "mistral", "phi3", "qwen2", "gemma2", "deepseek-r1"]
 
 
-@register_llm
-class SpeachesLLMConfiguration(BaseLLMConfiguration):
-    model_config = SPEACHES_PROVIDER_MODEL_CONFIG
+@register_llm(provider=SPEACHES_PROVIDER)
+class SpeachesLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("speaches", None)
     provider: Literal[ServiceProviders.SPEACHES] = ServiceProviders.SPEACHES
     model: str = Field(
         default="llama3",
@@ -635,9 +768,9 @@ HUGGINGFACE_LLM_MODELS = [
 ]
 
 
-@register_llm
-class HuggingFaceLLMConfiguration(BaseLLMConfiguration):
-    model_config = HUGGINGFACE_PROVIDER_MODEL_CONFIG
+@register_llm(provider=HUGGINGFACE_PROVIDER)
+class HuggingFaceLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("huggingface", 0.1)
     provider: Literal[ServiceProviders.HUGGINGFACE] = ServiceProviders.HUGGINGFACE
     model: str = Field(
         default="openai/gpt-oss-120b:cerebras",
@@ -664,8 +797,9 @@ MINIMAX_MODELS = [
 ]
 
 
-@register_llm
-class MiniMaxLLMConfiguration(BaseLLMConfiguration):
+@register_llm(provider=MINIMAX_PROVIDER)
+class MiniMaxLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("minimax", 1.0)
     provider: Literal[ServiceProviders.MINIMAX] = ServiceProviders.MINIMAX
     model: str = Field(
         default="MiniMax-M2.7",
@@ -676,31 +810,20 @@ class MiniMaxLLMConfiguration(BaseLLMConfiguration):
         default="https://api.minimax.io/v1",
         description="MiniMax OpenAI-compatible API endpoint.",
     )
-    temperature: float = Field(
-        default=1.0,
-        gt=0.0,
-        le=2.0,
-        description="Sampling temperature. MiniMax requires > 0.",
-    )
 
 
-@register_llm
-class SarvamLLMConfiguration(BaseLLMConfiguration):
-    model_config = SARVAM_PROVIDER_MODEL_CONFIG
+@register_llm(provider=SARVAM_PROVIDER)
+class SarvamLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("sarvam", 0.5)
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="sarvam-105b",
+        default="sarvam-105b-conversations",
         description="Sarvam chat model.",
         json_schema_extra={"examples": SARVAM_LLM_MODELS, "allow_custom_input": True},
     )
-    temperature: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=2.0,
-        description=(
-            "Sampling temperature. Sarvam recommends 0.5 for balanced "
-            "conversational responses."
-        ),
+    base_url: str = Field(
+        default="https://api.sarvam.ai/v1",
+        description="Sarvam API base URL.",
     )
 
 
@@ -765,9 +888,8 @@ AWS_NOVA_SONIC_REGIONS = [
 AWS_NOVA_SONIC_ENDPOINTING_SENSITIVITIES = ["HIGH", "MEDIUM", "LOW"]
 
 
-@register_service(ServiceType.REALTIME)
+@register_service(ServiceType.REALTIME, provider=OPENAI_PROVIDER)
 class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
-    model_config = OPENAI_REALTIME_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.OPENAI_REALTIME] = (
         ServiceProviders.OPENAI_REALTIME
     )
@@ -826,9 +948,8 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
         return data
 
 
-@register_service(ServiceType.REALTIME)
+@register_service(ServiceType.REALTIME, provider=AWS_NOVA_SONIC_PROVIDER)
 class AWSNovaSonicRealtimeLLMConfiguration(BaseLLMConfiguration):
-    model_config = AWS_NOVA_SONIC_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AWS_NOVA_SONIC] = ServiceProviders.AWS_NOVA_SONIC
     model: str = Field(
         default="amazon.nova-2-sonic-v1:0",
@@ -886,9 +1007,13 @@ class AWSNovaSonicRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     temperature: float = Field(
         default=0.7,
-        gt=0.0,
+        ge=0.0,
         le=1.0,
-        description="Sampling temperature for Nova 2 Sonic (greater than 0, up to 1).",
+        description="Sampling temperature for Nova 2 Sonic (0 to 1).",
+        json_schema_extra={
+            "docs_url": "https://docs.aws.amazon.com/nova/latest/nova2-userguide/sonic-input-events.html",
+            "docs_label": "Temperature documentation",
+        },
     )
     max_tokens: int = Field(
         default=1024,
@@ -916,9 +1041,8 @@ GROK_REALTIME_VOICES = ["ara", "rex", "sal", "eve", "leo"]
 ULTRAVOX_REALTIME_MODELS = ["ultravox-v0.7", "fixie-ai/ultravox"]
 
 
-@register_service(ServiceType.REALTIME)
+@register_service(ServiceType.REALTIME, provider=GROK_REALTIME_PROVIDER)
 class GrokRealtimeLLMConfiguration(BaseLLMConfiguration):
-    model_config = GROK_REALTIME_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GROK_REALTIME] = ServiceProviders.GROK_REALTIME
     model: str = Field(
         default="grok-voice-think-fast-1.0",
@@ -938,9 +1062,8 @@ class GrokRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
 
 
-@register_service(ServiceType.REALTIME)
+@register_service(ServiceType.REALTIME, provider=ULTRAVOX_REALTIME_PROVIDER)
 class UltravoxRealtimeLLMConfiguration(BaseLLMConfiguration):
-    model_config = ULTRAVOX_REALTIME_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.ULTRAVOX_REALTIME] = (
         ServiceProviders.ULTRAVOX_REALTIME
     )
@@ -956,16 +1079,26 @@ class UltravoxRealtimeLLMConfiguration(BaseLLMConfiguration):
         default="Mark",
         description="Ultravox voice name or voice ID.",
     )
+    temperature: float = Field(
+        # Preserve OneShotInputParams' pre-existing on-wire default.
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Sampling temperature. Lower values give more predictable responses.",
+        json_schema_extra={
+            "docs_url": "https://docs.ultravox.ai/api-reference/calls/calls-post",
+            "docs_label": "Temperature documentation",
+        },
+    )
 
 
-@register_service(ServiceType.REALTIME)
+@register_service(ServiceType.REALTIME, provider=GOOGLE_PROVIDER)
 class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
-    model_config = GOOGLE_REALTIME_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE_REALTIME] = (
         ServiceProviders.GOOGLE_REALTIME
     )
     model: str = Field(
-        default="gemini-3.1-flash-live-preview",
+        default="gemini-3.8-live",
         description="Gemini Live model on Google AI Studio (not Vertex).",
         json_schema_extra={
             "examples": GOOGLE_REALTIME_MODELS,
@@ -990,9 +1123,8 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
 
 
-@register_service(ServiceType.REALTIME)
+@register_service(ServiceType.REALTIME, provider=GOOGLE_VERTEX_PROVIDER)
 class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
-    model_config = GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE_VERTEX_REALTIME] = (
         ServiceProviders.GOOGLE_VERTEX_REALTIME
     )
@@ -1052,9 +1184,8 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
 
 
-@register_service(ServiceType.REALTIME)
+@register_service(ServiceType.REALTIME, provider=AZURE_REALTIME_PROVIDER)
 class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
-    model_config = AZURE_REALTIME_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AZURE_REALTIME] = ServiceProviders.AZURE_REALTIME
     model: str = Field(
         default="gpt-realtime",
@@ -1102,6 +1233,7 @@ LLMConfig = Annotated[
     Union[
         OpenAILLMService,
         AtlasCloudLLMService,
+        HopperLLMConfiguration,
         GoogleVertexLLMConfiguration,
         GroqLLMService,
         OpenRouterLLMConfiguration,
@@ -1133,13 +1265,52 @@ RealtimeConfig = Annotated[
 ###################################################### TTS ########################################################################
 
 
-@register_tts
+@register_tts(provider=DEEPGRAM_PROVIDER)
 class DeepgramTTSConfiguration(BaseServiceConfiguration):
-    model_config = DEEPGRAM_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
+    model: Literal["aura-2", "aura-1", "flux"] = Field(
+        default="aura-2",
+        description=(
+            "Voice family. Aura-2 and Aura-1 voices are served from Deepgram's v1 "
+            "endpoint; Flux voices stream from the v2 endpoint and support "
+            "expressivity. Changing the model clears the voice."
+        ),
+        json_schema_extra={
+            "option_labels": {"aura-2": "Aura-2", "aura-1": "Aura-1", "flux": "Flux"}
+        },
+    )
     voice: str = Field(
         default="aura-2-helena-en",
-        description="Deepgram voice ID (model is inferred from the 'aura-N' prefix).",
+        description="Deepgram voice ID from the selected family.",
+        json_schema_extra={
+            "voice_catalog": "dropdown",
+            "allow_custom_input": True,
+            "reset_on_change": ["model"],
+        },
+    )
+    speed: float | None = Field(
+        default=None,
+        ge=0.7,
+        le=1.5,
+        description=(
+            "Speaking rate multiplier (1.0 is normal speed). Leave blank to use "
+            "Deepgram's default. Supported by Flux voices and by Aura-2 English "
+            "and Spanish voices; 0.9–1.5 is recommended for Spanish."
+        ),
+        json_schema_extra={
+            "model_constraints": [{"pattern": "^aura-1$", "supported": False}]
+        },
+    )
+    expressivity: Literal[-2, -1, 0, 1, 2] | None = Field(
+        default=None,
+        description=(
+            "Expressive range for Flux voices, from -2 (calm) to 2 (animated). "
+            "Leave blank to use Deepgram's default."
+        ),
+        json_schema_extra={
+            "option_labels": {"-2": "-2 (calm)", "2": "2 (animated)"},
+            "visible_for_models": ["flux"],
+        },
     )
     base_url: str = Field(
         default=DEEPGRAM_DEFAULT_BASE_URL,
@@ -1155,32 +1326,100 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
         },
     )
 
-    @computed_field
-    @property
-    def model(self) -> str:
-        # Deepgram model's name is inferred using the voice name.
-        # It can either contain aura-2 or aura-1
-        if "aura-2" in self.voice:
-            return "aura-2"
-        elif "aura-1" in self.voice:
-            return "aura-1"
-        else:
-            # Default fallback
-            return "aura-2"
+    @model_validator(mode="before")
+    @classmethod
+    def complete_model_or_voice(cls, data):
+        # Stored settings predate the model field and carry only the voice, and
+        # a model switch arrives without a voice; either half names the other.
+        if not isinstance(data, dict):
+            return data
+        model, voice = data.get("model"), data.get("voice")
+        # Only well-typed halves complete each other; anything else is left for
+        # field validation to reject with a field error.
+        if model is not None and not isinstance(model, str):
+            return data
+        if isinstance(voice, str) and voice:
+            if model is None:
+                return {
+                    **data,
+                    "model": deepgram_tts_model_for_voice(voice) or "aura-2",
+                }
+            return data
+        if voice is None or voice == "":
+            model = "aura-2" if model is None else model
+            if model in DEEPGRAM_TTS_DEFAULT_VOICES:
+                return {
+                    **data,
+                    "model": model,
+                    "voice": DEEPGRAM_TTS_DEFAULT_VOICES[model],
+                }
+        return data
+
+    @field_validator("voice")
+    @classmethod
+    def voice_belongs_to_model(cls, voice, info):
+        family = deepgram_tts_model_for_voice(voice)
+        model = info.data.get("model")
+        if family is not None and model is not None and family != model:
+            raise ValueError(
+                f"{voice} is a {family} voice; pick a voice from the {model} "
+                "family or change the model"
+            )
+        return voice
+
+    @field_validator("speed")
+    @classmethod
+    def speed_supported_by_voice(cls, speed, info):
+        # Deepgram rejects the parameter outright for every other voice, so a
+        # saved value would only fail at call time.
+        model, voice = info.data.get("model"), info.data.get("voice") or ""
+        if speed is None or model == "flux":
+            return speed
+        if model == "aura-2" and voice.endswith(("-en", "-es")):
+            return speed
+        raise ValueError(
+            "Speed is only supported by Flux voices and by Aura-2 English and "
+            f"Spanish voices; leave it blank for {voice}"
+        )
 
 
-ELEVENLABS_TTS_MODELS = ["eleven_flash_v2_5"]
+ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN = r"^eleven_v[34]"
+ELEVENLABS_DIALOGUE_TTS_MODELS = [
+    "eleven_v3",
+    "eleven_v3_conversational",
+    "eleven_v4",
+    "eleven_v4_turbo",
+]
+ELEVENLABS_TTS_MODELS = [
+    "eleven_flash_v2_5",
+    "eleven_turbo_v2_5",
+    "eleven_multilingual_v2",
+    *ELEVENLABS_DIALOGUE_TTS_MODELS,
+]
 
 
-@register_tts
+@register_tts(provider=ELEVENLABS_PROVIDER)
 class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
-    model_config = ELEVENLABS_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.ELEVENLABS] = ServiceProviders.ELEVENLABS
     voice: str = Field(
         default="21m00Tcm4TlvDq8ikWAM",
         description="ElevenLabs voice ID from your Voice Library.",
+        json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
     )
-    speed: float = Field(default=1.0, ge=0.1, le=2.0, description="Speed of the voice.")
+    speed: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=2.0,
+        description="Speech speed for Flash, Turbo v2.5, and Multilingual models.",
+        json_schema_extra={
+            "model_constraints": [
+                {
+                    "pattern": ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN,
+                    "supported": False,
+                }
+            ]
+        },
+    )
     model: str = Field(
         default="eleven_flash_v2_5",
         description="ElevenLabs TTS model.",
@@ -1199,9 +1438,8 @@ class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
     )
 
 
-@register_tts
+@register_tts(provider=GOOGLE_PROVIDER)
 class GoogleTTSConfiguration(BaseTTSConfiguration):
-    model_config = GOOGLE_CLOUD_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
     model: str = Field(
         default="chirp_3_hd",
@@ -1260,9 +1498,8 @@ class GoogleTTSConfiguration(BaseTTSConfiguration):
 OPENAI_TTS_MODELS = ["gpt-4o-mini-tts"]
 
 
-@register_tts
+@register_tts(provider=OPENAI_PROVIDER)
 class OpenAITTSService(BaseTTSConfiguration):
-    model_config = OPENAI_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: str = Field(
         default="gpt-4o-mini-tts",
@@ -1282,9 +1519,8 @@ class OpenAITTSService(BaseTTSConfiguration):
 DOGRAH_TTS_MODELS = ["default"]
 
 
-@register_tts
+@register_tts(provider=DOGRAH_PROVIDER)
 class DograhTTSService(BaseTTSConfiguration):
-    model_config = DOGRAH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
         default="default",
@@ -1294,7 +1530,7 @@ class DograhTTSService(BaseTTSConfiguration):
     voice: str = Field(
         default="default",
         description="Voice preset.",
-        json_schema_extra={"allow_custom_input": True},
+        json_schema_extra={"voice_catalog": "dialog", "allow_custom_input": True},
     )
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice.")
 
@@ -1305,9 +1541,8 @@ INWORLD_TTS_VOICES = ["Ashley"]
 INWORLD_TTS_LANGUAGES = ["en-US"]
 
 
-@register_tts
+@register_tts(provider=CARTESIA_PROVIDER)
 class CartesiaTTSConfiguration(BaseTTSConfiguration):
-    model_config = CARTESIA_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.CARTESIA] = ServiceProviders.CARTESIA
     model: str = Field(
         default="sonic-3.6",
@@ -1317,6 +1552,7 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
     voice: str = Field(
         default="3faa81ae-d3d8-4ab1-9e44-e50e46d33c30",
         description="Cartesia voice UUID from your Cartesia dashboard.",
+        json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
     )
     speed: float = Field(default=1.0, ge=0.6, le=1.5, description="Speed of the voice.")
     volume: float = Field(
@@ -1332,9 +1568,8 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
     )
 
 
-@register_tts
+@register_tts(provider=INWORLD_PROVIDER)
 class InworldTTSConfiguration(BaseTTSConfiguration):
-    model_config = INWORLD_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.INWORLD] = ServiceProviders.INWORLD
     model: str = Field(
         default="inworld-tts-2",
@@ -1372,24 +1607,25 @@ class InworldTTSConfiguration(BaseTTSConfiguration):
     )
 
 
-@register_tts
+@register_tts(provider=SARVAM_PROVIDER)
 class SarvamTTSConfiguration(BaseTTSConfiguration):
-    model_config = SARVAM_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="bulbul:v2",
+        default="bulbul:v3",
         description="Sarvam TTS model (voice list depends on this).",
         json_schema_extra={"examples": SARVAM_TTS_MODELS},
     )
     voice: str = Field(
-        default="anushka",
+        default="shubh",
         description="Sarvam voice name or custom voice ID.",
         json_schema_extra={
-            "examples": SARVAM_V2_VOICES,
+            "voice_catalog": "dropdown",
+            "examples": SARVAM_V3_VOICES,
             "allow_custom_input": True,
+            "reset_on_change": ["model"],
             "model_options": {
-                "bulbul:v2": SARVAM_V2_VOICES,
                 "bulbul:v3": SARVAM_V3_VOICES,
+                "bulbul:v4-flash": SARVAM_V4_VOICES,
             },
         },
     )
@@ -1405,13 +1641,40 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         description="Speech speed multiplier.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _default_voice_for_model(cls, data):
+        if isinstance(data, dict):
+            model = data.get("model")
+            voice = data.get("voice")
+            if (
+                not voice
+                or not str(voice).strip()
+                or (
+                    voice == "shubh_enhi_ads"
+                    and model in ("bulbul:v3", "bulbul:v3-beta")
+                )
+            ):
+                if model in ("bulbul:v3", "bulbul:v3-beta"):
+                    data["voice"] = "shubh"
+                elif model == "bulbul:v4-flash":
+                    data["voice"] = "shubh_enhi_ads"
+        return data
+
+    @model_validator(mode="after")
+    def _align_default_voice_for_model(self):
+        if self.model in ("bulbul:v3", "bulbul:v3-beta") and (
+            not self.voice or self.voice == "shubh_enhi_ads"
+        ):
+            object.__setattr__(self, "voice", "shubh")
+        return self
+
 
 CAMB_TTS_MODELS = ["mars-flash", "mars-pro", "mars-instruct"]
 
 
-@register_tts
+@register_tts(provider=CAMB_PROVIDER)
 class CambTTSConfiguration(BaseTTSConfiguration):
-    model_config = CAMB_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.CAMB] = ServiceProviders.CAMB
     model: str = Field(
         default="mars-flash",
@@ -1426,9 +1689,8 @@ RIME_TTS_MODELS = ["arcana", "mistv3", "mistv2", "mist"]
 RIME_TTS_LANGUAGES = ["en", "de", "fr", "es", "hi"]
 
 
-@register_tts
+@register_tts(provider=RIME_PROVIDER)
 class RimeTTSConfiguration(BaseTTSConfiguration):
-    model_config = RIME_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.RIME] = ServiceProviders.RIME
     model: str = Field(
         default="arcana",
@@ -1438,6 +1700,7 @@ class RimeTTSConfiguration(BaseTTSConfiguration):
     voice: str = Field(
         default="celeste",
         description="Rime voice ID.",
+        json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
     )
     speed: float = Field(
         default=1.0, ge=0.5, le=2.0, description="Speech speed multiplier."
@@ -1452,9 +1715,8 @@ class RimeTTSConfiguration(BaseTTSConfiguration):
 SPEACHES_TTS_MODELS = ["hexgrad/Kokoro-82M"]
 
 
-@register_tts
+@register_tts(provider=SPEACHES_PROVIDER)
 class SpeachesTTSConfiguration(BaseTTSConfiguration):
-    model_config = SPEACHES_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SPEACHES] = ServiceProviders.SPEACHES
     model: str = Field(
         default="kokoro",
@@ -1493,7 +1755,7 @@ MINIMAX_TTS_VOICES = [
 ]
 
 
-@register_tts
+@register_tts(provider=MINIMAX_PROVIDER)
 class MiniMaxTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.MINIMAX] = ServiceProviders.MINIMAX
     model: str = Field(
@@ -1518,14 +1780,22 @@ class MiniMaxTTSConfiguration(BaseTTSConfiguration):
     speed: float = Field(
         default=1.0, ge=0.5, le=2.0, description="Speech speed (0.5 to 2.0)."
     )
+    volume: float = Field(
+        default=1.0,
+        gt=0.0,
+        le=10.0,
+        description=(
+            "Volume multiplier for generated speech (greater than 0, up to 10). "
+            "1.0 is normal volume."
+        ),
+    )
     group_id: str = Field(
         description="MiniMax Group ID (found in your MiniMax dashboard under Account → Group).",
     )
 
 
-@register_tts
+@register_tts(provider=AZURE_SPEECH_PROVIDER)
 class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
-    model_config = AZURE_SPEECH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AZURE_SPEECH] = ServiceProviders.AZURE_SPEECH
     model: str = Field(
         default="neural",
@@ -1563,16 +1833,16 @@ class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
     )
 
 
-SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
+SMALLEST_PROVIDER = Provider(
+    "smallest",
     "Smallest AI",
     description="Smallest AI ultralow-latency TTS (Waves) and STT (Pulse) APIs.",
     provider_docs_url="https://smallest.ai/docs",
 )
 
 
-@register_tts
+@register_tts(provider=SMALLEST_PROVIDER)
 class SmallestAITTSConfiguration(BaseTTSConfiguration):
-    model_config = SMALLEST_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
     model: str = Field(
         default="lightning_v3.1",
@@ -1610,9 +1880,8 @@ class SmallestAITTSConfiguration(BaseTTSConfiguration):
 XAI_TTS_VOICES = ["eve", "ara", "leo", "rex", "sal"]
 
 
-@register_tts
+@register_tts(provider=XAI_PROVIDER)
 class XAITTSConfiguration(BaseServiceConfiguration):
-    model_config = XAI_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.XAI] = ServiceProviders.XAI
     voice: str = Field(
         default="eve",
@@ -1640,7 +1909,7 @@ LMNT_TTS_VOICES = ["lily", "daniel", "ava", "caleb", "leah", "zeke"]
 class LmntTTSConfiguration(BaseTTSConfiguration):
     """Stored LMNT configurations remain readable after the provider's retirement."""
 
-    model_config = LMNT_PROVIDER_MODEL_CONFIG
+    model_config = LMNT_PROVIDER.schema_config
     provider: Literal[ServiceProviders.LMNT] = ServiceProviders.LMNT
     model: str = Field(
         default="aurora",
@@ -1692,9 +1961,8 @@ SPEECHIFY_TTS_LANGUAGES_BY_MODEL = {
 }
 
 
-@register_tts
+@register_tts(provider=SPEECHIFY_PROVIDER)
 class SpeechifyTTSConfiguration(BaseTTSConfiguration):
-    model_config = SPEECHIFY_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SPEECHIFY] = ServiceProviders.SPEECHIFY
     model: str = Field(
         default="simba-3.2",
@@ -1759,9 +2027,22 @@ TTSConfig = Annotated[
 ###################################################### STT ########################################################################
 
 
-@register_stt
+def _validate_flux_language_hints(hints: list[str]) -> list[str]:
+    # An unsupported hint rejects the whole Flux stream, so validate at save time.
+    unsupported = [
+        hint
+        for hint in hints
+        if hint.split("-", 1)[0].lower() not in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES
+    ]
+    if unsupported:
+        raise ValueError(
+            "Unsupported Flux multilingual language hints: " + ", ".join(unsupported)
+        )
+    return hints
+
+
+@register_stt(provider=DEEPGRAM_PROVIDER)
 class DeepgramSTTConfiguration(BaseSTTConfiguration):
-    model_config = DEEPGRAM_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
     model: str = Field(
         default="nova-3-general",
@@ -1815,24 +2096,11 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     @field_validator("language_hints")
     @classmethod
     def validate_language_hints(cls, hints: list[str]) -> list[str]:
-        # Deepgram rejects the whole stream for an unsupported hint, so catch it
-        # when the configuration is saved rather than when a call connects.
-        unsupported = [
-            hint
-            for hint in hints
-            if hint.split("-", 1)[0].lower() not in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES
-        ]
-        if unsupported:
-            raise ValueError(
-                "Unsupported Flux multilingual language hints: "
-                + ", ".join(unsupported)
-            )
-        return hints
+        return _validate_flux_language_hints(hints)
 
 
-@register_stt
+@register_stt(provider=CARTESIA_PROVIDER)
 class CartesiaSTTConfiguration(BaseSTTConfiguration):
-    model_config = CARTESIA_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.CARTESIA] = ServiceProviders.CARTESIA
     model: str = Field(
         default="ink-whisper",
@@ -1855,9 +2123,8 @@ class CartesiaSTTConfiguration(BaseSTTConfiguration):
 OPENAI_STT_MODELS = ["gpt-4o-transcribe"]
 
 
-@register_stt
+@register_stt(provider=OPENAI_PROVIDER)
 class OpenAISTTConfiguration(BaseSTTConfiguration):
-    model_config = OPENAI_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: str = Field(
         default="gpt-4o-transcribe",
@@ -1870,9 +2137,8 @@ class OpenAISTTConfiguration(BaseSTTConfiguration):
     )
 
 
-@register_stt
+@register_stt(provider=GOOGLE_PROVIDER)
 class GoogleSTTConfiguration(BaseSTTConfiguration):
-    model_config = GOOGLE_CLOUD_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
     model: str = Field(
         default="latest_long",
@@ -1918,9 +2184,8 @@ DOGRAH_STT_LANGUAGES = DEEPGRAM_LANGUAGES
 DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES = DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES
 
 
-@register_stt
+@register_stt(provider=DOGRAH_PROVIDER)
 class DograhSTTService(BaseSTTConfiguration):
-    model_config = DOGRAH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
         default="default",
@@ -1929,14 +2194,31 @@ class DograhSTTService(BaseSTTConfiguration):
     )
     language: str = Field(
         default="multi",
-        description="Language code; use 'multi' for auto-detect.",
+        description="Language code; use 'multi' for auto-detect, optionally guided by language hints.",
         json_schema_extra={"examples": DOGRAH_STT_LANGUAGES},
     )
+    language_hints: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Languages to bias transcription toward, in addition to the language "
+            "above. For English and Spanish calls, choose auto-detect and select "
+            "both hints. Hints guide recognition without restricting it to these "
+            "languages, and only apply to Flux-supported languages."
+        ),
+        json_schema_extra={
+            "examples": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
+            "visible_for_languages": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
+        },
+    )
+
+    @field_validator("language_hints")
+    @classmethod
+    def validate_language_hints(cls, hints: list[str]) -> list[str]:
+        return _validate_flux_language_hints(hints)
 
 
-@register_stt
+@register_stt(provider=SARVAM_PROVIDER)
 class SarvamSTTConfiguration(BaseSTTConfiguration):
-    model_config = SARVAM_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
         default="saarika:v2.5",
@@ -1961,9 +2243,8 @@ class SarvamSTTConfiguration(BaseSTTConfiguration):
     )
 
 
-@register_stt
+@register_stt(provider=SPEECHMATICS_PROVIDER)
 class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
-    model_config = SPEECHMATICS_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SPEECHMATICS] = ServiceProviders.SPEECHMATICS
     model: str = Field(
         default="linden-1",
@@ -1984,9 +2265,8 @@ SPEACHES_STT_MODELS = [
 SPEACHES_STT_LANGUAGES = ["en", "ar", "nl", "fr", "de", "hi", "it", "pt", "es"]
 
 
-@register_stt
+@register_stt(provider=SPEACHES_PROVIDER)
 class SpeachesSTTConfiguration(BaseSTTConfiguration):
-    model_config = SPEACHES_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SPEACHES] = ServiceProviders.SPEACHES
     model: str = Field(
         default="Systran/faster-distil-whisper-small.en",
@@ -2020,9 +2300,8 @@ HUGGINGFACE_STT_MODELS = [
 ]
 
 
-@register_stt
+@register_stt(provider=HUGGINGFACE_PROVIDER)
 class HuggingFaceSTTConfiguration(BaseSTTConfiguration):
-    model_config = HUGGINGFACE_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.HUGGINGFACE] = ServiceProviders.HUGGINGFACE
     model: str = Field(
         default="openai/whisper-large-v3-turbo",
@@ -2050,9 +2329,8 @@ ASSEMBLYAI_STT_MODELS = ["u3-rt-pro"]
 ASSEMBLYAI_STT_LANGUAGES = ["en", "es", "de", "fr", "pt", "it"]
 
 
-@register_stt
+@register_stt(provider=ASSEMBLYAI_PROVIDER)
 class AssemblyAISTTConfiguration(BaseSTTConfiguration):
-    model_config = ASSEMBLYAI_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.ASSEMBLYAI] = ServiceProviders.ASSEMBLYAI
     model: str = Field(
         default="u3-rt-pro",
@@ -2066,9 +2344,8 @@ class AssemblyAISTTConfiguration(BaseSTTConfiguration):
     )
 
 
-@register_stt
+@register_stt(provider=GLADIA_PROVIDER)
 class GladiaSTTConfiguration(BaseSTTConfiguration):
-    model_config = GLADIA_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GLADIA] = ServiceProviders.GLADIA
     model: str = Field(
         default="solaria-1",
@@ -2082,9 +2359,8 @@ class GladiaSTTConfiguration(BaseSTTConfiguration):
     )
 
 
-@register_stt
+@register_stt(provider=SONIOX_PROVIDER)
 class SonioxSTTConfiguration(BaseSTTConfiguration):
-    model_config = SONIOX_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SONIOX] = ServiceProviders.SONIOX
     model: str = Field(
         default="stt-rt-v5",
@@ -2104,9 +2380,8 @@ class SonioxSTTConfiguration(BaseSTTConfiguration):
     )
 
 
-@register_stt
+@register_stt(provider=AZURE_SPEECH_PROVIDER)
 class AzureSpeechSTTConfiguration(BaseSTTConfiguration):
-    model_config = AZURE_SPEECH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AZURE_SPEECH] = ServiceProviders.AZURE_SPEECH
     model: str = Field(
         default="latest_long",
@@ -2167,9 +2442,8 @@ SMALLEST_STT_LANGUAGES = [
 ]
 
 
-@register_stt
+@register_stt(provider=ELEVENLABS_PROVIDER)
 class ElevenlabsSTTConfiguration(BaseSTTConfiguration):
-    model_config = ELEVENLABS_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.ELEVENLABS] = ServiceProviders.ELEVENLABS
     model: str = Field(
         default="scribe_v2_realtime",
@@ -2200,9 +2474,8 @@ class ElevenlabsSTTConfiguration(BaseSTTConfiguration):
     )
 
 
-@register_stt
+@register_stt(provider=SMALLEST_PROVIDER)
 class SmallestAISTTConfiguration(BaseSTTConfiguration):
-    model_config = SMALLEST_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
     model: str = Field(
         default="pulse",
@@ -2245,9 +2518,8 @@ STTConfig = Annotated[
 OPENAI_EMBEDDING_MODELS = ["text-embedding-3-small"]
 
 
-@register_embeddings
+@register_embeddings(provider=OPENAI_PROVIDER)
 class OpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
-    model_config = OPENAI_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: str = Field(
         default="text-embedding-3-small",
@@ -2259,9 +2531,8 @@ class OpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
 OPENROUTER_EMBEDDING_MODELS = ["openai/text-embedding-3-small"]
 
 
-@register_embeddings
+@register_embeddings(provider=OPENROUTER_PROVIDER)
 class OpenRouterEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
-    model_config = OPENROUTER_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
     model: str = Field(
         default="openai/text-embedding-3-small",
@@ -2275,9 +2546,8 @@ class OpenRouterEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     )
 
 
-@register_embeddings
+@register_embeddings(provider=AZURE_OPENAI_PROVIDER)
 class AzureOpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
-    model_config = AZURE_OPENAI_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AZURE] = ServiceProviders.AZURE
     model: str = Field(
         default="text-embedding-3-small",
@@ -2302,9 +2572,8 @@ class AzureOpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
 DOGRAH_EMBEDDING_MODELS = ["dograh_embedding_v1"]
 
 
-@register_embeddings
+@register_embeddings(provider=DOGRAH_PROVIDER)
 class DograhEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
-    model_config = DOGRAH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
         default="dograh_embedding_v1",

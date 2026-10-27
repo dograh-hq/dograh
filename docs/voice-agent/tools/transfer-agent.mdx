@@ -1,6 +1,6 @@
 ---
 title: "Transfer to Agent"
-description: "Hand a live call from one Dograh agent to another, carrying a handover note so the caller never repeats themselves."
+description: "Hand a live call from one Dograh agent to another, carrying conversation history so the caller can continue where they left off."
 ---
 
 The Transfer to Agent tool hands the caller from the agent they are talking to over to another Dograh agent, without dropping the call. The caller stays on the same call throughout: they hear a short handover line, then a ringer, then the next agent picks up.
@@ -15,7 +15,7 @@ Both tools move the caller somewhere else, but they are not interchangeable.
 |---|---|---|
 | Destination | Another Dograh agent, by `workflow_id` | A phone number or SIP endpoint |
 | Who answers | A Dograh agent | A human, queue, or external phone system |
-| Context | **Warm** — a handover note plus recent turns travel with the caller | **Blind** — no conversation context is passed |
+| Context | A labeled transcript of the previous agents' conversation | Optional spoken introduction on Twilio; otherwise no conversation context is passed |
 | Availability | Any cascade call, including web calls | Telephony only (Twilio, Telnyx, Asterisk ARI) |
 
 If the caller should end up talking to a person, use Call Transfer. If they should end up talking to another one of your agents, use this tool.
@@ -25,20 +25,18 @@ If the caller should end up talking to a person, use Call Transfer. If they shou
 1. The agent calls the Transfer to Agent tool.
 2. The current agent speaks the configured handover message in its own voice.
 3. The caller hears a ringer while Dograh prepares the destination agent.
-4. In parallel, Dograh compacts the conversation so far into a handover note.
-5. The destination agent takes over at its **Start Call** node. By default it plays that node's greeting. With **Play greeting** turned off, it skips the greeting and opens with a reply based on the handover note.
+4. Dograh labels the available conversation as history from the previous agent, including anything the caller said during the handoff.
+5. The destination agent takes over at its **Start Call** node and opens the way its **Greeting mode** says: it plays that node's greeting and waits for the caller, continues straight into a reply based on the conversation history, or says a fixed introduction in its own voice and then continues.
 
-The agent that called the tool does not speak again after the tool fires. Dograh suppresses its next generation deliberately, because the caller is already hearing the handover message and the ringer, and the agent is being handed off regardless of what it would have said.
+After a transfer is accepted, Dograh suppresses the source agent's next generation while the handover message and ringer play. If the transfer is refused, the agent can explain the result and continue helping the caller.
 
 ## What the destination agent receives
 
-The destination does not start cold, and it does not receive the raw transcript either. It starts from:
+The destination receives one historical message containing the available conversation, with a heading such as `Conversation with previous agent "Reception":`. Caller and agent speech are labeled separately. This applies to every handoff, with **no minimum number of turns** and no LLM summary call during the transfer.
 
-- A **handover note** summarizing what the caller wants, every fact they gave (names, numbers, dates, addresses, reference identifiers, reproduced exactly), what has been promised, and what is still outstanding
-- The **most recent turns kept verbatim**, so it can answer an "as I was saying" without re-reading the call
-- Anything the caller said while the handoff was still running
+Earlier agents' history stays in the same transcript across repeated transfers. Speech added while the destination is being prepared is included and marked as happening during the transfer. The destination is told that this is historical context and that the transfer is already complete.
 
-The source agent's tool calls and tool results are filtered out — they belong to the previous agent's execution context, not the conversation.
+The source agent's prompts, tool calls, and tool results are filtered out. Spoken text accompanying a tool call, such as the handover announcement, is retained. Later node transitions preserve the inherited transcript when summarizing the current agent's own conversation.
 
 <Note>
 Because context travels with the caller, the destination agent should not re-ask for information the caller already gave. Say so in its prompt.
@@ -46,11 +44,15 @@ Because context travels with the caller, the destination agent should not re-ask
 
 ## Configuration
 
-A Transfer to Agent tool has three settings. Everything else about how a handoff sounds is fixed.
+A Transfer to Agent tool has four settings. Everything else about how a handoff sounds is fixed.
 
 - **Agent** (`workflow_id`, required) — the id of the Dograh agent to transfer to. It must belong to the same organization.
-- **Handover message** (`message`) — spoken by the current agent, in its own voice, just before the handover. Supports [template variables](/voice-agent/template-variables). Maximum 500 characters. Defaults to "Let me connect you with the right person. One moment please." Leave it empty to hand over without saying anything.
-- **Play greeting** (`play_greeting`, default `true`) — whether the destination agent opens with its Start Call greeting. Turn it off when the destination should continue the conversation rather than introduce itself, for example an agent that greets callers on its own phone number but is also a transfer target. It then opens with a reply generated from the handover note.
+- **Handover message** — stored as one text entry with `event: "start"` in `definition.messages`. Spoken by the current agent, in its own voice, just before the handover. Supports [template variables](/voice-agent/template-variables). Maximum 500 characters. The editor starts with "Let me connect you with the right person. One moment please." Leave it empty, or send `messages: []` through the API, to hand over without saying anything.
+- **Greeting mode** (`greeting_mode`, default `start_greeting`) — how the destination agent opens once it has the call:
+  - `start_greeting` — it plays its Start Call greeting and waits for the caller to speak. If the destination has no Start Call greeting, it opens with a generated reply instead. Right for an agent whose greeting already asks what the caller needs.
+  - `continue` — it skips the greeting and opens with a reply generated from the conversation history. Right for an agent that greets callers on its own phone number but is also a transfer target, and should not introduce itself twice.
+  - `introduce_and_continue` — it says the **Introduction** in its own voice, then opens with a generated reply. Right for an agent that only ever answers handoffs: the caller hears who picked up without having to repeat themselves, and the introduction cannot be lost when the first generated turn is a tool call.
+- **Introduction** (`introduction`) — what the destination agent says as it takes over, in its own voice. Required with `introduce_and_continue` and not accepted with the other modes. Supports [template variables](/voice-agent/template-variables). Maximum 500 characters. Write it in the language the destination agent speaks, and make it a handover line rather than a copy of its Start Call greeting: "Hi, this is Billing, my colleague has filled me in" rather than "Thanks for calling, how can I help?".
 
 Set the handover message in the language the destination agent speaks. The default is English, which will sound wrong in front of a Portuguese or Spanish agent.
 
@@ -69,6 +71,14 @@ Description: Hand the call to the billing agent. Call this only once the
 
 If the model picks the wrong destination, fix the tool descriptions before you touch the prompt — the description is what it routes on.
 
+## Transcription during a transfer
+
+When both agents use the same STT provider, model and connection configuration, a committed handoff attempts to apply the destination's supported settings to the call's existing STT service before the destination opens. Supported settings include **Language**, **Language hints**, and Hugging Face's **Return timestamps** option. If the update fails or the provider rejects it, the handoff still continues, and recognition may keep using the preceding agent's settings. Credentials, endpoints, regions, keyterms and turn detection stay fixed for the call; a destination requiring a different provider, model or connection keeps the call's existing STT configuration.
+
+The STT service controls how an update takes effect. Multilingual Flux (Deepgram or Dograh) and AssemblyAI U3 Pro update language steering on the existing session. Other streaming services may restart their stream through their settings API; Speaches and Hugging Face use the updated settings on subsequent transcription requests. Choosing automatic language detection clears the preceding agent's language selection where supported.
+
+Some services cannot apply language changes during a call: Gladia, Dograh's legacy STT backend, Cartesia `ink-2`, English-only Flux, and AssemblyAI models without language steering retain their initial settings. Dograh also keeps the existing settings when a language change would switch between its Flux and legacy backends. OpenAI transcription currently exposes no per-agent setting besides its model.
+
 ## Availability
 
 Agent transfer works on every cascade call, including web calls, which is where it differs most from Call Transfer.
@@ -84,15 +94,41 @@ It is **not** available on speech-to-speech (realtime) agents. The tool still re
   "description": "Hand the call to the billing agent once the caller says their question is about an invoice, a charge, or a refund.",
   "definition": {
     "type": "transfer_agent",
+    "messages": [
+      {
+        "event": "start",
+        "type": "text",
+        "text": "Let me put you through to our billing team. One moment."
+      }
+    ],
     "config": {
-      "workflow_id": 117,
-      "message": "Let me put you through to our billing team. One moment."
+      "workflow_id": 117
     }
   }
 }
 ```
 
 The destination agent must exist before you create the tool, because the tool stores its id. When you are building a set of agents programmatically, create the destination agents first, then the tools, then the agent that routes between them.
+
+To have the destination introduce itself and carry straight on, set the greeting mode and the introduction together in the definition:
+
+```json
+{
+  "type": "transfer_agent",
+  "messages": [
+    {
+      "event": "start",
+      "type": "text",
+      "text": "Let me put you through to our billing team. One moment."
+    }
+  ],
+  "config": {
+    "workflow_id": 117,
+    "greeting_mode": "introduce_and_continue",
+    "introduction": "Hi, this is Billing. My colleague has filled me in, so let's carry on."
+  }
+}
+```
 
 ## Prompting the routing agent
 
@@ -121,6 +157,14 @@ Two transfer tools fired for the same call. Tighten the firing conditions in the
 
 The tool's `workflow_id` is missing or is not an integer. Re-create the tool with a valid agent id.
 
+### The destination agent introduces itself and then waits for the caller to repeat themselves
+
+Its greeting mode is `start_greeting`, so it plays its Start Call greeting and then waits for a turn, as it would on a fresh call. Switch the tool to `introduce_and_continue` with an introduction, or to `continue` if the destination should not introduce itself at all.
+
+### The destination agent sometimes skips its introduction
+
+With `continue`, the introduction depends on the model, and a first turn that starts with a tool call, such as a knowledge-base lookup, usually drops it. Prompting does not fix this reliably. Switch the tool to `introduce_and_continue` so the introduction is spoken before the model's first turn.
+
 ### The destination agent re-asks something the caller already answered
 
-The handover note reached it, but its prompt does not tell it to use what it already has. Add an instruction that the caller has already spoken to a colleague and should not be asked to repeat themselves.
+Check that the destination agent's prompt tells it to use the conversation history from previous agents. Add an instruction that the caller has already spoken to a colleague and should not be asked to repeat themselves.

@@ -21,15 +21,18 @@ node changes.
 """
 
 import json
-from typing import TYPE_CHECKING, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
 from api.errors.failure import (
     classify_exception,
     classify_message,
+    describe_exception,
     failure_metadata_for_processor,
     log_failure,
+    response_body_detail,
 )
 from api.services.observability.call_events.metrics import ttfb_kind
 from api.services.pipecat.agent_bridge import AgentWorker
@@ -45,6 +48,7 @@ from api.services.pipecat.realtime_feedback_events import (
 if TYPE_CHECKING:
     from api.services.observability.call_events.recorder import CallEventRecorder
     from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
+    from api.services.pipecat.speech_playback import SpeechPlayback
     from api.services.pipecat.transcript_log_coordinator import (
         TranscriptLogCoordinator,
     )
@@ -114,7 +118,78 @@ class RealtimeFeedbackObserver(BaseObserver):
 
     async def log_speech(self, text: str):
         """Persist speech that is intentionally excluded from assistant context."""
-        await self._append_to_buffer(build_bot_text_event(text=text))
+        from pipecat.utils.text.spoken_text_filter import SpokenTextFilter
+
+        # Queued announcements can be logged before reaching the TTS service.
+        text = await SpokenTextFilter().filter(text)
+        if text.strip():
+            await self._append_to_buffer(build_bot_text_event(text=text))
+
+    def speech_log_context(self) -> dict:
+        if self._logs_buffer is None:
+            return {}
+        return {
+            "turn": self._logs_buffer.current_turn,
+            "node_id": self._logs_buffer.current_node_id,
+            "node_name": self._logs_buffer.current_node_name,
+        }
+
+    async def log_background_greeting_speech(
+        self,
+        speech: "SpeechPlayback",
+        text: str,
+        started_at: str | None,
+        stopped_at: str | None,
+    ) -> None:
+        if not text or self._logs_buffer is None:
+            return
+        event = build_user_transcription_event(
+            text=text, final=True, timestamp=started_at, end_timestamp=stopped_at
+        )
+        event["payload"]["background_greeting_id"] = speech.id
+        # Group background speech before the greeting in the transcript. Actual
+        # speech times remain in the payload, including their overlap.
+        await self._logs_buffer.append(
+            event,
+            timestamp=speech.first_output_at or speech.finished_at,
+            use_current_node=False,
+            use_current_turn=False,
+            **{
+                key: speech.log_context[key]
+                for key in ("turn", "node_id", "node_name")
+                if key in speech.log_context
+            },
+        )
+
+    async def log_greeting(self, speech: "SpeechPlayback") -> None:
+        if not speech.delivered_text or self._logs_buffer is None:
+            return
+        event = build_bot_text_event(
+            text=speech.delivered_text,
+            timestamp=speech.first_output_at,
+            end_timestamp=speech.finished_at,
+        )
+        event["payload"].update(
+            speech_id=speech.id,
+            outcome=speech.outcome.value,
+            interrupted=speech.outcome.value == "interrupted",
+            played_ms=round(speech.played_seconds * 1000),
+            timing_source=speech.timing_source,
+            **{
+                key: speech.log_context[key]
+                for key in ("pipeline_type", "interruption_mode")
+                if key in speech.log_context
+            },
+        )
+        await self._logs_buffer.append(
+            event,
+            timestamp=speech.first_output_at,
+            use_current_node=False,
+            use_current_turn=False,
+            turn=speech.log_context.get("turn"),
+            node_id=speech.log_context.get("node_id"),
+            node_name=speech.log_context.get("node_name"),
+        )
 
     async def on_push_frame(self, data: FramePushed):
         """Process frames and send relevant ones to the client."""
@@ -298,10 +373,16 @@ class RealtimeFeedbackObserver(BaseObserver):
                 fatal=fatal,
             )
 
+            error_text = frame.error
             if exc is not None:
                 exc_type = type(exc).__name__
                 extra_payload["exception_type"] = exc_type
-                extra_payload["exception_message"] = str(exc)
+                extra_payload["exception_message"] = describe_exception(exc)
+                # A rejected handshake stringifies to just the status code; the
+                # server's reason is what makes the error actionable.
+                detail = response_body_detail(exc)
+                if detail and detail not in error_text:
+                    error_text = f"{error_text} ({detail})"
                 for attr in ("code", "status", "message", "details"):
                     value = getattr(exc, attr, None)
                     if value is None or attr in extra_payload:
@@ -315,7 +396,7 @@ class RealtimeFeedbackObserver(BaseObserver):
                         extra_payload[attr] = str(value)
             await self._send_message(
                 build_pipeline_error_event(
-                    error=frame.error,
+                    error=error_text,
                     fatal=fatal,
                     processor=processor_name,
                     extra_payload=extra_payload or None,

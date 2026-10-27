@@ -6,6 +6,9 @@ must never carry checkpoint (serialized LLM context incl. system prompt),
 events (raw exception text), usage, or run context fields.
 """
 
+import asyncio
+import json
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -465,7 +468,13 @@ def test_get_chat_session_returns_lean_projection(monkeypatch):
     assert body["is_completed"] is False
 
     turn = body["turns"][0]
-    assert set(turn.keys()) == {"id", "status", "user_message", "assistant_message"}
+    assert set(turn.keys()) == {
+        "id",
+        "status",
+        "user_message",
+        "assistant_message",
+        "assistant_messages",
+    }
     assert set(turn["user_message"].keys()) == {"text", "created_at"}
     assert set(turn["assistant_message"].keys()) == {"text", "created_at"}
     # Nothing sensitive anywhere in the payload.
@@ -480,7 +489,13 @@ def test_projection_builder_strips_sensitive_fields():
     dumped = response.model_dump()
     assert set(dumped.keys()) == {"revision", "state", "is_completed", "turns"}
     for turn in dumped["turns"]:
-        assert set(turn.keys()) == {"id", "status", "user_message", "assistant_message"}
+        assert set(turn.keys()) == {
+            "id",
+            "status",
+            "user_message",
+            "assistant_message",
+            "assistant_messages",
+        }
     # The greeting turn has no user message.
     assert dumped["turns"][1]["user_message"] is None
 
@@ -618,7 +633,8 @@ def test_post_message_happy_path(monkeypatch):
     assert "SECRET" not in resp.text
 
 
-def test_post_message_revision_conflict_409(monkeypatch):
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_post_message_revision_conflict_409(monkeypatch, suffix):
     _patch_chat_text_session(monkeypatch, _text_session())
 
     async def _append(**_kwargs):
@@ -632,7 +648,7 @@ def test_post_message_revision_conflict_409(monkeypatch):
     )
 
     resp = client.post(
-        "/api/v1/public/embed/chat/session-chat/messages",
+        f"/api/v1/public/embed/chat/session-chat/messages{suffix}",
         headers={"Origin": ORIGIN},
         json={"text": "hello", "expected_revision": 3},
     )
@@ -642,7 +658,8 @@ def test_post_message_revision_conflict_409(monkeypatch):
     assert detail["actual_revision"] == 5
 
 
-def test_post_message_rate_limit_429(monkeypatch):
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_post_message_rate_limit_429(monkeypatch, suffix):
     _patch_chat_text_session(monkeypatch, _text_session())
 
     async def _rate_limited(_workflow_run_id):
@@ -654,7 +671,7 @@ def test_post_message_rate_limit_429(monkeypatch):
     )
 
     resp = client.post(
-        "/api/v1/public/embed/chat/session-chat/messages",
+        f"/api/v1/public/embed/chat/session-chat/messages{suffix}",
         headers={"Origin": ORIGIN},
         json={"text": "hello", "expected_revision": 3},
     )
@@ -662,7 +679,8 @@ def test_post_message_rate_limit_429(monkeypatch):
     assert resp.status_code == 429
 
 
-def test_post_message_turn_cap_429(monkeypatch):
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_post_message_turn_cap_429(monkeypatch, suffix):
     _patch_chat_text_session(monkeypatch, _text_session())
 
     async def _append(**_kwargs):
@@ -674,14 +692,15 @@ def test_post_message_turn_cap_429(monkeypatch):
     )
 
     resp = client.post(
-        "/api/v1/public/embed/chat/session-chat/messages",
+        f"/api/v1/public/embed/chat/session-chat/messages{suffix}",
         headers={"Origin": ORIGIN},
         json={"text": "hello"},
     )
     assert resp.status_code == 429
 
 
-def test_post_message_quota_402(monkeypatch):
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_post_message_quota_402(monkeypatch, suffix):
     _patch_chat_text_session(monkeypatch, _text_session())
 
     async def _authorize(**_kwargs):
@@ -693,14 +712,15 @@ def test_post_message_quota_402(monkeypatch):
     )
 
     resp = client.post(
-        "/api/v1/public/embed/chat/session-chat/messages",
+        f"/api/v1/public/embed/chat/session-chat/messages{suffix}",
         headers={"Origin": ORIGIN},
         json={"text": "hello"},
     )
     assert resp.status_code == 402
 
 
-def test_post_message_execution_error_generic_500(monkeypatch):
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_post_message_execution_error_generic_500(monkeypatch, suffix):
     _patch_chat_text_session(monkeypatch, _text_session())
 
     async def _append(**_kwargs):
@@ -712,7 +732,7 @@ def test_post_message_execution_error_generic_500(monkeypatch):
     )
 
     resp = client.post(
-        "/api/v1/public/embed/chat/session-chat/messages",
+        f"/api/v1/public/embed/chat/session-chat/messages{suffix}",
         headers={"Origin": ORIGIN},
         json={"text": "hello"},
     )
@@ -720,11 +740,12 @@ def test_post_message_execution_error_generic_500(monkeypatch):
     assert "secret" not in resp.text
 
 
-def test_post_message_completed_run_400(monkeypatch):
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_post_message_completed_run_400(monkeypatch, suffix):
     _patch_chat_text_session(monkeypatch, _text_session(is_completed=True))
 
     resp = client.post(
-        "/api/v1/public/embed/chat/session-chat/messages",
+        f"/api/v1/public/embed/chat/session-chat/messages{suffix}",
         headers={"Origin": ORIGIN},
         json={"text": "hello"},
     )
@@ -732,14 +753,15 @@ def test_post_message_completed_run_400(monkeypatch):
     assert resp.json()["detail"]["code"] == "chat_completed"
 
 
-def test_post_message_completed_session_status_400(monkeypatch):
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_post_message_completed_session_status_400(monkeypatch, suffix):
     _patch_chat_text_session(
         monkeypatch,
         _text_session(status="completed", is_completed=False),
     )
 
     resp = client.post(
-        "/api/v1/public/embed/chat/session-chat/messages",
+        f"/api/v1/public/embed/chat/session-chat/messages{suffix}",
         headers={"Origin": ORIGIN},
         json={"text": "hello"},
     )
@@ -747,11 +769,12 @@ def test_post_message_completed_session_status_400(monkeypatch):
     assert resp.json()["detail"]["code"] == "chat_completed"
 
 
-def test_post_message_voice_run_400(monkeypatch):
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_post_message_voice_run_400(monkeypatch, suffix):
     _patch_chat_text_session(monkeypatch, _text_session(mode="smallwebrtc"))
 
     resp = client.post(
-        "/api/v1/public/embed/chat/session-chat/messages",
+        f"/api/v1/public/embed/chat/session-chat/messages{suffix}",
         headers={"Origin": ORIGIN},
         json={"text": "hello"},
     )
@@ -905,3 +928,219 @@ def test_turn_credentials_rejects_inactive_token(monkeypatch):
         headers={"Origin": ORIGIN},
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initializing", [False, True])
+async def test_public_stream_delivers_speech_before_tool_finishes(
+    monkeypatch, initializing
+):
+    pending_turn = {
+        **deepcopy(_SENSITIVE_TURN),
+        "status": "pending",
+        "assistant_message": None,
+        "message_events_version": 1,
+    }
+    pending = _text_session(turns=[pending_turn], status="pending_assistant_turn")
+    _patch_chat_text_session(monkeypatch, pending)
+    release = asyncio.Event()
+    announcement_sent = asyncio.Event()
+    chunks = []
+    starts = []
+    executions = []
+
+    async def prepare(**kwargs):
+        assert kwargs["defer_execution"] is True
+        return pending
+
+    async def execute(**kwargs):
+        executions.append(kwargs)
+        speech = {
+            "type": "bot_speech",
+            "created_at": "2026-07-31T00:00:00Z",
+            "payload": {"text": "Please wait…", "private": "SECRET"},
+        }
+        kwargs["on_event"](speech)
+        kwargs["on_event"]({"type": "tool_call", "payload": {"arguments": "SECRET"}})
+        await asyncio.wait_for(release.wait(), timeout=5)
+        result = {
+            "type": "bot_speech",
+            "created_at": "2026-07-31T00:00:01Z",
+            "payload": {"text": "Your result is ready."},
+        }
+        kwargs["on_event"](result)
+        completed = {
+            **pending_turn,
+            "status": "completed",
+            "assistant_message": {"text": "Please wait… Your result is ready."},
+            "events": [speech, result, *_SENSITIVE_TURN["events"]],
+        }
+        return _text_session(turns=[completed], revision=4)
+
+    monkeypatch.setattr("api.routes.public_embed.start_embed_text_chat", prepare)
+    monkeypatch.setattr(
+        "api.services.workflow.embed_text_chat_service.append_embed_text_chat_message",
+        prepare,
+    )
+    monkeypatch.setattr(
+        "api.services.workflow.text_chat_stream.execute_pending_text_chat_turn", execute
+    )
+    path = (
+        "/api/v1/public/embed/init/stream"
+        if initializing
+        else "/api/v1/public/embed/chat/session-chat/messages/stream"
+    )
+    request_body = json.dumps(
+        {"token": "chat"} if initializing else {"text": "hello", "expected_revision": 3}
+    ).encode()
+    request_sent = False
+
+    async def receive():
+        nonlocal request_sent
+        if not request_sent:
+            request_sent = True
+            return {"type": "http.request", "body": request_body, "more_body": False}
+        await asyncio.Event().wait()
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            starts.append(message)
+        if message["type"] == "http.response.body":
+            chunks.append(message.get("body", b""))
+            if b'"type":"message"' in message.get("body", b""):
+                announcement_sent.set()
+
+    task = asyncio.create_task(
+        app(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0", "spec_version": "2.4"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": path,
+                "raw_path": path.encode(),
+                "query_string": b"",
+                "root_path": "",
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"origin", ORIGIN.encode()),
+                ],
+                "client": ("127.0.0.1", 1234),
+                "server": ("testserver", 80),
+            },
+            receive,
+            send,
+        )
+    )
+    try:
+        await asyncio.wait_for(announcement_sent.wait(), timeout=5)
+        partial = b"".join(chunks).decode()
+        assert "Please wait…" in partial
+        assert "Your result is ready" not in partial
+        assert not task.done()
+        assert starts[0]["status"] == 200
+        headers = dict(starts[0]["headers"])
+        assert headers[b"access-control-allow-origin"] == ORIGIN.encode()
+        assert headers[b"x-accel-buffering"] == b"no"
+        release.set()
+        await asyncio.wait_for(task, timeout=5)
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    body = b"".join(chunks).decode()
+    events = [
+        json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")
+    ]
+    assert [event["type"] for event in events] == [
+        "session",
+        "message",
+        "message",
+        "complete",
+    ]
+    if initializing:
+        assert events[0]["session_token"]
+        assert events[0]["workflow_run_id"] == 123
+    assert [event["index"] for event in events if event["type"] == "message"] == [0, 1]
+    assert len(executions) == 1
+    assert "SECRET" not in body and "Traceback" not in body
+    assert "tool_call" not in body and "checkpoint" not in body
+    assert [
+        message["text"]
+        for message in events[-1]["session"]["turns"][0]["assistant_messages"]
+    ] == ["Please wait…", "Your result is ready."]
+
+
+def test_public_stream_execution_error_is_generic(monkeypatch):
+    pending = _text_session(
+        turns=[{**_SENSITIVE_TURN, "status": "pending", "assistant_message": None}]
+    )
+    _patch_chat_text_session(monkeypatch, pending)
+
+    async def prepare(**_kwargs):
+        return pending
+
+    async def execute(**_kwargs):
+        raise TextChatSessionExecutionError("SECRET traceback")
+
+    monkeypatch.setattr(
+        "api.services.workflow.embed_text_chat_service.append_embed_text_chat_message",
+        prepare,
+    )
+    monkeypatch.setattr(
+        "api.services.workflow.text_chat_stream.execute_pending_text_chat_turn", execute
+    )
+    response = client.post(
+        "/api/v1/public/embed/chat/session-chat/messages/stream",
+        headers={"Origin": ORIGIN},
+        json={"text": "hello"},
+    )
+    assert response.status_code == 200
+    assert '"type":"error"' in response.text
+    assert "Assistant failed to respond" in response.text
+    assert "SECRET" not in response.text
+
+
+@pytest.mark.parametrize("path", ["/init/stream", "/chat/session-chat/messages/stream"])
+def test_public_stream_preflight(path):
+    response = client.options(
+        "/api/v1/public/embed" + path,
+        headers={
+            "Origin": ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+    assert response.status_code == 200
+    _assert_embed_cors(response, ORIGIN)
+
+
+@pytest.mark.parametrize(
+    "token,status",
+    [
+        ("session-expired", 403),
+        ("session-unknown", 404),
+        ("session-inactive", 403),
+        ("session-restricted", 403),
+    ],
+)
+def test_public_stream_rejects_invalid_session(token, status):
+    response = client.post(
+        f"/api/v1/public/embed/chat/{token}/messages/stream",
+        headers={"Origin": ORIGIN},
+        json={"text": "hello"},
+    )
+    assert response.status_code == status
+
+
+def test_public_stream_init_rejects_voice_before_creating_run(_patch_db):
+    response = client.post(
+        "/api/v1/public/embed/init/stream",
+        headers={"Origin": ORIGIN},
+        json={"token": "voice"},
+    )
+    assert response.status_code == 400
+    assert not _patch_db.created_runs

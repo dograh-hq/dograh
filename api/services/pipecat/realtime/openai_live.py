@@ -6,7 +6,11 @@ from dataclasses import replace
 
 from loguru import logger
 
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.connection import BackgroundConnectionMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
 from api.services.pipecat.usage_metrics import LiveUsageMetricsData
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -51,8 +55,44 @@ Current workflow:
 """
 
 
-class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService):
+class DograhOpenAILiveLLMService(
+    BackgroundConnectionMixin, RealtimeConversationMixin, OpenAILiveLLMService
+):
     """Keep workflow instructions on the Responses backend of a Live session."""
+
+    # Backend tool batches have their own boundaries; voice can start or stop
+    # independently while delegated work is pending.
+    _workflow_tools_follow_voice_response = False
+
+    async def _handle_evt_response(self, evt: events.ResponseEventEnvelope):
+        if evt.inner_type == "response.created":
+            self._workflow_tool_deferral.begin_response(collecting=True)
+            self._workflow_tool_deferral.select_response(
+                evt.delegation_id, collecting=True
+            )
+        elif evt.inner_type == "response.output_item.done":
+            self._workflow_tool_deferral.select_response(
+                evt.delegation_id, collecting=True
+            )
+        await super()._handle_evt_response(evt)
+        if evt.inner_type in (
+            "response.completed",
+            "response.incomplete",
+            "response.failed",
+        ):
+            await self._workflow_tool_deferral.complete_response(
+                evt.delegation_id,
+                speaking=self._workflow_bot_is_speaking,
+                succeeded=evt.inner_type == "response.completed",
+            )
+
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(
+            self._session_started
+            and self._pending_prerecorded_greeting is None
+            and not self._pending_speech
+        )
 
     def __init__(self, *, backend_model: str, settings=None, **kwargs):
         settings = settings or self.Settings()
@@ -66,7 +106,6 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         self._bot_is_speaking = False
         self._bot_playback_stopped = asyncio.Event()
         self._bot_playback_stopped.set()
-        self._deferred_transitions: list[FunctionCallFromLLM] = []
         self._pending_speech: list[str] = []
         self._initial_backend_request = False
         # A recorded greeting opens the conversation without the backend, so
@@ -139,6 +178,7 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         )
         self._sent_backend_snapshot = snapshot
 
+    @opening_request
     async def _handle_context(self, context: LLMContext):
         if context is None:
             return
@@ -150,6 +190,7 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         await super()._handle_context(context)
         await self._maybe_send_tools_update()
 
+    @opening_request
     async def _handle_evt_session_started(self, evt):
         self._live_audio_seconds = 0.0
         await super()._handle_evt_session_started(evt)
@@ -216,11 +257,9 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
             self._bot_playback_stopped.set()
-            calls, self._deferred_transitions = self._deferred_transitions, []
-            if calls:
-                await super().run_function_calls(calls)
         await super().process_frame(frame, direction)
 
+    @opening_request
     async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
         if context is None:
             logger.warning(f"{self}: received greeting before context was set")
@@ -253,6 +292,7 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         await self._handle_context(self._context)
         await self._flush_prerecorded_greeting()
 
+    @opening_request
     async def _flush_prerecorded_greeting(self):
         if not self._session_started or self._pending_prerecorded_greeting is None:
             return
@@ -273,19 +313,15 @@ class DograhOpenAILiveLLMService(RealtimeConversationMixin, OpenAILiveLLMService
         )
 
     async def run_function_calls(self, function_calls: Sequence[FunctionCallFromLLM]):
-        # Keep a batch intact so a transition cannot outrun related tool calls.
-        if self._bot_is_speaking and any(
-            self._function_is_node_transition(call.function_name)
-            for call in function_calls
-        ):
-            self._deferred_transitions.extend(function_calls)
-            return
-        await super().run_function_calls(function_calls)
+        await self._workflow_tool_deferral.submit(
+            function_calls,
+            speaking=self._workflow_bot_is_speaking,
+            dispatch=super().run_function_calls,
+        )
 
     async def _disconnect(self):
         self._bot_is_speaking = False
         self._bot_playback_stopped.set()
-        self._deferred_transitions.clear()
         self._pending_speech.clear()
         self._initial_backend_request = False
         self._sent_backend_snapshot = None

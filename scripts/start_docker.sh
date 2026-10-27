@@ -204,6 +204,11 @@ echo ""
 echo "This will run:"
 echo "  REGISTRY=$REGISTRY ENABLE_TELEMETRY=$ENABLE_TELEMETRY docker compose --profile tunnel up --pull always"
 echo ""
+echo "Note: by default this starts a public *.trycloudflare.com quick tunnel to the API"
+echo "(for inbound telephony webhooks), and signup is enabled. After creating your first"
+echo "account, you can close signup by setting ENABLE_SIGNUP=false in .env and re-running"
+echo "this script ('docker compose restart' does not apply .env changes)."
+echo ""
 
 if [[ ! -t 0 ]]; then
     echo "Run the command above from an interactive shell to start Dograh."

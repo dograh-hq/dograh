@@ -30,7 +30,7 @@ from api.services.knowledge_base_content import (
     read_document_content,
     update_document_content,
 )
-from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import capture_tenant_event
 from api.services.storage import storage_fs
 
 router = APIRouter(prefix="/knowledge-base", tags=["knowledge-base"])
@@ -188,15 +188,14 @@ async def process_document(
             f"with OpenAI embeddings, org {user.selected_organization_id}"
         )
 
-        capture_event(
+        await capture_tenant_event(
             distinct_id=str(user.provider_id),
             event=PostHogEvent.KNOWLEDGE_BASE_CREATED,
+            organization_id=user.selected_organization_id,
             properties={
-                "document_id": document.id,
                 "document_uuid": str(request.document_uuid),
                 "filename": filename,
                 "retrieval_mode": request.retrieval_mode,
-                "organization_id": user.selected_organization_id,
             },
         )
 
@@ -399,15 +398,14 @@ async def save_document_content(
         f"org {user.selected_organization_id}"
     )
 
-    capture_event(
+    await capture_tenant_event(
         distinct_id=str(user.provider_id),
         event=PostHogEvent.KNOWLEDGE_BASE_UPDATED,
+        organization_id=user.selected_organization_id,
         properties={
-            "document_id": updated.id,
             "document_uuid": updated.document_uuid,
             "retrieval_mode": updated.retrieval_mode,
             "reprocessing": updated.processing_status == "pending",
-            "organization_id": user.selected_organization_id,
         },
     )
 

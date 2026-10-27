@@ -1,8 +1,10 @@
 """Building an :class:`AgentRuntime` for one visit to one workflow.
 
-Call setup creates the first runtime and attaches its child worker here.
-Transfers build later runtimes under the hold ringer, using the destination's
-pinned definition and model configuration. Both use the same generation stage.
+The call's first visit is populated here once the pre-call fetch has settled,
+under the ringer, from the run's pinned definition and the configuration the
+fetch may have patched. Transfers build later runtimes the same way, under the
+hold ringer, from the destination's pinned definition. Both use the same
+generation stage.
 
 Everything call-scoped -- transport, recording, recognition, the shared
 context, the call timer -- stays on the call pipeline and is never rebuilt.
@@ -18,6 +20,8 @@ from typing import Any, Callable
 from loguru import logger
 
 from api.db import db_client
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.services.configuration.model_connections import ResolvedModelConfiguration
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.agent_generation_processor import (
     AgentGenerationProcessor,
@@ -31,6 +35,8 @@ from api.services.pipecat.recording_router_processor import RecordingRouterProce
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_tts_service,
+    get_llm_runtime_configuration,
+    get_stt_settings_update,
 )
 from api.services.workflow.agent_runtime import AgentRuntime, new_visit_id
 from api.services.workflow.dto import ReactFlowDTO
@@ -38,6 +44,7 @@ from api.services.workflow.run_creation import definition_to_run
 from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.observers.base_observer import BaseObserver
 from pipecat.pipeline.worker import PipelineWorker
+from pipecat.services.stt_service import STTService
 
 
 class AgentBuildError(Exception):
@@ -78,7 +85,11 @@ class AgentRuntimeFactory:
         on_agent_error: Callable[[AgentRuntime, Any], Any] | None = None,
         use_draft: bool = False,
         observers: list[BaseObserver] | None = None,
+        run_definition: Any = None,
+        run_model_configuration: EffectiveAIModelConfiguration | None = None,
+        stt: STTService | None = None,
     ):
+        self._stt = stt
         self._on_agent_error = on_agent_error
         self._use_draft = use_draft
         self._organization_id = organization_id
@@ -90,11 +101,40 @@ class AgentRuntimeFactory:
         self._has_recordings = has_recordings
         self._mps_correlation_id = mps_correlation_id
         self._observers = observers
+        # The run's pinned definition and the call-scoped configuration it
+        # was authorized with. The first visit is populated from these; a
+        # transfer destination resolves its own but must keep the same
+        # Dograh service key.
+        self._run_definition = run_definition
+        self._run_model_configuration = run_model_configuration
 
     @property
     def organization_id(self) -> int:
         """The organization every agent in this call must belong to."""
         return self._organization_id
+
+    async def retune_stt_for(self, runtime: AgentRuntime) -> bool:
+        """Apply a committed destination's supported settings to the call STT."""
+        stt = self._stt
+        if stt is None or self._run_model_configuration is None:
+            return False
+        if runtime.user_config is None or runtime.user_config.stt is None:
+            return False
+
+        delta = get_stt_settings_update(
+            stt, self._run_model_configuration.stt, runtime.user_config.stt
+        )
+        if delta is None:
+            return False
+        # The service owns live configuration and any required stream restart.
+        # In particular, Flux language hints use Configure without reconnecting.
+        changed = await stt._update_settings(delta)
+        if changed:
+            logger.info(
+                f"[transfer] STT settings updated for {runtime.visit_id}: "
+                f"{sorted(changed)}"
+            )
+        return bool(changed)
 
     async def resolve_destination(self, workflow_id: int) -> tuple[Any, Any]:
         """Look up a destination workflow and pin the definition to run.
@@ -125,6 +165,125 @@ class AgentRuntimeFactory:
             )
         return workflow, definition
 
+    async def _resolve_destination_configuration(
+        self, definition
+    ) -> ResolvedModelConfiguration:
+        """Resolve a destination's models within this call's authorization."""
+        from fastapi import HTTPException
+
+        from api.services.configuration.model_connections import (
+            resolve_model_configuration,
+        )
+        from api.services.configuration.run_model_configuration import (
+            get_workflow_model_override,
+            validate_workflow_model_compatibility,
+        )
+        from api.services.managed_model_services import get_dograh_service_api_key
+
+        run_configs = definition.workflow_configurations or {}
+        run_key = (
+            get_dograh_service_api_key(self._run_model_configuration)
+            if self._run_model_configuration is not None
+            else None
+        )
+        try:
+            resolved = await resolve_model_configuration(
+                self._organization_id,
+                workflow_override=get_workflow_model_override(run_configs),
+                preferred_dograh_key=run_key,
+            )
+            user_config = resolved.effective
+            if get_dograh_service_api_key(user_config) and not run_key:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Transfer cannot introduce an unauthorized Dograh service key.",
+                )
+            await validate_workflow_model_compatibility(
+                self._organization_id, user_config, definition
+            )
+        except (HTTPException, ValueError) as exc:
+            raise AgentBuildError(
+                "destination_model_configuration_invalid",
+                "The destination model configuration is incompatible with this call's authorization.",
+            ) from exc
+        return resolved
+
+    def populate(
+        self,
+        runtime: AgentRuntime,
+        *,
+        user_config: EffectiveAIModelConfiguration,
+        definition: Any = None,
+    ) -> None:
+        """Give ``runtime`` the services one visit owns.
+
+        Creates the client objects only; their connections open when the
+        visit's worker starts. The run's own definition is used when none is
+        given, which is how the call's first visit is populated once the
+        pre-call fetch has settled.
+        """
+        definition = definition if definition is not None else self._run_definition
+        run_configs = (
+            getattr(definition, "workflow_configurations", None) or {}
+            if definition is not None
+            else {}
+        )
+
+        llm = create_llm_service(user_config, correlation_id=self._mps_correlation_id)
+        tts = create_tts_service(
+            user_config,
+            self._audio_config,
+            correlation_id=self._mps_correlation_id,
+            organization_id=self._organization_id,
+            tts_cache_enabled=run_configs.get("tts_cache_enabled") is True,
+        )
+        # The conversation LLM also serves out-of-band inference, and
+        # extraction gets a separately tagged client only where it would be
+        # billed separately, so a visit does not quietly double its provider
+        # connections.
+        needs_extraction_llm = runtime.workflow.uses_variable_extraction() or bool(
+            (run_configs.get("call_dispositions") or [])
+        )
+        variable_extraction_llm = (
+            create_llm_service(
+                user_config,
+                correlation_id=self._mps_correlation_id,
+                usage_context="variable_extraction",
+            )
+            if needs_extraction_llm
+            and user_config.llm.provider == ServiceProviders.DOGRAH.value
+            else llm
+        )
+
+        recording_router = None
+        if self._has_recordings and self._fetch_recording_audio is not None:
+            # Starts disabled until node preparation determines whether the
+            # node's formatted prompt uses recording response mode.
+            recording_router = RecordingRouterProcessor(
+                audio_sample_rate=(
+                    self._audio_config.pipeline_sample_rate
+                    if self._audio_config
+                    else 16000
+                ),
+                fetch_recording_audio=self._fetch_recording_audio,
+            )
+
+        # Recognition stays on the shared call pipeline for every visit.
+        call_config = self._run_model_configuration or user_config
+        runtime.llm = llm
+        runtime.inference_llm = llm
+        runtime.variable_extraction_llm = variable_extraction_llm
+        runtime.tts = tts
+        runtime.recording_router = recording_router
+        runtime.user_config = user_config
+        runtime.runtime_configuration = {
+            "stt_provider": call_config.stt.provider,
+            "stt_model": call_config.stt.model,
+            "tts_provider": user_config.tts.provider,
+            "tts_model": user_config.tts.model,
+            **get_llm_runtime_configuration(user_config),
+        }
+
     async def build(
         self,
         *,
@@ -142,16 +301,8 @@ class AgentRuntimeFactory:
         """
         visit_id = visit_id or new_visit_id()
         workflow, definition = await self.resolve_destination(workflow_id)
-        run_configs = definition.workflow_configurations or {}
-
-        from api.services.configuration.ai_model_configuration import (
-            get_effective_ai_model_configuration_for_workflow,
-        )
-
-        user_config = await get_effective_ai_model_configuration_for_workflow(
-            organization_id=self._organization_id,
-            workflow_configurations=run_configs,
-        )
+        resolved = await self._resolve_destination_configuration(definition)
+        user_config = resolved.effective
 
         if user_config.is_realtime and user_config.realtime is not None:
             # A realtime destination is a different pipeline shape, not a
@@ -167,70 +318,20 @@ class AgentRuntimeFactory:
             ReactFlowDTO.model_validate(definition.workflow_json),
             skip_instance_constraints_for={"trigger"},
         )
-
-        llm = create_llm_service(user_config, correlation_id=self._mps_correlation_id)
-        tts = create_tts_service(
-            user_config,
-            self._audio_config,
-            correlation_id=self._mps_correlation_id,
-            organization_id=self._organization_id,
-            tts_cache_enabled=run_configs.get("tts_cache_enabled") is True,
-        )
-        # Same client policy as the run setup: the conversation LLM also
-        # serves out-of-band inference, and extraction gets a separately
-        # tagged client only where the run would have created one, so a
-        # handoff does not quietly double this agent's provider connections.
-        needs_extraction_llm = workflow_graph.uses_variable_extraction() or bool(
-            (run_configs.get("call_dispositions") or [])
-        )
-        inference_llm = llm
-        variable_extraction_llm = (
-            create_llm_service(
-                user_config,
-                correlation_id=self._mps_correlation_id,
-                usage_context="variable_extraction",
-            )
-            if needs_extraction_llm
-            and user_config.llm.provider == ServiceProviders.DOGRAH.value
-            else llm
-        )
-
-        recording_router = None
-        if self._has_recordings and self._fetch_recording_audio is not None:
-            # Starts disabled until destination node preparation determines
-            # whether its formatted prompt uses recording response mode.
-            recording_router = RecordingRouterProcessor(
-                audio_sample_rate=(
-                    self._audio_config.pipeline_sample_rate
-                    if self._audio_config
-                    else 16000
-                ),
-                fetch_recording_audio=self._fetch_recording_audio,
-            )
-
         runtime = AgentRuntime(
             visit_id=visit_id,
             workflow_id=workflow_id,
             definition_id=definition.id,
             workflow_name=workflow.name,
             workflow=workflow_graph,
-            llm=llm,
-            inference_llm=inference_llm,
-            variable_extraction_llm=variable_extraction_llm,
-            tts=tts,
-            recording_router=recording_router,
-            user_config=user_config,
-            runtime_configuration={
-                "stt_provider": user_config.stt.provider,
-                "stt_model": user_config.stt.model,
-                "tts_provider": user_config.tts.provider,
-                "tts_model": user_config.tts.model,
-                "llm_provider": user_config.llm.provider,
-                "llm_model": user_config.llm.model,
-            },
+            llm=None,
+            inference_llm=None,
+            variable_extraction_llm=None,
             is_child=True,
             entered_at=None,
+            model_configuration_snapshot=resolved.snapshot,
         )
+        self.populate(runtime, user_config=user_config, definition=definition)
         try:
             await self.attach(runtime)
         except BaseException:
@@ -253,7 +354,7 @@ class AgentRuntimeFactory:
         call's conversation trace, and that trace only exists from the moment
         the call pipeline starts.
         """
-        if runtime.worker is not None:
+        if runtime.worker is not None or runtime.retired:
             return
 
         callbacks = self._callbacks_factory(runtime.visit_id)

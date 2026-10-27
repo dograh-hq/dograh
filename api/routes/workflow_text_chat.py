@@ -1,8 +1,9 @@
 from datetime import datetime
-from typing import Any, Dict
-from uuid import uuid4
+from typing import Annotated, Any, Literal
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pipecat.utils.run_context import set_current_run_id
 from pydantic import BaseModel, Field
 
@@ -17,6 +18,7 @@ from api.services.workflow.text_chat_session_service import (
     TextChatPendingTurnLostError,
     TextChatSessionExecutionError,
     TextChatSessionRevisionConflictError,
+    TextChatTurnInProgressError,
     TextChatTurnNotFoundError,
     append_text_chat_user_message,
     complete_text_chat_session,
@@ -28,14 +30,22 @@ from api.services.workflow.text_chat_session_service import (
     normalize_text_chat_session_data,
     rewind_text_chat_session_state,
 )
+from api.services.workflow.text_chat_stream import (
+    TextChatEventStreamResponse,
+    TextChatTurnStream,
+)
 
 router = APIRouter(prefix="/workflow", tags=["workflow-text-chat"])
 
 
 class CreateTextChatSessionRequest(BaseModel):
+    request_id: UUID | None = Field(
+        default=None,
+        description="Client correlation ID for recovery if the creation response is lost.",
+    )
     name: str | None = None
-    initial_context: Dict[str, Any] | None = None
-    annotations: Dict[str, Any] | None = None
+    initial_context: dict[str, Any] | None = None
+    annotations: dict[str, Any] | None = None
 
 
 class AppendTextChatMessageRequest(BaseModel):
@@ -60,11 +70,11 @@ class WorkflowRunTextSessionResponse(BaseModel):
     state: str
     is_completed: bool
     revision: int
-    initial_context: Dict[str, Any] | None = None
-    gathered_context: Dict[str, Any] | None = None
-    annotations: Dict[str, Any] | None = None
-    session_data: Dict[str, Any]
-    checkpoint: Dict[str, Any]
+    initial_context: dict[str, Any] | None = None
+    gathered_context: dict[str, Any] | None = None
+    annotations: dict[str, Any] | None = None
+    session_data: dict[str, Any]
+    checkpoint: dict[str, Any]
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -115,7 +125,10 @@ async def _ensure_text_chat_quota(
         actor_user=user,
     )
     if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
+        raise HTTPException(
+            status_code=getattr(quota_result, "status_code", 402),
+            detail=quota_result.error_message,
+        )
 
 
 async def _load_text_session_or_404(
@@ -160,15 +173,11 @@ async def _execute_pending_turn_response(
     return _build_response(updated_text_session)
 
 
-@router.post(
-    "/{workflow_id}/text-chat/sessions",
-    response_model=WorkflowRunTextSessionResponse,
-)
-async def create_text_chat_session(
+async def _prepare_text_chat_session(
     workflow_id: int,
     request: CreateTextChatSessionRequest,
-    user: UserModel = Depends(get_user_with_selected_organization),
-) -> WorkflowRunTextSessionResponse:
+    user: UserModel,
+) -> WorkflowRunTextSessionModel:
     session_name = request.name or f"WR-TEXT-{uuid4().hex[:6].upper()}"
     try:
         workflow = await db_client.get_workflow(
@@ -207,6 +216,8 @@ async def create_text_chat_session(
     }
     if request.annotations:
         annotations = {**annotations, **request.annotations}
+    if request.request_id:
+        annotations["text_chat_request_id"] = str(request.request_id)
     workflow_run = await db_client.update_workflow_run(
         workflow_run.id,
         annotations=annotations,
@@ -226,9 +237,22 @@ async def create_text_chat_session(
     except TextChatSessionRevisionConflictError as e:
         raise HTTPException(status_code=409, detail=_revision_conflict_detail(e))
 
+    return text_session
+
+
+@router.post(
+    "/{workflow_id}/text-chat/sessions",
+    response_model=WorkflowRunTextSessionResponse,
+)
+async def create_text_chat_session(
+    workflow_id: int,
+    request: CreateTextChatSessionRequest,
+    user: Annotated[UserModel, Depends(get_user_with_selected_organization)],
+) -> WorkflowRunTextSessionResponse:
+    text_session = await _prepare_text_chat_session(workflow_id, request, user)
     return await _execute_pending_turn_response(
         workflow_id=workflow_id,
-        run_id=workflow_run.id,
+        run_id=text_session.workflow_run_id,
         text_session=text_session,
     )
 
@@ -240,22 +264,37 @@ async def create_text_chat_session(
 async def get_text_chat_session(
     workflow_id: int,
     run_id: int,
-    user: UserModel = Depends(get_user_with_selected_organization),
+    user: Annotated[UserModel, Depends(get_user_with_selected_organization)],
 ) -> WorkflowRunTextSessionResponse:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
     return _build_response(text_session)
 
 
-@router.post(
-    "/{workflow_id}/text-chat/sessions/{run_id}/messages",
-    response_model=WorkflowRunTextSessionResponse,
+@router.get(
+    "/{workflow_id}/text-chat/sessions/recovery/{request_id}",
+    operation_id="recoverTextChatSession",
+    response_model=WorkflowRunTextSessionResponse | None,
 )
-async def append_text_chat_message(
+async def recover_text_chat_session(
+    workflow_id: int,
+    request_id: UUID,
+    user: Annotated[UserModel, Depends(get_user_with_selected_organization)],
+) -> WorkflowRunTextSessionResponse | None:
+    """Find a creation whose response was lost; null means it is not visible yet."""
+    text_session = await db_client.get_workflow_run_text_session_by_request_id(
+        workflow_id=workflow_id,
+        request_id=str(request_id),
+        organization_id=user.selected_organization_id,
+    )
+    return _build_response(text_session) if text_session else None
+
+
+async def _prepare_text_chat_message(
     workflow_id: int,
     run_id: int,
     request: AppendTextChatMessageRequest,
-    user: UserModel = Depends(get_user_with_selected_organization),
-) -> WorkflowRunTextSessionResponse:
+    user: UserModel,
+) -> WorkflowRunTextSessionModel:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
     if (
         text_session.workflow_run.is_completed
@@ -272,9 +311,25 @@ async def append_text_chat_message(
             user_text=request.text,
             expected_revision=request.expected_revision,
         )
+    except TextChatTurnInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except TextChatSessionRevisionConflictError as e:
         raise HTTPException(status_code=409, detail=_revision_conflict_detail(e))
 
+    return text_session
+
+
+@router.post(
+    "/{workflow_id}/text-chat/sessions/{run_id}/messages",
+    response_model=WorkflowRunTextSessionResponse,
+)
+async def append_text_chat_message(
+    workflow_id: int,
+    run_id: int,
+    request: AppendTextChatMessageRequest,
+    user: Annotated[UserModel, Depends(get_user_with_selected_organization)],
+) -> WorkflowRunTextSessionResponse:
+    text_session = await _prepare_text_chat_message(workflow_id, run_id, request, user)
     return await _execute_pending_turn_response(
         workflow_id=workflow_id,
         run_id=run_id,
@@ -290,7 +345,7 @@ async def end_text_chat_session(
     workflow_id: int,
     run_id: int,
     request: EndTextChatSessionRequest,
-    user: UserModel = Depends(get_user_with_selected_organization),
+    user: Annotated[UserModel, Depends(get_user_with_selected_organization)],
 ) -> WorkflowRunTextSessionResponse:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
     try:
@@ -313,7 +368,7 @@ async def rewind_text_chat_session(
     workflow_id: int,
     run_id: int,
     request: RewindTextChatSessionRequest,
-    user: UserModel = Depends(get_user_with_selected_organization),
+    user: Annotated[UserModel, Depends(get_user_with_selected_organization)],
 ) -> WorkflowRunTextSessionResponse:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
     if (
@@ -331,7 +386,127 @@ async def rewind_text_chat_session(
         )
     except TextChatTurnNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except TextChatTurnInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except TextChatSessionRevisionConflictError as e:
         raise HTTPException(status_code=409, detail=_revision_conflict_detail(e))
 
     return _build_response(text_session)
+
+
+class TextChatSessionStreamEvent(BaseModel):
+    type: Literal["session", "complete"]
+    session: WorkflowRunTextSessionResponse
+
+
+class TextChatTurnEvent(BaseModel):
+    type: str
+    created_at: str
+    payload: dict[str, Any]
+
+
+class TextChatTurnStreamEvent(BaseModel):
+    type: Literal["turn_event"]
+    turn_id: str
+    event: TextChatTurnEvent
+
+
+class TextChatStreamError(BaseModel):
+    type: Literal["error"]
+    message: str
+
+
+TextChatStreamEvent = Annotated[
+    TextChatSessionStreamEvent | TextChatTurnStreamEvent | TextChatStreamError,
+    Field(discriminator="type"),
+]
+
+
+def _stream_pending_turn_response(
+    *, workflow_id: int, text_session: WorkflowRunTextSessionModel
+) -> StreamingResponse:
+    # Start ownership before returning the response, so even a connection lost
+    # before the first byte cannot leave an accepted message unexecuted.
+    initial = _build_response(text_session).model_copy(deep=True)
+    stream = TextChatTurnStream(
+        workflow_id=workflow_id,
+        run_id=text_session.workflow_run_id,
+        text_session=text_session,
+    )
+    turn_id = initial.session_data["turns"][-1]["id"]
+
+    def encode(event: BaseModel) -> str:
+        return f"data: {event.model_dump_json()}\n\n"
+
+    async def body():
+        try:
+            yield encode(TextChatSessionStreamEvent(type="session", session=initial))
+            async for update in stream:
+                if update.kind == "ping":
+                    yield ": keep-alive\n\n"
+                elif update.kind == "event":
+                    yield encode(
+                        TextChatTurnStreamEvent(
+                            type="turn_event",
+                            turn_id=turn_id,
+                            event=TextChatTurnEvent.model_validate(update.event),
+                        )
+                    )
+                elif update.kind == "complete":
+                    yield encode(
+                        TextChatSessionStreamEvent(
+                            type="complete",
+                            session=_build_response(update.session),
+                        )
+                    )
+                else:
+                    yield encode(
+                        TextChatStreamError(type="error", message=str(update.error))
+                    )
+        finally:
+            stream.disconnect()
+
+    return TextChatEventStreamResponse(
+        body(),
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            # Recovery must not depend on receiving the first SSE frame.
+            "X-Workflow-Run-Id": str(text_session.workflow_run_id),
+        },
+    )
+
+
+@router.post(
+    "/{workflow_id}/text-chat/sessions/stream",
+    operation_id="streamTextChatSession",
+    response_class=TextChatEventStreamResponse,
+    responses={200: {"model": TextChatStreamEvent}},
+)
+async def stream_text_chat_session(
+    workflow_id: int,
+    request: CreateTextChatSessionRequest,
+    user: Annotated[UserModel, Depends(get_user_with_selected_organization)],
+) -> StreamingResponse:
+    text_session = await _prepare_text_chat_session(workflow_id, request, user)
+    return _stream_pending_turn_response(
+        workflow_id=workflow_id, text_session=text_session
+    )
+
+
+@router.post(
+    "/{workflow_id}/text-chat/sessions/{run_id}/messages/stream",
+    operation_id="streamTextChatMessage",
+    response_class=TextChatEventStreamResponse,
+    responses={200: {"model": TextChatStreamEvent}},
+)
+async def stream_text_chat_message(
+    workflow_id: int,
+    run_id: int,
+    request: AppendTextChatMessageRequest,
+    user: Annotated[UserModel, Depends(get_user_with_selected_organization)],
+) -> StreamingResponse:
+    text_session = await _prepare_text_chat_message(workflow_id, run_id, request, user)
+    return _stream_pending_turn_response(
+        workflow_id=workflow_id, text_session=text_session
+    )

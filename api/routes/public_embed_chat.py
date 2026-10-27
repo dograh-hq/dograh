@@ -19,6 +19,7 @@ from api.schemas.embed_chat import (
     PublicEmbedChatEndRequest,
     PublicEmbedChatMessageRequest,
     PublicEmbedChatSessionResponse,
+    PublicEmbedChatStreamEvent,
 )
 from api.services.workflow.embed_session_service import (
     EmbedSessionNotFoundError,
@@ -36,12 +37,15 @@ from api.services.workflow.embed_text_chat_service import (
     end_embed_text_chat_session,
     load_embed_text_chat_session,
     process_embed_text_chat_message,
+    stream_embed_text_chat_turn,
 )
 from api.services.workflow.text_chat_session_service import (
     TextChatPendingTurnLostError,
     TextChatSessionExecutionError,
     TextChatSessionRevisionConflictError,
+    TextChatTurnInProgressError,
 )
+from api.services.workflow.text_chat_stream import TextChatEventStreamResponse
 
 router = APIRouter(prefix="/public/embed/chat")
 
@@ -102,6 +106,8 @@ async def end_public_chat_session(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except EmbedChatModeError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except TextChatTurnInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except TextChatSessionRevisionConflictError as e:
         raise HTTPException(status_code=409, detail=_revision_conflict_detail(e)) from e
 
@@ -117,6 +123,33 @@ async def post_public_chat_message(
     request: Request,
     response: Response,
 ) -> PublicEmbedChatSessionResponse:
+    return await _post_public_chat_message(session_token, body, request, response)
+
+
+@router.post(
+    "/{session_token}/messages/stream",
+    response_class=TextChatEventStreamResponse,
+    responses={200: {"model": PublicEmbedChatStreamEvent}},
+)
+async def stream_public_chat_message(
+    session_token: str,
+    body: PublicEmbedChatMessageRequest,
+    request: Request,
+    response: Response,
+):
+    return await _post_public_chat_message(
+        session_token, body, request, response, stream_response=True
+    )
+
+
+async def _post_public_chat_message(
+    session_token: str,
+    body: PublicEmbedChatMessageRequest,
+    request: Request,
+    response: Response,
+    *,
+    stream_response: bool = False,
+):
     origin = get_request_origin(request)
     try:
         text_session = await process_embed_text_chat_message(
@@ -124,6 +157,7 @@ async def post_public_chat_message(
             origin=origin,
             text=body.text,
             expected_revision=body.expected_revision,
+            defer_execution=stream_response,
         )
     except (EmbedSessionNotFoundError, EmbedTokenNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -146,6 +180,8 @@ async def post_public_chat_message(
         raise HTTPException(
             status_code=429, detail="Message limit reached for this conversation"
         ) from e
+    except TextChatTurnInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except TextChatSessionRevisionConflictError as e:
         raise HTTPException(status_code=409, detail=_revision_conflict_detail(e)) from e
     except (TextChatPendingTurnLostError, TextChatSessionExecutionError) as e:
@@ -153,6 +189,14 @@ async def post_public_chat_message(
             status_code=500, detail="Assistant failed to respond"
         ) from e
 
+    if stream_response:
+        response = TextChatEventStreamResponse(
+            stream_embed_text_chat_turn(text_session),
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+        if origin:
+            _allow_embed_origin(response, origin)
+        return response
     if origin:
         _allow_embed_origin(response, origin)
     return build_public_chat_session_response(text_session)
@@ -167,6 +211,7 @@ async def options_public_chat_session(request: Request, session_token: str):
 
 
 @router.options("/{session_token}/messages")
+@router.options("/{session_token}/messages/stream")
 async def options_public_chat_messages(request: Request, session_token: str):
     """Fallback OPTIONS handler; browser preflights hit PublicEmbedCORSMiddleware."""
     return await _session_preflight_response(

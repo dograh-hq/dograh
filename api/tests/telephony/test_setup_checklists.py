@@ -38,8 +38,13 @@ def test_carrier_providers_block_on_a_missing_caller_id():
     covered = []
     for spec in registry.all_specs():
         # Providers with their own resolver are covered by their own tests;
-        # this is about everyone falling back to the shared checklist.
-        if not spec.requires_caller_id or spec.setup_checklist_resolver:
+        # this is about everyone falling back to the shared checklist. An
+        # inbound-only provider has no outbound to be ready for.
+        if (
+            not spec.requires_caller_id
+            or spec.setup_checklist_resolver
+            or not spec.supports_outbound
+        ):
             continue
         covered.append(spec.name)
 
@@ -68,6 +73,22 @@ def test_carrier_providers_block_on_a_missing_caller_id():
     assert covered
 
 
+def test_inbound_only_provider_has_no_outbound_checklist():
+    """WhatsApp only receives calls: no caller-ID step the customer could ever
+    complete, and nothing that should ever read as "setup incomplete"."""
+    spec = registry.get("whatsapp")
+    assert spec.supports_outbound is False
+    assert (
+        get_setup_checklist(
+            "whatsapp",
+            {},
+            active_phone_number_count=1,
+            inbound_routed_phone_number_count=1,
+        )
+        is None
+    )
+
+
 def test_provider_that_can_dial_without_a_number_has_no_checklist():
     """ARI originates to an extension; a caller ID is genuinely optional."""
     assert (
@@ -79,3 +100,40 @@ def test_provider_that_can_dial_without_a_number_has_no_checklist():
         )
         is None
     )
+
+
+def test_sensitive_fields_match_config_request_schema():
+    """Ensure every sensitive field defined in ui_metadata resolves to a valid field on config_request_cls."""
+    import typing
+
+    def _unwrap_model(annotation):
+        if hasattr(annotation, "model_fields"):
+            return annotation
+        args = typing.get_args(annotation)
+        for arg in args:
+            m = _unwrap_model(arg)
+            if m is not None:
+                return m
+        return None
+
+    for spec in registry.all_specs():
+        if not spec.ui_metadata or not spec.config_request_cls:
+            continue
+        req_cls = spec.config_request_cls
+        for field in spec.ui_metadata.fields:
+            if not field.sensitive:
+                continue
+            current_cls = req_cls
+            parts = field.name.split(".")
+            for idx, part in enumerate(parts):
+                assert current_cls is not None and hasattr(
+                    current_cls, "model_fields"
+                ), (
+                    f"Provider '{spec.name}' sensitive field '{field.name}' references non-model at '{part}'"
+                )
+                assert part in current_cls.model_fields, (
+                    f"Provider '{spec.name}' sensitive field '{field.name}' segment '{part}' not found in {current_cls}"
+                )
+                if idx < len(parts) - 1:
+                    field_info = current_cls.model_fields[part]
+                    current_cls = _unwrap_model(field_info.annotation)

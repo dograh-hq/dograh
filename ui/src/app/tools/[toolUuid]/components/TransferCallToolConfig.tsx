@@ -19,6 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DOCS_BASE } from "@/constants/documentation";
@@ -51,6 +52,10 @@ export interface TransferCallToolConfigProps {
     onTimeoutChange: (timeout: number) => void;
     callDisposition: string;
     onCallDispositionChange: (disposition: string) => void;
+    introductionEnabled: boolean;
+    onIntroductionEnabledChange: (enabled: boolean) => void;
+    introductionPrompt: string;
+    onIntroductionPromptChange: (prompt: string) => void;
     resolverUrl: string;
     onResolverUrlChange: (url: string) => void;
     resolverCredentialUuid: string;
@@ -91,6 +96,10 @@ export function TransferCallToolConfig({
     onTimeoutChange,
     callDisposition,
     onCallDispositionChange,
+    introductionEnabled,
+    onIntroductionEnabledChange,
+    introductionPrompt,
+    onIntroductionPromptChange,
     resolverUrl,
     onResolverUrlChange,
     resolverCredentialUuid,
@@ -222,6 +231,43 @@ export function TransferCallToolConfig({
                             </div>
                         )}
                     </RadioGroup>
+                </div>
+
+                <div className="grid gap-3 pt-4 border-t">
+                    <div className="flex items-center justify-between gap-4">
+                        <Label htmlFor="transfer-introduction-enabled">
+                            Play a transfer introduction to both parties
+                        </Label>
+                        <Switch
+                            id="transfer-introduction-enabled"
+                            checked={introductionEnabled}
+                            onCheckedChange={onIntroductionEnabledChange}
+                        />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        Briefly summarise the call in your agent&apos;s voice before connecting
+                        both parties. Whoever answers the destination hears the summary.
+                        Available on Twilio using your configured TTS provider.
+                        Realtime speech-to-speech agents skip the introduction.
+                        If it cannot be prepared, the transfer continues.
+                    </p>
+                    {introductionEnabled && (
+                        <div className="grid gap-2">
+                            <Label htmlFor="transfer-introduction-prompt">Introduction instructions</Label>
+                            <Textarea
+                                id="transfer-introduction-prompt"
+                                value={introductionPrompt}
+                                onChange={(event) => onIntroductionPromptChange(event.target.value)}
+                                maxLength={2000}
+                                rows={4}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Specify details to include and the language, such as Brazilian Portuguese.
+                                Your TTS voice must support that language. Introductions are limited to
+                                25 words and 15 seconds and cannot be interrupted by speech.
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 <div className="grid gap-2 pt-4 border-t">

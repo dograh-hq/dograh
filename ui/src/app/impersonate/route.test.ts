@@ -61,6 +61,19 @@ describe("GET /impersonate", () => {
         );
     });
 
+    it.each(["eu", "in"])("sets a host-only session and redirects within the %s deployment", async (region) => {
+        const response = await GET(
+            makeRequest(`https://${region}.dograh.com/impersonate?refresh_token=rt-regional&redirect_path=/workflow`),
+        );
+        expect(response.headers.get("location")).toBe(`https://${region}.dograh.com/workflow`);
+        const cookies = response.headers.getSetCookie().map(parseSetCookie);
+        expect(cookies).toHaveLength(1);
+        expect(cookies[0].domain).toBeUndefined();
+        expect(cookies[0].secure).toBe(true);
+        expect(cookies[0].name).toBe(`__Host-hexclave-refresh-${PROJECT_ID}--default`);
+        expect(JSON.parse(cookies[0].value).refresh_token).toBe("rt-regional");
+    });
+
     it("falls back to /workflow/create for a cross-origin redirect_path", async () => {
         const response = await GET(
             makeRequest(

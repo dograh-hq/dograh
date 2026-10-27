@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import pytest
 from google.genai.types import GenerateContentConfig, LiveConnectConfig
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
@@ -184,3 +185,61 @@ def test_gemini_live_config_accepts_json_schema_tools():
     # Gemini Live validates tools through LiveConnectConfig rather than
     # GenerateContentConfig; it must also accept the raw JSON Schema payload.
     LiveConnectConfig(tools=tools)
+
+
+@pytest.mark.parametrize("same_connection", [False, True])
+def test_signature_scopes_preserve_own_history_and_import_foreign_tools(
+    same_connection,
+):
+    from pipecat.processors.aggregators.llm_context import LLMContext
+    from pipecat.services.settings import LLMSettings
+
+    own = DograhGeminiJSONSchemaAdapter()
+    own.signature_scope = "primary-connection"
+    own.signature_settings = LLMSettings(model="primary-model")
+    backup = DograhGeminiJSONSchemaAdapter()
+    backup.signature_scope = (
+        own.signature_scope if same_connection else "backup-connection"
+    )
+    backup.signature_settings = LLMSettings(
+        model="backup-model" if same_connection else "primary-model"
+    )
+    signature = own.create_llm_specific_message(
+        {
+            "type": "thought_signature",
+            "signature": b"original-signature",
+            "bookmark": {"function_call": "call-1"},
+        }
+    )
+    messages = [
+        {"role": "user", "content": "book"},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "book", "arguments": "{}"},
+                }
+            ],
+        },
+        signature,
+        {"role": "tool", "tool_call_id": "call-1", "content": "Booked"},
+    ]
+    context = LLMContext(messages=messages)
+    assert signature in own.get_messages(context)
+    assert signature not in backup.get_messages(context)
+    original = own.get_llm_invocation_params(context)["messages"]
+    imported = backup.get_llm_invocation_params(context)["messages"]
+    assert any(
+        part.thought_signature == b"original-signature"
+        for message in original
+        for part in message.parts or []
+    )
+    assert any(
+        part.function_call
+        and part.thought_signature == b"skip_thought_signature_validator"
+        for message in imported
+        for part in message.parts or []
+    )
+    assert context.messages == messages

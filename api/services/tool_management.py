@@ -21,7 +21,7 @@ from api.schemas.tool import (
     McpRefreshResponse,
     ToolResponse,
 )
-from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import capture_tenant_event
 from api.services.workflow.mcp_tool_session import discover_mcp_tools
 from api.services.workflow.tools.mcp_tool import (
     McpDefinitionError,
@@ -141,6 +141,22 @@ async def validate_tool_references(
                 status_code=404,
             )
 
+    recording_ids = {
+        message["recording_id"]
+        for message in definition.get("messages", [])
+        if message.get("type") == "audio"
+    }
+    if recording_ids:
+        accessible_ids = await db_client.get_active_recording_ids(
+            recording_ids, organization_id
+        )
+        if recording_ids != accessible_ids:
+            raise ToolManagementError(
+                "recording_not_found",
+                "A tool message recording was not found in this organization.",
+                status_code=404,
+            )
+
 
 async def populate_discovered_tools(
     definition: dict[str, Any], *, organization_id: int
@@ -210,14 +226,14 @@ async def create_tool_for_user(
         icon_color=request.icon_color,
     )
 
-    capture_event(
+    await capture_tenant_event(
         distinct_id=str(user.provider_id),
         event=PostHogEvent.TOOL_CREATED,
+        organization_id=user.selected_organization_id,
         properties={
             "tool_name": request.name,
             "tool_category": request.category,
             "source": source,
-            "organization_id": user.selected_organization_id,
         },
     )
 

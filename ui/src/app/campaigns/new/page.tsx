@@ -13,6 +13,7 @@ import {
     listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet
 } from '@/client/sdk.gen';
 import type { TelephonyConfigurationListItem, TrafficVariantRequest } from '@/client/types.gen';
+import { PageShell } from '@/components/layout/PageShell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -314,7 +315,7 @@ export default function NewCampaignPage() {
     };
 
     return (
-        <div className="container mx-auto p-6 pb-12 space-y-6 max-w-2xl">
+        <PageShell width="narrow" className="space-y-6 pb-12">
             <div>
                 <Button
                     variant="ghost"
@@ -507,6 +508,6 @@ export default function NewCampaignPage() {
                         </form>
                     </CardContent>
                 </Card>
-        </div>
+        </PageShell>
     );
 }

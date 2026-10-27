@@ -19,6 +19,8 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
+from api.services.telephony.providers.twilio.introduction import introduction_urls
+from api.services.telephony.sip import first_sip_string, normalize_sip_headers
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
@@ -374,6 +376,12 @@ class TwilioProvider(TelephonyProvider):
             to_country=webhook_data.get("ToCountry")
             or webhook_data.get("CalledCountry"),
             raw_data=webhook_data,
+            sip_call_id=first_sip_string(webhook_data.get("SipCallId")),
+            sip_headers=normalize_sip_headers(
+                (key.removeprefix("SipHeader_"), value)
+                for key, value in webhook_data.items()
+                if isinstance(key, str) and key.startswith("SipHeader_")
+            ),
         )
 
     @staticmethod
@@ -607,6 +615,7 @@ class TwilioProvider(TelephonyProvider):
         transfer_id: str,
         conference_name: str,
         timeout: int = 30,
+        introduction_audio_url: str | None = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """
@@ -668,11 +677,20 @@ class TwilioProvider(TelephonyProvider):
             "StatusCallbackMethod": "POST",
         }
 
+        if introduction_audio_url:
+            # URL-based TwiML permits a fallback that skips a failed download.
+            data.pop("Twiml")
+            data.update(introduction_urls(backend_endpoint, transfer_id))
+            data["StatusCallback"] = (
+                f"{backend_endpoint}/api/v1/telephony/twilio/transfer-status/{transfer_id}"
+            )
+            data["StatusCallbackEvent"] = ["answered", "completed"]
+
         # Add any additional kwargs
         data.update(kwargs)
 
         try:
-            logger.debug(f"Transfer call data: {data}")
+            logger.debug("Dialing Twilio transfer {}", transfer_id)
 
             async with aiohttp.ClientSession() as session:
                 auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
@@ -714,6 +732,31 @@ class TwilioProvider(TelephonyProvider):
         except Exception as e:
             logger.error(f"Exception during Twilio transfer call: {e}")
             raise
+
+    async def end_transfer_leg(self, call_sid: str) -> None:
+        """Best-effort cleanup when the other party hangs up during introduction."""
+        try:
+            async with (
+                aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as session,
+                session.post(
+                    f"{self.base_url}/Calls/{call_sid}.json",
+                    data={"Status": "completed"},
+                    auth=aiohttp.BasicAuth(self.account_sid, self.auth_token),
+                ) as response,
+            ):
+                if response.status not in (200, 404):
+                    logger.warning(
+                        "Twilio transfer cleanup returned {}", response.status
+                    )
+        except (aiohttp.ClientError, TimeoutError) as error:
+            logger.warning(
+                "Twilio transfer cleanup failed error={}", type(error).__name__
+            )
+
+    def supports_transfer_introduction(self) -> bool:
+        return True
 
     def supports_transfers(self) -> bool:
         """

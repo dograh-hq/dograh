@@ -6,5 +6,6 @@ export {
     TransferAgentToolConfig,
     type TransferAgentToolConfigProps,
     type TransferAgentWorkflowOption,
+    type TransferGreetingMode,
 } from "./TransferAgentToolConfig";
 export { TransferCallToolConfig, type TransferCallToolConfigProps } from "./TransferCallToolConfig";

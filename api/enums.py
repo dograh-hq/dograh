@@ -70,6 +70,7 @@ class WorkflowRunMode(Enum):
     EXOTEL = "exotel"
     TELNYX = "telnyx"
     VOICELINK = "voicelink"
+    WHATSAPP = "whatsapp"
     WEBRTC = "webrtc"
     SMALLWEBRTC = "smallwebrtc"
     TEXTCHAT = "textchat"
@@ -107,6 +108,7 @@ WORKFLOW_RUN_MODES_BY_CHANNEL: dict[str, tuple[str, ...]] = {
         WorkflowRunMode.EXOTEL.value,
         WorkflowRunMode.TELNYX.value,
         WorkflowRunMode.VOICELINK.value,
+        WorkflowRunMode.WHATSAPP.value,
         WorkflowRunMode.STASIS.value,
         WorkflowRunMode.VOICE.value,
     ),
@@ -173,22 +175,20 @@ class OrganizationConfigurationKey(Enum):
     LANGFUSE_CREDENTIALS = (
         "LANGFUSE_CREDENTIALS"  # Org-level Langfuse tracing credentials
     )
-    MODEL_CONFIGURATION_V2 = (
-        "MODEL_CONFIGURATION_V2"  # Org-level v2 AI model configuration
-    )
+    MODEL_CONFIGURATION_DEFAULT_UUID = "MODEL_CONFIGURATION_DEFAULT_UUID"
+    MODEL_CONFIGURATION_V2 = "MODEL_CONFIGURATION_V2"  # Retired; rows kept for audit after the catalog backfill, nothing reads them
     ORGANIZATION_PREFERENCES = "ORGANIZATION_PREFERENCES"  # Org-level defaults such as timezone/test call number
     MODEL_CONFIGURATION_PREFERENCES = "MODEL_CONFIGURATION_PREFERENCES"  # Deprecated; read fallback for old org preferences
     ORGANIZATION_BOOTSTRAP = (
         "ORGANIZATION_BOOTSTRAP"  # Single-winner lease for post-signup provisioning
     )
+    MPS_SIGNUP_GRANT = "MPS_SIGNUP_GRANT"  # Team grant / per-actor claim results
 
 
 class UserConfigurationKey(Enum):
     """Keys for the per-user keyed JSON store (user_configurations)."""
 
-    MODEL_CONFIGURATION = (
-        "MODEL_CONFIGURATION"  # Legacy per-user v1 AI model configuration
-    )
+    MODEL_CONFIGURATION = "MODEL_CONFIGURATION"  # Retired per-user v1 model configuration; rows kept, nothing reads them
     ONBOARDING = "ONBOARDING"  # Post-signup onboarding state (gate, tooltips, actions)
 
 

@@ -135,7 +135,6 @@ async def test_get_billing_credits_pages_hosted_ledger(
         {"entry_type": "invalid"},
         {"start_date": "not-a-date"},
         {"start_date": "2026-07-01", "end_date": "2026-06-01"},
-        {"timezone": "Not/A_Zone"},
         {"end_date": "9999-12-31"},
     ],
 )
@@ -157,3 +156,50 @@ def test_invalid_billing_filters_return_422(monkeypatch, query):
             == 422
         )
     get_ledger.assert_not_awaited()
+
+
+@pytest.mark.parametrize("timezone", ["Not/A_Zone", "../UTC"])
+def test_unresolvable_billing_timezone_falls_back_to_utc(monkeypatch, timezone):
+    monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "saas")
+    get_ledger = AsyncMock(
+        return_value={
+            "account": {
+                "id": 7,
+                "organization_id": 42,
+                "billing_mode": "v2",
+                "cached_balance_credits": 250,
+                "currency": "USD",
+            },
+            "ledger_entries": [],
+        }
+    )
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client, "get_credit_ledger", get_ledger
+    )
+    app = FastAPI()
+    app.include_router(organization_usage.router)
+    app.dependency_overrides[organization_usage.get_user] = lambda: SimpleNamespace(
+        provider_id="provider-123", selected_organization_id=42
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/organizations/billing/credits",
+            params={
+                "timezone": timezone,
+                "start_date": "2026-09-30",
+                "end_date": "2026-09-30",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["remaining_credits"] == 250
+    get_ledger.assert_awaited_once_with(
+        organization_id=42,
+        page=1,
+        limit=50,
+        created_by="provider-123",
+        entry_type=None,
+        start_date=datetime.fromisoformat("2026-09-30T00:00:00+00:00"),
+        end_date=datetime.fromisoformat("2026-10-01T00:00:00+00:00"),
+    )

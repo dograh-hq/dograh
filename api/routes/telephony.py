@@ -509,6 +509,11 @@ async def _create_inbound_workflow_run(
         },
         gathered_context={
             "call_id": call_id,
+            **(
+                {"sip_call_id": normalized_data.sip_call_id}
+                if normalized_data.sip_call_id
+                else {}
+            ),
         },
         logs={
             "inbound_webhook": {
@@ -517,6 +522,11 @@ async def _create_inbound_workflow_run(
                 "to_country": normalized_data.to_country,
                 "from_phone_number_id": from_phone_number_id,
                 "raw_webhook_data": normalized_data.raw_data,
+                **(
+                    {"sip_headers": normalized_data.sip_headers}
+                    if normalized_data.sip_headers
+                    else {}
+                ),
             },
         },
         organization_id=organization_id,

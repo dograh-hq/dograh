@@ -28,11 +28,24 @@ so plainly rather than inventing a date, and get it from the user.
 
 Use AskUserQuestion to confirm, in one round, with your best guess pre-filled:
 
+- **eyebrow** — the small-caps label before the title. Leave it unset for a
+  live event: the component then shows `Live virtual session` (compacted to
+  `Live` in the 640-767px band). Set it for anything else — `New experiment`,
+  `Workshop`, `Webinar`. A custom eyebrow has no short form and renders as
+  given at every width, so keep it to a couple of words.
+- **pulse** — whether the pulsing accent dot precedes the eyebrow. Default
+  true. Set `false` when the thing is not happening live (a blog post, a
+  benchmark, a release), where "happening now" would mislead.
 - **title** — the lead sentence, ending in a period. Shown in full at every
   width, so keep it under ~40 characters.
-- **subtitle** — format, hashtag and timing, e.g.
+- **titleMobile** — optional shorter title for viewports below 768px, where
+  the title shares a line with the register pill at 11px. Measured at 360px
+  wide with a 16-character CTA, about 30 characters fit; 33 already run under
+  the pill. Only needed when `title` runs long; it is a copy change, not a
+  truncation, so it still has to be a complete sentence.
+- **subtitle** — optional. Format, hashtag and timing, e.g.
   `#SF Tech Week · Tue Oct 6, 12:30 PM PT`. Dropped below 1024px, so nothing
-  load-bearing goes here.
+  load-bearing goes here; leave it out when there is nothing to add.
 - **startsAt / endsAt** — ISO 8601 **with offset**. `endsAt` is when the bar
   retires itself; set it to the end of the session, not the start.
 - **partner** — name and logo, or none.
@@ -46,7 +59,7 @@ this one.
 
 ## 3. Place the partner logo
 
-Copy it to `ui/public/logos/<partner>.png` and check it is white/light art on
+Skip this step when the event has no partner. Otherwise copy it to `ui/public/logos/<partner>.png` and check it is white/light art on
 a TRANSPARENT background — the component renders it untouched on the dark
 theme and flattens it with `brightness-0` on the light one, and both need the
 background to be transparent:
@@ -86,7 +99,11 @@ Screenshot desktop (1440×900) and mobile (390×844) and read the images.
 Confirm, and say which you confirmed:
 
 - the title renders complete at 360 / 390 / 640 / 768 / 1024 / 1280 / 1440 /
-  1920 — it must never truncate;
+  1920 — it must never truncate, and it must not run under the register pill
+  (measure the two bounding boxes; a nowrap title overflows silently rather
+  than wrapping);
+- if `titleMobile` is set, it is what shows below 768 and `title` from 768 up;
+- the eyebrow reads as intended, and the dot is absent when `pulse: false`;
 - the register pill clears the dismiss `×`;
 - bar height is 41px from sm up / 48px on phones;
 - the app header sits directly under the bar and the sidebar starts under it,
@@ -106,7 +123,7 @@ Do not commit before the user confirms the render.
 
 ```bash
 git checkout -b feat/event-banner-<id>
-git add ui/src/config/event-banner.config.ts ui/public/logos/<partner>.png
+git add ui/src/config/event-banner.config.ts   # plus ui/public/logos/<partner>.png if there is one
 git commit   # explain the event and the window, not the diff
 git push -u origin feat/event-banner-<id>
 ```

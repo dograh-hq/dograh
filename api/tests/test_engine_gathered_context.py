@@ -9,8 +9,13 @@ Writes now go through ``record_context`` / ``record_call_tags``, leaving one
 dict to read at the end.
 """
 
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 
+from api.services.workflow.dto import ExtractionVariableDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 
 
@@ -92,3 +97,31 @@ async def test_reading_the_context_does_not_hand_out_write_access():
     snapshot["call_disposition"] = "tampered"
 
     assert "call_disposition" not in engine._gathered_context
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored_id", [None, "verified-sip-id"])
+async def test_variable_extraction_cannot_write_sip_call_id(stored_id):
+    engine = _engine()
+    if stored_id:
+        engine.record_context({"sip_call_id": stored_id})
+    extract = AsyncMock(return_value={"state": "ME", "sip_call_id": "extracted-id"})
+    engine._variable_extraction_manager = SimpleNamespace(_perform_extraction=extract)
+    node = SimpleNamespace(
+        name="Collect information",
+        extraction_enabled=True,
+        extraction_prompt="",
+        extraction_variables=[
+            ExtractionVariableDTO(name="state", type="string", prompt="US state"),
+            ExtractionVariableDTO(name="sip_call_id", type="string", prompt="Call ID"),
+        ],
+    )
+
+    await asyncio.wait_for(
+        engine._perform_variable_extraction_if_needed(node, run_in_background=False),
+        timeout=5,
+    )
+
+    assert [variable.name for variable in extract.await_args.args[0]] == ["state"]
+    assert engine._gathered_context.get("sip_call_id") == stored_id
+    assert engine._gathered_context["extracted_variables"] == {"state": "ME"}

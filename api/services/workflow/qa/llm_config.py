@@ -3,8 +3,8 @@
 from typing import Any
 
 from api.db.models import WorkflowRunModel
-from api.services.configuration.ai_model_configuration import (
-    get_effective_ai_model_configuration_for_workflow,
+from api.services.configuration.run_model_configuration import (
+    get_effective_ai_model_configuration_for_run,
 )
 from api.services.managed_model_services import get_mps_correlation_id
 from api.services.pipecat.service_factory import (
@@ -59,9 +59,10 @@ async def create_qa_llm_service(
     else:
         workflow_configurations = workflow_run.workflow.workflow_configurations or {}
 
-    user_configuration = await get_effective_ai_model_configuration_for_workflow(
+    user_configuration = await get_effective_ai_model_configuration_for_run(
         organization_id=workflow_run.workflow.organization_id,
         workflow_configurations=workflow_configurations,
+        workflow_run=workflow_run,
     )
     if user_configuration.llm is None:
         return None

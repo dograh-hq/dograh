@@ -48,6 +48,9 @@ def campaign_call(monkeypatch):
         get_gathered_context=AsyncMock(return_value=context),
         record_call_tags=Mock(),
         cleanup=AsyncMock(),
+        finish_tool_calls=AsyncMock(),
+        final_extraction_logs=Mock(return_value={}),
+        final_extraction_metadata=Mock(return_value={}),
     )
     monkeypatch.setattr(
         event_handlers.db_client,
@@ -94,6 +97,68 @@ def campaign_call(monkeypatch):
         transcript_log_coordinator=transcript_log_coordinator,
         call_events_session=call_events_session,
     )
+
+
+@pytest.mark.asyncio
+async def test_extraction_snapshot_is_committed_with_completion_before_enqueue(
+    campaign_call,
+):
+    call = campaign_call
+    snapshot = {
+        "conversation": [{"role": "user", "content": "Ada"}],
+        "final_extraction": {"version": 1},
+    }
+    call.engine.final_extraction_logs.return_value = snapshot
+    call.engine.final_extraction_metadata.return_value = {"status": "pending"}
+
+    async def upload(*_args, **_kwargs):
+        update = event_handlers.db_client.update_workflow_run.call_args.kwargs
+        assert update["is_completed"] is True
+        assert update["logs"] == snapshot
+        assert "final_extraction" not in update["gathered_context"]
+        completion = update["extra"]["workflow_completion"]
+        assert completion["status"] == "pending"
+        assert completion["final_extraction"]["status"] == "pending"
+        event_handlers.enqueue_job.assert_not_awaited()
+
+    event_handlers.upload_workflow_run_artifacts.side_effect = upload
+    await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+    assert (
+        event_handlers.enqueue_job.call_args.kwargs["_job_id"]
+        == "workflow-completion-88"
+    )
+
+
+@pytest.mark.asyncio
+async def test_completion_waits_for_tools_before_persisting_and_finalizing(
+    campaign_call,
+):
+    call = campaign_call
+    started, release = asyncio.Event(), asyncio.Event()
+    result = {"tool_call_id": "booking-1", "result": {"saved": True}}
+
+    async def finish_tools():
+        started.set()
+        await release.wait()
+        call.engine.get_gathered_context.return_value["tool_results"] = [result]
+
+    call.engine.finish_tool_calls.side_effect = finish_tools
+    finishing = asyncio.create_task(
+        call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        event_handlers.db_client.update_workflow_run.assert_not_awaited()
+        call.call_events_session.finish.assert_not_awaited()
+    finally:
+        release.set()
+        await asyncio.wait_for(finishing, 1)
+    updates = event_handlers.db_client.update_workflow_run.await_args_list
+    completed = [u.kwargs for u in updates if u.kwargs.get("is_completed")]
+    assert completed[0]["gathered_context"]["tool_results"] == [result]
+    assert call.call_events_session.finish.await_args.args[0]["tool_results"] == [
+        result
+    ]
 
 
 @pytest.mark.asyncio
@@ -236,7 +301,109 @@ async def test_errors_the_call_survives_do_not_count_as_campaign_failures(
     await call.engine.end_call_with_reason(EndTaskReason.USER_HANGUP.value)
     await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
 
+    call.breaker.assert_awaited_once_with(
+        campaign_id=42,
+        is_failure=False,
+        workflow_run_id=88,
+        reason="user_hangup",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reason,is_failure",
+    [
+        (EndTaskReason.END_CALL.value, False),
+        (EndTaskReason.USER_HANGUP.value, False),
+        (EndTaskReason.TRANSFER_CALL.value, False),
+        (EndTaskReason.CALL_TRANSFERRED.value, False),
+        (EndTaskReason.VOICEMAIL_DETECTED.value, False),
+        (EndTaskReason.CALL_DURATION_EXCEEDED.value, False),
+        (EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value, False),
+        ("ivr_detected", False),
+        (EndTaskReason.PIPELINE_ERROR.value, True),
+        (EndTaskReason.UNEXPECTED_ERROR.value, True),
+    ],
+)
+async def test_final_pipeline_status_records_one_outcome_without_carrier_callbacks(
+    campaign_call, reason, is_failure
+):
+    """ARI has no completed callback; finalization alone must count its outcome."""
+    call = campaign_call
+    await call.engine.end_call_with_reason(reason)
+    async with asyncio.timeout(5):
+        await asyncio.gather(
+            *(
+                call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+                for _ in range(2)
+            )
+        )
+
+    call.breaker.assert_awaited_once_with(
+        campaign_id=42,
+        is_failure=is_failure,
+        workflow_run_id=88,
+        reason=reason,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", [None, EndTaskReason.SYSTEM_CANCELLED.value])
+async def test_unknown_terminal_status_is_not_assumed_healthy_or_failed(
+    campaign_call, reason
+):
+    call = campaign_call
+    if reason:
+        await call.engine.end_call_with_reason(reason)
+    await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
     call.breaker.assert_not_awaited()
+    assert all(
+        invocation.args[2] != event_handlers.PostHogEvent.CALL_FAILED
+        for invocation in event_handlers._capture_call_event.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("callback_first", [False, True])
+@pytest.mark.parametrize("reason", ["pipeline_error", "user_hangup"])
+async def test_carrier_completion_cannot_double_count_pipeline_outcome(
+    campaign_call, monkeypatch, callback_first, reason
+):
+    from api.services.telephony import status_processor
+
+    call = campaign_call
+    run = event_handlers.db_client.get_workflow_run_by_id.return_value
+    run.logs = {}
+    run.state = "running"
+    monkeypatch.setattr(
+        status_processor.campaign_call_dispatcher, "release_call_slot", AsyncMock()
+    )
+    monkeypatch.setattr(status_processor, "notify_campaign_call_completed", AsyncMock())
+
+    async def carrier_completes():
+        # Both the terminal webhook and the CDR can report the same completed call.
+        for _ in range(2):
+            await status_processor._process_status_update(
+                88,
+                status_processor.StatusCallbackRequest(
+                    call_id="call-88", status="completed"
+                ),
+            )
+
+    if callback_first:
+        await carrier_completes()
+        call.breaker.assert_not_awaited()
+    await call.engine.end_call_with_reason(reason)
+    await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+    if not callback_first:
+        await carrier_completes()
+
+    call.breaker.assert_awaited_once_with(
+        campaign_id=42,
+        is_failure=reason == "pipeline_error",
+        workflow_run_id=88,
+        reason=reason,
+    )
 
 
 @pytest.mark.asyncio
@@ -266,7 +433,7 @@ def test_dograh_workers_cancel_when_a_processor_becomes_permanently_unusable(
         return worker
 
     monkeypatch.setenv("ENABLE_TURN_LOGGING", "false")
-    monkeypatch.setattr(pipeline_builder, "PipelineWorker", capture_worker)
+    monkeypatch.setattr(pipeline_builder, "DograhPipelineWorker", capture_worker)
 
     result = pipeline_builder.create_pipeline_task(object(), workflow_run_id=88)
 

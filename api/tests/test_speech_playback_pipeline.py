@@ -5,13 +5,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from pydantic import TypeAdapter
-
-from api.schemas.tool import ToolMessages
-from api.services.pipecat.speech_playback import PlaybackOutcome
-from api.services.pipecat.worker_runner import run_pipeline_worker
-from api.services.workflow.pipecat_engine import PipecatEngine
-from api.services.workflow.tool_execution import ToolExecutionOwner
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
@@ -39,6 +32,13 @@ from pipecat.turns.user_mute import CallbackUserMuteStrategy
 from pipecat.turns.user_start import ExternalUserTurnStartStrategy
 from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pydantic import TypeAdapter
+
+from api.schemas.tool import ToolMessages
+from api.services.pipecat.speech_playback import PlaybackOutcome
+from api.services.pipecat.worker_runner import run_pipeline_worker
+from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.tool_execution import ToolExecutionOwner
 
 
 class ControlledTTS(MockTTSService):

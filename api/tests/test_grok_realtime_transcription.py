@@ -4,13 +4,13 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
-
-from api.services.pipecat.realtime.grok_realtime import DograhGrokRealtimeLLMService
 from pipecat.frames.frames import InterimTranscriptionFrame, TranscriptionFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregator
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
+
+from api.services.pipecat.realtime.grok_realtime import DograhGrokRealtimeLLMService
 
 
 @pytest.fixture(params=[GrokRealtimeLLMService, DograhGrokRealtimeLLMService])

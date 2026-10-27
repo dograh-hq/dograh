@@ -5,8 +5,11 @@ items. Only the server's response.created/response.done pair identifies a
 whole response; item events may repeat and a cancelled response can end late.
 """
 
+from collections import deque
 from contextvars import ContextVar
+from dataclasses import dataclass
 from functools import wraps
+from typing import Any
 from uuid import uuid4
 
 from pipecat.frames.frames import (
@@ -19,6 +22,14 @@ from pipecat.frames.frames import (
 )
 from pipecat.metrics.metrics import LLMTokenUsage
 from pipecat.processors.frame_processor import FrameDirection
+
+
+@dataclass
+class _ResponseRequest:
+    scope_id: str
+    event: Any
+    sent: bool = False
+    cancelled: bool = False
 
 
 def response_event(method):
@@ -69,9 +80,9 @@ class RealtimeResponseLifecycleMixin:
         self._reported_response_ids: set[str] = set()
         self._response_items: dict[str, str] = {}
         self._response_scopes: dict[str, str] = {}
-        self._pending_response_scope: str | None = None
-        self._response_requested = False
-        self._cancel_pending_response = False
+        self._pending_response_request: _ResponseRequest | None = None
+        self._response_requests: deque[_ResponseRequest] = deque()
+        self._cancelling_response_request = False
         self._response_event_id: ContextVar[str | None] = ContextVar(
             "realtime_response_event_id", default=None
         )
@@ -80,17 +91,32 @@ class RealtimeResponseLifecycleMixin:
         if (
             event.type == "response.create"
             and self._playback_response_id is None
-            and self._pending_response_scope is None
+            and self._pending_response_request is None
         ):
             # Reserve playback ownership at the request, before network I/O.
             # A late acknowledgement must not consume an expectation registered
             # for a subsequent response after this request timed out.
-            self._pending_response_scope = str(uuid4())
-            self._response_requested = True
+            request = _ResponseRequest(scope_id=str(uuid4()), event=event)
+            self._pending_response_request = request
+            self._response_requests.append(request)
             frame = LLMFullResponseStartFrame()
-            frame.metadata["dograh_response_id"] = self._pending_response_scope
+            frame.metadata["dograh_response_id"] = request.scope_id
             await super().push_frame(frame)
+            await self._send_next_response_request()
+            return
         await super().send_client_event(event)
+
+    async def _send_next_response_request(self):
+        if self._cancelling_response_request or not self._response_requests:
+            return
+        request = self._response_requests[0]
+        if request.sent:
+            return
+        # Keep a cancelled request until its acknowledgement, then cancel it
+        # before sending its replacement. The provider cancel targets the active
+        # response, so sending a replacement first could cancel the wrong turn.
+        request.sent = True
+        await super().send_client_event(request.event)
 
     async def push_frame(self, frame, direction=FrameDirection.DOWNSTREAM):
         if direction is FrameDirection.DOWNSTREAM:
@@ -115,19 +141,26 @@ class RealtimeResponseLifecycleMixin:
             or response_id in self._finished_response_ids
         ):
             return
-        requested_scope = self._pending_response_scope
-        self._pending_response_scope = None
+        request = None
+        if self._response_requests and self._response_requests[0].sent:
+            request = self._response_requests.popleft()
+        requested_scope = request.scope_id if request else None
+        if request is self._pending_response_request:
+            self._pending_response_request = None
         self._response_scopes[response_id] = requested_scope or response_id
-        self._response_requested = False
         # Grok has a response.created handler; our pinned OpenAI service does
         # not. Preserve Grok's own response ID bookkeeping.
         handler = getattr(super(), "_handle_evt_response_created", None)
         if handler is not None:
             await handler(evt)
-        if self._cancel_pending_response:
-            self._cancel_pending_response = False
+        if request and request.cancelled:
             self._finished_response_ids.add(response_id)
-            await self._cancel_realtime_response()
+            self._cancelling_response_request = True
+            try:
+                await self._cancel_realtime_response()
+            finally:
+                self._cancelling_response_request = False
+            await self._send_next_response_request()
             return
         self._playback_response_id = response_id
         self._workflow_tool_deferral.begin_response(collecting=True)
@@ -179,18 +212,23 @@ class RealtimeResponseLifecycleMixin:
 
     async def _handle_interruption(self):
         await self._finish_pending_response("interrupted")
-        self._cancel_pending_response |= self._response_requested
         await self._finish_playback_response(
             self._playback_response_id, outcome="interrupted"
         )
         await super()._handle_interruption()
 
     async def _finish_pending_response(self, outcome):
-        if self._pending_response_scope and not self._cancel_pending_response:
-            frame = LLMFullResponseEndFrame()
-            frame.metadata["dograh_response_id"] = self._pending_response_scope
-            frame.metadata["dograh_response_outcome"] = outcome
-            await super().push_frame(frame)
+        request = self._pending_response_request
+        if request is None:
+            return
+        self._pending_response_request = None
+        request.cancelled = True
+        if not request.sent:
+            self._response_requests.remove(request)
+        frame = LLMFullResponseEndFrame()
+        frame.metadata["dograh_response_id"] = request.scope_id
+        frame.metadata["dograh_response_outcome"] = outcome
+        await super().push_frame(frame)
 
     @response_event
     async def _handle_evt_audio_delta(self, evt):
@@ -237,6 +275,6 @@ class RealtimeResponseLifecycleMixin:
         self._reported_response_ids.clear()
         self._response_items.clear()
         self._response_scopes.clear()
-        self._pending_response_scope = None
-        self._response_requested = False
-        self._cancel_pending_response = False
+        self._pending_response_request = None
+        self._response_requests.clear()
+        self._cancelling_response_request = False

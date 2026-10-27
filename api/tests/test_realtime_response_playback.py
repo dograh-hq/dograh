@@ -7,15 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-
-from api.services.pipecat.call_opening import OpeningInputGate
-from api.services.pipecat.realtime.azure_realtime import DograhAzureRealtimeLLMService
-from api.services.pipecat.realtime.grok_realtime import DograhGrokRealtimeLLMService
-from api.services.pipecat.realtime.openai_realtime import DograhOpenAIRealtimeLLMService
-from api.services.pipecat.speech_playback import PlaybackOutcome
-from api.services.pipecat.worker_runner import run_pipeline_worker
-from api.services.workflow.pipecat_engine import PipecatEngine
-from api.tests.test_speech_playback_pipeline import ControlledOutput
 from pipecat.frames.frames import (
     EndFrame,
     InputAudioRawFrame,
@@ -28,6 +19,15 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
+
+from api.services.pipecat.call_opening import OpeningInputGate
+from api.services.pipecat.realtime.azure_realtime import DograhAzureRealtimeLLMService
+from api.services.pipecat.realtime.grok_realtime import DograhGrokRealtimeLLMService
+from api.services.pipecat.realtime.openai_realtime import DograhOpenAIRealtimeLLMService
+from api.services.pipecat.speech_playback import PlaybackOutcome
+from api.services.pipecat.worker_runner import run_pipeline_worker
+from api.services.workflow.pipecat_engine import PipecatEngine
+from api.tests.test_speech_playback_pipeline import ControlledOutput
 
 
 def response(kind, response_id, *, status="completed"):
@@ -297,6 +297,152 @@ async def test_interruption_before_response_created_discards_the_late_response(
         response("response.done", "current"),
     )
     assert await asyncio.wait_for(current.wait(), 1)
+
+
+@pytest.mark.asyncio
+async def test_new_request_before_cancelled_ack_keeps_its_own_playback_scope(
+    realtime_playback,
+):
+    h = realtime_playback
+    old = h.tracker.expect_response(source=h.service)
+    await h.service._send_manual_response_create()
+    await h.service.queue_frame(InterruptionFrame())
+    assert not await asyncio.wait_for(old.wait(), 1)
+    assert await h.worker.flush_pipeline(timeout=1)
+
+    current = h.tracker.expect_response(source=h.service)
+    await h.service._send_manual_response_create()
+    starts = [f for f in h.frames if isinstance(f, LLMFullResponseStartFrame)]
+    assert len(starts) == 2
+    assert starts[-1].metadata["dograh_speech_id"] == current.id
+    # A provider cancellation has no response ID. Reserve the new scope now,
+    # but send its request only after cancelling the acknowledged old response.
+    sent = [call.args[0]["type"] for call in h.service._ws_send.await_args_list]
+    assert sent.count("response.create") == 1
+
+    await h.replay(
+        response("response.created", "old"),
+        item("old"),
+        audio("old", h.rate),
+        response("response.done", "old", status="cancelled"),
+    )
+    assert await h.worker.flush_pipeline(timeout=1)
+    assert not current.done
+    assert not any(isinstance(f, TTSAudioRawFrame) for f in h.frames)
+    sent = [call.args[0]["type"] for call in h.service._ws_send.await_args_list]
+    assert sent[-2:] == ["response.cancel", "response.create"]
+
+    await h.replay(
+        response("response.created", "current"),
+        item("current"),
+        audio("current", h.rate),
+        audio_done("current"),
+        response("response.done", "current"),
+    )
+    assert await asyncio.wait_for(current.wait(), 1)
+    assert current.played_seconds == pytest.approx(0.12)
+    assert h.tracker._input_scopes == h.tracker._output_scopes == []
+
+
+@pytest.mark.asyncio
+async def test_request_arriving_during_late_cancellation_waits_for_the_cancel(
+    realtime_playback,
+):
+    h = realtime_playback
+    old = h.tracker.expect_response(source=h.service)
+    await h.service._send_manual_response_create()
+    await h.service.queue_frame(InterruptionFrame())
+    assert not await asyncio.wait_for(old.wait(), 1)
+    assert await h.worker.flush_pipeline(timeout=1)
+
+    cancelling = asyncio.Event()
+    release_cancel = asyncio.Event()
+    cancel_response = h.service._cancel_realtime_response
+
+    async def delayed_cancel():
+        cancelling.set()
+        await asyncio.wait_for(release_cancel.wait(), 1)
+        await cancel_response()
+
+    h.service._cancel_realtime_response = delayed_cancel
+    acknowledgement = asyncio.create_task(h.replay(response("response.created", "old")))
+    try:
+        await asyncio.wait_for(cancelling.wait(), 1)
+        current = h.tracker.expect_response(source=h.service)
+        await h.service._send_manual_response_create()
+        sent = [call.args[0]["type"] for call in h.service._ws_send.await_args_list]
+        assert sent.count("response.create") == 1
+    finally:
+        release_cancel.set()
+        await asyncio.wait_for(acknowledgement, 1)
+
+    sent = [call.args[0]["type"] for call in h.service._ws_send.await_args_list]
+    assert sent[-2:] == ["response.cancel", "response.create"]
+    await h.replay(
+        response("response.done", "old", status="cancelled"),
+        response("response.created", "current"),
+        item("current"),
+        audio("current", h.rate),
+        audio_done("current"),
+        response("response.done", "current"),
+    )
+    assert await asyncio.wait_for(current.wait(), 1)
+
+
+@pytest.mark.asyncio
+async def test_interrupting_a_deferred_request_does_not_send_it(realtime_playback):
+    h = realtime_playback
+    for _ in range(2):
+        cancelled = h.tracker.expect_response(source=h.service)
+        await h.service._send_manual_response_create()
+        await h.service.queue_frame(InterruptionFrame())
+        assert not await asyncio.wait_for(cancelled.wait(), 1)
+        assert await h.worker.flush_pipeline(timeout=1)
+
+    current = h.tracker.expect_response(source=h.service)
+    await h.service._send_manual_response_create()
+    starts = [f for f in h.frames if isinstance(f, LLMFullResponseStartFrame)]
+    assert len(starts) == 3
+    assert starts[-1].metadata["dograh_speech_id"] == current.id
+    await h.replay(
+        response("response.created", "old"),
+        response("response.done", "old", status="cancelled"),
+    )
+    sent = [call.args[0]["type"] for call in h.service._ws_send.await_args_list]
+    assert sent.count("response.create") == 2
+
+    await h.replay(
+        response("response.created", "current"),
+        item("current"),
+        audio("current", h.rate),
+        audio_done("current"),
+        response("response.done", "current"),
+    )
+    assert await asyncio.wait_for(current.wait(), 1)
+    assert current.played_seconds == pytest.approx(0.12)
+    assert h.tracker._input_scopes == h.tracker._output_scopes == []
+
+
+@pytest.mark.asyncio
+async def test_disconnect_closes_a_deferred_request_without_sending_it(
+    realtime_playback,
+):
+    h = realtime_playback
+    old = h.tracker.expect_response(source=h.service)
+    await h.service._send_manual_response_create()
+    await h.service.queue_frame(InterruptionFrame())
+    assert not await asyncio.wait_for(old.wait(), 1)
+    assert await h.worker.flush_pipeline(timeout=1)
+
+    current = h.tracker.expect_response(source=h.service)
+    await h.service._send_manual_response_create()
+    await h.service._disconnect()
+    assert not await asyncio.wait_for(current.wait(), 1)
+    assert current.outcome is PlaybackOutcome.CLOSED
+    sent = [call.args[0]["type"] for call in h.service._ws_send.await_args_list]
+    assert sent.count("response.create") == 1
+    assert h.service._pending_response_request is None
+    assert not h.service._response_requests
 
 
 @pytest.mark.asyncio

@@ -145,7 +145,7 @@ def instrument():
 @pytest.mark.parametrize("width", [1, 3, 1000])
 async def test_text_only_call_runs_once_and_is_not_spoken(width):
     service, frames, calls = instrument()
-    text = "severe:default_api:end_call{}"
+    text = "invoke:default_api:end_call{}"
     install_stream(service, [text[i : i + width] for i in range(0, len(text), width)])
     await service._process_context(context())
     service.push_error.assert_not_awaited()
@@ -170,12 +170,12 @@ async def test_native_call_wins_over_text_duplicate(native_first):
 @pytest.mark.asyncio
 async def test_goodbye_defers_end_call_until_playback():
     service, frames, calls = instrument()
-    install_stream(service, list("Buona giornata! severe:default_api:end_call{}"))
+    install_stream(service, list("Have a nice day! invoke:default_api:end_call{}"))
     await service._process_context(context())
     assert not calls
     assert (
         "".join(f.text for f in frames if isinstance(f, LLMTextFrame)).strip()
-        == "Buona giornata!"
+        == "Have a nice day!"
     )
     await service._run_pending_node_transition_function_calls(BotStoppedSpeakingFrame())
     assert len(calls) == 1
@@ -189,7 +189,7 @@ async def test_recovered_save_does_not_make_native_end_cut_off_goodbye():
     install_stream(
         service,
         [
-            'Buona giornata! {"action":"save","action_input":{"reason":"tomorrow"}}',
+            'Have a nice day! {"action":"save","action_input":{"reason":"tomorrow"}}',
             chunk(
                 Part(function_call=FunctionCall(id="native", name="end_call", args={}))
             ),
@@ -278,7 +278,7 @@ async def test_interruption_discards_recovered_calls(interrupted_during_stream):
     service, _frames, calls = instrument()
     release, paused = asyncio.Event(), asyncio.Event()
     install_stream(
-        service, ["Buona giornata! default_api:end_call{}", release], paused=paused
+        service, ["Have a nice day! default_api:end_call{}", release], paused=paused
     )
     task = asyncio.create_task(service._process_context(context()))
     if interrupted_during_stream:
@@ -399,7 +399,7 @@ async def test_text_signature_bookmarks_the_clean_speech():
         [
             chunk(
                 Part(
-                    text='Capisco. {"thought":""} La richiamo domani.',
+                    text='Understood. {"thought":""} I will call tomorrow.',
                     thought_signature=b"signature",
                 )
             )
@@ -438,9 +438,9 @@ class Capture(FrameProcessor):
     "response, tool_name, expected_speech, expected_args",
     [
         (
-            "Buona giornata! severe:default_api:end_call{}",
+            "Have a nice day! invoke:default_api:end_call{}",
             "end_call",
-            ["Buona giornata!"],
+            ["Have a nice day!"],
             {},
         ),
         (

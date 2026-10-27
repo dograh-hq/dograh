@@ -8,21 +8,21 @@ from api.services.pipecat.spoken_tool_call_guard import SpokenToolCallGuard
 
 TOOLS = {
     "end_call": {"type": "object", "properties": {}, "required": []},
-    "salva_richiamo": {
+    "schedule_visit": {
         "type": "object",
         "properties": {
-            "data_ora": {"type": "string"},
-            "motivo": {"type": "string"},
-            "tipo": {"type": "string", "enum": ["generico"]},
+            "scheduled_at": {"type": "string"},
+            "reason": {"type": "string"},
+            "category": {"type": "string", "enum": ["standard"]},
         },
-        "required": ["data_ora", "motivo", "tipo"],
+        "required": ["scheduled_at", "reason", "category"],
         "additionalProperties": False,
     },
 }
 ARGS = {
-    "data_ora": "2026-10-20T09:30",
-    "motivo": "Cliente non disponibile. Richiamare domani.",
-    "tipo": "generico",
+    "scheduled_at": "2032-04-05T09:30",
+    "reason": "The site is closed. Try the following day.",
+    "category": "standard",
 }
 
 
@@ -35,7 +35,7 @@ def parse(chunks, tools=TOOLS, spoken_output=True):
 @pytest.mark.parametrize(
     "fragment",
     [
-        "severe:default_api:end_call{}",
+        "invoke:default_api:end_call{}",
         "\ufeffcall:default_api:end_call{}",
         "default_api.end_call{}",
         "<call:default_api:end_call/>",
@@ -43,14 +43,13 @@ def parse(chunks, tools=TOOLS, spoken_output=True):
         "`end_call `",
         "end_call",
         "Agent: end_call.",
-        "severe:end_call{}",
-        "*(Esegue end_call per terminare la chiamata)*",
+        "invoke:end_call{}",
         '{"action": "default_api:end_call", "action_input": {}}',
         '{"action": "end_call"}',
         "non-executable-call:default_api:end_call{}",
         "\u0300call:default_api:end_call{}",
         "`default_api:end_call`{}",
-        "grid`default_api:end_call`{}",
+        "invoke`default_api:end_call`{}",
         "Final: default_api:end_call{}",
         '{"end_call": {}}',
         '{"name": "end_call", "arguments": "{}"}',
@@ -58,10 +57,10 @@ def parse(chunks, tools=TOOLS, spoken_output=True):
 )
 @pytest.mark.parametrize("spoken_output", [True, False])
 def test_goodbye_and_tool_at_every_split(fragment, spoken_output):
-    text = "Buona giornata! " + fragment
+    text = "Have a nice day! " + fragment
     for split in range(len(text) + 1):
         speech, calls = parse([text[:split], text[split:]], spoken_output=spoken_output)
-        assert speech.strip() == "Buona giornata!", (split, speech)
+        assert speech.strip() == "Have a nice day!", (split, speech)
         assert calls == [("end_call", {})], (split, calls)
     assert parse(list(text), spoken_output=spoken_output)[1] == [("end_call", {})]
 
@@ -70,11 +69,11 @@ def test_goodbye_and_tool_at_every_split(fragment, spoken_output):
     ("text", "expected"),
     [
         ("Goodbye!default_api:end_call{}", "Goodbye!"),
-        ("Arrivederci.severe:end_call{}", "Arrivederci."),
-        ("Grazie.`default_api:end_call`{}", "Grazie."),
+        ("Goodbye.invoke:end_call{}", "Goodbye."),
+        ("Thanks.`default_api:end_call`{}", "Thanks."),
         ("Ok?default_api:end_call{}", "Ok?"),
         # A junk word that ends like a sentence is spoken rather than risked.
-        ("Buona giornata.junk.end_call{}", "Buona giornata.junk."),
+        ("Have a nice day.junk.end_call{}", "Have a nice day.junk."),
     ],
 )
 @pytest.mark.parametrize("spoken_output", [True, False])
@@ -91,6 +90,66 @@ def test_finished_sentence_before_a_glued_call_is_spoken(text, expected, spoken_
 
 def normalized(speech):
     return " ".join(speech.split())
+
+
+@pytest.mark.parametrize("spoken_output", [True, False])
+@pytest.mark.parametrize("closed", [True, False])
+def test_paired_call_envelopes_do_not_execute_nested_tool_text(spoken_output, closed):
+    text = "Ready. <call:default_api:schedule_visit>Private. default_api:end_call{}"
+    if closed:
+        text += "</call:default_api:schedule_visit> Continue."
+    expected = "Ready. Continue." if closed else "Ready."
+    for split in range(len(text) + 1):
+        speech, calls = parse([text[:split], text[split:]], spoken_output=spoken_output)
+        assert normalized(speech) == expected
+        assert calls == []
+    speech, calls = parse(list(text), spoken_output=spoken_output)
+    assert normalized(speech) == expected
+    assert calls == []
+
+
+@pytest.mark.parametrize("spoken_output", [True, False])
+@pytest.mark.parametrize("closed", [True, False])
+@pytest.mark.parametrize("prefix", ["Stage: ", "Stage:", "Ready. Stage: ", "stage"])
+def test_paired_call_envelopes_drop_held_speech_labels(prefix, closed, spoken_output):
+    text = prefix + "<call:default_api:schedule_visit>Private. default_api:end_call{}"
+    if closed:
+        text += "</call:default_api:schedule_visit>Done."
+    expected_prefix = "Ready. " if prefix.startswith("Ready.") else ""
+    if not spoken_output:
+        expected_prefix = prefix
+    expected = normalized(expected_prefix + ("Done." if closed else ""))
+    for chunks in [
+        *[[text[:split], text[split:]] for split in range(len(text) + 1)],
+        list(text),
+    ]:
+        speech, calls = parse(chunks, spoken_output=spoken_output)
+        assert normalized(speech) == expected, chunks
+        assert calls == [], chunks
+
+
+@pytest.mark.parametrize("spoken_output", [True, False])
+@pytest.mark.parametrize("closed", [True, False])
+@pytest.mark.parametrize(
+    "tag_name", ["call:default_api:schedule_visit", "think", "thinking", "thought"]
+)
+def test_suppressed_envelopes_require_the_complete_closing_name(
+    tag_name, closed, spoken_output
+):
+    text = f"Ready. <{tag_name}>Private."
+    for suffix in ("extra", "_extra", ":extra", ".extra", "1", "/"):
+        text += f"</{tag_name}{suffix}>Private. default_api:end_call{{}}"
+    if closed:
+        # Matching is case-insensitive and tolerates whitespace before ">".
+        text += f"</{tag_name.upper()} \n> Continue."
+    expected = "Ready. Continue." if closed else "Ready."
+    for chunks in [
+        *[[text[:split], text[split:]] for split in range(len(text) + 1)],
+        list(text),
+    ]:
+        speech, calls = parse(chunks, spoken_output=spoken_output)
+        assert normalized(speech) == expected, chunks
+        assert calls == [], chunks
 
 
 @pytest.mark.parametrize(
@@ -121,13 +180,13 @@ def normalized(speech):
             '{"steer": "gatekeeper"}Understood, when can I call back?',
             "Understood, when can I call back?",
         ),
-        ('{"date": "2026-10-20", "reason": "callback"} <|thought|>Perfect', "Perfect"),
+        ('{"date": "2032-04-05", "reason": "callback"} <|thought|>Perfect', "Perfect"),
         ('{ "label": "" }', ""),
         ("{}", ""),
         ("Ok. {}", "Ok."),
         (
-            "La funzione end_call{} termina la chiamata.",
-            "La funzione end_call termina la chiamata.",
+            "The function end_call{} finishes the session.",
+            "The function end_call finishes the session.",
         ),
         ('# (No words spoken)\n{\n  "unknown": {}', ""),
         ("It is called `end_call`.", "It is called ."),
@@ -189,11 +248,11 @@ def test_envelope_reply_still_passes_through_the_guard():
 
 
 def test_keyed_json_call_requires_a_valid_schema():
-    text = json.dumps({"salva_richiamo": {"data_ora": "2026-10-20T09:30"}})
+    text = json.dumps({"schedule_visit": {"scheduled_at": "2032-04-05T09:30"}})
     assert parse(list(text)) == ("", [])
-    assert parse(list(json.dumps({"salva_richiamo": ARGS}))) == (
+    assert parse(list(json.dumps({"schedule_visit": ARGS}))) == (
         "",
-        [("salva_richiamo", ARGS)],
+        [("schedule_visit", ARGS)],
     )
 
 
@@ -207,32 +266,32 @@ def test_stage_direction_naming_a_tool_does_not_run_it():
 def test_react_arguments_with_punctuation_and_following_speech(encoded):
     text = json.dumps(
         {
-            "action": "salva_richiamo",
+            "action": "schedule_visit",
             "action_input": json.dumps(ARGS) if encoded else ARGS,
         }
     )
-    speech, calls = parse(list(text + " La richiamo domani."))
-    assert speech.strip() == "La richiamo domani."
-    assert calls == [("salva_richiamo", ARGS)]
+    speech, calls = parse(list(text + " I will call tomorrow."))
+    assert speech.strip() == "I will call tomorrow."
+    assert calls == [("schedule_visit", ARGS)]
 
 
 def test_unquoted_arguments_are_recovered_without_guessing_values():
     text = (
-        "La richiamo domani "
-        "trattamento_dati:default_api:salva_richiamo{"
-        "data_ora:2026-10-20T09:30,motivo:richiamare per i titolari, chiusi il lunedì,"
-        "tipo:generico} Buona giornata."
+        "I will call tomorrow "
+        "dispatch:default_api:schedule_visit{"
+        "scheduled_at:2032-04-05T09:30,reason:call again for the manager, closed on Mondays,"
+        "category:standard} Have a nice day."
     )
     speech, calls = parse(list(text))
     assert "default_api" not in speech
-    assert speech.strip() == "La richiamo domani  Buona giornata."
+    assert speech.strip() == "I will call tomorrow  Have a nice day."
     assert calls == [
         (
-            "salva_richiamo",
+            "schedule_visit",
             {
-                "data_ora": "2026-10-20T09:30",
-                "motivo": "richiamare per i titolari, chiusi il lunedì",
-                "tipo": "generico",
+                "scheduled_at": "2032-04-05T09:30",
+                "reason": "call again for the manager, closed on Mondays",
+                "category": "standard",
             },
         )
     ]
@@ -241,12 +300,12 @@ def test_unquoted_arguments_are_recovered_without_guessing_values():
 @pytest.mark.parametrize(
     "text",
     [
-        'Buongiorno. {"thought": "Need to call a tool. First check."} Come sta?',
-        "Buongiorno. final_thought: The customer said goodbye. Call end_call.",
-        "Buongiorno. no-thought",
-        "Buongiorno. italics{thought}",
-        'Buongiorno. { "thought": "" } } Come sta?',
-        "Buongiorno. thought",
+        'Hello. {"thought": "Need to call a tool. First check."} How are you?',
+        "Hello. final_thought: The customer said goodbye. Call end_call.",
+        "Hello. no-thought",
+        "Hello. italics{thought}",
+        'Hello. { "thought": "" } } How are you?',
+        "Hello. thought",
     ],
 )
 def test_thought_scaffolding_is_never_spoken_or_executed(text):
@@ -254,23 +313,23 @@ def test_thought_scaffolding_is_never_spoken_or_executed(text):
     assert "thought" not in speech
     assert "end_call" not in speech
     assert not calls
-    assert "Buongiorno." in speech
-    if "Come sta?" in text:
-        assert "Come sta?" in speech
+    assert "Hello." in speech
+    if "How are you?" in text:
+        assert "How are you?" in speech
 
 
 @pytest.mark.parametrize(
     "text",
     [
-        "Il nome della funzione è end_call.",
-        "Non chiamare end_call per ora.",
+        "The function name is end_call.",
+        "Do not invoke end_call yet.",
         "I thought you wanted a callback.",
         "I had a thought: call tomorrow.",
         "Agent: How can I help?",
         "Note: the office opens at 9:30.",
-        "Sì.Certo, a domani.",
-        "Write to mario_rossi@example.com today.",
-        "Your username is mario_rossi, correct?",
+        "Yes.Sure, see you tomorrow.",
+        "Write to sample_user@example.org today.",
+        "Your username is sample_user, correct?",
         "We meet on [Monday] at (around) ten.",
         "The total is 5 * 3 = 15.",
         "- First option, then the second.",
@@ -285,13 +344,13 @@ def test_ordinary_prose_is_preserved(text, spoken_output):
 @pytest.mark.parametrize(
     "text",
     [
-        "Il tool si chiama `end_call`.",
+        "The tool is named `end_call`.",
         '{"message": "This is legitimate JSON."}',
         "{}",
         "Ok. {}",
-        "La funzione end_call{} termina la chiamata.",
+        "The function end_call{} finishes the session.",
         "# Heading\n\n**Bold** text | cell",
-        "[Note] (aside) mario_rossi",
+        "[Note] (aside) sample_user",
         "*waves* hello",
     ],
 )
@@ -303,13 +362,13 @@ def test_text_chat_keeps_markup_and_json(text):
     "fragment",
     [
         "default_api:unknown_tool{}",
-        "default_api:salva_richiamo{}",
-        '{"action": "salva_richiamo", "action_input": "{ \\"data_ora\\": \\"2026-10-20T19:30\\",',
+        "default_api:schedule_visit{}",
+        '{"action": "schedule_visit", "action_input": "{ \\"scheduled_at\\": \\"2032-04-05T19:30\\",',
         json.dumps(
-            {"action": "salva_richiamo", "action_input": {**ARGS, "tipo": "wrong"}}
+            {"action": "schedule_visit", "action_input": {**ARGS, "category": "wrong"}}
         ),
         json.dumps(
-            {"action": "salva_richiamo", "action_input": {**ARGS, "motivo": None}}
+            {"action": "schedule_visit", "action_input": {**ARGS, "reason": None}}
         ),
         'default_api:end_call{"unexpected": 1}',
     ],
@@ -326,7 +385,9 @@ def test_current_tool_schema_is_required():
 
 def test_normal_speech_is_released_before_response_end():
     guard = SpokenToolCallGuard(TOOLS)
-    assert guard.feed("Buona giornata! Come sta? ") == "Buona giornata! Come sta? "
+    assert (
+        guard.feed("Have a nice day! How are you? ") == "Have a nice day! How are you? "
+    )
     assert guard.finish() == ""
 
 
@@ -339,9 +400,9 @@ def test_fenced_react_call():
 
 
 def test_escaped_quotes_and_braces_inside_json_values():
-    args = {**ARGS, "motivo": 'Ha detto "richiamare". Nota: {domani}.'}
-    text = json.dumps({"action": "salva_richiamo", "action_input": args})
-    assert parse(list(text)) == ("", [("salva_richiamo", args)])
+    args = {**ARGS, "reason": 'They said "call again". Note: {tomorrow}.'}
+    text = json.dumps({"action": "schedule_visit", "action_input": args})
+    assert parse(list(text)) == ("", [("schedule_visit", args)])
 
 
 def test_oversized_fragment_is_suppressed_and_not_recovered():
@@ -350,7 +411,7 @@ def test_oversized_fragment_is_suppressed_and_not_recovered():
 
 
 def test_duplicate_json_keys_are_not_repaired_into_an_action():
-    assert parse(['{"action":"end_call","action":"salva_richiamo"}']) == ("", [])
+    assert parse(['{"action":"end_call","action":"schedule_visit"}']) == ("", [])
 
 
 def test_schema_references_cannot_fetch_external_documents():
@@ -373,7 +434,7 @@ def test_nonfinite_numbers_cannot_be_recovered(value):
 @pytest.mark.parametrize("width", [1, 512, 100000])
 def test_complete_oversized_fragments_are_rejected_independently_of_chunk_size(width):
     text = json.dumps(
-        {"action": "salva_richiamo", "action_input": {**ARGS, "motivo": "x" * 20000}}
+        {"action": "schedule_visit", "action_input": {**ARGS, "reason": "x" * 20000}}
     )
     assert parse([text[i : i + width] for i in range(0, len(text), width)]) == ("", [])
 
@@ -388,8 +449,7 @@ def test_complete_oversized_fragments_are_rejected_independently_of_chunk_size(w
         "{name}{{}}",
         "`{name}`",
         "Agent: {name}.",
-        "severe:{name}{{}}",
-        "*(Esegue {name} per terminare la chiamata)*",
+        "invoke:{name}{{}}",
     ],
 )
 def test_advertised_names_with_punctuation_at_every_split(name, form):

@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pipecat.frames.frames import (
@@ -30,6 +30,7 @@ from api.schemas.answer_supervisor import resolve_answer_supervisor_config
 from api.services.pipecat.pipeline_builder import build_pipeline
 from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
 from api.services.pipecat.run_pipeline import _create_user_mute_strategies
+from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from pipecat.tests import MockLLMService, MockTTSService
@@ -42,14 +43,18 @@ class Passthrough(FrameProcessor):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("screened", [False, True])
+@pytest.mark.parametrize(
+    "enabled, screened", [(False, False), (True, False), (True, True)]
+)
 @pytest.mark.parametrize(
     "greeting_type, expected_generations", [("text", 0), ("audio", 0), ("llm", 1)]
 )
 async def test_hello_produces_exactly_one_opening(
-    simple_workflow, greeting_type, expected_generations, screened
+    simple_workflow, greeting_type, expected_generations, screened, enabled
 ):
     node = simple_workflow.nodes[simple_workflow.start_node_id]
+    node.delayed_start = True
+    node.delayed_start_duration = 0.5
     node.greeting_type = greeting_type
     node.greeting = "Welcome." if greeting_type == "text" else None
     node.greeting_recording_id = "9" if greeting_type == "audio" else None
@@ -74,6 +79,8 @@ async def test_hello_produces_exactly_one_opening(
         call_context_vars={},
         workflow_run_id=1,
     )
+    greeting_finished = Mock(wraps=engine.speech_playback.on_greeting_finished)
+    engine.speech_playback.on_greeting_finished = greeting_finished
     engine.set_transport_output(transport.output())
     engine.set_fetch_recording_audio(
         AsyncMock(
@@ -86,8 +93,7 @@ async def test_hello_produces_exactly_one_opening(
     supervisor = AnswerSupervisor(
         resolve_answer_supervisor_config(
             {
-                "enabled": True,
-                "listening_window_ms": 500,
+                "enabled": enabled,
                 "human_utterance_max_ms": 60,
                 "screening_message": {"text": "Alex calling about your appointment."},
             },
@@ -168,6 +174,12 @@ async def test_hello_produces_exactly_one_opening(
         assert [m["content"] for m in context.messages if m.get("role") == "user"] == [
             "Hello?"
         ]
+        greeting_finished.assert_called_once()
+        speech = greeting_finished.call_args.args[0]
+        assert speech.outcome is PlaybackOutcome.PLAYED
+        assert speech.has_output
+        assert speech.played_seconds > 0
+        assert speech.delivered_text == "Welcome."
         assert not engine.speech_playback.pending
         assert not supervisor.blocks_workflow
     finally:

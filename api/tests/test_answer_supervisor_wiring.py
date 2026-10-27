@@ -412,15 +412,17 @@ def test_unsupported_or_disabled_calls_do_not_create_a_classifier(
     monkeypatch.setattr(
         "api.services.pipecat.run_pipeline.create_llm_service_from_provider", factory
     )
-    assert (
-        _create_answer_supervisor(
-            {"enabled": enabled},
-            is_realtime=realtime,
-            start_node=None,
-            context=LLMContext(),
-            user_config=None,
-            correlation_id=None,
-        )
-        is None
+    supervisor = _create_answer_supervisor(
+        {"enabled": enabled},
+        is_realtime=realtime,
+        start_node=None,
+        context=LLMContext(),
+        user_config=None,
+        correlation_id=None,
     )
+    if realtime:
+        assert supervisor is None
+    else:
+        assert not supervisor.config.enabled
+        assert supervisor.llm_gate().closed
     factory.assert_not_called()

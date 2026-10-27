@@ -130,6 +130,12 @@ class OpeningInputGate(FrameProcessor):
         async with self._lock:
             while self._frames and not self._closed:
                 frame, direction = self._frames.popleft()
+                if isinstance(frame, TranscriptionFrame):
+                    # A buffered interim can start a turn and flush queued finals.
+                    # TODO: Remove this workaround once upstream settles and fixes
+                    # transcript interruption semantics:
+                    # https://github.com/pipecat-ai/pipecat/issues/5683
+                    frame.interruptible = False
                 await self.push_frame(frame, direction)
             self._holding = False
             self._audio_seconds = 0

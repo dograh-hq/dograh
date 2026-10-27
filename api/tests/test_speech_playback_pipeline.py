@@ -5,6 +5,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import TypeAdapter
+
+from api.schemas.tool import ToolMessages
+from api.services.pipecat.speech_playback import PlaybackOutcome
+from api.services.pipecat.worker_runner import run_pipeline_worker
+from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.tool_execution import ToolExecutionOwner
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
@@ -32,13 +39,6 @@ from pipecat.turns.user_mute import CallbackUserMuteStrategy
 from pipecat.turns.user_start import ExternalUserTurnStartStrategy
 from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
-from pydantic import TypeAdapter
-
-from api.schemas.tool import ToolMessages
-from api.services.pipecat.speech_playback import PlaybackOutcome
-from api.services.pipecat.worker_runner import run_pipeline_worker
-from api.services.workflow.pipecat_engine import PipecatEngine
-from api.services.workflow.tool_execution import ToolExecutionOwner
 
 
 class ControlledTTS(MockTTSService):
@@ -58,11 +58,11 @@ class ControlledTTS(MockTTSService):
 
 
 class ControlledOutput(MockOutputTransport):
-    def __init__(self):
+    def __init__(self, *, sample_rate=16000):
         super().__init__(
             params=TransportParams(
                 audio_out_enabled=True,
-                audio_out_sample_rate=16000,
+                audio_out_sample_rate=sample_rate,
                 audio_out_end_silence_secs=0,
             )
         )
@@ -503,6 +503,54 @@ async def test_stale_audio_does_not_make_an_empty_new_response_successful(playba
     assert not await asyncio.wait_for(current.wait(), 1)
     assert current.outcome is PlaybackOutcome.FAILED
     assert not current.has_output
+
+
+@pytest.mark.asyncio
+async def test_duplicate_provider_boundaries_do_not_leave_playback_scopes(playback):
+    tracker = playback.engine.speech_playback
+    speech = tracker.expect_response(source=playback.tts, mute_user=True)
+    for _ in range(3):
+        frame = LLMFullResponseStartFrame()
+        frame.metadata["dograh_response_id"] = "response-1"
+        await playback.tts.push_frame(frame)
+    await playback.tts.push_frame(TTSStartedFrame())
+    await playback.tts.push_frame(TTSAudioRawFrame(b"\x01\x00" * 640, 16000, 1))
+    await playback.tts.push_frame(TTSStoppedFrame())
+    for _ in range(2):
+        frame = LLMFullResponseEndFrame()
+        frame.metadata["dograh_response_id"] = "response-1"
+        await playback.tts.push_frame(frame)
+    assert await asyncio.wait_for(speech.wait(), 1)
+    assert await playback.worker.flush_pipeline(timeout=1)
+    assert speech.played_seconds == pytest.approx(0.04)
+    assert speech.queued_seconds == pytest.approx(0.04)
+    assert tracker._input_scopes == tracker._output_scopes == []
+    assert not await playback.muted()
+
+
+@pytest.mark.asyncio
+async def test_late_provider_end_keeps_its_original_speech_identity(playback):
+    tracker = playback.engine.speech_playback
+
+    async def boundary(frame_type, response_id):
+        frame = frame_type()
+        frame.metadata["dograh_response_id"] = response_id
+        await playback.tts.push_frame(frame)
+        return frame
+
+    old = tracker.expect_response(source=playback.tts)
+    await boundary(LLMFullResponseStartFrame, "old")
+    old.finish(PlaybackOutcome.TIMED_OUT)
+    current = tracker.expect_response(source=playback.tts)
+    await boundary(LLMFullResponseStartFrame, "current")
+    old_end = await boundary(LLMFullResponseEndFrame, "old")
+    assert await playback.worker.flush_pipeline(timeout=1)
+    assert old_end.metadata["dograh_speech_id"] == old.id
+    assert not current.done
+    await playback.tts.push_frame(TTSAudioRawFrame(b"\x01\x00" * 640, 16000, 1))
+    await boundary(LLMFullResponseEndFrame, "current")
+    assert await asyncio.wait_for(current.wait(), 1)
+    assert current.played_seconds == pytest.approx(0.04)
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,8 @@ reconnect.
 
 Adds:
 
+- **One playback scope per response**, including duplicate item events and
+  late output after cancellation.
 - **Silent audio while muted** via ``UserMuteStarted/StoppedFrame``.
 - **TTSSpeakFrame as initial-response trigger** so the engine's greeting
   flow kicks off the bot's first response.
@@ -31,6 +33,10 @@ from api.services.pipecat.realtime.conversation import (
     RealtimeConversationMixin,
     opening_request,
 )
+from api.services.pipecat.realtime.response_lifecycle import (
+    RealtimeResponseLifecycleMixin,
+    response_event,
+)
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     Frame,
@@ -51,7 +57,10 @@ from pipecat.utils.time import time_now_iso8601
 
 
 class DograhOpenAIRealtimeLLMService(
-    BackgroundConnectionMixin, RealtimeConversationMixin, OpenAIRealtimeLLMService
+    BackgroundConnectionMixin,
+    RealtimeConversationMixin,
+    RealtimeResponseLifecycleMixin,
+    OpenAIRealtimeLLMService,
 ):
     """OpenAI Realtime with Dograh engine integration quirks. See module docstring."""
 
@@ -86,6 +95,52 @@ class DograhOpenAIRealtimeLLMService(
             await self._handle_messages_append(frame)
             return
         await super().process_frame(frame, direction)
+
+    async def _receive_task_handler(self):
+        """Dispatch response.created as well as the pinned upstream events.
+
+        The pinned OpenAI receive loop parses but ignores response.created.
+        Keep its dispatch/error behavior, adding the lifecycle callback needed
+        to pair speech by response ID instead of assistant item announcements.
+        """
+        assert self._websocket is not None
+        handlers = {
+            "session.created": self._handle_evt_session_created,
+            "session.updated": self._handle_evt_session_updated,
+            "response.created": self._handle_evt_response_created,
+            "response.output_item.added": self._handle_evt_conversation_item_added,
+            "response.output_audio.delta": self._handle_evt_audio_delta,
+            "conversation.item.added": self._handle_evt_conversation_item_added,
+            "conversation.item.done": self._handle_evt_conversation_item_done,
+            "conversation.item.input_audio_transcription.delta": self._handle_evt_input_audio_transcription_delta,
+            "conversation.item.input_audio_transcription.completed": self.handle_evt_input_audio_transcription_completed,
+            "conversation.item.retrieved": self._handle_conversation_item_retrieved,
+            "response.done": self._handle_evt_response_done,
+            "input_audio_buffer.speech_started": self._handle_evt_speech_started,
+            "input_audio_buffer.speech_stopped": self._handle_evt_speech_stopped,
+            "response.output_text.delta": self._handle_evt_text_delta,
+            "response.output_audio_transcript.delta": self._handle_evt_audio_transcript_delta,
+            "response.function_call_arguments.done": self._handle_evt_function_call_arguments_done,
+        }
+        async for message in self._websocket:
+            evt = events.parse_server_event(message)
+            if handler := handlers.get(evt.type):
+                await handler(evt)
+            elif evt.type == "error":
+                if not await self._maybe_handle_evt_retrieve_conversation_item_error(
+                    evt
+                ):
+                    if evt.error.code in (
+                        "response_cancel_not_active",
+                        "conversation_already_has_active_response",
+                    ):
+                        logger.debug(f"{self} {evt.error.message}")
+                    else:
+                        await self._handle_evt_error(evt)
+                        return
+
+    async def _cancel_realtime_response(self):
+        await self.send_client_event(events.ResponseCancelEvent())
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
         """Consume a one-off append frame without mutating the local LLMContext."""
@@ -299,6 +354,7 @@ class DograhOpenAIRealtimeLLMService(
             )
         )
 
+    @response_event
     async def _handle_evt_function_call_arguments_done(self, evt):
         """Only a response's sole workflow-control call may wait for playback."""
         try:
@@ -337,7 +393,10 @@ class DograhOpenAIRealtimeLLMService(
             logger.error(f"Failed to process function call arguments: {e}")
 
     async def _handle_evt_response_done(self, evt):
+        already_finished = self._is_stale_response(evt.response.id)
         await super()._handle_evt_response_done(evt)
+        if already_finished:
+            return
         await self._workflow_tool_deferral.complete_response(
             evt.response.id,
             speaking=self._workflow_bot_is_speaking,

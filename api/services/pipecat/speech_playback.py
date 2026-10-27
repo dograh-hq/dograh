@@ -175,6 +175,7 @@ class SpeechPlaybackTracker:
         self._expected_response: SpeechPlayback | None = None
         self._expected_source: FrameProcessor | None = None
         self._response_sources: dict[FrameProcessor, str | None] = {}
+        self._provider_responses: dict[tuple[FrameProcessor, str], str] = {}
         self._observers: list[SpeechPlaybackObserver] = []
 
     def add_observer(self, observer: SpeechPlaybackObserver) -> None:
@@ -235,7 +236,14 @@ class SpeechPlaybackTracker:
             )
 
     def _mark_response_boundaries(self, source: FrameProcessor, frame: Frame) -> None:
+        response_id = frame.metadata.get("dograh_response_id")
+        response_key = (source, response_id) if response_id else None
         if isinstance(frame, LLMFullResponseStartFrame):
+            if response_key in self._provider_responses:
+                frame.metadata["dograh_speech_id"] = self._provider_responses[
+                    response_key
+                ]
+                return
             speech = (
                 self._expected_response if self._expected_source is source else None
             )
@@ -243,6 +251,8 @@ class SpeechPlaybackTracker:
             # output for another speech request whose boundaries overlap them.
             speech_id = speech.id if speech and not speech.done else str(uuid.uuid4())
             self._response_sources[source] = speech_id
+            if response_key:
+                self._provider_responses[response_key] = speech_id
             frame.metadata["dograh_speech_id"] = speech_id
             for observer in self._observers:
                 observer.on_response_started(source, speech_id)
@@ -250,8 +260,14 @@ class SpeechPlaybackTracker:
                 self._expected_response = None
                 self._expected_source = None
         elif isinstance(frame, LLMFullResponseEndFrame):
-            frame.metadata["dograh_speech_id"] = self._response_sources[source]
-            self._response_sources[source] = None
+            speech_id = (
+                self._provider_responses.get(response_key)
+                if response_key
+                else self._response_sources[source]
+            )
+            frame.metadata["dograh_speech_id"] = speech_id
+            if self._response_sources[source] == speech_id:
+                self._response_sources[source] = None
 
     def cancel_all(self, outcome: PlaybackOutcome = PlaybackOutcome.CLOSED) -> None:
         for observer in self._observers:
@@ -271,6 +287,7 @@ class SpeechPlaybackTracker:
                     "on_before_push_frame", self._mark_response_boundaries
                 )
             self._response_sources.clear()
+            self._provider_responses.clear()
 
     def bind_output(self, output) -> None:
         if self._output:
@@ -371,6 +388,8 @@ class SpeechPlaybackTracker:
             )
             if boundary:
                 if boundary.beginning:
+                    if boundary.speech_id in self._input_scopes:
+                        return
                     self._input_scopes.append(boundary.speech_id)
                 elif boundary.speech_id in self._input_scopes:
                     self._input_scopes.remove(boundary.speech_id)
@@ -400,9 +419,12 @@ class SpeechPlaybackTracker:
         if "dograh_speech_id" in frame.metadata:
             speech_id = frame.metadata["dograh_speech_id"]
             if speech_id:
-                return SpeechBoundaryFrame(
+                boundary = SpeechBoundaryFrame(
                     speech_id, beginning=isinstance(frame, LLMFullResponseStartFrame)
                 )
+                if outcome := frame.metadata.get("dograh_response_outcome"):
+                    boundary.metadata["dograh_response_outcome"] = outcome
+                return boundary
             return None
 
         # Only ordered adapters without a source use output-side pairing. Tagged
@@ -426,17 +448,24 @@ class SpeechPlaybackTracker:
         """Called only after the transport has written the preceding audio."""
         if isinstance(frame, SpeechBoundaryFrame):
             if frame.beginning:
+                if frame.speech_id in self._output_scopes:
+                    return
                 self._output_scopes.append(frame.speech_id)
                 if speech := self.pending.get(frame.speech_id):
                     speech.started = True
                     if speech is self.greeting and self.on_greeting_started:
                         self.on_greeting_started(speech)
             else:
+                if frame.speech_id not in self._output_scopes:
+                    return
                 for observer in self._observers:
                     observer.on_playback_finished(frame.speech_id)
                 speech = self.pending.get(frame.speech_id)
                 if speech:
-                    self._complete(speech)
+                    if outcome := frame.metadata.get("dograh_response_outcome"):
+                        speech.finish(PlaybackOutcome(outcome))
+                    else:
+                        self._complete(speech)
                 if frame.speech_id in self._output_scopes:
                     self._output_scopes.remove(frame.speech_id)
         elif self._output is None and isinstance(
@@ -473,9 +502,11 @@ class SpeechPlaybackTracker:
                         speech.id,
                         speech.first_output_at,
                         round((now - speech.requested_at) * 1000),
-                        round((now - speech.connection_started_at) * 1000)
-                        if speech.connection_started_at is not None
-                        else None,
+                        (
+                            round((now - speech.connection_started_at) * 1000)
+                            if speech.connection_started_at is not None
+                            else None
+                        ),
                         "audio" if frame is not None else "text",
                     )
             if frame is not None:

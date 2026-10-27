@@ -776,6 +776,11 @@ class TwilioProvider(TelephonyProvider):
                 error_code = (
                     error_data.get("code") if isinstance(error_data, dict) else None
                 )
+                # Twilio codes are JSON integers. Reject other types before
+                # retry classification, logging, or exposing the exception to
+                # the voice agent; bool is not a valid code either.
+                if not isinstance(error_code, int) or isinstance(error_code, bool):
+                    error_code = None
                 # 21210: unverified From; 21212: invalid From. Retry only an
                 # explicit caller-ID rejection, never an ambiguous create failure
                 # (e.g. a timeout or 5xx that might already have placed the call).

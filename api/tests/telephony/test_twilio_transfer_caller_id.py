@@ -229,6 +229,32 @@ async def test_failed_fallback_logs_its_own_explanation(transfer, error_logs):
     ]
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "21210\r\nFORGED LOG ENTRY\x1b[31m",
+        "21210",
+        {"message": "private provider data"},
+        [21210],
+        True,
+        21210.0,
+    ],
+)
+async def test_non_integer_error_codes_are_not_logged_exposed_or_retried(
+    transfer, error_logs, code
+):
+    transfer.replies[:] = [response(400, {"code": code, "message": "Request rejected"})]
+
+    with pytest.raises(RuntimeError) as caught:
+        await dial(transfer)
+
+    assert str(caught.value) == "Twilio API call failed with status 400: code=None"
+    assert error_logs == [
+        "Twilio transfer tx-1 failed status=400 code=None detail=Request rejected"
+    ]
+    assert len(transfer.requests) == 1
+
+
 @pytest.mark.parametrize("as_json", [True, False])
 async def test_failure_log_redacts_addresses_and_secrets_before_truncation(
     transfer, error_logs, as_json

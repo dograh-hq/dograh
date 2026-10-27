@@ -21,7 +21,8 @@ node changes.
 """
 
 import json
-from typing import TYPE_CHECKING, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
@@ -117,7 +118,12 @@ class RealtimeFeedbackObserver(BaseObserver):
 
     async def log_speech(self, text: str):
         """Persist speech that is intentionally excluded from assistant context."""
-        await self._append_to_buffer(build_bot_text_event(text=text))
+        from pipecat.utils.text.spoken_text_filter import SpokenTextFilter
+
+        # Queued announcements can be logged before reaching the TTS service.
+        text = await SpokenTextFilter().filter(text)
+        if text.strip():
+            await self._append_to_buffer(build_bot_text_event(text=text))
 
     def speech_log_context(self) -> dict:
         if self._logs_buffer is None:

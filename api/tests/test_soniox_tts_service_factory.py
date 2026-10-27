@@ -1,10 +1,12 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
 import pytest
 from pipecat.transcriptions.language import Language
 from pydantic import TypeAdapter, ValidationError
 
+from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.options import (
     SONIOX_REGIONS,
     SONIOX_TTS_LANGUAGES,
@@ -118,3 +120,48 @@ def test_soniox_region_is_validated_and_normalized(config_class):
 
     with pytest.raises(ValidationError):
         config_class(api_key="test-key", region="mars")
+
+
+def _soniox_models_response(status_code: int, url: str) -> httpx.Response:
+    return httpx.Response(status_code, request=httpx.Request("GET", url))
+
+
+@pytest.mark.parametrize(
+    "config_class", [SonioxSTTConfiguration, SonioxTTSConfiguration]
+)
+@pytest.mark.parametrize(
+    ("region", "url"),
+    [
+        ("us", "https://api.soniox.com/v1/models"),
+        ("eu", "https://api.eu.soniox.com/v1/models"),
+        ("jp", "https://api.jp.soniox.com/v1/models"),
+        ("in", "https://api.in.soniox.com/v1/models"),
+    ],
+)
+def test_soniox_connection_key_is_checked_in_its_region(config_class, region, url):
+    config = config_class(api_key="test-key", region=region)
+
+    with patch(
+        "api.services.configuration.check_validity.httpx.get",
+        return_value=_soniox_models_response(200, url),
+    ) as get:
+        UserConfigurationValidator().validate_connection(config)
+
+    get.assert_called_once()
+    assert get.call_args.args[0] == url
+    assert get.call_args.kwargs["headers"] == {"Authorization": "Bearer test-key"}
+
+
+@pytest.mark.parametrize(
+    "config_class", [SonioxSTTConfiguration, SonioxTTSConfiguration]
+)
+def test_soniox_connection_rejects_key_from_another_region(config_class):
+    config = config_class(api_key="test-key", region="in")
+    url = "https://api.in.soniox.com/v1/models"
+
+    with patch(
+        "api.services.configuration.check_validity.httpx.get",
+        return_value=_soniox_models_response(401, url),
+    ):
+        with pytest.raises(ValueError, match=r"rejected by api\.in\.soniox\.com"):
+            UserConfigurationValidator().validate_connection(config)

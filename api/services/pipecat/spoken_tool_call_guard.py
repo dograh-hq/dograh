@@ -153,7 +153,7 @@ class SpokenToolCallGuard:
         # fragment shows whether it prefixes a tool call.
         self._held = ""
         self._held_boundary = True
-        self._reasoning_close = None
+        self._suppressed_tag_close = None
         self._tool_fragment = False
         self._reinject = None
         names = (
@@ -415,18 +415,20 @@ class SpokenToolCallGuard:
 
         while self._buffer and not self._discard_rest:
             text = self._buffer
-            if self._reasoning_close:
-                index = text.lower().find(self._reasoning_close)
+            if self._suppressed_tag_close:
+                index = text.lower().find(self._suppressed_tag_close)
                 close = text.find(">", index) if index >= 0 else -1
                 if close < 0:
                     # Keep only what could still complete the closing tag.
                     keep = (
-                        index if index >= 0 else len(text) - len(self._reasoning_close)
+                        index
+                        if index >= 0
+                        else len(text) - len(self._suppressed_tag_close)
                     )
                     self._buffer = "" if final else text[max(keep, 0) :]
                     break
                 self._buffer = text[close + 1 :]
-                self._reasoning_close = None
+                self._suppressed_tag_close = None
                 continue
             if text[0].isspace():
                 if self._held:
@@ -523,7 +525,7 @@ class SpokenToolCallGuard:
                             self._buffer = ""
                             continue
                         if not tag[1] and text[close - 1] != "/":
-                            self._reasoning_close = "</" + tag[2].lower()
+                            self._suppressed_tag_close = "</" + tag[2].lower()
                         self._buffer = text[close + 1 :]
                         continue
                 if not text.startswith("<call:"):
@@ -531,6 +533,13 @@ class SpokenToolCallGuard:
                     self._buffer = text[1:]
                     continue
                 close = text.find(">")
+                if close >= 0 and text[close - 1] != "/":
+                    # A paired call envelope is control data, including any
+                    # apparent tool calls inside its body.
+                    self._suppressed("paired_call")
+                    self._suppressed_tag_close = "</" + text[1:close].split()[0].lower()
+                    self._buffer = text[close + 1 :]
+                    continue
                 end = close + 1 if close >= 0 else None
             elif text.startswith("*("):
                 close = text.find(")*")

@@ -24,6 +24,7 @@ from pipecat.processors.frame_processor import FrameProcessor, FrameProcessorSet
 from pipecat.services.tts_service import TextAggregationMode, TTSService, TTSSettings
 from pipecat.tests.utils import SleepFrame, run_test
 from pipecat.utils.asyncio.task_manager import TaskManager
+from pipecat.utils.text.base_text_aggregator import AggregationType
 from pipecat.utils.text.base_text_filter import BaseTextFilter
 from pipecat.utils.text.spoken_text_filter import SpokenTextFilter
 
@@ -93,7 +94,27 @@ CASES = [
     ),
     ('Hello. {"debug":"Private. Internal."} Welcome.', "Hello. Welcome."),
     ("Hello. {{unused_placeholder}}", "Hello."),
+    ("Hello. default_api:task_update_inventory{", "Hello."),
+    ("Ready. [true, false, null, -1]", "Ready."),
+    (
+        (
+            "Ready. <call:default_api:task_update_inventory>Private planning. "
+            "default_api:close_session{}</call:default_api:task_update_inventory> Welcome."
+        ),
+        "Ready. Welcome.",
+    ),
 ]
+
+TOOL_SCHEMAS = {
+    name: {"type": "object", "properties": {}, "required": []}
+    for name in (
+        "task_update_inventory",
+        "task_update_inventory_72",
+        "request_item_code",
+        "confirm_delivery",
+        "close_session",
+    )
+}
 
 
 def normalized(text):
@@ -105,8 +126,9 @@ def normalized(text):
 @pytest.mark.parametrize("mode", ["sentence", "words", "missing_words"])
 @pytest.mark.parametrize("token_streaming", [False, True])
 @pytest.mark.parametrize("upstream_guard", [False, True])
+@pytest.mark.parametrize("pre_aggregated", [False, True])
 async def test_speech_context_and_persisted_transcript_agree(
-    text, expected, mode, token_streaming, upstream_guard
+    text, expected, mode, token_streaming, upstream_guard, pre_aggregated
 ):
     context = LLMContext()
     assistant = LLMAssistantAggregator(context)
@@ -138,13 +160,21 @@ async def test_speech_context_and_persisted_transcript_agree(
         await pipeline.queue_frame(StartFrame())
         await asyncio.wait_for(sink.started.wait(), 2)
         await pipeline.queue_frame(LLMFullResponseStartFrame())
-        guard = SpokenToolCallGuard({}) if upstream_guard else None
+        guard = SpokenToolCallGuard(TOOL_SCHEMAS) if upstream_guard else None
         for char in text:
+            chunk = guard.feed(char) if guard else char
             await pipeline.queue_frame(
-                LLMTextFrame(guard.feed(char) if guard else char)
+                AggregatedTextFrame(chunk, AggregationType.TOKEN, raw_text=chunk)
+                if pre_aggregated
+                else LLMTextFrame(chunk)
             )
         if guard:
-            await pipeline.queue_frame(LLMTextFrame(guard.finish()))
+            tail = guard.finish()
+            await pipeline.queue_frame(
+                AggregatedTextFrame(tail, AggregationType.TOKEN, raw_text=tail)
+                if pre_aggregated
+                else LLMTextFrame(tail)
+            )
             assert not guard.calls
         await pipeline.queue_frame(LLMFullResponseEndFrame())
         await asyncio.wait_for(sink.ended.wait(), 2)
@@ -167,6 +197,15 @@ async def test_speech_context_and_persisted_transcript_agree(
     finally:
         await pipeline.cleanup()
     assert not tasks.current_tasks()
+
+
+def test_advertised_tool_fixture_can_recover_a_complete_valid_call():
+    guard = SpokenToolCallGuard(TOOL_SCHEMAS)
+    speech = guard.feed("default_api:task_update_inventory{}") + guard.finish()
+    assert not speech.strip()
+    assert [(call.name, call.arguments) for call in guard.calls] == [
+        ("task_update_inventory", {})
+    ]
 
 
 @pytest.mark.asyncio

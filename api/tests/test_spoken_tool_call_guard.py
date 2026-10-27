@@ -92,6 +92,22 @@ def normalized(speech):
     return " ".join(speech.split())
 
 
+@pytest.mark.parametrize("spoken_output", [True, False])
+@pytest.mark.parametrize("closed", [True, False])
+def test_paired_call_envelopes_do_not_execute_nested_tool_text(spoken_output, closed):
+    text = "Ready. <call:default_api:schedule_visit>Private. default_api:end_call{}"
+    if closed:
+        text += "</call:default_api:schedule_visit> Continue."
+    expected = "Ready. Continue." if closed else "Ready."
+    for split in range(len(text) + 1):
+        speech, calls = parse([text[:split], text[split:]], spoken_output=spoken_output)
+        assert normalized(speech) == expected
+        assert calls == []
+    speech, calls = parse(list(text), spoken_output=spoken_output)
+    assert normalized(speech) == expected
+    assert calls == []
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [

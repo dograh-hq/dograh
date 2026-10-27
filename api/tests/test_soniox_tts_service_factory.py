@@ -38,7 +38,7 @@ def test_soniox_tts_configuration_exposes_defaults():
     assert config.language == "en"
     assert config.speed == 1.0
     assert config.region == "us"
-    assert SONIOX_TTS_MODELS[0] == "tts-rt-v2"
+    assert SONIOX_TTS_MODELS == ("tts-rt-v2", "tts-rt-v1")
     assert "multi" not in SONIOX_TTS_LANGUAGES
     assert {"hi", "mr"} <= set(SONIOX_TTS_LANGUAGES)
 

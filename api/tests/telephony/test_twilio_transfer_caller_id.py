@@ -9,6 +9,7 @@ from xml.etree.ElementTree import fromstring
 
 import aiohttp
 import pytest
+from loguru import logger
 
 from api.services.telephony import call_transfer_manager
 from api.services.telephony.providers.twilio import provider as provider_module
@@ -173,6 +174,118 @@ async def test_other_errors_do_not_retry(transfer, status, body):
     with pytest.raises(RuntimeError, match=f"status {status}"):
         await dial(transfer)
     assert len(transfer.requests) == 1
+
+
+@pytest.fixture
+def error_logs():
+    messages = []
+    sink = logger.add(
+        lambda message: messages.append(message.record["message"]), level="ERROR"
+    )
+    try:
+        yield messages
+    finally:
+        logger.remove(sink)
+
+
+@pytest.mark.parametrize(
+    "status,code,explanation",
+    [
+        (400, 21211, "The destination is invalid"),
+        (403, None, "Geographic calling permissions are disabled"),
+        (502, None, "Upstream gateway unavailable"),
+    ],
+)
+async def test_failure_explanation_is_logged_but_not_exposed_to_agent(
+    transfer, error_logs, status, code, explanation
+):
+    error = response(status, {"code": code, "message": explanation})
+    if status == 502:
+        error.text.return_value = explanation
+    transfer.replies[:] = [error]
+
+    with pytest.raises(RuntimeError) as caught:
+        await dial(transfer)
+
+    assert (
+        str(caught.value) == f"Twilio API call failed with status {status}: code={code}"
+    )
+    assert error_logs == [
+        f"Twilio transfer tx-1 failed status={status} code={code} detail={explanation}"
+    ]
+    assert len(transfer.requests) == 1
+
+
+async def test_failed_fallback_logs_its_own_explanation(transfer, error_logs):
+    transfer.replies[:] = [
+        response(400, {"code": 21210, "message": "Caller ID not verified"}),
+        response(403, {"message": "Account is suspended"}),
+    ]
+    with pytest.raises(RuntimeError, match="status 403: code=None"):
+        await dial(transfer)
+    assert len(transfer.requests) == 2
+    assert error_logs == [
+        "Twilio transfer tx-1 failed status=403 code=None detail=Account is suspended"
+    ]
+
+
+@pytest.mark.parametrize("as_json", [True, False])
+async def test_failure_log_redacts_addresses_and_secrets_before_truncation(
+    transfer, error_logs, as_json
+):
+    secrets = [
+        CALLER_NUMBER,
+        ACCOUNT_NUMBER,
+        DESTINATION,
+        transfer.provider.auth_token,
+        transfer.provider.account_sid,
+        "bearer-secret",
+        "query-secret",
+        "quoted secret " * 60,
+    ]
+    explanation = (
+        "Dial rejected: "
+        + " ".join(secrets[:5])
+        + " Authorization: Bearer bearer-secret; "
+        + "https://example.com?token=query-secret "
+        + 'password="'
+        + secrets[-1]
+        + '"\r\n'
+        + "Details: "
+        + "x" * 600
+    )
+    error = response(403, {"message": explanation, "request": "unrelated private data"})
+    if not as_json:
+        error.text.return_value = explanation
+    transfer.replies[:] = [error]
+
+    with pytest.raises(RuntimeError):
+        await dial(transfer)
+
+    assert len(error_logs) == 1
+    message = error_logs[0]
+    assert "Dial rejected:" in message
+    assert "Details:" in message
+    assert "[REDACTED]" in message
+    assert "unrelated private data" not in message
+    assert all(secret not in message for secret in secrets)
+    assert "quoted secret" not in message
+    assert "\n" not in message and "\r" not in message
+    assert len(message.split(" detail=", 1)[1]) == 500
+
+
+@pytest.mark.parametrize("message", [None, "", [], {"secret": "private data"}])
+async def test_unusable_error_message_does_not_dump_response(
+    transfer, error_logs, message
+):
+    transfer.replies[:] = [
+        response(403, {"message": message, "request": "private data"})
+    ]
+    with pytest.raises(RuntimeError, match="status 403: code=None"):
+        await dial(transfer)
+    assert error_logs == [
+        "Twilio transfer tx-1 failed status=403 code=None detail=No provider error explanation"
+    ]
 
 
 @pytest.mark.parametrize("error", [TimeoutError, aiohttp.ClientConnectionError])

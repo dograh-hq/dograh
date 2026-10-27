@@ -13,6 +13,7 @@ from loguru import logger
 from twilio.request_validator import RequestValidator
 
 from api.enums import TelephonyCallStatus, WorkflowRunMode
+from api.errors.failure import redact_failure_message
 from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
@@ -761,10 +762,17 @@ class TwilioProvider(TelephonyProvider):
                             "raw_response": response_data,
                         }
 
+                error_detail = response_text
                 try:
                     error_data = json.loads(response_text)
                 except ValueError:
                     error_data = {}
+                else:
+                    error_detail = (
+                        error_data.get("message")
+                        if isinstance(error_data, dict)
+                        else None
+                    )
                 error_code = (
                     error_data.get("code") if isinstance(error_data, dict) else None
                 )
@@ -786,6 +794,32 @@ class TwilioProvider(TelephonyProvider):
                     )
                     data["From"] = account_number
                     continue
+                # The workflow exposes exception text to the voice agent. Keep
+                # the provider's explanation in server logs only, redacting
+                # credentials and call addresses before truncating the message.
+                if isinstance(error_detail, str):
+                    for value in (
+                        self.auth_token,
+                        self.account_sid,
+                        account_number,
+                        caller_number,
+                        data["From"],
+                        data["To"],
+                    ):
+                        if isinstance(value, str) and value:
+                            error_detail = error_detail.replace(value, "[REDACTED]")
+                    error_detail = redact_failure_message(error_detail)
+                    error_detail = re.sub(r"[\x00-\x1f\x7f]", " ", error_detail)
+                    error_detail = " ".join(error_detail.split())[:500]
+                else:
+                    error_detail = None
+                logger.error(
+                    "Twilio transfer {} failed status={} code={} detail={}",
+                    transfer_id,
+                    response_status,
+                    error_code,
+                    error_detail or "No provider error explanation",
+                )
                 raise RuntimeError(
                     f"Twilio API call failed with status {response_status}: code={error_code}"
                 )

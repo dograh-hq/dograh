@@ -415,6 +415,16 @@ async def _run_pipeline_telephony_impl(
     if workflow_run.workflow_id != workflow_id:
         raise HTTPException(status_code=400, detail="workflow_run_workflow_mismatch")
 
+    # Marked here, once the stream has started, rather than when the socket
+    # connects: some carriers open the socket while the callee is still
+    # ringing, and the status callback reads 'initialized' as "the pipeline
+    # never started" when deciding whether an unanswered call needs its
+    # post-call integrations.
+    if await db_client.mark_workflow_run_running(workflow_run_id, organization_id):
+        logger.info(
+            f"[run {workflow_run_id}] Set workflow run state to 'running' for {provider_name} provider"
+        )
+
     telephony_configuration_id = None
     if workflow_run.initial_context:
         telephony_configuration_id = workflow_run.initial_context.get(

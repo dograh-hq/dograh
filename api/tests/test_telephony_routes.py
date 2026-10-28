@@ -659,3 +659,38 @@ async def test_smallwebrtc_run_reaching_telephony_websocket_closes_without_runni
     assert mock_db.update_workflow_run.await_count == 0
     assert provider_lookup.await_count == 0
     mock_concurrency.unregister_active_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_telephony_websocket_leaves_run_initialized_until_stream_starts():
+    """Telnyx opens the media socket while the callee is still ringing. The run
+    must stay 'initialized' until the stream starts, or a busy / no-answer
+    hangup looks like a started pipeline and skips its post-call integrations.
+    """
+    websocket = AsyncMock()
+    workflow_run = SimpleNamespace(
+        id=502,
+        workflow_id=33,
+        mode=WorkflowRunMode.TELNYX.value,
+        state=WorkflowRunState.INITIALIZED.value,
+        initial_context={"provider": "telnyx"},
+        gathered_context={},
+    )
+    workflow = SimpleNamespace(id=33, organization_id=11, user_id=99)
+    provider = SimpleNamespace(PROVIDER_NAME="telnyx", handle_websocket=AsyncMock())
+
+    with (
+        patch("api.routes.telephony.db_client") as mock_db,
+        patch(
+            "api.routes.telephony.get_telephony_provider_for_run",
+            new=AsyncMock(return_value=provider),
+        ),
+    ):
+        mock_db.get_workflow_run = AsyncMock(return_value=workflow_run)
+        mock_db.get_workflow = AsyncMock(return_value=workflow)
+        mock_db.update_workflow_run = AsyncMock()
+
+        await _handle_telephony_websocket(websocket, 33, 11, 502)
+
+    provider.handle_websocket.assert_awaited_once_with(websocket, 33, 11, 502)
+    mock_db.update_workflow_run.assert_not_awaited()

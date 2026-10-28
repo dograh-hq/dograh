@@ -118,7 +118,7 @@ export function AnswerSupervisorFields({ value, onChange }: {
         <details className="rounded-md border p-3">
             <summary className="cursor-pointer text-sm font-medium">Timing</summary>
             <div className="mt-3 space-y-2">
-                <p className="text-xs text-muted-foreground">Use the Start node’s Delayed Start setting to configure how long the agent listens before greeting a silent answer. The default is 1.2 seconds. A brief human greeting can end the wait sooner.</p>
+                <p className="text-xs text-muted-foreground">The Start node’s Delayed Start setting controls the initial listening window with or without voicemail detection. When it is off, the agent can greet immediately. A completed caller turn can end the wait sooner; voicemail detection checks the answer before proceeding.</p>
                 <Label htmlFor={`${id}-screening`}>Screening wait (seconds)</Label>
                 <Input id={`${id}-screening`} type="number" min="1" max="60" step="1"
                     value={(value.screening_wait_ms ?? 30000) / 1000}

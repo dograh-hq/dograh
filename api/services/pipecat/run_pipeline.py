@@ -150,6 +150,8 @@ def _create_answer_supervisor(
     )
     if config is None:
         return None
+    if not config.enabled:
+        return AnswerSupervisor(config, context=context)
     # Private inference uses its own service and fixed subtype instructions.
     if voicemail_config.get("use_workflow_llm", True):
         classifier_llm = create_llm_service(
@@ -174,7 +176,7 @@ def _create_answer_supervisor(
 
 def _create_opening_input_gate(start_node, audio_buffer):
     # The downstream aggregator cannot detect speech while this gate retains
-    # audio. Detect it here in both pipeline shapes, before delayed ASR results.
+    # realtime audio. Cascade calls keep aggregation live behind an inference gate.
     window_ms = resolve_listening_window_ms(start_node)
     return OpeningInputGate(
         capture_audio=audio_buffer.capture_opening_audio,

@@ -100,6 +100,9 @@ def builder_trace(*, user, session_id, operation: str, input: dict, request_id=N
 def record_turn_event(span, event: dict) -> None:
     if event["type"] == "error":
         trace_error(span, event["message"])
+        for key in ("error_code", "status_code", "upstream_status_code", "retryable"):
+            if event.get(key) is not None:
+                span.set_attribute(f"builder.{key}", event[key])
     elif event["type"] == "session":
         state = event["session"]
         pending = state.get("pending", [])

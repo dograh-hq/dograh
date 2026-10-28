@@ -9,6 +9,7 @@ Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class AuthoringStage(str, Enum):
+    build_requirements = "build_requirements"
     plan = "plan"
     build = "build"
     review = "review"
@@ -18,30 +19,59 @@ class Handoff(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class DataOperation(Handoff):
-    purpose: Text
-    system: Text
-    timing: Text
-    inputs: list[Text]
-    expected_result: Text
-    failure_behavior: Text
-
-
 class CallBrief(Handoff):
-    goal: Text
-    audience: Text
-    direction: Literal["inbound", "outbound", "both"]
-    trigger: Text
-    information_available_at_start: list[Text] = Field(default_factory=list)
-    information_to_collect: list[Text] = Field(default_factory=list)
-    conversation_steps: list[Text] = Field(min_length=1)
-    business_rules: list[Text] = Field(default_factory=list)
-    data_operations: list[DataOperation] = Field(default_factory=list)
-    success_criteria: list[Text] = Field(min_length=1)
-    exit_conditions: list[Text] = Field(min_length=1)
-    acceptance_scenarios: list[Text] = Field(min_length=1)
-    assumptions: list[Text] = Field(default_factory=list)
-    open_questions: list[Text] = Field(default_factory=list)
+    goal: Text = Field(
+        description="One sentence: what a successful call achieves and for whom."
+    )
+    direction: Literal["inbound", "outbound", "both"] = Field(
+        description="Whether the agent receives calls, places them, or both."
+    )
+    information_to_collect: list[Text] = Field(
+        default_factory=list,
+        description=(
+            "Each fact the agent must capture from the caller, in the customer's "
+            "words, for example 'preferred appointment date'."
+        ),
+    )
+    business_rules: list[Text] = Field(
+        default_factory=list,
+        description=(
+            "Policies only the customer can supply: eligibility, hours, what to do "
+            "on refusal, wrong person, or out-of-scope requests, and when to hand "
+            "off to a human. State any required data lookup or update here as what "
+            "happens and when."
+        ),
+    )
+    success_criteria: list[Text] = Field(
+        min_length=1,
+        description="Observable outcomes that mark the call as successful.",
+    )
+    assumptions: list[Text] = Field(
+        default_factory=list,
+        description=(
+            "Optional or deferred details resolved with a sensible default, stated "
+            "so the customer can correct them."
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_open_questions(cls, value):
+        # Older saved approval checkpoints include this removed field.
+        if isinstance(value, dict):
+            return {key: item for key, item in value.items() if key != "open_questions"}
+        return value
+
+
+class ConversationPlan(Handoff):
+    content: Text = Field(
+        description=(
+            "Conversation flow and complete prompts: shared instructions, named "
+            "steps, transition conditions, endings, and values to extract. "
+            "Use plain text, not SDK code or graph JSON."
+        )
+    )
+    configuration_gaps: list[Text] = Field(default_factory=list)
 
 
 class BuildResult(Handoff):

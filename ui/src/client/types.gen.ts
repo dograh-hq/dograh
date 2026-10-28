@@ -433,6 +433,10 @@ export type BuilderSaveRequest = {
      * Checkpoint
      */
     checkpoint: string;
+    /**
+     * Workflow Id
+     */
+    workflow_id?: number | null;
 };
 
 /**
@@ -454,6 +458,14 @@ export type BuilderSession = {
      */
     id: string;
     /**
+     * Workflow Id
+     */
+    workflow_id?: number | null;
+    /**
+     * Workflow Revision
+     */
+    workflow_revision?: string | null;
+    /**
      * Checkpoint
      */
     checkpoint?: string | null;
@@ -474,10 +486,6 @@ export type BuilderSession = {
      * Model
      */
     model?: string | null;
-    /**
-     * Workflow Id
-     */
-    workflow_id?: number | null;
 };
 
 /**
@@ -488,6 +496,10 @@ export type BuilderTurnRequest = {
      * Request Id
      */
     request_id: string;
+    /**
+     * Workflow Id
+     */
+    workflow_id?: number | null;
     /**
      * Checkpoint
      */
@@ -505,10 +517,6 @@ export type BuilderTurnRequest = {
         };
     } | null;
     approval?: BuilderPlanApproval | null;
-    /**
-     * Workflow Id
-     */
-    workflow_id?: number | null;
 };
 
 /**
@@ -543,60 +551,40 @@ export type CalculatorToolDefinition = {
 export type CallBrief = {
     /**
      * Goal
+     *
+     * One sentence: what a successful call achieves and for whom.
      */
     goal: string;
     /**
-     * Audience
-     */
-    audience: string;
-    /**
      * Direction
+     *
+     * Whether the agent receives calls, places them, or both.
      */
     direction: 'inbound' | 'outbound' | 'both';
     /**
-     * Trigger
-     */
-    trigger: string;
-    /**
-     * Information Available At Start
-     */
-    information_available_at_start?: Array<string>;
-    /**
      * Information To Collect
+     *
+     * Each fact the agent must capture from the caller, in the customer's words, for example 'preferred appointment date'.
      */
     information_to_collect?: Array<string>;
     /**
-     * Conversation Steps
-     */
-    conversation_steps: Array<string>;
-    /**
      * Business Rules
+     *
+     * Policies only the customer can supply: eligibility, hours, what to do on refusal, wrong person, or out-of-scope requests, and when to hand off to a human. State any required data lookup or update here as what happens and when.
      */
     business_rules?: Array<string>;
     /**
-     * Data Operations
-     */
-    data_operations?: Array<DataOperation>;
-    /**
      * Success Criteria
+     *
+     * Observable outcomes that mark the call as successful.
      */
     success_criteria: Array<string>;
     /**
-     * Exit Conditions
-     */
-    exit_conditions: Array<string>;
-    /**
-     * Acceptance Scenarios
-     */
-    acceptance_scenarios: Array<string>;
-    /**
      * Assumptions
+     *
+     * Optional or deferred details resolved with a sensible default, stated so the customer can correct them.
      */
     assumptions?: Array<string>;
-    /**
-     * Open Questions
-     */
-    open_questions?: Array<string>;
 };
 
 /**
@@ -1660,36 +1648,6 @@ export type DailyUsageItem = {
      * Call Count
      */
     call_count: number;
-};
-
-/**
- * DataOperation
- */
-export type DataOperation = {
-    /**
-     * Purpose
-     */
-    purpose: string;
-    /**
-     * System
-     */
-    system: string;
-    /**
-     * Timing
-     */
-    timing: string;
-    /**
-     * Inputs
-     */
-    inputs: Array<string>;
-    /**
-     * Expected Result
-     */
-    expected_result: string;
-    /**
-     * Failure Behavior
-     */
-    failure_behavior: string;
 };
 
 /**
@@ -6987,6 +6945,64 @@ export type WorkflowError = {
 };
 
 /**
+ * WorkflowLayoutEdge
+ */
+export type WorkflowLayoutEdge = {
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Target
+     */
+    target: string;
+};
+
+/**
+ * WorkflowLayoutNode
+ */
+export type WorkflowLayoutNode = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Type
+     */
+    type: string;
+};
+
+/**
+ * WorkflowLayoutRequest
+ *
+ * An unsaved canvas, reduced to what the layout needs.
+ */
+export type WorkflowLayoutRequest = {
+    /**
+     * Nodes
+     */
+    nodes: Array<WorkflowLayoutNode>;
+    /**
+     * Edges
+     */
+    edges: Array<WorkflowLayoutEdge>;
+    /**
+     * Rankdir
+     */
+    rankdir?: 'TB' | 'LR';
+};
+
+/**
+ * WorkflowLayoutResponse
+ */
+export type WorkflowLayoutResponse = {
+    /**
+     * Positions
+     */
+    positions: Array<WorkflowNodePosition>;
+};
+
+/**
  * WorkflowListResponse
  *
  * Lightweight response for workflow listings (excludes large fields).
@@ -7020,6 +7036,24 @@ export type WorkflowListResponse = {
      * Workflow Uuid
      */
     workflow_uuid?: string | null;
+};
+
+/**
+ * WorkflowNodePosition
+ */
+export type WorkflowNodePosition = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * X
+     */
+    x: number;
+    /**
+     * Y
+     */
+    y: number;
 };
 
 /**
@@ -8358,6 +8392,50 @@ export type GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses = {
 
 export type GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponse = GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses[keyof GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses];
 
+export type OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/workflow/{workflow_id}/session';
+};
+
+export type OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostError = OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostErrors[keyof OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostErrors];
+
+export type OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuilderSession;
+};
+
+export type OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostResponse = OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostResponses[keyof OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostResponses];
+
 export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetData = {
     body?: never;
     headers?: {
@@ -8401,50 +8479,6 @@ export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses = {
 };
 
 export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponse = GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses[keyof GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses];
-
-export type GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path: {
-        /**
-         * Workflow Id
-         */
-        workflow_id: number;
-    };
-    query?: never;
-    url: '/api/v1/workflow/builder/edit/{workflow_id}';
-};
-
-export type GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetError = GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetErrors[keyof GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetErrors];
-
-export type GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: BuilderSession;
-};
-
-export type GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetResponse = GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetResponses[keyof GetBuilderEditSessionApiV1WorkflowBuilderEditWorkflowIdGetResponses];
 
 export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostData = {
     body: BuilderTurnRequest;
@@ -8533,6 +8567,45 @@ export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses = {
 };
 
 export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponse = SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses[keyof SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses];
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostData = {
+    body: WorkflowLayoutRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/workflow/layout';
+};
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostError = LayoutWorkflowApiV1WorkflowLayoutPostErrors[keyof LayoutWorkflowApiV1WorkflowLayoutPostErrors];
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowLayoutResponse;
+};
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostResponse = LayoutWorkflowApiV1WorkflowLayoutPostResponses[keyof LayoutWorkflowApiV1WorkflowLayoutPostResponses];
 
 export type ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostData = {
     body?: never;

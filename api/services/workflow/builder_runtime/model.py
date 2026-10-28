@@ -9,6 +9,12 @@ from langchain_core.messages import AIMessage, convert_to_openai_messages
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
+from api.errors.failure import (
+    ErrorSource,
+    classify_exception,
+    extract_http_status,
+    log_failure,
+)
 from api.errors.mps import MPSUnavailableError
 from api.services.configuration.ai_model_configuration import (
     get_resolved_ai_model_configuration,
@@ -16,6 +22,7 @@ from api.services.configuration.ai_model_configuration import (
 from api.services.managed_model_services import get_dograh_service_api_key
 from api.services.mps_service_key_client import mps_service_key_client
 
+from .errors import BuilderModelError
 from .tracing import builder_trace_metadata
 
 BUILDER_USAGE_CONTEXT = "workflow_builder"
@@ -89,18 +96,22 @@ class BuilderChatModel(BaseChatModel):
                 },
             )
         except (httpx.HTTPError, MPSUnavailableError) as exc:
-            # Upstream error bodies can include prompts or provider credentials.
-            rejected_key = isinstance(
-                exc, httpx.HTTPStatusError
-            ) and exc.response.status_code in {401, 403}
-            raise HTTPException(
-                503,
-                (
-                    "Dograh could not authorize agent builder. Check your Dograh "
-                    "Service Key in /model-configurations and try again."
-                    if rejected_key
-                    else "Agent builder is temporarily unavailable. Please try again."
-                ),
+            failure = classify_exception(exc, source=ErrorSource.LLM, provider="dograh")
+            if isinstance(exc, MPSUnavailableError) and exc.status_code is None:
+                # This client raises MPSUnavailableError when the successful
+                # correlation response lacks an ID; the connection did succeed.
+                failure.code = "dograh-invalid-response"
+                failure.retryable = None
+            log_failure(
+                failure,
+                organization_id=self.organization_id,
+                operation="workflow_builder.create_chat_completion",
+                **builder_trace_metadata(),
+            )
+            # Keep the shared code/status, but never expose upstream response
+            # bodies, which can contain prompts or provider credentials.
+            raise BuilderModelError(
+                failure, upstream_status_code=extract_http_status(exc)
             ) from exc
         raw = response["choices"][0]["message"]
         calls = []

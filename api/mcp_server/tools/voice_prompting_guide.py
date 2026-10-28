@@ -42,7 +42,9 @@ async def get_voice_prompting_guide(
     node schemas and the product documentation available in your interface.
 
     Args:
-        stage: "plan" | "create" | "review". Returns a stage briefing — a
+        stage: "plan" | "create" | "review" are guidance phases, not workflow
+            builder stages. "create" covers writing prompts, including in the
+            builder's plan stage. Returns a stage briefing — a
             short intro plus the list of topics relevant at this stage,
             each with a one-line lens and a required_read flag. Combine with
             `node_type` during creation or review to narrow to that node type's
@@ -61,7 +63,8 @@ async def get_voice_prompting_guide(
 
     Briefings are designed to be cheap — read the lenses, fetch the full content
     of every applicable topic marked required_read, then drill into other topics
-    that matter for the prompt you're about to write. Do not pull every topic.
+    that matter for the prompt you're about to write. Fetch independent topics
+    in parallel and read each topic only once. Do not pull every topic.
     """
     await authenticate_mcp_request()
 

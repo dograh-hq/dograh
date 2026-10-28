@@ -47,21 +47,23 @@ _register(instruction_collision.TOPIC)
 
 _STAGE_INTROS: dict[Stage, str] = {
     Stage.plan: (
-        "Business discovery belongs to get_workflow_authoring_guide(stage='plan'). "
+        "Business discovery belongs to "
+        "get_workflow_authoring_guide(stage='build_requirements'). "
         "These optional voice lenses help clarify the call's intended behavior: "
         "what information the caller provides, what actions should happen and "
         "when, which business rules constrain them, and what success or failure "
         "looks like. Reuse settled answers. Leave technical design and prompt "
-        "writing to the build stage."
+        "writing to the conversation plan stage after requirements approval."
     ),
     Stage.create: (
-        "Create stage. Turn the plan into prompts and SDK TypeScript. Build "
-        "nodes around the information the call must capture, grouping related "
-        "fields into one node when that keeps the conversation natural. Make "
+        "Prompt-writing guidance, used by the workflow builder's plan stage. "
+        "Turn approved requirements into conversation flow and complete prompts. "
+        "Group related information into one step when that keeps the "
+        "conversation natural. Make "
         "transition instructions explicit: if an edge is labeled 'Move to "
         "Rental Details', the prompt should tell the agent when to call the "
-        "matching tool, such as 'move_to_rental_details'. For each node type, "
-        "call get_node_type to learn its property schema before emitting it."
+        "matching tool, such as 'move_to_rental_details'. The build stage "
+        "translates the conversation plan into SDK code."
     ),
     Stage.review: (
         "Review stage. Check that the workflow captures the information the "

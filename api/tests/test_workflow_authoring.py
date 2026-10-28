@@ -15,8 +15,12 @@ from api.services.workflow.authoring import (
     render_authoring_instructions,
 )
 from api.services.workflow.authoring.contracts import AuthoringStage
+from api.services.workflow.authoring.sdk_reference import CORE_NODE_TYPES
 from api.services.workflow.builder import call_builder_tool
-from api.services.workflow.builder_runtime.agent import builder_instructions
+from api.services.workflow.builder_runtime.agent import (
+    STAGE_MCP_TOOLS,
+    builder_instructions,
+)
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.workflow_graph import WorkflowGraph
 
@@ -44,12 +48,48 @@ async def test_mcp_loads_the_same_stage_guidance_as_each_builder_agent():
                     )
                 ).data
                 assert result == authoring_stage(stage)
-                assert builder_instructions(stage).startswith(result["instructions"])
+                if stage.value in STAGE_MCP_TOOLS:
+                    assert builder_instructions(stage).startswith(
+                        result["instructions"]
+                    )
                 assert result["output_schema"]["required"]
+                if stage == AuthoringStage.build_requirements:
+                    assert "open_questions" not in result["output_schema"]["properties"]
                 if stage != AuthoringStage.build:
                     assert "@dograh/sdk" not in result["instructions"]
     finally:
         builder_mcp_user.reset(token)
+
+
+@pytest.mark.parametrize("stage", list(AuthoringStage))
+def test_creation_guidance_has_no_catalog_discovery_or_integration_node_schemas(stage):
+    instructions = authoring_stage(stage)["instructions"]
+    for name in (
+        "list_node_types",
+        "get_node_type",
+        "list_documents",
+        "list_credentials",
+        "list_recordings",
+        "list_tools",
+        "noveum",
+        "tuner",
+    ):
+        assert name not in instructions
+    if stage in (AuthoringStage.build, AuthoringStage.review):
+        for name in CORE_NODE_TYPES:
+            assert f"{name}({{" in instructions
+        assert "extraction_enabled?: boolean" in instructions
+        assert 'type: "string" | "number" | "boolean"' in instructions
+    if stage == AuthoringStage.build:
+        assert "get_voice_prompting_guide" not in instructions
+
+
+def test_only_iteration_build_and_review_expose_resource_guidance():
+    for stage in AuthoringStage:
+        instructions = authoring_stage(stage, iteration=True)["instructions"]
+        assert ("`list_credentials`" in instructions) == (
+            stage in (AuthoringStage.build, AuthoringStage.review)
+        )
 
 
 @pytest.mark.asyncio

@@ -6,23 +6,23 @@ import type { CallBrief } from '@/client/types.gen';
 import { PlanApprovalCard } from './PlanApprovalCard';
 
 const brief: CallBrief = {
-    goal: 'Book appointments', audience: 'Customers', direction: 'inbound', trigger: 'An incoming call',
-    conversation_steps: ['Greet the caller', 'Find a time', 'Confirm the booking'],
-    data_operations: [{ purpose: 'Find availability', system: 'Calendar', timing: 'Before booking', inputs: ['Preferred date'], expected_result: 'Available times', failure_behavior: 'Offer a callback' }],
-    assumptions: ['Calendar is connected'], success_criteria: ['An appointment is booked'], exit_conditions: ['Caller says goodbye'],
-    acceptance_scenarios: ['No times available'],
+    goal: 'Book appointments for callers',
+    direction: 'inbound',
+    information_to_collect: ['Preferred date', 'Phone number'],
+    business_rules: ['Offer a callback when no time is available'],
+    success_criteria: ['An appointment is booked'],
+    assumptions: ['Calendar is connected'],
 };
 
 describe('plan approval', () => {
-    it('shows the flow, integrations and assumptions before submitting explicit approval', () => {
+    it('shows the brief and assumptions before submitting explicit approval', () => {
         const submit = vi.fn();
         render(<PlanApprovalCard interruptId="plan-1" revision={2} brief={brief} disabled={false} onSubmit={submit} />);
         expect(screen.getByText('Inbound')).toBeTruthy();
-        const step = screen.getByRole('button', { name: 'Step 2: Find a time' });
-        fireEvent.click(step);
-        expect(step.getAttribute('aria-expanded')).toBe('true');
-        expect(screen.getByText('Step 2.')).toBeTruthy();
-        expect(screen.getByText('If it fails: Offer a callback')).toBeTruthy();
+        expect(screen.getByText('Book appointments for callers')).toBeTruthy();
+        expect(screen.getByText('Preferred date')).toBeTruthy();
+        expect(screen.getByText('Offer a callback when no time is available')).toBeTruthy();
+        expect(screen.getByText('An appointment is booked')).toBeTruthy();
         expect(screen.getByText('Calendar is connected')).toBeTruthy();
         expect(submit).not.toHaveBeenCalled();
         fireEvent.click(screen.getByRole('button', { name: 'Approve & build' }));

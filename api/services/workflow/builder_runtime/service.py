@@ -58,6 +58,8 @@ def present(snapshot, session_id: UUID) -> dict:
     ]
     return {
         "id": str(session_id),
+        "workflow_id": snapshot.values.get("workflow_id"),
+        "workflow_revision": snapshot.values.get("workflow_revision"),
         "checkpoint": (snapshot.config or {})
         .get("configurable", {})
         .get("checkpoint_id"),
@@ -66,7 +68,6 @@ def present(snapshot, session_id: UUID) -> dict:
         "proposal": snapshot.values.get("proposal"),
         "can_continue": bool(snapshot.next),
         "model": BUILDER_USAGE_CONTEXT,
-        "workflow_id": snapshot.values.get("workflow_id"),
     }
 
 
@@ -90,27 +91,41 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
             if current["pending"]:
                 raise HTTPException(
                     409,
-                    "Respond to the pending questions or plan before sending another message",
+                    "Respond to the pending questions or requirements before sending another message",
                 )
             message = HumanMessage(content=request.message, id=str(request.request_id))
             value = {
                 **updates,
-                "phase": "plan",
+                "phase": "build_requirements",
                 "approved_brief_revision": None,
+                "conversation_plan": None,
                 "proposal": None,
                 "review": None,
                 "idle_turns": 0,
                 "messages": [message],
                 "plan_messages": [message],
             }
-            if request.workflow_id is not None:
-                # Edit mode: bind the session to the workflow and seed the build
-                # stage from the live code. Clear any prior candidate so
-                # submit_brief falls through to previous_code (the current agent,
-                # including manual canvas edits) instead of a stale build.
-                value["workflow_id"] = request.workflow_id
-                value["previous_code"] = request.previous_code
-                value["candidate"] = None
+            if request.current_workflow is not None and (
+                request.current_workflow["revision"]
+                != snapshot.values.get("workflow_revision")
+                or request.current_workflow["id"] != snapshot.values.get("workflow_id")
+            ):
+                workflow = request.current_workflow
+                value.update(
+                    workflow_id=workflow["id"],
+                    workflow_revision=workflow["revision"],
+                    previous_code=workflow["code"],
+                    candidate=None,
+                    plan_messages=[
+                        HumanMessage(
+                            content="Current saved workflow, including canvas edits. "
+                            "Use this as the starting point for the requested changes:\n"
+                            + workflow["code"],
+                            id=f"{request.request_id}:workflow",
+                        ),
+                        message,
+                    ],
+                )
         elif request.resume is not None:
             pending = {item["id"]: item for item in current["pending"]}
             if set(request.resume) != set(pending):

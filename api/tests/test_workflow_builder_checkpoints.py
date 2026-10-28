@@ -8,7 +8,7 @@ import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.checkpoint.serde.types import ERROR, _DeltaSnapshot
 from sqlalchemy import MetaData, func, inspect, select, text
@@ -17,6 +17,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from api.db.models import Base
 from api.db.workflow_builder import BLOBS, CHECKPOINTS, WRITES, WorkflowBuilderClient
+from api.services.workflow.builder_runtime.agent import build_agent
+from api.services.workflow.builder_runtime.schemas import BuilderStep
+from api.services.workflow.builder_runtime.service import run_step
+from api.tests.support.workflow_authoring import BRIEF, PLAN
+from api.tests.test_workflow_builder_runtime import ScriptedModel, tool_call
 
 MIGRATION = import_module(
     "api.alembic.versions.8b24d9a76c10_add_workflow_builder_checkpoints"
@@ -144,6 +149,80 @@ async def test_roundtrip_history_pending_writes_and_namespace_isolation(
         assert len([item async for item in saver.alist(None)]) == 3
         version = saver.get_next_version(None, None)
         assert saver.get_next_version(version, None) > version
+
+
+@pytest.mark.asyncio
+async def test_parallel_read_tasks_survive_database_checkpoint_reload(
+    checkpoint_client,
+):
+    session_id = uuid4()
+    thread = f"workflow-builder:12:3:{session_id}"
+    graph_config = config(thread)
+    reads = [
+        tool_call("get_voice_prompting_guide", {"topic": topic}, topic).tool_calls[0]
+        for topic in ("common_guidelines", "turn_taking")
+    ]
+    model = ScriptedModel(
+        organization_id=12,
+        user_id="3",
+        replies=[
+            tool_call("submit_brief", {"brief": BRIEF}, "brief"),
+            AIMessage(content="", tool_calls=reads),
+            tool_call("submit_plan", {"plan": PLAN}, "plan"),
+            tool_call(
+                "propose_workflow",
+                {"candidate": {"code": "source", "summary": "A receptionist"}},
+                "candidate",
+            ),
+        ],
+    )
+    specs = [
+        {
+            "name": "get_voice_prompting_guide",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"topic": {"type": "string"}},
+            },
+        }
+    ]
+
+    async def step(request=None):
+        async with checkpoint_client.builder_checkpointer(thread) as saver:
+            return await run_step(
+                build_agent(model, saver, specs), graph_config, session_id, request
+            )
+
+    approval = await step(
+        BuilderStep(request_id=uuid4(), message="Build a receptionist")
+    )
+    pending = approval["pending"][0]
+    current = await step(
+        BuilderStep(
+            request_id=uuid4(),
+            checkpoint=approval["checkpoint"],
+            resume={pending["id"]: {"decision": "approve", "brief_revision": 1}},
+        )
+    )
+    assert len(current["pending"]) == 2
+    assert await step() == current
+    result = await step(
+        BuilderStep(
+            request_id=uuid4(),
+            checkpoint=current["checkpoint"],
+            resume={
+                item["id"]: item["arguments"]["topic"] for item in current["pending"]
+            },
+        )
+    )
+    assert result["pending"][0]["tool_name"] == "preview_workflow"
+    async with checkpoint_client.builder_checkpointer(thread) as saver:
+        state = await build_agent(model, saver, specs).aget_state(graph_config)
+    assert {
+        m.tool_call_id: m.content
+        for m in state.values["plan_conversation_messages"]
+        if isinstance(m, ToolMessage) and m.tool_call_id in {c["id"] for c in reads}
+    } == {c["id"]: c["args"]["topic"] for c in reads}
+    assert len(model.seen) == 4
 
 
 @pytest.mark.asyncio

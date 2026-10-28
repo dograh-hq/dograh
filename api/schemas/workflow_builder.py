@@ -16,7 +16,7 @@ class BuilderPlanDecision(BaseModel):
     @model_validator(mode="after")
     def check_feedback(self):
         if self.decision == "revise" and not self.feedback:
-            raise ValueError("Describe the changes you want to the plan")
+            raise ValueError("Describe the changes you want to the requirements")
         if self.decision == "approve" and self.feedback:
             raise ValueError("Request changes to send feedback before building")
         return self
@@ -59,25 +59,23 @@ class BuilderProposal(BaseModel):
 
 class BuilderSession(BaseModel):
     id: UUID
+    workflow_id: int | None = None
+    workflow_revision: str | None = None
     checkpoint: str | None = None
     messages: list[BuilderMessage] = Field(default_factory=list)
     pending: list[BuilderInterrupt] = Field(default_factory=list)
     proposal: BuilderProposal | None = None
     can_continue: bool = False
     model: str | None = None
-    # Set when the session is editing an existing workflow (vs creating one).
-    workflow_id: int | None = None
 
 
 class BuilderTurnRequest(BaseModel):
     request_id: UUID
+    workflow_id: int | None = None
     checkpoint: str | None = None
     message: str | None = Field(default=None, min_length=1, max_length=12000)
     answers: dict[str, dict[str, list[str]]] | None = None
     approval: BuilderPlanApproval | None = None
-    # Present on edit sessions: the workflow being revised. Seeds the build
-    # stage from its live code and routes the save to update it in place.
-    workflow_id: int | None = None
 
     @model_validator(mode="after")
     def exclusive_input(self):
@@ -88,12 +86,15 @@ class BuilderTurnRequest(BaseModel):
             )
             > 1
         ):
-            raise ValueError("Send a message, question answers, or a plan decision")
+            raise ValueError(
+                "Send a message, question answers, or a requirements decision"
+            )
         return self
 
 
 class BuilderSaveRequest(BaseModel):
     checkpoint: str
+    workflow_id: int | None = None
 
 
 class BuilderSaveResponse(BaseModel):

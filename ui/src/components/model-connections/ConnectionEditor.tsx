@@ -6,10 +6,9 @@ import { createProviderConnection, updateProviderConnection } from "@/client/sdk
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { detailFromError } from "@/lib/apiError";
-
 import { clearVoiceCache } from "@/components/VoiceSelector";
 import { clearVoiceInfoCache } from "@/components/VoiceSelectorModal";
+import { detailFromError } from "@/lib/apiError";
 
 import { connectionProviders, schemaDefaults } from "./configuration";
 import { ConfigurationSelect } from "./ConfigurationSelect";

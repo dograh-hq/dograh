@@ -1581,7 +1581,7 @@ export const getServiceKeysApiV1UserServiceKeysGet = <ThrowOnError extends boole
 /**
  * Create Service Key
  *
- * Create a new service key for the user's organization.
+ * Create a legacy OSS trial key or a verified hosted account key.
  */
 export const createServiceKeyApiV1UserServiceKeysPost = <ThrowOnError extends boolean = false>(options: Options<CreateServiceKeyApiV1UserServiceKeysPostData, ThrowOnError>): RequestResult<CreateServiceKeyApiV1UserServiceKeysPostResponses, CreateServiceKeyApiV1UserServiceKeysPostErrors, ThrowOnError> => (options.client ?? client).post<CreateServiceKeyApiV1UserServiceKeysPostResponses, CreateServiceKeyApiV1UserServiceKeysPostErrors, ThrowOnError>({
     url: '/api/v1/user/service-keys',

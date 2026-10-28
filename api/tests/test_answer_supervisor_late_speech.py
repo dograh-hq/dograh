@@ -696,11 +696,12 @@ async def test_separate_background_turns_do_not_generate_after_playback(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("greeting_type", ["text", "audio", "llm"])
 @pytest.mark.parametrize("allow_interrupt", [False, True])
+@pytest.mark.parametrize("enabled", [False, True])
 async def test_one_word_greeting_interjection_waits_for_next_user_turn(
-    simple_workflow, greeting_type, allow_interrupt
+    simple_workflow, greeting_type, allow_interrupt, enabled
 ):
     async with late_call(
-        simple_workflow, greeting_type, allow_interrupt=allow_interrupt
+        simple_workflow, greeting_type, allow_interrupt=allow_interrupt, enabled=enabled
     ) as c:
         await c.say("Hello.")
         assert not c.speech.done
@@ -1377,14 +1378,16 @@ async def test_disconnect_during_provisional_playback_cancels_supervision(
 @pytest.mark.parametrize("greeting_type", ["text", "audio"])
 @pytest.mark.parametrize("start_with_human", [False, True])
 @pytest.mark.parametrize("external_turns", [False, True])
+@pytest.mark.parametrize("enabled", [False, True])
 async def test_two_word_final_also_interrupts_and_answers_once(
-    simple_workflow, greeting_type, start_with_human, external_turns
+    simple_workflow, greeting_type, start_with_human, external_turns, enabled
 ):
     async with late_call(
         simple_workflow,
         greeting_type,
         start_with_human=start_with_human,
         external_turns=external_turns,
+        enabled=enabled,
     ) as c:
         await c.say("Wait please.")
         await asyncio.wait_for(c.action, 3)
@@ -1709,15 +1712,18 @@ async def test_greeting_interrupted_before_output_is_excluded_from_context_and_l
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("greeting_type", ["text", "audio", "llm"])
-@pytest.mark.parametrize("supervised", [False, True])
+@pytest.mark.parametrize(
+    "supervised, enabled", [(False, False), (True, False), (True, True)]
+)
 async def test_disabled_greeting_interruption_keeps_background_speech_without_reply(
-    simple_workflow, greeting_type, supervised
+    simple_workflow, greeting_type, supervised, enabled
 ):
     async with late_call(
         simple_workflow,
         greeting_type,
         allow_greeting_interrupt=False,
         supervised=supervised,
+        enabled=enabled,
     ) as call:
         await call.say("Please help me.")
         await call.say("With my account.")

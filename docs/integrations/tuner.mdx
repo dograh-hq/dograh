@@ -104,6 +104,21 @@ Click **Save**, then **Publish** your workflow.
   alt="Tuner node on the canvas showing configured and enabled"
 />
 
+### Send call variables to Tuner (optional)
+
+Send selected variables to Tuner as call metadata, so Tuner evals, rules and alerts can use them. A common example is values from [Pre-Call Data Fetch](/voice-agent/pre-call-data-fetch), such as `account_status` or `loyalty_tier`.
+
+- **Send call variables** — Turn on to send the variables you list. It is off by default.
+- **Variables to send** — Enter one variable name per line, or separate names with commas, written as it appears inside `{{ }}` but without the braces (`account_status` for `{{account_status}}`). Pasting `{{account_status}}` also works. Names are case-sensitive and can't contain spaces. Each name is looked up in the call's [initial context](/core-concepts/context-and-variables#initial_context), including Pre-Call Data Fetch values, and then in extracted variables. If a name is in both, the initial context value is sent.
+
+Only the variables you list are sent. Variables that aren't found for a call are skipped, and values arrive in Tuner unchanged. Names that Tuner's integration already sends, such as `ai_models` and `usage_token`, are never overwritten, so listing one of them has no effect.
+
+<Note>
+Only top-level names are matched. A name like `customer.name` isn't found; list `customer` to send the whole object.
+</Note>
+
+Save the node and publish the workflow for these settings to take effect.
+
 ### 5. Verify the connection
 
 Make a test call through your agent. Once the call completes, check the **Call Logs** tab in your Tuner agent dashboard. The call should appear within a few moments.

@@ -467,7 +467,9 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     def complete(request):
         assert request.headers["Authorization"] == "Bearer org-service-key"
         if request.url.path == "/api/v1/service-keys/correlation-id/self":
-            assert json.loads(request.content) == {}
+            assert json.loads(request.content) == {
+                "deployment_id": mps_client_module.DOGRAH_DEPLOYMENT_ID
+            }
             correlation_requests.append(request)
             return httpx.Response(200, json={"correlation_id": "builder-correlation"})
         assert request.url.path == "/api/v1/llm/chat/completions"

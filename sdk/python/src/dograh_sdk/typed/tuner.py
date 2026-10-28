@@ -84,3 +84,16 @@ class Tuner(TypedNode):
     USD per minute
     """
 
+    metadata_enabled: bool = False
+    """
+    Send selected variables to Tuner as call metadata, so Tuner evals, rules
+    and alerts can use them.
+    """
+
+    metadata_keys: Optional[str] = None
+    """
+    Variables from the call's initial context (including Pre-Call Data
+    Fetch) or extracted variables. Separate names with commas or new lines.
+    Variables you don't list are never sent.
+    """
+

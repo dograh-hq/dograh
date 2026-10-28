@@ -11,6 +11,7 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from api.enums import TelephonyCallStatus
 from api.services.telephony import ws_auth
 from api.services.telephony.providers.telnyx import _ensure_connection_id
 from api.services.telephony.providers.telnyx.provider import TelnyxProvider
@@ -700,3 +701,40 @@ def test_informational_event_types_match_telnyx_catalog():
     } <= _INFORMATIONAL_EVENT_TYPES
     # Streaming events keep their pre-existing skip.
     assert {"streaming.started", "streaming.stopped"} <= _INFORMATIONAL_EVENT_TYPES
+
+
+@pytest.mark.parametrize(
+    ("hangup_cause", "expected"),
+    [
+        # Telnyx's documented hangup_cause values.
+        ("user_busy", TelephonyCallStatus.BUSY),
+        ("timeout", TelephonyCallStatus.NO_ANSWER),
+        ("no_answer", TelephonyCallStatus.NO_ANSWER),
+        ("call_rejected", TelephonyCallStatus.FAILED),
+        ("not_found", TelephonyCallStatus.FAILED),
+        ("originator_cancel", TelephonyCallStatus.CANCELED),
+        ("normal_clearing", TelephonyCallStatus.COMPLETED),
+        ("time_limit", TelephonyCallStatus.COMPLETED),
+        ("unspecified", TelephonyCallStatus.COMPLETED),
+        # Earlier keys, kept in case they still arrive.
+        ("busy", TelephonyCallStatus.BUSY),
+        ("unallocated_number", TelephonyCallStatus.FAILED),
+    ],
+)
+def test_hangup_cause_maps_to_call_status(hangup_cause, expected):
+    """A busy hangup arrives as `user_busy`; mapping only `busy` sent busy calls
+    down the answered-call path, leaving them with no call status or webhook.
+    """
+    parsed = _provider().parse_status_callback(
+        {
+            "data": {
+                "event_type": "call.hangup",
+                "payload": {
+                    "call_control_id": "call-control-id",
+                    "hangup_cause": hangup_cause,
+                },
+            }
+        }
+    )
+
+    assert parsed["status"] == expected

@@ -22,6 +22,8 @@ from loguru import logger
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
+from pipecat.utils.text.spoken_text_filter import SpokenTextSanitizer
+
 
 @dataclass(frozen=True)
 class RecoveredToolCall:
@@ -130,6 +132,7 @@ class SpokenToolCallGuard:
     ):
         self._schemas = schemas
         self._spoken_output = spoken_output
+        self._speech_sanitizer = SpokenTextSanitizer() if spoken_output else None
         self._validators = {}
         for name, schema in schemas.items():
             schema = {"additionalProperties": False, **schema}
@@ -150,7 +153,7 @@ class SpokenToolCallGuard:
         # fragment shows whether it prefixes a tool call.
         self._held = ""
         self._held_boundary = True
-        self._reasoning_close = None
+        self._suppressed_tag_close = None
         self._tool_fragment = False
         self._reinject = None
         names = (
@@ -166,10 +169,6 @@ class SpokenToolCallGuard:
             rf"(?:[\w-]+:)?default_api[:.]({control_names}){delimiter}"
         )
         self._xml_call = re.compile(rf"<call:default_api:({control_names})\s*/>")
-        self._stage_direction = re.compile(
-            rf"\*\(\s*Esegue\s+({control_names})(?:\s+per terminare la chiamata)?\s*\)\*",
-            re.IGNORECASE,
-        )
         self._bare_tool = re.compile(rf"(?:[\w-]+:\s*)?({names}){delimiter}")
         self._bare_call = re.compile(
             rf"(?:[\w-]+:\s*)?({names})\s*(\{{.*\}})?\.?", re.DOTALL
@@ -180,10 +179,14 @@ class SpokenToolCallGuard:
         if self._discard_rest:
             return ""
         self._buffer += text
-        return self._drain(final=False)
+        text = self._drain(final=False)
+        return self._speech_sanitizer.feed(text) if self._speech_sanitizer else text
 
     def finish(self) -> str:
-        return self._drain(final=True)
+        text = self._drain(final=True)
+        if self._speech_sanitizer:
+            return self._speech_sanitizer.feed(text) + self._speech_sanitizer.finish()
+        return text
 
     def _record(self, name: str, arguments: Any) -> None:
         self._tool_fragment = True
@@ -316,10 +319,6 @@ class SpokenToolCallGuard:
         if xml:
             self._record(xml[1], {})
             return True
-        stage_direction = self._stage_direction.fullmatch(text)
-        if stage_direction and self._at_boundary:
-            self._record(stage_direction[1], {})
-            return True
         match = self._namespace.match(text)
         if match:
             tail = text[match.end() :].strip()
@@ -378,10 +377,7 @@ class SpokenToolCallGuard:
             if not final:
                 return None
             end = len(text)
-        if text[0] == "*":
-            # A recognized action still runs; anything else is narration.
-            self._structured(text[:end])
-        elif not any(char.isalpha() for char in text[:end]):
+        if text[0] != "*" and not any(char.isalpha() for char in text[:end]):
             return 0
         self._suppressed("stage_direction")
         return end
@@ -419,18 +415,25 @@ class SpokenToolCallGuard:
 
         while self._buffer and not self._discard_rest:
             text = self._buffer
-            if self._reasoning_close:
-                index = text.lower().find(self._reasoning_close)
+            if self._suppressed_tag_close:
+                match = re.search(
+                    re.escape(self._suppressed_tag_close) + r"(?=[\s>])",
+                    text,
+                    re.IGNORECASE,
+                )
+                index = match.start() if match else -1
                 close = text.find(">", index) if index >= 0 else -1
                 if close < 0:
                     # Keep only what could still complete the closing tag.
                     keep = (
-                        index if index >= 0 else len(text) - len(self._reasoning_close)
+                        index
+                        if index >= 0
+                        else len(text) - len(self._suppressed_tag_close)
                     )
                     self._buffer = "" if final else text[max(keep, 0) :]
                     break
                 self._buffer = text[close + 1 :]
-                self._reasoning_close = None
+                self._suppressed_tag_close = None
                 continue
             if text[0].isspace():
                 if self._held:
@@ -527,7 +530,7 @@ class SpokenToolCallGuard:
                             self._buffer = ""
                             continue
                         if not tag[1] and text[close - 1] != "/":
-                            self._reasoning_close = "</" + tag[2].lower()
+                            self._suppressed_tag_close = "</" + tag[2].lower()
                         self._buffer = text[close + 1 :]
                         continue
                 if not text.startswith("<call:"):
@@ -535,6 +538,16 @@ class SpokenToolCallGuard:
                     self._buffer = text[1:]
                     continue
                 close = text.find(">")
+                if close >= 0 and text[close - 1] != "/":
+                    # A paired call envelope is control data, including any
+                    # apparent tool calls inside its body.
+                    self._suppressed("paired_call")
+                    if self._spoken_output and self._held:
+                        self._held = ""
+                        self._at_boundary = self._held_boundary
+                    self._suppressed_tag_close = "</" + text[1:close].split()[0].lower()
+                    self._buffer = text[close + 1 :]
+                    continue
                 end = close + 1 if close >= 0 else None
             elif text.startswith("*("):
                 close = text.find(")*")
@@ -546,6 +559,9 @@ class SpokenToolCallGuard:
                 raw = text[:end]
                 if self._structured(raw):
                     self._after_fragment = True
+                    if self._spoken_output and self._held:
+                        self._held = ""
+                        self._at_boundary = self._held_boundary
                     resolved()
                     if self._reinject is not None:
                         # The reply inside an envelope is ordinary speech.
@@ -600,7 +616,7 @@ class SpokenToolCallGuard:
 
             if self._spoken_output and self._at_boundary:
                 identifier = _IDENTIFIER.match(text)
-                if identifier:
+                if identifier and not identifier[0].endswith(":"):
                     after = text[identifier.end() : identifier.end() + 1]
                     if not after and not final:
                         break

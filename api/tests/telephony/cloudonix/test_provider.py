@@ -442,7 +442,7 @@ async def test_create_configuration_persists_fetched_domain_uuid():
             return_value=session,
         ),
         patch("api.routes.organization.db_client") as db_client,
-        patch("api.routes.organization.capture_event"),
+        patch("api.routes.organization.capture_tenant_event"),
     ):
         db_client.create_telephony_configuration = AsyncMock(return_value=row)
         db_client.list_phone_numbers_for_config = AsyncMock(return_value=[])

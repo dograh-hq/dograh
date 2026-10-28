@@ -150,6 +150,8 @@ def _create_answer_supervisor(
     )
     if config is None:
         return None
+    if not config.enabled:
+        return AnswerSupervisor(config, context=context)
     # Private inference uses its own service and fixed subtype instructions.
     if voicemail_config.get("use_workflow_llm", True):
         classifier_llm = create_llm_service(
@@ -174,7 +176,7 @@ def _create_answer_supervisor(
 
 def _create_opening_input_gate(start_node, audio_buffer):
     # The downstream aggregator cannot detect speech while this gate retains
-    # audio. Detect it here in both pipeline shapes, before delayed ASR results.
+    # realtime audio. Cascade calls keep aggregation live behind an inference gate.
     window_ms = resolve_listening_window_ms(start_node)
     return OpeningInputGate(
         capture_audio=audio_buffer.capture_opening_audio,
@@ -412,6 +414,19 @@ async def _run_pipeline_telephony_impl(
         raise HTTPException(status_code=404, detail="Workflow run not found")
     if workflow_run.workflow_id != workflow_id:
         raise HTTPException(status_code=400, detail="workflow_run_workflow_mismatch")
+
+    # Marked here, once the stream has started, rather than when the socket
+    # connects: some carriers open the socket while the callee is still
+    # ringing, and the status callback reads 'initialized' as "the pipeline
+    # never started" when deciding whether an unanswered call needs its
+    # post-call integrations. A lost claim still runs the pipeline: a stream
+    # only starts on answer, so a terminal run here is an answered call whose
+    # hangup callback won the race, and pipeline finalization is what records
+    # its outcome and fires its webhooks.
+    if await db_client.mark_workflow_run_running(workflow_run_id, organization_id):
+        logger.info(
+            f"[run {workflow_run_id}] Set workflow run state to 'running' for {provider_name} provider"
+        )
 
     telephony_configuration_id = None
     if workflow_run.initial_context:

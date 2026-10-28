@@ -130,7 +130,7 @@ def speech(frames):
 @pytest.mark.parametrize("width", [1, 3, 1000])
 async def test_dograh_text_call_executes_once_without_speech(width):
     service, frames, calls = instrument()
-    text = "severe:default_api:end_call{}"
+    text = "invoke:default_api:end_call{}"
     closed = install_stream(
         service, [text[i : i + width] for i in range(0, len(text), width)]
     )

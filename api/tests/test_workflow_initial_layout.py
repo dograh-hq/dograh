@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -32,11 +32,15 @@ async def test_backend_tidy_on_creation_preserves_positions_on_later_edits(
     state = SimpleNamespace(
         checkpoint="ready", can_continue=False, proposal=SimpleNamespace(code=CODE)
     )
-    workflow = SimpleNamespace(id=41, name="Receptionist", status="published")
+    workflow = SimpleNamespace(
+        id=41, workflow_uuid=str(uuid4()), name="Receptionist", status="published"
+    )
     create = AsyncMock(return_value=workflow)
     monkeypatch.setattr("api.db.db_client.create_workflow", create)
     monkeypatch.setattr("api.db.db_client.create_builder_draft", create)
-    monkeypatch.setattr("api.mcp_server.tools.create_workflow.capture_event", Mock())
+    monkeypatch.setattr(
+        "api.mcp_server.tools.create_workflow.capture_tenant_event", AsyncMock()
+    )
     for module in (
         "api.mcp_server.tools.create_workflow",
         "api.mcp_server.tools.save_workflow",

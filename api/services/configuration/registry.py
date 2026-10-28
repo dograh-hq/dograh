@@ -704,6 +704,7 @@ class DograhLLMService(BaseChatLLMConfiguration):
         json_schema_extra={
             "examples": DOGRAH_LLM_MODELS,
             "option_labels": {"default": "default (recommended)"},
+            "allow_custom_input": True,
         },
     )
 

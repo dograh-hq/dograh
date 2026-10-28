@@ -328,12 +328,18 @@ class TelnyxProvider(TelephonyProvider):
             "streaming.stopped": "streaming-stopped",
         }
 
+        # Telnyx's documented `hangup_cause` values, plus the earlier
+        # `busy` / `unallocated_number` keys in case those still arrive.
+        # normal_clearing, time_limit and unspecified stay COMPLETED.
         HANGUP_STATUS = {
+            "user_busy": TelephonyCallStatus.BUSY,
             "busy": TelephonyCallStatus.BUSY,
             "no_answer": TelephonyCallStatus.NO_ANSWER,
             "timeout": TelephonyCallStatus.NO_ANSWER,
             "call_rejected": TelephonyCallStatus.FAILED,
+            "not_found": TelephonyCallStatus.FAILED,
             "unallocated_number": TelephonyCallStatus.FAILED,
+            "originator_cancel": TelephonyCallStatus.CANCELED,
         }
 
         status = EVENT_STATUS.get(event_type, event_type)

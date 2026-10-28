@@ -419,7 +419,10 @@ async def _run_pipeline_telephony_impl(
     # connects: some carriers open the socket while the callee is still
     # ringing, and the status callback reads 'initialized' as "the pipeline
     # never started" when deciding whether an unanswered call needs its
-    # post-call integrations.
+    # post-call integrations. A lost claim still runs the pipeline: a stream
+    # only starts on answer, so a terminal run here is an answered call whose
+    # hangup callback won the race, and pipeline finalization is what records
+    # its outcome and fires its webhooks.
     if await db_client.mark_workflow_run_running(workflow_run_id, organization_id):
         logger.info(
             f"[run {workflow_run_id}] Set workflow run state to 'running' for {provider_name} provider"

@@ -6945,6 +6945,64 @@ export type WorkflowError = {
 };
 
 /**
+ * WorkflowLayoutEdge
+ */
+export type WorkflowLayoutEdge = {
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Target
+     */
+    target: string;
+};
+
+/**
+ * WorkflowLayoutNode
+ */
+export type WorkflowLayoutNode = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Type
+     */
+    type: string;
+};
+
+/**
+ * WorkflowLayoutRequest
+ *
+ * An unsaved canvas, reduced to what the layout needs.
+ */
+export type WorkflowLayoutRequest = {
+    /**
+     * Nodes
+     */
+    nodes: Array<WorkflowLayoutNode>;
+    /**
+     * Edges
+     */
+    edges: Array<WorkflowLayoutEdge>;
+    /**
+     * Rankdir
+     */
+    rankdir?: 'TB' | 'LR';
+};
+
+/**
+ * WorkflowLayoutResponse
+ */
+export type WorkflowLayoutResponse = {
+    /**
+     * Positions
+     */
+    positions: Array<WorkflowNodePosition>;
+};
+
+/**
  * WorkflowListResponse
  *
  * Lightweight response for workflow listings (excludes large fields).
@@ -6978,6 +7036,24 @@ export type WorkflowListResponse = {
      * Workflow Uuid
      */
     workflow_uuid?: string | null;
+};
+
+/**
+ * WorkflowNodePosition
+ */
+export type WorkflowNodePosition = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * X
+     */
+    x: number;
+    /**
+     * Y
+     */
+    y: number;
 };
 
 /**
@@ -8491,6 +8567,45 @@ export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses = {
 };
 
 export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponse = SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses[keyof SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses];
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostData = {
+    body: WorkflowLayoutRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/workflow/layout';
+};
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostError = LayoutWorkflowApiV1WorkflowLayoutPostErrors[keyof LayoutWorkflowApiV1WorkflowLayoutPostErrors];
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowLayoutResponse;
+};
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostResponse = LayoutWorkflowApiV1WorkflowLayoutPostResponses[keyof LayoutWorkflowApiV1WorkflowLayoutPostResponses];
 
 export type ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostData = {
     body?: never;

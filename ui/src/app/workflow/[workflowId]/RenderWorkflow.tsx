@@ -787,8 +787,15 @@ function WorkflowEditor({
                                                     variant="outline"
                                                     size="icon"
                                                     onClick={() => {
-                                                        setNodes(layoutNodes(nodes, edges, 'TB', rfInstance));
-                                                        setIsDirty(true);
+                                                        void layoutNodes(nodes, edges, 'TB', rfInstance)
+                                                            .then((positioned) => {
+                                                                if (positioned === nodes) return;
+                                                                setNodes(positioned);
+                                                                setIsDirty(true);
+                                                            })
+                                                            .catch((err: unknown) => {
+                                                                toast.error(err instanceof Error ? err.message : 'Could not tidy up the canvas.');
+                                                            });
                                                     }}
                                                     className="bg-white shadow-sm hover:shadow-md h-8 w-8"
                                                 >

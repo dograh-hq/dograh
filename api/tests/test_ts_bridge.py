@@ -12,7 +12,12 @@ from typing import Any, get_args
 
 import pytest
 
-from api.mcp_server.ts_bridge import TsBridgeError, generate_code, parse_code
+from api.mcp_server.ts_bridge import (
+    TsBridgeError,
+    generate_code,
+    layout_nodes,
+    parse_code,
+)
 from api.services.workflow.dto import EdgeDataDTO
 from api.services.workflow.node_specs import (
     NodeSpec,
@@ -430,3 +435,44 @@ async def test_generate_fails_on_unknown_type():
     }
     with pytest.raises(TsBridgeError, match="Unknown node type"):
         await generate_code(bad)
+
+
+async def test_layout_nodes_places_every_canvas_section():
+    """Tidy Up output for one of each section: triggers and global nodes
+    on the left, the staggered conversation in the middle, the right rail
+    (webhook, QA, anything unknown) on the right. Pinned so a dagre bump
+    or an edit to layout.ts shows up here before it reaches the canvas."""
+    types = [
+        "trigger",
+        "globalNode",
+        "startCall",
+        "agentNode",
+        "agentNode",
+        "endCall",
+        "webhook",
+        "qa",
+        "customIntegration",
+    ]
+    nodes = [{"id": str(i), "type": t} for i, t in enumerate(types)]
+    edges = [
+        {"source": s, "target": t}
+        for s, t in (("2", "3"), ("2", "4"), ("3", "5"), ("4", "5"))
+    ]
+
+    positions = await layout_nodes(nodes, edges)
+
+    assert positions == [
+        {"id": "0", "x": -825, "y": 480},
+        {"id": "1", "x": -325, "y": 480},
+        {"id": "2", "x": 550, "y": 60},
+        {"id": "3", "x": 175, "y": 480},
+        {"id": "4", "x": 925, "y": 480},
+        {"id": "5", "x": 550, "y": 900},
+        {"id": "6", "x": 1775, "y": 210},
+        {"id": "7", "x": 1775, "y": 480},
+        {"id": "8", "x": 1775, "y": 750},
+    ]
+
+
+async def test_layout_nodes_is_empty_without_conversation_nodes():
+    assert await layout_nodes([{"id": "g", "type": "globalNode"}], []) == []

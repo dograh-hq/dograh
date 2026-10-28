@@ -1,11 +1,11 @@
 // Stdin/stdout dispatch. Reads a single JSON request, routes to
-// generate or parse, writes a single JSON response. Exits 0 on request
+// generate, parse or layout, writes a single JSON response. Exits 0 on request
 // success (including validation failures — those are in the JSON), and
 // exits 1 only on internal errors (bad input JSON, unhandled exception).
 
-import { layoutWorkflowNodes } from "@dograh/workflow-layout";
-
 import { generateCode } from "./generate.ts";
+import { layoutWorkflowNodes } from "./layout.ts";
+import type { LayoutEdge, LayoutNode, RankDir } from "./layout.ts";
 import { parseCode } from "./parse.ts";
 import type { NodeSpec, WireWorkflow } from "./types.ts";
 
@@ -25,7 +25,16 @@ interface ParseRequest {
     tidy?: boolean;
 }
 
-type Request = GenerateRequest | ParseRequest;
+// Tidy Up for an unsaved canvas: only ids, types and edge endpoints are
+// needed, and only positions come back.
+interface LayoutRequest {
+    command: "layout";
+    nodes: LayoutNode[];
+    edges: LayoutEdge[];
+    rankdir?: RankDir;
+}
+
+type Request = GenerateRequest | ParseRequest | LayoutRequest;
 
 async function readStdin(): Promise<string> {
     const chunks: Buffer[] = [];
@@ -65,9 +74,18 @@ async function main(): Promise<void> {
     if (req.command === "parse") {
         const result = parseCode(req.code, req.specs, req.edgeFieldNames);
         if (result.ok && req.tidy) {
-            result.workflow.nodes = layoutWorkflowNodes(result.workflow.nodes, result.workflow.edges);
+            const tidied = layoutWorkflowNodes(result.workflow.nodes, result.workflow.edges);
+            if (tidied) result.workflow.nodes = tidied;
         }
         writeResult(result);
+        return;
+    }
+    if (req.command === "layout") {
+        const positioned = layoutWorkflowNodes(req.nodes, req.edges, req.rankdir) ?? [];
+        writeResult({
+            ok: true,
+            positions: positioned.map(({ id, position }) => ({ id, x: position.x, y: position.y })),
+        });
         return;
     }
     writeResult({

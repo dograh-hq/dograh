@@ -15,8 +15,6 @@
   },
   "dependencies": {
     "@calcom/embed-react": "^1.5.3",
-    "@dagrejs/dagre": "1.1.4",
-    "@dograh/workflow-layout": "file:../shared/workflow-layout",
     "@floating-ui/react-dom": "^2.1.9",
     "@next/third-parties": "^16.3.1",
     "@radix-ui/react-alert-dialog": "^1.1.15",

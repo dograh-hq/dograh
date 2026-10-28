@@ -22,7 +22,12 @@ from api.enums import (
     WorkflowRunMode,
     WorkflowStatus,
 )
-from api.schemas.workflow import WorkflowRunResponseSchema
+from api.mcp_server.ts_bridge import TsBridgeError
+from api.schemas.workflow import (
+    WorkflowLayoutRequest,
+    WorkflowLayoutResponse,
+    WorkflowRunResponseSchema,
+)
 from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
@@ -47,6 +52,7 @@ from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
 from api.services.workflow.greeting_validation import validate_greeting_recordings
+from api.services.workflow.layout import tidy_positions
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.run_usage_response import (
     format_public_cost_info,
@@ -398,6 +404,24 @@ class CreateWorkflowTemplateRequest(BaseModel):
     call_type: Literal[CallType.INBOUND.value, CallType.OUTBOUND.value]
     use_case: str
     activity_description: str
+
+
+@router.post("/layout", response_model=WorkflowLayoutResponse)
+async def layout_workflow(
+    payload: WorkflowLayoutRequest, user: UserModel = Depends(get_user)
+):
+    """Tidy Up positions for an unsaved canvas, using the same layout applied
+    when an agent is first created. Nothing is persisted."""
+    try:
+        positions = await tidy_positions(
+            [node.model_dump() for node in payload.nodes],
+            [edge.model_dump() for edge in payload.edges],
+            rankdir=payload.rankdir,
+        )
+    except TsBridgeError as exc:
+        logger.warning(f"Tidy Up layout failed: {exc}")
+        raise HTTPException(503, "Layout is unavailable right now. Try again.")
+    return WorkflowLayoutResponse(positions=positions)
 
 
 @router.post("/{workflow_id}/validate")

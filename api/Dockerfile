@@ -50,8 +50,6 @@ RUN find /opt/venv -type f -name '*.pyc' -delete && \
 FROM node:22-slim AS ts-deps
 WORKDIR /ts_validator
 COPY api/mcp_server/ts_validator/package*.json ./
-COPY api/mcp_server/ts_validator/.npmrc ./
-COPY shared/workflow-layout /shared/workflow-layout
 RUN npm ci --omit=dev && npm cache clean --force
 
 # Stage 3: Static ffmpeg binary (avoids apt ffmpeg pulling mesa/libllvm for

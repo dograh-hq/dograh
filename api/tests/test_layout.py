@@ -144,3 +144,58 @@ def test_no_previous_keeps_origin_for_all_matched_positions():
     # node placed relative to its incoming neighbor at origin.
     assert out["nodes"][0]["position"] == {"x": 0.0, "y": 0.0}
     assert out["nodes"][1]["position"] == {"x": 400.0, "y": 200.0}
+
+
+async def test_layout_route_sends_lean_payload_and_maps_bridge_outages(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from httpx import ASGITransport, AsyncClient
+
+    from api.app import app
+    from api.mcp_server.ts_bridge import TsBridgeError
+    from api.services.auth.depends import get_user
+
+    tidy = AsyncMock(return_value=[{"id": "1", "x": 175, "y": 60}])
+    monkeypatch.setattr("api.routes.workflow.tidy_positions", tidy)
+
+    async def mock_get_user():
+        return SimpleNamespace(id=1, selected_organization_id=7)
+
+    app.dependency_overrides[get_user] = mock_get_user
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            # Whatever the canvas sends, only ids, types and endpoints go on.
+            response = await client.post(
+                "/api/v1/workflow/layout",
+                json={
+                    "nodes": [
+                        {
+                            "id": "1",
+                            "type": "startCall",
+                            "position": {"x": 3, "y": 4},
+                            "data": {"name": "Hello", "prompt": "..."},
+                        }
+                    ],
+                    "edges": [{"id": "1-2", "source": "1", "target": "2", "data": {}}],
+                },
+            )
+            assert response.status_code == 200, response.text
+            assert response.json() == {
+                "positions": [{"id": "1", "x": 175.0, "y": 60.0}]
+            }
+            tidy.assert_awaited_once_with(
+                [{"id": "1", "type": "startCall"}],
+                [{"source": "1", "target": "2"}],
+                rankdir="TB",
+            )
+
+            tidy.side_effect = TsBridgeError("node exited 1")
+            response = await client.post(
+                "/api/v1/workflow/layout", json={"nodes": [], "edges": []}
+            )
+            assert response.status_code == 503
+    finally:
+        app.dependency_overrides.pop(get_user, None)

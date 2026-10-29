@@ -33,6 +33,7 @@ import {
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
     type ExternalPBXFieldMapping,
+    type NoiseReductionConfiguration,
     resolveWorkflowConfigurations,
     TURN_START_STRATEGY_OPTIONS,
     type TurnStartStrategy,
@@ -251,6 +252,9 @@ function GeneralSection({
     const [ambientNoiseConfig, setAmbientNoiseConfig] = useState<AmbientNoiseConfiguration>(
         workflowConfigurations.ambient_noise_configuration,
     );
+    const [noiseReductionConfig, setNoiseReductionConfig] = useState<NoiseReductionConfiguration>(
+        workflowConfigurations.noise_reduction_configuration,
+    );
     const [maxCallDuration, setMaxCallDuration] = useState(workflowConfigurations.max_call_duration);
     const [maxUserIdleTimeout, setMaxUserIdleTimeout] = useState(workflowConfigurations.max_user_idle_timeout);
     const [smartTurnStopSecs, setSmartTurnStopSecs] = useState(workflowConfigurations.smart_turn_stop_secs);
@@ -313,6 +317,8 @@ function GeneralSection({
         return (
             name !== workflowName ||
             JSON.stringify(ambientNoiseConfig) !== JSON.stringify(initAmbient) ||
+            JSON.stringify(noiseReductionConfig) !==
+                JSON.stringify(workflowConfigurations.noise_reduction_configuration) ||
             maxCallDuration !== workflowConfigurations.max_call_duration ||
             maxUserIdleTimeout !== workflowConfigurations.max_user_idle_timeout ||
             smartTurnStopSecs !== workflowConfigurations.smart_turn_stop_secs ||
@@ -330,7 +336,7 @@ function GeneralSection({
             JSON.stringify(externalPbxLeadHeaders) !==
             JSON.stringify(workflowConfigurations.external_pbx_lead_headers)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, turnStopStrategy, contextCompactionEnabled, ttsCacheEnabled, normalizedCallDispositions, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, noiseReductionConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, turnStopStrategy, contextCompactionEnabled, ttsCacheEnabled, normalizedCallDispositions, includeTranscriptEndTimestamps, externalPbxFieldMappings, externalPbxLeadHeaders, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -400,6 +406,7 @@ function GeneralSection({
                 {
                     ...workflowConfigurations,
                     ambient_noise_configuration: ambientNoiseConfig,
+                    noise_reduction_configuration: noiseReductionConfig,
                     max_call_duration: maxCallDuration,
                     max_user_idle_timeout: maxUserIdleTimeout,
                     smart_turn_stop_secs: smartTurnStopSecs,
@@ -582,6 +589,29 @@ function GeneralSection({
                             </div>
                         </div>
                     )}
+                </div>
+
+                <Separator />
+
+                {/* Noise Reduction */}
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-sm font-medium">Noise Reduction</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Remove background noise from the caller&apos;s audio before speech detection and
+                            transcription. Call recordings will contain the cleaned audio.
+                        </p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <Label htmlFor="noise-reduction-enabled" className="text-sm">Reduce Background Noise</Label>
+                        <Switch
+                            id="noise-reduction-enabled"
+                            checked={noiseReductionConfig.enabled}
+                            onCheckedChange={(checked) =>
+                                setNoiseReductionConfig((prev) => ({ ...prev, enabled: checked }))
+                            }
+                        />
+                    </div>
                 </div>
 
                 <Separator />

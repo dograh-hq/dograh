@@ -2,6 +2,7 @@ import type {
     AmbientNoiseConfigurationDefaults,
     CallDispositionOption as GeneratedCallDispositionOption,
     ModelConfigurationOverride,
+    NoiseReductionConfigurationDefaults,
     WorkflowConfigurationDefaults as GeneratedWorkflowConfigurationDefaults,
 } from "@/client/types.gen";
 
@@ -16,6 +17,14 @@ export type AmbientNoiseConfiguration = Omit<
     storage_key?: string;
     storage_backend?: string;
     original_filename?: string;
+};
+
+export type NoiseReductionConfiguration = Omit<
+    NoiseReductionConfigurationDefaults,
+    "enabled" | "engine"
+> & {
+    enabled: boolean;
+    engine: NonNullable<NoiseReductionConfigurationDefaults["engine"]>;
 };
 
 export type TurnStopStrategy = NonNullable<GeneratedWorkflowConfigurationDefaults["turn_stop_strategy"]>;
@@ -100,6 +109,7 @@ export const DEFAULT_TRANSCRIPT_CONFIGURATION: TranscriptConfiguration = {
 type WorkflowConfigurationBase = Omit<
     GeneratedWorkflowConfigurationDefaults,
     | "ambient_noise_configuration"
+    | "noise_reduction_configuration"
     | "max_call_duration"
     | "max_user_idle_timeout"
     | "smart_turn_stop_secs"
@@ -117,6 +127,7 @@ type WorkflowConfigurationBase = Omit<
 
 export type WorkflowConfigurations = WorkflowConfigurationBase & {
     ambient_noise_configuration: AmbientNoiseConfiguration;
+    noise_reduction_configuration: NoiseReductionConfiguration;  // Background noise removal on caller audio
     max_call_duration: number;  // Maximum call duration in seconds
     max_user_idle_timeout: number;  // Maximum user idle time in seconds
     smart_turn_stop_secs: number;  // Timeout in seconds for incomplete turn detection
@@ -140,6 +151,10 @@ const FALLBACK_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     ambient_noise_configuration: {
         enabled: false,
         volume: 0.3
+    },
+    noise_reduction_configuration: {
+        enabled: false,
+        engine: 'rnnoise',
     },
     max_call_duration: 300,
     max_user_idle_timeout: 10,  // 10 seconds
@@ -168,6 +183,11 @@ export function resolveWorkflowConfigurations(
             ...FALLBACK_WORKFLOW_CONFIGURATIONS.ambient_noise_configuration,
             ...defaults?.ambient_noise_configuration,
             ...configurations?.ambient_noise_configuration,
+        },
+        noise_reduction_configuration: {
+            ...FALLBACK_WORKFLOW_CONFIGURATIONS.noise_reduction_configuration,
+            ...defaults?.noise_reduction_configuration,
+            ...configurations?.noise_reduction_configuration,
         },
         max_call_duration:
             configurations?.max_call_duration

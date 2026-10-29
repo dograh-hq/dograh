@@ -35,6 +35,7 @@ from loguru import logger
 from api.constants import REDIS_URL
 from api.errors.mps import MPS_UNAVAILABLE_PUBLIC_MESSAGE, MPSUnavailableError
 from api.mcp_server import mcp
+from api.routes.audio import DENOISE_RESPONSE_HEADERS
 from api.routes.main import router as main_router
 from api.services.pipecat.recording_audio_cache import handle_recording_cache_sync
 from api.services.pipecat.tracing_config import (
@@ -163,7 +164,7 @@ app.add_middleware(
     allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Workflow-Run-Id"],
+    expose_headers=["X-Workflow-Run-Id", *DENOISE_RESPONSE_HEADERS],
 )
 
 

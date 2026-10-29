@@ -4,7 +4,6 @@ This client communicates with the Model Proxy Service (MPS) for service key mana
 Service keys are stored and managed entirely in MPS, not in the local database.
 """
 
-import asyncio
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -771,7 +770,6 @@ class MPSServiceKeyClient:
         duration_seconds: Optional[float] = None,
         workflow_run_id: int | None = None,
         metadata: Optional[dict] = None,
-        max_attempts: int = 3,
     ) -> dict:
         """Report hosted Dograh platform usage for a completed workflow run."""
         if DEPLOYMENT_MODE == "oss":
@@ -792,40 +790,21 @@ class MPSServiceKeyClient:
         if workflow_run_id is not None:
             payload["workflow_run_id"] = workflow_run_id
 
-        max_attempts = max(1, max_attempts)
-        last_response: httpx.Response | None = None
         url = f"{await self._billing_url(organization_id)}/platform-usage"
         headers = await self._tenant_headers(organization_id=organization_id)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            for attempt in range(1, max_attempts + 1):
-                response = await client.post(url, json=payload, headers=headers)
-                last_response = response
+            response = await client.post(url, json=payload, headers=headers)
 
-                if response.status_code == 200:
-                    return response.json()
+        if response.status_code == 200:
+            return response.json()
 
-                usage_not_ready = (
-                    response.status_code == 409 and "usage_not_ready" in response.text
-                )
-                if usage_not_ready and attempt < max_attempts:
-                    await asyncio.sleep(attempt)
-                    continue
-
-                log = logger.warning if usage_not_ready else logger.error
-                log(
-                    "Failed to report platform usage: "
-                    f"{response.status_code} - {response.text}"
-                )
-                raise httpx.HTTPStatusError(
-                    f"Failed to report platform usage: {response.text}",
-                    request=response.request,
-                    response=response,
-                )
-
+        logger.error(
+            f"Failed to report platform usage: {response.status_code} - {response.text}"
+        )
         raise httpx.HTTPStatusError(
-            "Failed to report platform usage",
-            request=last_response.request,
-            response=last_response,
+            f"Failed to report platform usage: {response.text}",
+            request=response.request,
+            response=response,
         )
 
     async def transcribe_audio(

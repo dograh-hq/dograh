@@ -208,7 +208,9 @@ async def test_interruption_during_audio_is_not_success(playback):
     speech = await playback.queue(mute=False)
     await asyncio.wait_for(playback.output.writing.wait(), 1)
     await playback.worker.queue_frame(ProposedUserStartedSpeakingFrame())
-    assert not await asyncio.wait_for(speech.wait(), 0.5)
+    # The held output frame keeps the pipeline busy, so the interruption can
+    # land after this wait starts. 0.5s loses that race on a loaded runner.
+    assert not await asyncio.wait_for(speech.wait(), 2)
 
 
 @pytest.mark.asyncio

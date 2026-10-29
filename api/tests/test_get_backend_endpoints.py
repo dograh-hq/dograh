@@ -184,6 +184,27 @@ class TestGetBackendEndpointsWithEnvVar:
                 assert ws_url == tunnel_ws
 
     @pytest.mark.asyncio
+    async def test_public_url_keeps_its_scheme_even_with_a_tunnel_up(self):
+        """A public endpoint is returned as configured and the tunnel is never
+        consulted, so standing a tunnel up next to a public `http://` address
+        does not upgrade it. Callers that require HTTPS (the Roark export
+        refuses a plaintext recording URL) tell operators to fix the endpoint
+        rather than to start a tunnel, and this is why."""
+        with patch("api.utils.common.BACKEND_API_ENDPOINT", "http://xyz.com"):
+            with patch(
+                "api.utils.common.TunnelURLProvider.get_tunnel_urls",
+                new_callable=AsyncMock,
+            ) as mock_tunnel:
+                mock_tunnel.return_value = (
+                    "https://abc123.trycloudflare.com",
+                    "wss://abc123.trycloudflare.com",
+                )
+                http_url, ws_url = await get_backend_endpoints()
+
+        assert (http_url, ws_url) == ("http://xyz.com", "ws://xyz.com")
+        mock_tunnel.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_localhost_tunnel_exception_falls_back(self):
         """Test that tunnel exceptions fall back to localhost endpoint."""
         with patch("api.utils.common.BACKEND_API_ENDPOINT", "http://localhost:8000"):

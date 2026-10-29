@@ -17,8 +17,10 @@ from dograh_sdk.typed._base import TypedNode
 class Trigger(TypedNode):
     """
     Public HTTP endpoints that triggers the agent and make a call over
-    telephone.  LLM hint: Exposes two public HTTP POST endpoints derived
-    from the auto-generated `trigger_path`:   • Production:
+    telephone.
+
+    LLM hint: Exposes two public HTTP POST endpoints derived from the auto-
+    generated `trigger_path`:   • Production:
     `<backend>/api/v1/public/agent/<trigger_path>` — runs the published
     agent. Use this from production systems.   • Test:
     `<backend>/api/v1/public/agent/test/<trigger_path>` — runs the latest

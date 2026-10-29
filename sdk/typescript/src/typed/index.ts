@@ -9,6 +9,7 @@ export { type GlobalNode, globalNode } from "./global-node.js";
 export { type Noveum, noveum } from "./noveum.js";
 export { type Paygent, paygent } from "./paygent.js";
 export { type Qa, qa } from "./qa.js";
+export { type Roark, roark } from "./roark.js";
 export { type StartCall, startCall } from "./start-call.js";
 export { type Trigger, trigger } from "./trigger.js";
 export { type Tuner, tuner } from "./tuner.js";
@@ -21,6 +22,7 @@ import type {
     Noveum,
     Paygent,
     Qa,
+    Roark,
     StartCall,
     Trigger,
     Tuner,
@@ -28,4 +30,4 @@ import type {
 } from "./index.js";
 
 /** Discriminated union of every generated typed node. */
-export type TypedNode = AgentNode | EndCall | GlobalNode | Noveum | Paygent | Qa | StartCall | Trigger | Tuner | Webhook;
+export type TypedNode = AgentNode | EndCall | GlobalNode | Noveum | Paygent | Qa | Roark | StartCall | Trigger | Tuner | Webhook;

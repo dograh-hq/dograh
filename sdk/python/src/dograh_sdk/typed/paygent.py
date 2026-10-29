@@ -16,9 +16,11 @@ from dograh_sdk.typed._base import TypedNode
 @dataclass(kw_only=True)
 class Paygent(TypedNode):
     """
-    Cost Tracking and Billing  LLM hint: Paygent is a post-call usage-
-    tracking and billing integration. It does not participate in the
-    conversation graph and should not be connected to other nodes.
+    Cost Tracking and Billing
+
+    LLM hint: Paygent is a post-call usage-tracking and billing integration.
+    It does not participate in the conversation graph and should not be
+    connected to other nodes.
     """
 
     type: ClassVar[str] = 'paygent'

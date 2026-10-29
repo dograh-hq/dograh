@@ -1290,7 +1290,7 @@ def create_tts_service(
             ) from e
 
         voice = getattr(user_config.tts, "voice", None) or "beatrice_32"
-        model = getattr(user_config.tts, "model", None) or "simba-3.2"
+        model = getattr(user_config.tts, "model", None) or "simba-3.5"
         language_code = getattr(user_config.tts, "language", None) or "en"
         language: Language | str
         try:

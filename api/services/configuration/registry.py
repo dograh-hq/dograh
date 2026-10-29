@@ -1941,21 +1941,77 @@ class LmntTTSConfiguration(BaseTTSConfiguration):
 # uses the /v1/audio/stream/with-timestamps endpoint, which rejects the legacy
 # simba-english/simba-multilingual models.
 SPEECHIFY_TTS_MODELS = [
+    "simba-3.5",
     "simba-3.2",
     "simba-3.0",
 ]
 SPEECHIFY_TTS_VOICES = ["beatrice_32", "geffen_32", "alicia", "alton"]
-# The API rejects voices outside a model's allow-list (HTTP 400): simba-3.2
-# only accepts voices that list it in GET /v1/voices, currently its dedicated
-# "_32" voices. simba-3.0 accepts the general shared catalog.
+# A voice must list the model in GET /v1/voices or synthesis fails. simba-3.5
+# and simba-3.0 serve the whole shared catalog; simba-3.2 serves its English
+# voices, which covers every voice shipped here (checked live 2026-10-22).
 SPEECHIFY_TTS_VOICES_BY_MODEL = {
-    "simba-3.2": ["beatrice_32", "geffen_32"],
+    "simba-3.5": SPEECHIFY_TTS_VOICES,
+    "simba-3.2": SPEECHIFY_TTS_VOICES,
     "simba-3.0": SPEECHIFY_TTS_VOICES,
 }
+# simba-3.5 serves 48 languages under one model id. These are the base codes
+# from Speechify's models guide; regional variants (e.g. "pt-BR") are in
+# scope too, and the request's language steers synthesis.
+SPEECHIFY_SIMBA_35_LANGUAGES = [
+    "en",
+    "ar",
+    "be",
+    "bn",
+    "bs",
+    "ca",
+    "cs",
+    "da",
+    "de",
+    "el",
+    "es",
+    "fa",
+    "fi",
+    "fr",
+    "gu",
+    "he",
+    "hi",
+    "hr",
+    "hu",
+    "id",
+    "it",
+    "ja",
+    "ka",
+    "kk",
+    "ko",
+    "la",
+    "mr",
+    "ms",
+    "my",
+    "nl",
+    "no",
+    "pl",
+    "pt",
+    "ro",
+    "ru",
+    "sk",
+    "sl",
+    "sr",
+    "sv",
+    "ta",
+    "te",
+    "th",
+    "tl",
+    "tr",
+    "uk",
+    "ur",
+    "vi",
+    "zh",
+]
 # Documented languages per model, used to filter the language dropdown. The
 # API accepts other codes (synthesis succeeds), so this steers rather than
 # hard-blocks: allow_custom_input still permits manual entry.
 SPEECHIFY_TTS_LANGUAGES_BY_MODEL = {
+    "simba-3.5": SPEECHIFY_SIMBA_35_LANGUAGES,
     "simba-3.2": ["en"],
     "simba-3.0": ["en", "de", "es", "fr", "it", "pt-BR"],
 }
@@ -1965,11 +2021,12 @@ SPEECHIFY_TTS_LANGUAGES_BY_MODEL = {
 class SpeechifyTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SPEECHIFY] = ServiceProviders.SPEECHIFY
     model: str = Field(
-        default="simba-3.2",
+        default="simba-3.5",
         description=(
-            "Speechify TTS model. 'simba-3.2' is the streaming-native English "
-            "model with the lowest latency; 'simba-3.0' adds German, Spanish, "
-            "French, Italian, and Portuguese."
+            "Speechify TTS model. 'simba-3.5' is Speechify's recommended model "
+            "and speaks 48 languages; 'simba-3.2' is the English-only model "
+            "with the lowest latency; 'simba-3.0' covers English, German, "
+            "Spanish, French, Italian, and Portuguese."
         ),
         json_schema_extra={"examples": SPEECHIFY_TTS_MODELS},
     )
@@ -1989,12 +2046,13 @@ class SpeechifyTTSConfiguration(BaseTTSConfiguration):
     language: str = Field(
         default="en",
         description=(
-            "Language code for synthesis (e.g. 'en', 'de', 'es', 'fr', 'it', "
-            "'pt-BR'). Options are filtered to the selected model's documented "
-            "languages; simba-3.2 is documented as English-only."
+            "Language code for synthesis (e.g. 'en', 'ja', 'de', 'pt-BR'). "
+            "Options are filtered to the selected model's documented "
+            "languages; simba-3.5 covers 48 languages, simba-3.2 is "
+            "documented as English-only."
         ),
         json_schema_extra={
-            "examples": SPEECHIFY_TTS_LANGUAGES_BY_MODEL["simba-3.0"],
+            "examples": SPEECHIFY_TTS_LANGUAGES_BY_MODEL["simba-3.5"],
             "allow_custom_input": True,
             "model_options": SPEECHIFY_TTS_LANGUAGES_BY_MODEL,
         },

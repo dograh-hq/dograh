@@ -147,7 +147,18 @@ export function WorkflowTable({
                         {workflows.map((workflow) => (
                             <TableRow
                                 key={workflow.id}
-                                className={`hover:bg-accent transition-colors ${showArchived ? 'opacity-60' : ''}`}
+                                role="link"
+                                tabIndex={0}
+                                aria-label={`Edit ${workflow.name}`}
+                                className={`cursor-pointer hover:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring transition-colors ${showArchived ? 'opacity-60' : ''}`}
+                                onClick={() => handleEdit(workflow.id)}
+                                onKeyDown={(event) => {
+                                    if (event.target !== event.currentTarget) return;
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault();
+                                        handleEdit(workflow.id);
+                                    }
+                                }}
                             >
                                 <TableCell className="text-muted-foreground">
                                     {workflow.id}
@@ -163,7 +174,10 @@ export function WorkflowTable({
                                         {workflow.total_runs || 0}
                                     </span>
                                 </TableCell>
-                                <TableCell className="text-right">
+                                <TableCell
+                                    className="text-right"
+                                    onClick={(event) => event.stopPropagation()}
+                                >
                                     <div className="flex justify-end gap-2">
                                         <Button
                                             variant="outline"

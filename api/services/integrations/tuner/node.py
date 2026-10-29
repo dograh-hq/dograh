@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from pydantic import model_validator
+import re
+from typing import Any
+
+from pydantic import ValidationInfo, field_validator, model_validator
 
 from api.services.integrations.base import IntegrationNodeRegistration
 from api.services.workflow.node_data import BaseNodeData
@@ -26,6 +29,17 @@ _COST_RATE_RENDERER_OPTIONS = PropertyRendererOptions(
     layout=PropertyLayoutOptions(column_span=6),
     number_input=NumberInputOptions(fractional=True),
 )
+
+# The variable list is only shown once the user turns on metadata export.
+_METADATA_FIELDS_VISIBLE = DisplayOptions(show={"metadata_enabled": [True]})
+_METADATA_KEY_SEPARATORS = re.compile(r"[,\r\n]+")
+_BRACED_NAME = re.compile(r"^\{\{\s*(.*?)\s*\}\}$", re.DOTALL)
+
+
+def _strip_braces(name: str) -> str:
+    """``{{account_status}}`` -> ``account_status`` (pasted template form)."""
+    match = _BRACED_NAME.match(name)
+    return match.group(1) if match else name
 
 
 @node_spec(
@@ -67,6 +81,8 @@ _COST_RATE_RENDERER_OPTIONS = PropertyRendererOptions(
         "cost_tts_rate",
         "cost_stt_rate",
         "cost_telephony_rate",
+        "metadata_enabled",
+        "metadata_keys",
     ),
     field_overrides={
         "name": {
@@ -188,6 +204,74 @@ class TunerNodeData(BaseNodeData):
         display_options=_COST_FIELDS_VISIBLE,
         renderer_options=_COST_RATE_RENDERER_OPTIONS,
     )
+
+    metadata_enabled: bool = spec_field(
+        default=False,
+        ui_type=PropertyType.boolean,
+        display_name="Send call variables",
+        description=(
+            "Send selected variables to Tuner as call metadata, so Tuner evals, "
+            "rules and alerts can use them."
+        ),
+    )
+    metadata_keys: list[str] = spec_field(
+        default_factory=list,
+        ui_type=PropertyType.string,
+        editor="textarea",
+        placeholder="e.g. account_status, loyalty_tier",
+        display_name="Variables to send",
+        description=(
+            "Variables from the call's initial context (including Pre-Call Data "
+            "Fetch) or extracted variables. Separate names with commas or new "
+            "lines. Variables you don't list are never sent."
+        ),
+        display_options=_METADATA_FIELDS_VISIBLE,
+    )
+
+    @field_validator("metadata_keys", mode="before")
+    @classmethod
+    def _parse_metadata_keys(cls, value: Any, info: ValidationInfo):
+        """Turn the editor's text (commas and/or new lines) into clean names.
+
+        The editor stores the raw text; the list is built whenever the node data
+        is validated. A list is also accepted for API/SDK callers.
+
+        Bad entries are only rejected while ``metadata_enabled`` is on (it is
+        declared above this field, so it is already validated here). A toggled-off
+        node with leftover text must still validate, otherwise ``run_completion``
+        would skip the whole Tuner delivery; bad entries are dropped instead.
+        """
+        strict = bool(info.data.get("metadata_enabled"))
+        if value is None:
+            return []
+        if isinstance(value, str):
+            entries = _METADATA_KEY_SEPARATORS.split(value)
+        elif isinstance(value, (list, tuple)):
+            entries = value
+        elif strict:
+            raise ValueError("Variables to send must be text or a list of names")
+        else:
+            return []
+
+        names: list[str] = []
+        for entry in entries:
+            if not isinstance(entry, str):
+                if strict:
+                    raise ValueError(
+                        f"Invalid variable name {entry!r}: names must be text"
+                    )
+                continue
+            name = _strip_braces(entry.strip())
+            if not name or name in names:
+                continue
+            if re.search(r"\s", name):
+                if strict:
+                    raise ValueError(
+                        f"Invalid variable name '{name}': names cannot contain spaces"
+                    )
+                continue
+            names.append(name)
+        return names
 
     @model_validator(mode="after")
     def _validate_enabled_config(self):

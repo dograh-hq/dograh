@@ -56,6 +56,41 @@ class DocumentResponseSchema(BaseModel):
     organization_id: int
     created_by: int
     is_active: bool
+    has_live_content: bool = Field(
+        default=False,
+        description=(
+            "Whether agents can currently retrieve this document's content. Stays "
+            "true while an edited document is re-indexed or after its re-index "
+            "fails, because the previous version keeps serving until a new one "
+            "succeeds."
+        ),
+    )
+
+
+class DocumentContentResponseSchema(BaseModel):
+    """Raw text of an editable (text or Markdown) document."""
+
+    document_uuid: str
+    filename: str
+    retrieval_mode: str
+    content: str = Field(..., description="The stored file's text, as uploaded")
+    file_hash: str = Field(
+        ...,
+        description="Version token; send it back as expected_file_hash when saving",
+    )
+
+
+class DocumentContentUpdateRequestSchema(BaseModel):
+    """Request schema for replacing an editable document's text."""
+
+    content: str = Field(..., description="New full text of the document")
+    expected_file_hash: str = Field(
+        ...,
+        description=(
+            "file_hash returned when the content was loaded. The save is rejected "
+            "if the document has changed since."
+        ),
+    )
 
 
 class DocumentListResponseSchema(BaseModel):

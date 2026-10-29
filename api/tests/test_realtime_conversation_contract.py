@@ -1,5 +1,6 @@
 """Exercise shared conversation policy through the real provider adapters."""
 
+import asyncio
 import base64
 import struct
 from types import SimpleNamespace
@@ -17,10 +18,12 @@ from pipecat.frames.frames import (
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.aws.nova_sonic.llm import Role
-from pipecat.services.google.gemini_live.vertex.llm import GeminiLiveVertexLLMService
+from pipecat.services.openai.live.llm import OpenAILiveLLMService
 
+from api.services.pipecat.call_opening import OpeningInputGate
 from api.services.pipecat.realtime.aws_nova_sonic import DograhAWSNovaSonicLLMService
 from api.services.pipecat.realtime.azure_realtime import DograhAzureRealtimeLLMService
+from api.services.pipecat.realtime.conversation import opening_request
 from api.services.pipecat.realtime.gemini_live import DograhGeminiLiveLLMService
 from api.services.pipecat.realtime.gemini_live_vertex import (
     DograhGeminiLiveVertexLLMService,
@@ -32,6 +35,7 @@ from api.services.pipecat.realtime.ultravox_realtime import (
     DograhUltravoxOneShotInputParams,
     DograhUltravoxRealtimeLLMService,
 )
+from api.services.pipecat.speech_playback import PlaybackOutcome
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
@@ -46,7 +50,7 @@ def realtime_service(request, monkeypatch):
             DograhGeminiLiveLLMService, "create_client", lambda self: None
         )
         monkeypatch.setattr(
-            GeminiLiveVertexLLMService, "_get_credentials", lambda *args: None
+            DograhGeminiLiveVertexLLMService, "_get_credentials", lambda *args: None
         )
         if provider == "vertex":
             service = DograhGeminiLiveVertexLLMService(
@@ -122,6 +126,125 @@ def audio_sender(service):
         lambda call: base64.b64decode(call.args[0].audio),
         rate,
     )
+
+
+@pytest.mark.asyncio
+async def test_opening_readiness_retains_real_audio_until_provider_accepts_it(
+    realtime_service,
+):
+    service = realtime_service
+    # These properties read the actual upstream fields. Removing a readiness
+    # field or introducing a provider without this contract must fail here.
+    assert not service.opening_input_ready
+    assert service.supports_greeting_word_threshold is False
+    send, output, decode, _ = audio_sender(service)
+    if isinstance(service, DograhAWSNovaSonicLLMService):
+        service._stream = object()
+        service._audio_input_started = True
+        service._prompt_name = "test-prompt"
+        service._input_audio_content_name = "test-input"
+    if isinstance(service, DograhUltravoxRealtimeLLMService):
+        service._call_started = True
+
+    engine = PipecatEngine(workflow=None, call_context_vars={}, is_realtime=True)
+    engine.active_agent.llm = service
+    gate = engine.opening.input_gate = OpeningInputGate()
+
+    async def forward(frame, direction):
+        await send(frame)
+
+    gate.push_frame = AsyncMock(side_effect=forward)
+    frame = InputAudioRawFrame(b"\x01\x02" * 1600, 16000, 1)
+    await gate.process_frame(frame, FrameDirection.DOWNSTREAM)
+    release = asyncio.create_task(engine.release_opening_input())
+    try:
+        # Connection alone is insufficient: the initial context must be seeded.
+        await asyncio.sleep(0.02)
+        output.assert_not_awaited()
+        service._handled_initial_context = True
+        await asyncio.wait_for(release, 1)
+        assert output.await_count > 0
+        assert any(b"".join(decode(call) for call in output.await_args_list))
+        assert frame.audio == b"\x01\x02" * 1600
+    finally:
+        release.cancel()
+        await asyncio.gather(release, return_exceptions=True)
+        await engine.opening.close()
+
+
+@pytest.mark.asyncio
+async def test_opening_readiness_waits_for_inflight_session_seed(
+    realtime_service, monkeypatch
+):
+    service = realtime_service
+    # Isolate the shared seed barrier from connection readiness for every adapter.
+    ready_property = type(service).opening_input_ready
+    assert isinstance(ready_property, property)
+    monkeypatch.setattr(type(service), "opening_input_ready", property(lambda _: True))
+    entered, finish = asyncio.Event(), asyncio.Event()
+
+    @opening_request
+    async def seed(instance):
+        instance._handled_initial_context = True
+        entered.set()
+        await finish.wait()
+
+    task = asyncio.create_task(seed(service))
+    await asyncio.wait_for(entered.wait(), 1)
+    waiter = asyncio.create_task(service.wait_for_input_ready())
+    try:
+        await asyncio.sleep(0.02)
+        assert not waiter.done()
+    finally:
+        finish.set()
+        await asyncio.wait_for(task, 1)
+        await asyncio.wait_for(waiter, 1)
+    assert service._opening_requests == 0
+
+
+@pytest.mark.asyncio
+async def test_generated_opening_waits_for_context_send_to_finish(
+    realtime_service, monkeypatch
+):
+    service = realtime_service
+    monkeypatch.setattr(type(service), "opening_input_ready", property(lambda _: True))
+    entered, finish = asyncio.Event(), asyncio.Event()
+
+    async def send(*args, **kwargs):
+        entered.set()
+        await finish.wait()
+
+    if isinstance(service, DograhGeminiLiveLLMService):
+        monkeypatch.setattr(service, "_prepare_context_for_fresh_session", send)
+        monkeypatch.setattr(service, "_create_initial_response", AsyncMock())
+    elif isinstance(service, DograhAWSNovaSonicLLMService):
+        monkeypatch.setattr(service, "_finish_connecting_if_context_available", send)
+        monkeypatch.setattr(service, "_flush_pending_text_inputs", AsyncMock())
+    elif isinstance(service, DograhUltravoxRealtimeLLMService):
+        monkeypatch.setattr(service, "_connect_call", send)
+    elif isinstance(service, DograhOpenAILiveLLMService):
+        monkeypatch.setattr(OpenAILiveLLMService, "_handle_context", send)
+        monkeypatch.setattr(service, "_maybe_send_tools_update", AsyncMock())
+    else:
+        monkeypatch.setattr(service, "_create_response", send)
+
+    request = asyncio.create_task(service._handle_context(LLMContext()))
+    waiter = None
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        assert service._handled_initial_context
+        waiter = asyncio.create_task(service.wait_for_input_ready())
+        await asyncio.sleep(0.02)
+        assert not waiter.done(), "Input escaped before the opening context was sent"
+        finish.set()
+        await asyncio.wait_for(asyncio.gather(request, waiter), 1)
+        assert service._opening_requests == 0
+    finally:
+        finish.set()
+        tasks = [request] + ([waiter] if waiter else [])
+        for task in tasks:
+            task.cancel()
+        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 1)
 
 
 @pytest.mark.asyncio
@@ -213,7 +336,11 @@ async def test_edge_speech_policy_preserves_node_transition(
     if is_realtime:
         engine.call_worker.queue_frame.assert_not_awaited()
     else:
-        frame = engine.call_worker.queue_frame.await_args.args[0]
+        frame = next(
+            call.args[0]
+            for call in engine.call_worker.queue_frame.await_args_list
+            if isinstance(call.args[0], TTSSpeakFrame)
+        )
         assert frame.text == "Let me ask a few questions."
         assert not frame.append_to_context
     assert await engine.should_mute_user(InputAudioRawFrame(bytes(640), 16000, 1)) == (
@@ -223,6 +350,7 @@ async def test_edge_speech_policy_preserves_node_transition(
         "agent", origin_visit_id=engine.active_agent.visit_id
     )
     assert result.await_args.args == ({"status": "done"},)
+    engine.speech_playback.cancel_all()
 
 
 @pytest.mark.asyncio
@@ -237,14 +365,19 @@ async def test_tool_message_reports_playback_only_when_text_is_queued(
         is_realtime=is_realtime,
     )
     manager = CustomToolManager(engine)
-    queued = await manager._play_config_message(
-        {"messageType": "custom", "customMessage": "Goodbye!"}, append_to_context=True
+    speech = await manager._play_tool_message(
+        {"messages": [{"event": "start", "type": "text", "text": "Goodbye!"}]},
+        append_to_context=True,
     )
-    assert queued == (not is_realtime)
+    assert speech.outcome is (PlaybackOutcome.SKIPPED if is_realtime else None)
     if is_realtime:
         engine.call_worker.queue_frame.assert_not_awaited()
     else:
-        frame = engine.call_worker.queue_frame.await_args.args[0]
+        frame = next(
+            call.args[0]
+            for call in engine.call_worker.queue_frame.await_args_list
+            if isinstance(call.args[0], TTSSpeakFrame)
+        )
         assert frame.text == "Goodbye!"
         assert frame.append_to_context
 
@@ -253,7 +386,9 @@ async def test_tool_message_reports_playback_only_when_text_is_queued(
     assert await engine.should_mute_user(audio) == (not is_realtime)
     if not is_realtime:
         assert await engine.should_mute_user(BotStartedSpeakingFrame())
-        assert not await engine.should_mute_user(BotStoppedSpeakingFrame())
+        assert await engine.should_mute_user(BotStoppedSpeakingFrame())
+    engine.speech_playback.cancel_all()
+    assert not await engine.should_mute_user(audio)
 
 
 @pytest.mark.asyncio

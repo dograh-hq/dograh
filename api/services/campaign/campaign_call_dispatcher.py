@@ -17,9 +17,11 @@ from api.services.call_concurrency import (
 from api.services.call_concurrency.rate_limiter import rate_limiter
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.campaign.errors import (
+    CampaignDispatchPaused,
     CampaignRateLimitTimeout,
     ConcurrentSlotAcquisitionError,
 )
+from api.services.campaign.traffic_split import campaign_split, pick_variant
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
@@ -114,8 +116,12 @@ class CampaignCallDispatcher:
                         )
                     )
                     processed_run_ids.add(queued_run.id)
-                except (ConcurrentSlotAcquisitionError, CampaignRateLimitTimeout):
-                    # Capacity contention is temporary, not a failed contact.
+                except (
+                    ConcurrentSlotAcquisitionError,
+                    CampaignRateLimitTimeout,
+                    CampaignDispatchPaused,
+                ):
+                    # Admission deferral must not consume a contact attempt.
                     return
                 except asyncio.CancelledError:
                     raise
@@ -202,16 +208,23 @@ class CampaignCallDispatcher:
         workflow_run = None
         attempted = False
         accepted = False
+        initiation_error = None
         try:
-            workflow = await db_client.get_workflow(
-                campaign.workflow_id,
-                organization_id=campaign.organization_id,
-            )
-            if not workflow:
-                raise ValueError(f"Workflow {campaign.workflow_id} not found")
+            # Avoid creating workflow history for contacts already paused while
+            # they waited for capacity or a batch setup slot.
+            await self._ensure_campaign_running(campaign.id, campaign.organization_id)
             phone_number = queued_run.context_variables.get("phone_number")
             if not phone_number:
                 raise ValueError(f"No phone number in queued run {queued_run.id}")
+            split = campaign_split(campaign)
+            variant = pick_variant(split, phone_number)
+            workflow_id = variant["workflow_id"]
+            workflow = await db_client.get_workflow(
+                workflow_id,
+                organization_id=campaign.organization_id,
+            )
+            if not workflow:
+                raise ValueError(f"Workflow {workflow_id} not found")
 
             provider = await self.get_provider_for_campaign(campaign)
             from_number = await rate_limiter.select_from_number(
@@ -229,10 +242,12 @@ class CampaignCallDispatcher:
                 "direction": "outbound",
                 "telephony_configuration_id": campaign.telephony_configuration_id,
             }
-            run_inputs = await prepare_workflow_run_inputs(db_client, workflow)
+            run_inputs = await prepare_workflow_run_inputs(
+                db_client, workflow, definition_id=variant["workflow_definition_id"]
+            )
             workflow_run = await db_client.create_workflow_run(
                 name=f"WR-CAMPAIGN-{campaign.id}-{queued_run.id}",
-                workflow_id=campaign.workflow_id,
+                workflow_id=workflow_id,
                 mode=provider.PROVIDER_NAME,
                 user_id=campaign.created_by,
                 initial_context=initial_context,
@@ -240,6 +255,12 @@ class CampaignCallDispatcher:
                 queued_run_id=queued_run.id,
                 organization_id=campaign.organization_id,
                 definition_id=run_inputs.definition_id,
+                campaign_traffic_split={
+                    "variant_id": variant["id"],
+                    "revision": split["revision"],
+                    "workflow_definition_id": variant["workflow_definition_id"],
+                    "weight": variant["weight"],
+                },
             )
             await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
             if queued_run.context_variables.get("is_retry"):
@@ -249,7 +270,7 @@ class CampaignCallDispatcher:
                     gathered_context={"call_tags": ["retry", f"retry_reason_{reason}"]},
                 )
             quota = await authorize_workflow_run_start(
-                workflow_id=campaign.workflow_id,
+                workflow_id=workflow_id,
                 organization_id=campaign.organization_id,
                 workflow_run_id=workflow_run.id,
             )
@@ -259,7 +280,7 @@ class CampaignCallDispatcher:
             backend_endpoint, _ = await get_backend_endpoints()
             webhook_url = (
                 f"{backend_endpoint}/api/v1/telephony/{provider.WEBHOOK_ENDPOINT}"
-                f"?workflow_id={campaign.workflow_id}"
+                f"?workflow_id={workflow_id}"
                 f"&workflow_run_id={workflow_run.id}"
                 f"&organization_id={campaign.organization_id}"
             )
@@ -267,17 +288,31 @@ class CampaignCallDispatcher:
                 campaign.organization_id,
                 campaign.rate_limit_per_second,
                 scope_key=f"campaign:{campaign.id}",
+                campaign_id=campaign.id,
             )
-            # No long wait or DB operation between rate admission and dialing.
+            # No DB read or other wait after the final rate admission.
             attempted = True
-            call_result = await provider.initiate_call(
-                to_number=phone_number,
-                webhook_url=webhook_url,
-                workflow_run_id=workflow_run.id,
-                from_number=from_number,
-                workflow_id=campaign.workflow_id,
-                organization_id=campaign.organization_id,
-            )
+            try:
+                call_result = await provider.initiate_call(
+                    to_number=phone_number,
+                    webhook_url=webhook_url,
+                    workflow_run_id=workflow_run.id,
+                    from_number=from_number,
+                    workflow_id=workflow_id,
+                    organization_id=campaign.organization_id,
+                )
+            except Exception as exc:
+                initiation_error = exc
+                await self._await_cleanup(
+                    circuit_breaker.pause_on_provider_error(
+                        organization_id=campaign.organization_id,
+                        workflow_run_id=workflow_run.id,
+                        provider=provider.PROVIDER_NAME,
+                        service="telephony",
+                        exception=exc,
+                    )
+                )
+                raise
             accepted = True
             await db_client.update_workflow_run(
                 run_id=workflow_run.id,
@@ -305,8 +340,11 @@ class CampaignCallDispatcher:
                     raise
                 return workflow_run
 
+            # Cancellation while recording a provider rejection must not turn
+            # that known rejection into a possibly live call.
+            cleanup_error = initiation_error or exc
             uncertain = attempted and isinstance(
-                exc,
+                cleanup_error,
                 (
                     asyncio.CancelledError,
                     TimeoutError,
@@ -320,7 +358,7 @@ class CampaignCallDispatcher:
                     campaign,
                     workflow_run,
                     concurrency_slot,
-                    exc,
+                    cleanup_error,
                     uncertain=uncertain,
                     attempted=attempted,
                 )
@@ -387,21 +425,26 @@ class CampaignCallDispatcher:
                         ],
                     },
                 )
-                if isinstance(
-                    error, (asyncio.CancelledError, CampaignRateLimitTimeout)
-                ):
-                    # This task owns the row and has not contacted the provider.
-                    await db_client.update_queued_run(
-                        queued_run_id=queued_run.id,
-                        state="queued",
-                    )
-                if attempted:
-                    await circuit_breaker.record_and_evaluate(
-                        campaign.id,
-                        is_failure=True,
-                        workflow_run_id=workflow_run.id,
-                        reason="call_initiation_failed",
-                    )
+            if attempted:
+                # Persist a known rejection even if cancellation prevents the
+                # batch's ordinary exception handler from doing so.
+                await db_client.update_queued_run(
+                    queued_run_id=queued_run.id,
+                    state="failed",
+                    processed_at=datetime.now(UTC),
+                )
+            elif isinstance(
+                error,
+                (
+                    asyncio.CancelledError,
+                    CampaignRateLimitTimeout,
+                    CampaignDispatchPaused,
+                ),
+            ):
+                await db_client.update_queued_run(
+                    queued_run_id=queued_run.id,
+                    state="queued",
+                )
         finally:
             # Also release the raw slot if cancellation interrupted mapping it.
             try:
@@ -435,16 +478,37 @@ class CampaignCallDispatcher:
                     f"{recovery['workflow_run_id']}; will retry"
                 )
 
+    @staticmethod
+    async def _ensure_campaign_running(campaign_id: int, organization_id: int) -> None:
+        try:
+            current = await db_client.get_campaign(campaign_id, organization_id)
+        except Exception as exc:
+            logger.error(
+                "Cannot verify campaign {} state for org {} before dialing ({})",
+                campaign_id,
+                organization_id,
+                type(exc).__name__,
+            )
+            raise CampaignDispatchPaused(
+                "Cannot verify campaign state before dialing"
+            ) from exc
+        if current is None or current.state != "running":
+            raise CampaignDispatchPaused("Campaign is no longer running")
+
     async def apply_rate_limit(
         self,
         organization_id: int,
         rate_limit: int,
         *,
         scope_key: str,
+        campaign_id: int,
     ) -> None:
         """Wait on the same campaign bucket used to admit actual dial attempts."""
         deadline = time.monotonic() + self.CAPACITY_WAIT_TIMEOUT
         while True:
+            # Refresh after each wait, then take a token immediately before
+            # dialing. Slow DB reads cannot spend admission in an earlier window.
+            await self._ensure_campaign_running(campaign_id, organization_id)
             if await rate_limiter.acquire_token(
                 organization_id,
                 rate_limit,

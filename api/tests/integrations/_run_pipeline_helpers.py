@@ -72,6 +72,20 @@ class NoopFeedbackObserver(BaseObserver):
     def __init__(self, *_args, **_kwargs):
         super().__init__()
 
+    async def log_speech(self, text: str):
+        pass
+
+    async def log_greeting(self, speech):
+        pass
+
+    async def log_background_greeting_speech(
+        self, speech, text: str, started_at: str | None, stopped_at: str | None
+    ) -> None:
+        pass
+
+    def speech_log_context(self):
+        return {}
+
     async def cleanup(self):
         pass
 
@@ -123,13 +137,19 @@ def patch_run_pipeline_externals(
         )
         stack.enter_context(
             patch(
+                "api.services.pipecat.agent_runtime_factory.create_llm_service",
+                _llm_factory,
+            )
+        )
+        stack.enter_context(
+            patch(
                 "api.services.pipecat.run_pipeline.create_stt_service",
                 lambda *_args, **_kwargs: PassthroughProcessor(),
             )
         )
         stack.enter_context(
             patch(
-                "api.services.pipecat.run_pipeline.create_tts_service",
+                "api.services.pipecat.agent_runtime_factory.create_tts_service",
                 _tts_factory,
             )
         )
@@ -195,11 +215,8 @@ async def create_workflow_run_rows(
     Returns:
         Tuple of (workflow_run, user, workflow).
     """
-    from api.enums import OrganizationConfigurationKey
     from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
-    from api.services.configuration.ai_model_configuration import (
-        convert_legacy_ai_model_configuration_to_v2,
-    )
+    from api.tests.support.model_catalog import seed_default_model_configuration
 
     org = OrganizationModel(provider_id=f"test-org-{provider_id_suffix}")
     async_session.add(org)
@@ -215,14 +232,7 @@ async def create_workflow_run_rows(
     user_configuration = EffectiveAIModelConfiguration.model_validate(
         USER_CONFIGURATION
     )
-    await db_session.upsert_configuration(
-        org.id,
-        OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
-        convert_legacy_ai_model_configuration_to_v2(user_configuration).model_dump(
-            mode="json",
-            exclude_none=True,
-        ),
-    )
+    await seed_default_model_configuration(db_session, org.id, user_configuration)
 
     workflow = await db_session.create_workflow(
         name=f"{name_prefix} Workflow",

@@ -1,6 +1,6 @@
 {{- if eq .Values.storage.mode "internalMinio" }}
 {{- /*
-Bundled MinIO for storage.mode=internalMinio, official upstream image. Single
+Bundled MinIO for storage.mode=internalMinio, dograh's MinIO image. Single
 replica (Recreate strategy — the RWO volume can't be shared). The app creates
 its bucket on first use (bucket_exists → make_bucket), so no provisioning Job.
 

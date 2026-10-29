@@ -1,14 +1,13 @@
 from copy import deepcopy
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
 from api.constants import (
     DEFAULT_CAMPAIGN_RETRY_CONFIG,
     DEFAULT_ORG_CONCURRENCY_LIMIT,
-    DEPLOYMENT_MODE,
 )
 from api.db import db_client
 from api.db.models import UserModel
@@ -20,18 +19,11 @@ from api.db.telephony_phone_number_client import TelephonyPhoneNumberConflictErr
 from api.db.telephony_trunk_client import TelephonyTrunkConflictError
 from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.errors.failure import ErrorSource, classify_exception, log_failure
-from api.errors.mps import MPSUnavailableError
-from api.schemas.ai_model_configuration import (
-    DOGRAH_DEFAULT_LANGUAGE,
-    DOGRAH_DEFAULT_VOICE,
-    DOGRAH_SPEED_MAX,
-    DOGRAH_SPEED_MIN,
-    DOGRAH_SPEED_OPTIONS,
-    DOGRAH_SPEED_STEP,
-    OrganizationAIModelConfigurationResponse,
-    OrganizationAIModelConfigurationV2,
+from api.schemas.call_events import CallEventsConnectionResult, CallEventsSettings
+from api.schemas.organization_preferences import (
+    OrganizationPreferences,
+    OrganizationPreferencesResponse,
 )
-from api.schemas.organization_preferences import OrganizationPreferences
 from api.schemas.telephony_config import (
     TelephonyConfigRequest,
     TelephonyConfigurationCreateRequest,
@@ -48,6 +40,8 @@ from api.schemas.telephony_phone_number import (
     PhoneNumberCreateRequest,
     PhoneNumberListResponse,
     PhoneNumberResponse,
+    PhoneNumberSyncResponse,
+    PhoneNumberSyncSkipped,
     PhoneNumberUpdateRequest,
     ProviderSyncStatus,
 )
@@ -55,41 +49,22 @@ from api.services.auth.depends import (
     get_user,
     get_user_with_selected_organization,
 )
-from api.services.configuration.ai_model_configuration import (
-    check_for_masked_keys_in_ai_model_configuration_v2,
-    compile_ai_model_configuration_v2,
-    convert_legacy_ai_model_configuration_to_v2,
-    get_organization_ai_model_configuration_v2,
-    get_resolved_ai_model_configuration,
-    mask_ai_model_configuration_v2,
-    merge_ai_model_configuration_v2_secrets,
-    migrate_workflow_model_configurations_to_v2,
-    upsert_organization_ai_model_configuration_v2,
+from api.services.configuration.masking import is_mask_of, mask_key
+from api.services.observability.call_events.configuration import (
+    check_connection,
+    resolve_settings,
 )
-from api.services.configuration.check_validity import UserConfigurationValidator
-from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
-from api.services.configuration.masking import is_mask_of, mask_key, mask_user_config
-from api.services.configuration.registry import (
-    DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES,
-    DOGRAH_STT_LANGUAGES,
-    REGISTRY,
-    DograhTTSService,
-    ServiceProviders,
-    ServiceType,
-)
-from api.services.mps_billing import ensure_hosted_mps_billing_account_v2
-from api.services.mps_service_key_client import mps_service_key_client
 from api.services.organization_context import (
     OrganizationContextResponse,
     get_organization_context,
 )
 from api.services.organization_preferences import (
     external_pbx_integrations_enabled,
-    get_organization_preferences,
-    upsert_organization_preferences,
+    get_organization_preferences_response,
+    update_organization_preferences,
 )
 from api.services.pipecat.tracing_config import normalize_langfuse_host
-from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import capture_tenant_event
 from api.services.telephony import registry as telephony_registry
 from api.services.telephony.base import ProviderPhoneNumberLookupError
 from api.services.telephony.factory import (
@@ -102,6 +77,10 @@ from api.services.telephony.inbound_routing import (
     InboundRoutingConflictError,
     assert_no_inbound_routing_conflict,
     canonical_address,
+)
+from api.services.telephony.phone_number_sync import (
+    PhoneNumberSyncUnsupportedError,
+    sync_phone_numbers_from_provider,
 )
 from api.services.telephony.registry import ProviderConnectivity, TrunkDesiredState
 from api.services.worker_sync.manager import get_worker_sync_manager
@@ -183,6 +162,9 @@ class TelephonyProviderMetadata(BaseModel):
     # Lets the UI present the two ways to get calls flowing without naming any
     # provider itself.
     connectivity: ProviderConnectivity = "api"
+    # False for an inbound-only channel: the form then offers no outbound
+    # default, again without the UI naming the provider.
+    supports_outbound: bool = True
     fields: List[TelephonyProviderUIField]
     docs_url: Optional[str] = None
 
@@ -212,13 +194,6 @@ class ModelConfigurationMetricPrice(BaseModel):
     price_per_minute: float
     currency: str
     rounding_policy: str
-
-
-class ModelConfigurationPricingResponse(BaseModel):
-    """MPS-owned effective prices relevant to model configuration choices."""
-
-    platform_usage: ModelConfigurationMetricPrice | None = None
-    dograh_model: ModelConfigurationMetricPrice | None = None
 
 
 @router.get("/context", response_model=OrganizationContextResponse)
@@ -253,6 +228,7 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
                 provider=spec.name,
                 display_name=spec.ui_metadata.display_name,
                 connectivity=spec.connectivity,
+                supports_outbound=spec.supports_outbound,
                 fields=[
                     TelephonyProviderUIField(
                         name=f.name,
@@ -322,241 +298,6 @@ async def get_telephony_config_warnings(user: UserModel = Depends(get_user)):
 # ---------------------------------------------------------------------------
 
 
-def _dograh_allows_custom_voice() -> bool:
-    extra = DograhTTSService.model_fields["voice"].json_schema_extra
-    if isinstance(extra, dict):
-        return bool(extra.get("allow_custom_input", False))
-    return False
-
-
-def _byok_provider_schemas(service_type: ServiceType) -> dict[str, dict]:
-    return {
-        provider: model_cls.model_json_schema()
-        for provider, model_cls in REGISTRY[service_type].items()
-        if provider != ServiceProviders.DOGRAH.value
-    }
-
-
-async def _model_configuration_v2_response(
-    *,
-    user: UserModel,
-    configuration: OrganizationAIModelConfigurationV2 | None = None,
-) -> OrganizationAIModelConfigurationResponse:
-    resolved = await get_resolved_ai_model_configuration(
-        organization_id=user.selected_organization_id,
-    )
-    raw_configuration = (
-        configuration
-        if configuration is not None
-        else resolved.organization_configuration
-    )
-    return OrganizationAIModelConfigurationResponse(
-        configuration=mask_ai_model_configuration_v2(raw_configuration),
-        effective_configuration=mask_user_config(resolved.effective),
-        source=resolved.source,
-    )
-
-
-@router.get("/model-configurations/v2/defaults")
-async def get_model_configuration_v2_defaults(
-    user: UserModel = Depends(get_user_with_selected_organization),
-):
-    byok_default_providers = {
-        service: provider
-        for service, provider in DEFAULT_SERVICE_PROVIDERS.items()
-        if provider != ServiceProviders.DOGRAH.value
-    }
-    return {
-        "dograh": {
-            "voices": [DOGRAH_DEFAULT_VOICE],
-            "allow_custom_input": _dograh_allows_custom_voice(),
-            "speeds": list(DOGRAH_SPEED_OPTIONS),
-            "speed_range": {
-                "min": DOGRAH_SPEED_MIN,
-                "max": DOGRAH_SPEED_MAX,
-                "step": DOGRAH_SPEED_STEP,
-            },
-            "languages": DOGRAH_STT_LANGUAGES,
-            "multilingual_languages": DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES,
-            "defaults": {
-                "voice": DOGRAH_DEFAULT_VOICE,
-                "speed": 1.0,
-                "language": DOGRAH_DEFAULT_LANGUAGE,
-            },
-        },
-        "byok": {
-            "pipeline": {
-                "llm": _byok_provider_schemas(ServiceType.LLM),
-                "tts": _byok_provider_schemas(ServiceType.TTS),
-                "stt": _byok_provider_schemas(ServiceType.STT),
-                "embeddings": _byok_provider_schemas(ServiceType.EMBEDDINGS),
-                "default_providers": byok_default_providers,
-            },
-            "realtime": {
-                "realtime": _byok_provider_schemas(ServiceType.REALTIME),
-                "llm": _byok_provider_schemas(ServiceType.LLM),
-                "embeddings": _byok_provider_schemas(ServiceType.EMBEDDINGS),
-                "default_providers": byok_default_providers,
-            },
-        },
-    }
-
-
-@router.get(
-    "/model-configurations/v2",
-    response_model=OrganizationAIModelConfigurationResponse,
-)
-async def get_model_configuration_v2(
-    user: UserModel = Depends(get_user_with_selected_organization),
-):
-    return await _model_configuration_v2_response(user=user)
-
-
-@router.get(
-    "/model-configurations/v2/pricing",
-    response_model=ModelConfigurationPricingResponse,
-)
-async def get_model_configuration_pricing(
-    user: UserModel = Depends(get_user_with_selected_organization),
-) -> ModelConfigurationPricingResponse:
-    """Return the hosted organization prices shown in Model Configurations."""
-    if DEPLOYMENT_MODE == "oss":
-        return ModelConfigurationPricingResponse()
-
-    try:
-        pricing = await mps_service_key_client.get_billing_pricing(
-            user.selected_organization_id,
-        )
-        return ModelConfigurationPricingResponse.model_validate(pricing)
-    except MPSUnavailableError:
-        # The MPS boundary emitted the classified failure. The app-level handler
-        # converts this typed dependency failure to a customer-safe HTTP 503.
-        raise
-    except Exception as exc:
-        log_failure(
-            classify_exception(
-                exc,
-                source=ErrorSource.PLATFORM,
-                provider="dograh",
-                error_owner="operator",
-            ),
-            organization_id=user.selected_organization_id,
-            operation="validate_billing_pricing_response",
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to retrieve model configuration pricing",
-        ) from exc
-
-
-@router.put(
-    "/model-configurations/v2",
-    response_model=OrganizationAIModelConfigurationResponse,
-)
-async def save_model_configuration_v2(
-    request: OrganizationAIModelConfigurationV2,
-    user: UserModel = Depends(get_user_with_selected_organization),
-):
-    organization_id = user.selected_organization_id
-    existing = await get_organization_ai_model_configuration_v2(organization_id)
-    configuration = merge_ai_model_configuration_v2_secrets(request, existing)
-    try:
-        check_for_masked_keys_in_ai_model_configuration_v2(configuration)
-        effective = compile_ai_model_configuration_v2(configuration)
-        await UserConfigurationValidator().validate(
-            effective,
-            organization_id=organization_id,
-            created_by=user.provider_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=exc.args[0])
-
-    await upsert_organization_ai_model_configuration_v2(
-        organization_id,
-        configuration,
-    )
-    return await _model_configuration_v2_response(
-        user=user,
-        configuration=configuration,
-    )
-
-
-@router.get("/model-configurations/v2/migration-preview")
-async def preview_model_configuration_v2_migration(
-    user: UserModel = Depends(get_user_with_selected_organization),
-):
-    legacy = await db_client.get_user_configurations(user.id)
-    try:
-        configuration = convert_legacy_ai_model_configuration_to_v2(legacy)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    return {
-        "configuration": mask_ai_model_configuration_v2(configuration),
-        "effective_configuration": mask_user_config(
-            compile_ai_model_configuration_v2(configuration)
-        ),
-    }
-
-
-@router.post(
-    "/model-configurations/v2/migrate",
-    response_model=OrganizationAIModelConfigurationResponse,
-)
-async def migrate_model_configuration_v2(
-    force: bool = Query(default=False),
-    user: UserModel = Depends(get_user_with_selected_organization),
-):
-    organization_id = user.selected_organization_id
-    existing = await get_organization_ai_model_configuration_v2(organization_id)
-    if existing is not None and not force:
-        raise HTTPException(
-            status_code=409,
-            detail="Organization already has a v2 model configuration",
-        )
-
-    legacy = await db_client.get_user_configurations(user.id)
-    try:
-        configuration = convert_legacy_ai_model_configuration_to_v2(legacy)
-        effective = compile_ai_model_configuration_v2(configuration)
-        await UserConfigurationValidator().validate(
-            effective,
-            organization_id=organization_id,
-            created_by=user.provider_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=exc.args[0])
-
-    if DEPLOYMENT_MODE != "oss":
-        try:
-            await ensure_hosted_mps_billing_account_v2(
-                organization_id,
-                created_by=str(user.provider_id),
-            )
-        except Exception as exc:
-            logger.error(
-                "Failed to initialize MPS billing account for organization {}: {}",
-                organization_id,
-                exc,
-            )
-            raise HTTPException(
-                status_code=502,
-                detail="Failed to initialize MPS billing account",
-            )
-
-    await upsert_organization_ai_model_configuration_v2(
-        organization_id,
-        configuration,
-    )
-    await migrate_workflow_model_configurations_to_v2(
-        organization_id=organization_id,
-        fallback_user_config=legacy,
-    )
-    return await _model_configuration_v2_response(
-        user=user,
-        configuration=configuration,
-    )
-
-
 class DispositionCodesResponse(BaseModel):
     """Disposition codes selectable in org-wide run filters."""
 
@@ -606,23 +347,59 @@ async def get_disposition_codes(
     )
 
 
-@router.get("/preferences", response_model=OrganizationPreferences)
+@router.get("/preferences", response_model=OrganizationPreferencesResponse)
 async def get_preferences(
     user: UserModel = Depends(get_user_with_selected_organization),
 ):
     organization_id = user.selected_organization_id
-    return await get_organization_preferences(organization_id)
+    return await get_organization_preferences_response(organization_id)
 
 
-@router.put("/preferences", response_model=OrganizationPreferences)
+@router.put("/preferences", response_model=OrganizationPreferencesResponse)
 async def save_preferences(
     request: OrganizationPreferences,
     user: UserModel = Depends(get_user_with_selected_organization),
 ):
-    organization_id = user.selected_organization_id
-    return await upsert_organization_preferences(
-        organization_id,
-        request,
+    try:
+        return await update_organization_preferences(
+            user.selected_organization_id, request
+        )
+    except ValueError as exc:
+        raise _preferences_validation_error(exc) from None
+
+
+def _preferences_validation_error(exc: ValueError) -> HTTPException:
+    # Destination validation inputs can contain private keys. Never echo them.
+    if isinstance(exc, ValidationError):
+        messages = [
+            f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+            for e in exc.errors(include_input=False)
+        ]
+        return HTTPException(422, "; ".join(messages))
+    return HTTPException(422, str(exc))
+
+
+@router.post("/call-events/test", response_model=CallEventsConnectionResult)
+async def test_call_events_connection(
+    request: CallEventsSettings,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    try:
+        settings = await resolve_settings(user.selected_organization_id, request)
+    except ValueError as exc:
+        raise _preferences_validation_error(exc) from None
+    if not settings.sink_type:
+        raise HTTPException(422, "Select a destination")
+    try:
+        await check_connection(settings)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except Exception:
+        raise HTTPException(
+            400, "Connection failed. Check the destination and credentials."
+        ) from None
+    return CallEventsConnectionResult(
+        message="Connection and table schema verified. No events were written; write permission is checked on export."
     )
 
 
@@ -846,6 +623,7 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 [n for n in active if n.telephony_trunk_id is None]
             ),
         )
+        supports_outbound = _provider_supports_outbound(row.provider)
         items.append(
             TelephonyConfigurationListItem(
                 id=row.id,
@@ -857,8 +635,9 @@ async def list_telephony_configurations(user: UserModel = Depends(get_user)):
                 inactive_since=row.inactive_since,
                 inactive_reason=row.inactive_reason,
                 phone_number_count=len(active),
+                supports_outbound=supports_outbound,
                 is_ready_for_outbound=(
-                    checklist.ready_for_outbound if checklist else True
+                    checklist.ready_for_outbound if checklist else supports_outbound
                 ),
                 outbound_blocked_reason=(
                     checklist.outbound_blocked_reason if checklist else None
@@ -878,6 +657,14 @@ async def create_telephony_configuration(
     """Create a new telephony configuration for the org."""
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
+
+    if request.is_default_outbound and not _provider_supports_outbound(
+        request.config.provider
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="This provider receives calls only; it cannot be the outbound default.",
+        )
 
     credentials = _credentials_from_payload(request.config)
     credentials = await _run_preprocess_hook(request.config.provider, credentials)
@@ -904,13 +691,12 @@ async def create_telephony_configuration(
             detail="Telephony configuration violates a uniqueness constraint.",
         )
 
-    capture_event(
+    await capture_tenant_event(
         distinct_id=str(user.provider_id),
         event=PostHogEvent.TELEPHONY_CONFIGURED,
+        organization_id=user.selected_organization_id,
         properties={
             "provider": request.config.provider,
-            "organization_id": user.selected_organization_id,
-            "config_id": row.id,
         },
     )
 
@@ -1004,6 +790,17 @@ async def set_default_outbound(config_id: int, user: UserModel = Depends(get_use
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 
+    existing = await db_client.get_telephony_configuration_for_org(
+        config_id, user.selected_organization_id, active_only=False
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Telephony configuration not found")
+    if not _provider_supports_outbound(existing.provider):
+        raise HTTPException(
+            status_code=400,
+            detail="This provider receives calls only; it cannot be the outbound default.",
+        )
+
     row = await db_client.set_default_telephony_configuration(
         config_id, user.selected_organization_id
     )
@@ -1085,6 +882,7 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
         sip_connectivity=get_sip_connectivity_details(
             row.provider, row.credentials or {}
         ),
+        supports_outbound=_provider_supports_outbound(row.provider),
         # Built from the stored (unmasked) credentials: the checklist reports
         # whether a field is set, never what it is.
         setup_checklist=get_setup_checklist(
@@ -1104,6 +902,7 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
             _trunk_to_response(trunk, numbers_per_trunk.get(trunk.id, 0))
             for trunk in trunks
         ],
+        supports_phone_number_sync=_provider_supports_phone_number_sync(row.provider),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -1117,6 +916,17 @@ async def _detail_response(row) -> TelephonyConfigurationDetail:
 def _provider_supports_trunks(provider: str) -> bool:
     spec = telephony_registry.get_optional(provider)
     return bool(spec and spec.supports_trunks)
+
+
+def _provider_supports_outbound(provider: str) -> bool:
+    """Unknown providers count as outbound-capable so a stale row keeps its UI."""
+    spec = telephony_registry.get_optional(provider)
+    return spec.supports_outbound if spec else True
+
+
+def _provider_supports_phone_number_sync(provider: str) -> bool:
+    spec = telephony_registry.get_optional(provider)
+    return bool(spec and spec.supports_phone_number_sync)
 
 
 async def _list_trunks_if_supported(provider: str, config_id: int):
@@ -1381,6 +1191,63 @@ async def list_phone_numbers(config_id: int, user: UserModel = Depends(get_user)
     rows = await db_client.list_phone_numbers_with_workflow_name_for_config(config_id)
     return PhoneNumberListResponse(
         phone_numbers=[_phone_number_to_response(r, name) for r, name in rows]
+    )
+
+
+@router.post(
+    "/telephony-configs/{config_id}/phone-numbers/sync",
+    response_model=PhoneNumberSyncResponse,
+)
+async def sync_phone_numbers(config_id: int, user: UserModel = Depends(get_user)):
+    """Import the provider account's numbers onto this configuration.
+
+    Adds rows for numbers the account holds and refreshes the ones already
+    here. Nothing is removed: numbers the provider no longer lists come back
+    as ``missing_at_provider`` for the operator to act on.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    cfg = await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
+
+    provider = None
+    try:
+        provider = await get_telephony_provider_by_id(
+            config_id, user.selected_organization_id
+        )
+        outcome = await sync_phone_numbers_from_provider(
+            configuration=cfg,
+            organization_id=user.selected_organization_id,
+            provider=provider,
+        )
+    except PhoneNumberSyncUnsupportedError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ProviderPhoneNumberLookupError as e:
+        # The listing runs against the org's own provider account, so whatever
+        # failed — their credentials or their provider — routes to the user.
+        log_failure(
+            classify_exception(
+                e.__cause__ or e,
+                source=ErrorSource.TELEPHONY,
+                provider=getattr(provider, "PROVIDER_NAME", None),
+                error_owner="user",
+            ),
+            organization_id=user.selected_organization_id,
+            telephony_configuration_id=config_id,
+        )
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    return PhoneNumberSyncResponse(
+        created=[_phone_number_to_response(r) for r in outcome.created],
+        updated=[_phone_number_to_response(r) for r in outcome.updated],
+        skipped=[
+            PhoneNumberSyncSkipped(address=s.address, reason=s.reason)
+            for s in outcome.skipped
+        ],
+        missing_at_provider=[
+            _phone_number_to_response(r) for r in outcome.missing_at_provider
+        ],
     )
 
 

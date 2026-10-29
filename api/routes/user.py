@@ -1,8 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Literal, Optional, TypedDict, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from api.db import db_client
 from api.db.models import (
@@ -11,6 +11,7 @@ from api.db.models import (
 from api.errors.failure import ErrorSource, classify_exception, log_failure
 from api.errors.mps import MPSUnavailableError
 from api.schemas.onboarding_state import OnboardingState, OnboardingStateUpdate
+from api.schemas.voices import VoiceInfo, VoicesResponse
 from api.schemas.widget_texts import WidgetTexts
 from api.schemas.workflow_configurations import (
     CallDispositionOption,
@@ -21,19 +22,16 @@ from api.schemas.workflow_configurations import (
 )
 from api.services.auth.depends import get_user
 from api.services.configuration.ai_model_configuration import (
-    convert_legacy_ai_model_configuration_to_v2,
     get_resolved_ai_model_configuration,
-    update_organization_ai_model_configuration_last_validated_at,
-    upsert_organization_ai_model_configuration_v2,
 )
 from api.services.configuration.check_validity import (
     APIKeyStatusResponse,
     UserConfigurationValidator,
 )
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
-from api.services.configuration.masking import check_for_masked_keys, mask_user_config
-from api.services.configuration.merge import merge_user_configurations
+from api.services.configuration.masking import mask_user_config
 from api.services.configuration.registry import REGISTRY, ServiceType
+from api.services.configuration.voice_catalog import get_connection_voices
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.organization_preferences import (
     get_organization_preferences,
@@ -42,6 +40,9 @@ from api.services.organization_preferences import (
 from api.services.user_onboarding import (
     get_onboarding_state,
     update_onboarding_state,
+)
+from api.services.workflow.answer_classification_service import (
+    ANSWER_CLASSIFIER_SYSTEM_PROMPT,
 )
 
 router = APIRouter(prefix="/user")
@@ -64,6 +65,13 @@ class DefaultConfigurationsResponse(BaseModel):
         description=(
             "Built-in suggestions for call-disposition extraction. They do not "
             "enable extraction until saved in workflow_configurations.call_dispositions."
+        )
+    )
+    default_answer_classifier_prompt: str = Field(
+        description=(
+            "Built-in instructions for the voicemail/screening classifier. The "
+            "editor starts from these when a workflow has saved none of its own; "
+            "a workflow that has saved instructions keeps showing those."
         )
     )
     text_chat_inactivity_timeout_constraints: TextChatInactivityTimeoutConstraints
@@ -96,6 +104,7 @@ async def get_default_configurations() -> DefaultConfigurationsResponse:
         "default_providers": DEFAULT_SERVICE_PROVIDERS,
         "workflow_configurations": get_default_workflow_configurations(),
         "default_call_dispositions": get_default_call_disposition_options(),
+        "default_answer_classifier_prompt": ANSWER_CLASSIFIER_SYSTEM_PROMPT,
         "text_chat_inactivity_timeout_constraints": (
             TextChatInactivityTimeoutConstraints()
         ),
@@ -124,24 +133,6 @@ class UserConfigurationRequestResponseSchema(BaseModel):
     test_phone_number: str | None = None
     timezone: str | None = None
     organization_pricing: dict[str, Union[float, str, bool]] | None = None
-
-
-def _is_validation_cache_stale(
-    last_validated_at: datetime | None,
-    validity_ttl_seconds: int,
-) -> bool:
-    if last_validated_at is None:
-        return True
-
-    has_timezone = (
-        last_validated_at.tzinfo is not None
-        and last_validated_at.utcoffset() is not None
-    )
-    if has_timezone:
-        now = datetime.now(last_validated_at.tzinfo)
-    else:
-        now = datetime.now()
-    return last_validated_at < now - timedelta(seconds=validity_ttl_seconds)
 
 
 @router.get("/configurations/user")
@@ -177,62 +168,19 @@ async def update_user_configurations(
     request: UserConfigurationRequestResponseSchema,
     user: UserModel = Depends(get_user),
 ) -> UserConfigurationRequestResponseSchema:
-    existing_config = (
+    # Model settings live in the catalog; model fields an old client still
+    # sends are ignored. Only the organization preferences are updated.
+    user_configurations = (
         await get_resolved_ai_model_configuration(
             organization_id=user.selected_organization_id,
         )
     ).effective
-
     incoming_dict = request.model_dump(exclude_none=True)
-
-    # Remove organization_pricing from incoming dict as it's read-only
-    incoming_dict.pop("organization_pricing", None)
     preferences_update = {
-        key: incoming_dict.pop(key)
+        key: incoming_dict[key]
         for key in ("test_phone_number", "timezone")
         if key in incoming_dict
     }
-
-    if incoming_dict:
-        if not user.selected_organization_id:
-            raise HTTPException(status_code=400, detail="No organization selected")
-
-        # Merge via helper
-        try:
-            user_configurations = merge_user_configurations(
-                existing_config, incoming_dict
-            )
-        except ValidationError as e:
-            raise HTTPException(status_code=422, detail=str(e))
-
-        try:
-            check_for_masked_keys(user_configurations)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-        try:
-            validator = UserConfigurationValidator()
-            await validator.validate(
-                user_configurations,
-                organization_id=user.selected_organization_id,
-                created_by=user.provider_id,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=422, detail=e.args[0])
-
-        try:
-            organization_configuration = convert_legacy_ai_model_configuration_to_v2(
-                user_configurations
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=422, detail=str(e))
-
-        await upsert_organization_ai_model_configuration_v2(
-            user.selected_organization_id,
-            organization_configuration,
-        )
-    else:
-        user_configurations = existing_config
 
     if user.selected_organization_id and preferences_update:
         preferences = await get_organization_preferences(user.selected_organization_id)
@@ -284,37 +232,20 @@ async def update_user_onboarding_state(
 
 @router.get("/configurations/user/validate")
 async def validate_user_configurations(
-    validity_ttl_seconds: int = Query(default=60, ge=0, le=86400),
     user: UserModel = Depends(get_user),
 ) -> APIKeyStatusResponse:
+    """Check the organization's default model credentials with their providers."""
     resolved_config = await get_resolved_ai_model_configuration(
         organization_id=user.selected_organization_id,
     )
-    configurations = resolved_config.effective
-
-    if _is_validation_cache_stale(
-        configurations.last_validated_at,
-        validity_ttl_seconds,
-    ):
-        validator = UserConfigurationValidator()
-        try:
-            status = await validator.validate(
-                configurations,
-                organization_id=user.selected_organization_id,
-                created_by=user.provider_id,
-            )
-            if (
-                resolved_config.source == "organization_v2"
-                and user.selected_organization_id is not None
-            ):
-                await update_organization_ai_model_configuration_last_validated_at(
-                    user.selected_organization_id
-                )
-            return status
-        except ValueError as e:
-            raise HTTPException(status_code=422, detail=e.args[0])
-    else:
-        return {"status": []}
+    try:
+        return await UserConfigurationValidator().validate(
+            resolved_config.effective,
+            organization_id=user.selected_organization_id,
+            created_by=user.provider_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=e.args[0])
 
 
 # API Key Management Endpoints
@@ -441,30 +372,6 @@ async def reactivate_api_key(
 TTSProvider = Literal["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"]
 
 
-class VoiceInfo(BaseModel):
-    voice_id: str
-    name: str
-    description: Optional[str] = None
-    accent: Optional[str] = None
-    gender: Optional[str] = None
-    language: Optional[str] = None
-    preview_url: Optional[str] = None
-
-
-class VoiceFacets(BaseModel):
-    """Distinct selector values across a provider's full voice catalog."""
-
-    genders: List[str] = []
-    accents: List[str] = []
-    languages: List[str] = []
-
-
-class VoicesResponse(BaseModel):
-    provider: str
-    voices: List[VoiceInfo]
-    facets: Optional[VoiceFacets] = None
-
-
 @router.get("/configurations/voices/{provider}")
 async def get_voices(
     provider: TTSProvider,
@@ -473,9 +380,33 @@ async def get_voices(
     q: Optional[str] = None,
     gender: Optional[str] = None,
     accent: Optional[str] = None,
+    provider_connection_uuid: Optional[str] = None,
     user: UserModel = Depends(get_user),
 ) -> VoicesResponse:
-    """Get available voices for a TTS provider."""
+    """Get voices from Dograh's managed catalog or a saved provider connection.
+
+    External providers require provider_connection_uuid for an active connection
+    in the selected organization. Model and language filtering depends on the
+    provider's catalog capabilities.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    if provider != "dograh":
+        if not provider_connection_uuid:
+            raise HTTPException(
+                status_code=400,
+                detail="Select a provider connection to load voices",
+            )
+        return await get_connection_voices(
+            provider,
+            user.selected_organization_id,
+            provider_connection_uuid,
+            model=model,
+            language=language,
+            q=q,
+            gender=gender,
+            accent=accent,
+        )
     try:
         result = await mps_service_key_client.get_voices(
             provider=provider,

@@ -19,11 +19,21 @@ from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
 from api.enums import ToolCategory, WorkflowRunMode
-from api.services.pipecat.audio_playback import play_audio, play_audio_loop
+from api.services.pipecat.audio_playback import play_audio_loop
+from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechPlayback
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.external_pbx import resolve_external_pbx_field_mappings
 from api.services.telephony.factory import get_telephony_provider_for_run
-from api.services.telephony.transfer_event_protocol import TransferContext
+from api.services.telephony.transfer_event_protocol import (
+    TransferContext,
+    TransferEvent,
+    TransferEventType,
+)
+from api.services.workflow.tool_messages import (
+    first_start_message,
+    speech_source,
+    tool_messages,
+)
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
@@ -33,6 +43,7 @@ from api.services.workflow.tools.transfer_resolver import (
     TransferResolutionError,
     resolve_transfer_config,
 )
+from api.services.workflow.transfer_introduction import prepare_transfer_introduction
 from api.utils.template_renderer import render_template
 
 if TYPE_CHECKING:
@@ -102,46 +113,16 @@ class CustomToolManager:
         self._engine = engine
         self._agent = agent or engine.active_agent
 
-    async def _play_config_message(
-        self, config: dict, *, append_to_context: bool = False
-    ) -> bool:
-        """Play a message from tool config — text or pre-recorded audio.
-
-        Returns True if a message was queued, False otherwise.
-        """
-        message_type = config.get("messageType", "none")
-
-        if message_type == "audio":
-            recording_pk = config.get("audioRecordingId")
-            if recording_pk and self._engine._fetch_recording_audio:
-                result = await self._engine._fetch_recording_audio(
-                    recording_pk=int(recording_pk)
-                )
-                if result:
-                    await play_audio(
-                        result.audio,
-                        sample_rate=(
-                            self._engine._audio_config.pipeline_sample_rate
-                            if self._engine._audio_config
-                            else 16000
-                        ),
-                        queue_frame=self._engine._transport_output.queue_frame,
-                        transcript=result.transcript,
-                        persist_to_logs=True,
-                    )
-                    return True
-                else:
-                    logger.warning(f"Failed to fetch recording pk={recording_pk}")
-            return False
-
-        if message_type == "custom":
-            custom_message = config.get("customMessage", "")
-            if custom_message:
-                return await self._engine.queue_text_message(
-                    custom_message, append_to_context=append_to_context
-                )
-
-        return False
+    async def _play_tool_message(
+        self, definition: dict, *, append_to_context: bool = False
+    ) -> SpeechPlayback | None:
+        """Control tools retain their playback policy using the shared format."""
+        message = first_start_message(definition)
+        if message is None:
+            return None
+        return await self._engine.queue_speech(
+            **speech_source(message), append_to_context=append_to_context
+        )
 
     async def get_organization_id(self) -> Optional[int]:
         """Get the organization ID from the engine (shared cache)."""
@@ -277,7 +258,10 @@ class CustomToolManager:
                         self._agent.llm.register_function(
                             fs.name,
                             self._agent.bind_tool(
-                                self._engine, self._create_mcp_handler(session, fs.name)
+                                self._engine,
+                                self._create_mcp_handler(session, fs.name),
+                                timeout_secs=session.call_timeout_secs,
+                                messages=tool_messages(tool.definition),
                             ),
                             timeout_secs=session.call_timeout_secs,
                         )
@@ -303,7 +287,15 @@ class CustomToolManager:
                 }
                 self._agent.llm.register_function(
                     function_name,
-                    self._agent.bind_tool(self._engine, handler),
+                    self._agent.bind_tool(
+                        self._engine,
+                        handler,
+                        is_node_transition=is_node_transition,
+                        timeout_secs=timeout_secs,
+                        messages=tool_messages(tool.definition)
+                        if not is_node_transition
+                        else None,
+                    ),
                     timeout_secs=timeout_secs,
                     is_node_transition=is_node_transition,
                 )
@@ -417,38 +409,6 @@ class CustomToolManager:
             logger.info(f"Arguments: {function_call_params.arguments}")
 
             try:
-                # Queue custom message before executing the API call
-                # Queue custom message (text or audio) before executing the API call
-                config = tool.definition.get("config", {}) if tool.definition else {}
-                custom_msg_type = config.get("customMessageType", "text")
-                custom_message = config.get("customMessage", "")
-                if custom_msg_type == "audio":
-                    recording_pk = config.get("customMessageRecordingId")
-                    if recording_pk and self._engine._fetch_recording_audio:
-                        logger.info(
-                            f"Playing audio message before HTTP tool: pk={recording_pk}"
-                        )
-                        self._engine._queued_speech_mute_state = "waiting"
-                        result = await self._engine._fetch_recording_audio(
-                            recording_pk=int(recording_pk)
-                        )
-                        if result:
-                            await play_audio(
-                                result.audio,
-                                sample_rate=(
-                                    self._engine._audio_config.pipeline_sample_rate
-                                    if self._engine._audio_config
-                                    else 16000
-                                ),
-                                queue_frame=self._engine._transport_output.queue_frame,
-                                transcript=result.transcript,
-                                persist_to_logs=True,
-                            )
-                elif custom_message:
-                    await self._engine.queue_text_message(
-                        custom_message, mute_user=True
-                    )
-
                 result = await execute_http_tool(
                     tool=tool,
                     arguments=function_call_params.arguments,
@@ -536,10 +496,13 @@ class CustomToolManager:
                     properties=properties,
                 )
 
-                self._engine.arm_speech_playback()
-                played = await self._play_config_message(config)
-                if played:
-                    await self._engine.wait_for_speech_playback()
+                speech = await self._play_tool_message(tool.definition)
+                if speech is not None and speech.outcome not in (
+                    PlaybackOutcome.FAILED,
+                    PlaybackOutcome.SKIPPED,
+                    PlaybackOutcome.CLOSED,
+                ):
+                    await speech.wait()
                     await self._engine.end_call_with_reason(
                         EndTaskReason.END_CALL.value,
                         abort_immediately=False,
@@ -605,11 +568,18 @@ class CustomToolManager:
                 )
                 return
 
-            announcement = config.get("message")
+            message = first_start_message(tool.definition)
+            announcement = message.text if message and message.type == "text" else None
             announcement = (
                 engine._format_prompt(str(announcement)) if announcement else None
             )
 
+            greeting_mode = config.get("greeting_mode", "start_greeting")
+            introduction = (
+                config.get("introduction")
+                if greeting_mode == "introduce_and_continue"
+                else None
+            )
             request = TransferRequest(
                 destination_workflow_id=workflow_id,
                 # The tool's own name is what the caller-facing recovery
@@ -617,6 +587,11 @@ class CustomToolManager:
                 destination_label=tool.name,
                 origin_visit_id=self._agent.visit_id,
                 announcement=announcement,
+                greeting_mode=greeting_mode,
+                # Formatted like the announcement so template variables apply.
+                introduction=(
+                    engine._format_prompt(str(introduction)) if introduction else None
+                ),
             )
 
             if not engine.transfer_coordinator.accept(request):
@@ -788,13 +763,10 @@ class CustomToolManager:
                     workflow_run, organization_id
                 )
 
-                self._engine.arm_speech_playback()
                 if resolved_transfer.message:
-                    message_queued = await self._engine.queue_text_message(
-                        resolved_transfer.message
-                    )
+                    speech = await self._engine.queue_speech(resolved_transfer.message)
                 else:
-                    message_queued = await self._play_config_message(config)
+                    speech = await self._play_tool_message(tool.definition)
 
                 if external_pbx_call:
                     transfer_disposition = (
@@ -813,11 +785,8 @@ class CustomToolManager:
                     # The external PBX pulls the customer off our leg as soon as
                     # the transfer API returns, so the pre-transfer message has
                     # to finish playing before we make that call.
-                    if message_queued:
-                        await self._engine.wait_for_speech_playback(
-                            start_timeout=_TRANSFER_PLAYBACK_START_TIMEOUT_SECS,
-                            playback_timeout=_TRANSFER_PLAYBACK_FINISH_TIMEOUT_SECS,
-                        )
+                    if speech is not None:
+                        await speech.wait()
                     external_result = await provider.transfer_external_pbx_call(
                         identity=external_pbx_call,
                         destination=destination,
@@ -892,6 +861,42 @@ class CustomToolManager:
 
                 # Store initial transfer context in Redis before provider call to avoid race condition
                 call_transfer_manager = await get_call_transfer_manager()
+                introduction_audio_url = None
+                if (
+                    config.get("introduction_enabled")
+                    and getattr(
+                        provider, "supports_transfer_introduction", lambda: False
+                    )()
+                ):
+                    # Finish the caller-facing announcement, then cover the
+                    # bounded summary + TTS preparation with hold audio.
+                    if speech is not None:
+                        await speech.wait()
+                    self._engine.set_mute_pipeline(True)
+                    preparation_stop = asyncio.Event()
+                    preparation_hold = asyncio.create_task(
+                        play_audio_loop(
+                            stop_event=preparation_stop,
+                            sample_rate=(
+                                self._engine._audio_config.transport_out_sample_rate
+                                if self._engine._audio_config
+                                else 8000
+                            ),
+                            queue_frame=self._engine._transport_output.queue_frame,
+                        )
+                    )
+                    try:
+                        introduction_audio_url = await prepare_transfer_introduction(
+                            self._engine, config, organization_id
+                        )
+                    finally:
+                        preparation_stop.set()
+                        await asyncio.gather(preparation_hold, return_exceptions=True)
+                        self._engine.set_mute_pipeline(False)
+                    if introduction_audio_url:
+                        # A retry must never rejoin a previous transfer attempt.
+                        conference_name = f"transfer-{transfer_id}"
+
                 transfer_context = TransferContext(
                     transfer_id=transfer_id,
                     call_sid=None,  # Will be updated after provider response
@@ -901,6 +906,7 @@ class CustomToolManager:
                     conference_name=conference_name,
                     initiated_at=time.time(),
                     workflow_run_id=self._engine._workflow_run_id,
+                    introduction_audio_url=introduction_audio_url,
                 )
                 await call_transfer_manager.store_transfer_context(transfer_context)
 
@@ -923,6 +929,11 @@ class CustomToolManager:
                         transfer_id=transfer_id,
                         conference_name=conference_name,
                         timeout=timeout_seconds,
+                        **(
+                            {"introduction_audio_url": introduction_audio_url}
+                            if introduction_audio_url
+                            else {}
+                        ),
                     )
                 except Exception as e:
                     logger.error(f"Transfer provider failed: {e}")
@@ -1000,6 +1011,26 @@ class CustomToolManager:
                     if hold_music_task:
                         await hold_music_task
                     self._engine.set_mute_pipeline(False)
+
+                if not transfer_event and introduction_audio_url and call_sid:
+                    # Claim the timeout atomically against a concurrent answer.
+                    # If the answer won, continue the transfer and keep its leg.
+                    transfer_event = await call_transfer_manager.publish_transfer_event(
+                        TransferEvent(
+                            type=TransferEventType.TRANSFER_FAILED,
+                            transfer_id=transfer_id,
+                            original_call_sid=original_call_sid,
+                            status="failed",
+                            action="transfer_failed",
+                            reason="timeout",
+                        ),
+                        only_if_pending=True,
+                    )
+                    if (
+                        transfer_event is None
+                        or transfer_event.type != TransferEventType.DESTINATION_ANSWERED
+                    ):
+                        await provider.end_transfer_leg(call_sid)
 
                 # Handle result (after cleanup)
                 if transfer_event:

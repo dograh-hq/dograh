@@ -12,7 +12,7 @@ The flow under test:
 3. The TTS service emits an ``LLMAssistantPushAggregationFrame``, so the
    greeting is appended to the assistant context by ``LLMAssistantAggregator``.
    Audio playback can still be draining at this point, so the test also waits
-   for ``BotStoppedSpeakingFrame`` to unmute user input.
+   for the greeting's playback handle to finish.
 4. We then push a ``TranscriptionFrame`` into the pipeline. After the
    user-turn-stop timeout, ``LLMUserAggregator`` pushes a context frame
    to the LLM, ``MockLLMService`` returns an ``end_call`` tool call, and
@@ -27,6 +27,7 @@ deterministic and the synthesised audio length is short.
 """
 
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pipecat.frames.frames import TranscriptionFrame
@@ -36,8 +37,10 @@ from pipecat.utils.time import time_now_iso8601
 
 from api.enums import WorkflowRunMode, WorkflowRunState
 from api.services.pipecat.audio_config import create_audio_config
+from api.services.pipecat.realtime_feedback_observer import RealtimeFeedbackObserver
 from api.services.pipecat.run_pipeline import _run_pipeline
 from api.services.pipecat.worker_runner import wait_for_pipeline_worker_started
+from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tests.integrations._run_pipeline_helpers import (
     create_workflow_run_rows,
     patch_run_pipeline_externals,
@@ -47,6 +50,7 @@ from pipecat.tests import MockLLMService, MockTTSService
 GREETING_TEXT = (
     "Thanks for calling Happy Feet, this is Sarah. How can I help you today?"
 )
+SCREENING_REPLY = "Alex calling about your appointment."
 
 WORKFLOW_DEFINITION = {
     "nodes": [
@@ -144,7 +148,9 @@ async def _wait_for(predicate, *, timeout: float, interval: float = 0.05) -> boo
     return predicate()
 
 
-async def _run_test_body(workflow_run_setup, db_session) -> None:
+async def _run_test_body(
+    workflow_run_setup, db_session, *, screening_reply: bool
+) -> None:
     workflow_run, user, workflow = workflow_run_setup
 
     # Prepare the LLM with one step: the end_call function call.
@@ -168,11 +174,32 @@ async def _run_test_body(workflow_run_setup, db_session) -> None:
     )
 
     captured_task: list = []
+    captured_engine: list[PipecatEngine] = []
+
+    def create_engine(*args, **kwargs):
+        engine = PipecatEngine(*args, **kwargs)
+        captured_engine.append(engine)
+        return engine
+
     audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
     pipeline_task = None
 
     try:
-        with patch_run_pipeline_externals(captured_task, llm=llm, tts=tts):
+        with (
+            patch_run_pipeline_externals(captured_task, llm=llm, tts=tts),
+            patch(
+                "api.services.pipecat.run_pipeline.RealtimeFeedbackObserver",
+                RealtimeFeedbackObserver,
+            ),
+            patch(
+                "api.services.pipecat.run_pipeline.get_ws_sender",
+                return_value=AsyncMock(),
+            ),
+            patch(
+                "api.services.pipecat.run_pipeline.PipecatEngine",
+                side_effect=create_engine,
+            ),
+        ):
             run_coro = _run_pipeline(
                 transport=transport,
                 workflow_id=workflow.id,
@@ -214,9 +241,8 @@ async def _run_test_body(workflow_run_setup, db_session) -> None:
                 "LLMUserAggregator not found in pipeline"
             )
 
-            # Wait for the greeting to be appended to the assistant context. The
-            # TTSSpeakFrame -> audio frames -> assistant aggregation push chain
-            # runs through the real pipeline.
+            # Completed playback commits the greeting to context through the
+            # real TTSSpeakFrame -> audio -> output-boundary path.
             appeared = await _wait_for(
                 lambda: _greeting_in_assistant_context(context), timeout=5.0
             )
@@ -225,21 +251,29 @@ async def _run_test_body(workflow_run_setup, db_session) -> None:
                 f"Messages: {context.get_messages()}"
             )
 
-            # Context aggregation can finish before the output transport has
-            # drained the greeting audio. Until BotStoppedSpeakingFrame reaches
-            # the user aggregator, MuteUntilFirstBotCompleteUserMuteStrategy
-            # intentionally suppresses transcripts. Wait for that real playback
-            # boundary before simulating the caller's reply.
-            unmuted = await _wait_for(
-                lambda: not user_aggregator._user_is_muted, timeout=2.0
+            # Wait for actual greeting completion before simulating the next turn.
+            completed = await _wait_for(
+                lambda: not captured_engine[0].speech_playback.greeting_pending,
+                timeout=2.0,
             )
-            assert unmuted, "User input stayed muted after greeting playback"
+            assert completed, "Greeting playback did not complete"
+            assert not user_aggregator._user_is_muted
 
             # The LLM must not have been invoked yet — the greeting bypasses
             # the LLM entirely (goes straight to TTS via TTSSpeakFrame).
             assert llm.get_current_step() == 0, (
                 f"LLM should not have run yet; current_step={llm.get_current_step()}"
             )
+
+            if screening_reply:
+                speech = await captured_engine[0].queue_speech(
+                    SCREENING_REPLY, append_to_context=False, persist_to_logs=True
+                )
+                assert await asyncio.wait_for(speech.wait(), 3)
+                assert all(
+                    SCREENING_REPLY not in str(message.get("content", ""))
+                    for message in context.messages
+                )
 
             # Now simulate the user replying. SpeechTimeoutUserTurnStopStrategy
             # (default 0.6s) ends the user turn, which triggers an LLM run;
@@ -271,6 +305,12 @@ async def _run_test_body(workflow_run_setup, db_session) -> None:
         nodes_visited = refreshed.gathered_context.get("nodes_visited", [])
         assert "Start" in nodes_visited
         assert "End" in nodes_visited
+        if screening_reply:
+            assert [
+                event["payload"]["text"]
+                for event in refreshed.logs["realtime_feedback_events"]
+                if event["type"] == "rtf-bot-text"
+            ].count(SCREENING_REPLY) == 1
     finally:
         # Best-effort cleanup so a partially-run pipeline doesn't leak tasks
         # past the test boundary.
@@ -282,16 +322,16 @@ async def _run_test_body(workflow_run_setup, db_session) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("screening_reply", [False, True])
 async def test_text_greeting_speaks_then_user_transcript_triggers_end_call(
-    workflow_run_setup, db_session
+    workflow_run_setup, db_session, screening_reply
 ):
     """End-to-end:
 
     - ``maybe_trigger_initial_response`` queues ``TTSSpeakFrame`` for the
       start-node text greeting.
     - ``MockTTSService`` synthesises audio; ``MockOutputTransport`` emits
-      bot speaking events; the assistant aggregator appends the greeting
-      to the context after the TTS turn ends.
+      bot speaking events; completed playback appends the greeting to context.
     - We push a ``TranscriptionFrame`` into the pipeline. After the user
       turn stop timeout, ``MockLLMService`` returns an ``end_call`` tool
       call which transitions to the end node and ends the run.
@@ -301,7 +341,9 @@ async def test_text_greeting_speaks_then_user_transcript_triggers_end_call(
     """
     try:
         await asyncio.wait_for(
-            _run_test_body(workflow_run_setup, db_session),
+            _run_test_body(
+                workflow_run_setup, db_session, screening_reply=screening_reply
+            ),
             timeout=TEST_HARD_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError as e:

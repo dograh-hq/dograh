@@ -207,6 +207,7 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
             sortOrder={sortOrder}
             onSort={handleSort}
             workflowId={workflowId}
+            showAgentVersion
             onReload={handleReload}
             title="Campaign Workflow Runs"
             emptyMessage="No workflow runs found for this campaign"

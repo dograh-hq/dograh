@@ -21,16 +21,21 @@ node changes.
 """
 
 import json
-from typing import TYPE_CHECKING, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
 from api.errors.failure import (
     classify_exception,
     classify_message,
+    describe_exception,
     failure_metadata_for_processor,
     log_failure,
+    response_body_detail,
 )
+from api.services.observability.call_events.metrics import ttfb_kind
+from api.services.pipecat.agent_bridge import AgentWorker
 from api.services.pipecat.realtime_feedback_events import (
     build_bot_text_event,
     build_function_call_end_event,
@@ -41,7 +46,9 @@ from api.services.pipecat.realtime_feedback_events import (
 )
 
 if TYPE_CHECKING:
+    from api.services.observability.call_events.recorder import CallEventRecorder
     from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
+    from api.services.pipecat.speech_playback import SpeechPlayback
     from api.services.pipecat.transcript_log_coordinator import (
         TranscriptLogCoordinator,
     )
@@ -78,7 +85,7 @@ class RealtimeFeedbackObserver(BaseObserver):
     - User transcriptions (interim and final)
     - Bot TTS text after output transport timing
     - Function calls (start/end)
-    - TTFB metrics (LLM generation time only)
+    - TTFB metrics per pipeline stage (STT, LLM, TTS)
 
     Logs buffer persistence (only final data for post-call analysis):
     - Complete user transcripts per turn (via on_user_turn_message_added)
@@ -92,20 +99,104 @@ class RealtimeFeedbackObserver(BaseObserver):
         self,
         ws_sender: Callable[[dict], Awaitable[None]],
         logs_buffer: Optional["InMemoryLogsBuffer"] = None,
+        selected_visit: Callable[[], str | None] | None = None,
+        call_event_recorder: "CallEventRecorder | None" = None,
     ):
         """
         Args:
             ws_sender: Async function to send messages over WebSocket.
                        Expected signature: async def send(message: dict) -> None
             logs_buffer: Optional InMemoryLogsBuffer to persist events for post-call analysis.
+            selected_visit: Agent visit currently allowed to speak on the call.
         """
         super().__init__()
         self._ws_sender = ws_sender
         self._logs_buffer = logs_buffer
+        self._selected_visit = selected_visit
+        self._call_event_recorder = call_event_recorder
         self._frames_seen: set[int] = set()
+
+    async def log_speech(self, text: str):
+        """Persist speech that is intentionally excluded from assistant context."""
+        from pipecat.utils.text.spoken_text_filter import SpokenTextFilter
+
+        # Queued announcements can be logged before reaching the TTS service.
+        text = await SpokenTextFilter().filter(text)
+        if text.strip():
+            await self._append_to_buffer(build_bot_text_event(text=text))
+
+    def speech_log_context(self) -> dict:
+        if self._logs_buffer is None:
+            return {}
+        return {
+            "turn": self._logs_buffer.current_turn,
+            "node_id": self._logs_buffer.current_node_id,
+            "node_name": self._logs_buffer.current_node_name,
+        }
+
+    async def log_background_greeting_speech(
+        self,
+        speech: "SpeechPlayback",
+        text: str,
+        started_at: str | None,
+        stopped_at: str | None,
+    ) -> None:
+        if not text or self._logs_buffer is None:
+            return
+        event = build_user_transcription_event(
+            text=text, final=True, timestamp=started_at, end_timestamp=stopped_at
+        )
+        event["payload"]["background_greeting_id"] = speech.id
+        # Group background speech before the greeting in the transcript. Actual
+        # speech times remain in the payload, including their overlap.
+        await self._logs_buffer.append(
+            event,
+            timestamp=speech.first_output_at or speech.finished_at,
+            use_current_node=False,
+            use_current_turn=False,
+            **{
+                key: speech.log_context[key]
+                for key in ("turn", "node_id", "node_name")
+                if key in speech.log_context
+            },
+        )
+
+    async def log_greeting(self, speech: "SpeechPlayback") -> None:
+        if not speech.delivered_text or self._logs_buffer is None:
+            return
+        event = build_bot_text_event(
+            text=speech.delivered_text,
+            timestamp=speech.first_output_at,
+            end_timestamp=speech.finished_at,
+        )
+        event["payload"].update(
+            speech_id=speech.id,
+            outcome=speech.outcome.value,
+            interrupted=speech.outcome.value == "interrupted",
+            played_ms=round(speech.played_seconds * 1000),
+            timing_source=speech.timing_source,
+            **{
+                key: speech.log_context[key]
+                for key in ("pipeline_type", "interruption_mode")
+                if key in speech.log_context
+            },
+        )
+        await self._logs_buffer.append(
+            event,
+            timestamp=speech.first_output_at,
+            use_current_node=False,
+            use_current_turn=False,
+            turn=speech.log_context.get("turn"),
+            node_id=speech.log_context.get("node_id"),
+            node_name=speech.log_context.get("node_name"),
+        )
 
     async def on_push_frame(self, data: FramePushed):
         """Process frames and send relevant ones to the client."""
+        # Diagnostics has its own schema, filtering and buffer. Capture raw
+        # facts before RTF filtering/deduplication or WebSocket delivery.
+        if self._call_event_recorder is not None:
+            await self._call_event_recorder.on_push_frame(data)
         frame = data.frame
         frame_direction = data.direction
         source = data.source
@@ -119,6 +210,17 @@ class RealtimeFeedbackObserver(BaseObserver):
         # avoid duplicate live UI messages.
         if frame.id in self._frames_seen:
             return
+        # Match the bridge's conversation routing while retaining diagnostics
+        # from every agent. The same observer instance is shared by all workers.
+        if self._selected_visit is not None and not isinstance(
+            frame, (ErrorFrame, MetricsFrame)
+        ):
+            worker = source.pipeline_worker
+            if (
+                isinstance(worker, AgentWorker)
+                and worker.name != self._selected_visit()
+            ):
+                return
         if frame_direction != FrameDirection.DOWNSTREAM:
             is_upstream_transcription = (
                 isinstance(frame, (InterimTranscriptionFrame, TranscriptionFrame))
@@ -186,7 +288,7 @@ class RealtimeFeedbackObserver(BaseObserver):
         # to avoid word-level log entries from word-timestamp providers.
         elif isinstance(frame, TTSSpeakFrame):
             if getattr(frame, "persist_to_logs", False):
-                await self._append_to_buffer(build_bot_text_event(text=frame.text))
+                await self.log_speech(frame.text)
         # Handle bot TTS text after output transport timing, WebSocket only
         # Complete turn text is persisted via register_turn_handlers,
         # except for frames explicitly flagged persist_to_logs (e.g. recording
@@ -222,18 +324,20 @@ class RealtimeFeedbackObserver(BaseObserver):
                     result=frame.result,
                 )
             )
-        # Handle TTFB metrics - capture LLM generation time only
+        # Handle TTFB metrics - one event per STT / LLM / TTS measurement, tagged
+        # with its stage. Unrecognised processors are dropped: an unlabelled
+        # measurement is worse than a missing one.
         elif isinstance(frame, MetricsFrame):
-            # Check if this MetricsFrame contains TTFB data from an LLM processor
             for metric_data in frame.data:
                 if isinstance(metric_data, TTFBMetricsData):
-                    # Only send TTFB if it's from an LLM processor
-                    if metric_data.processor and "LLM" in metric_data.processor:
+                    kind = ttfb_kind(metric_data.processor)
+                    if kind:
                         await self._send_message(
                             build_ttfb_metric_event(
                                 ttfb_seconds=metric_data.value,
                                 processor=metric_data.processor,
                                 model=metric_data.model,
+                                kind=kind,
                             )
                         )
         # Handle pipeline errors
@@ -269,10 +373,16 @@ class RealtimeFeedbackObserver(BaseObserver):
                 fatal=fatal,
             )
 
+            error_text = frame.error
             if exc is not None:
                 exc_type = type(exc).__name__
                 extra_payload["exception_type"] = exc_type
-                extra_payload["exception_message"] = str(exc)
+                extra_payload["exception_message"] = describe_exception(exc)
+                # A rejected handshake stringifies to just the status code; the
+                # server's reason is what makes the error actionable.
+                detail = response_body_detail(exc)
+                if detail and detail not in error_text:
+                    error_text = f"{error_text} ({detail})"
                 for attr in ("code", "status", "message", "details"):
                     value = getattr(exc, attr, None)
                     if value is None or attr in extra_payload:
@@ -286,7 +396,7 @@ class RealtimeFeedbackObserver(BaseObserver):
                         extra_payload[attr] = str(value)
             await self._send_message(
                 build_pipeline_error_event(
-                    error=frame.error,
+                    error=error_text,
                     fatal=fatal,
                     processor=processor_name,
                     extra_payload=extra_payload or None,
@@ -348,12 +458,13 @@ def register_turn_log_handlers(
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message):
-        if message.content:
-            try:
-                await transcript_coordinator.record_assistant_transcript(
-                    text=message.content,
-                    timestamp=message.timestamp,
-                    end_timestamp=getattr(message, "end_timestamp", None),
-                )
-            except Exception as e:
-                logger.error(f"Failed to coordinate assistant turn transcript: {e}")
+        # An interrupted opening can have no delivered text. Close that empty
+        # transcript slot too, so the next message cannot claim its playback turn.
+        try:
+            await transcript_coordinator.record_assistant_transcript(
+                text=message.content or "",
+                timestamp=message.timestamp,
+                end_timestamp=getattr(message, "end_timestamp", None),
+            )
+        except Exception as e:
+            logger.error(f"Failed to coordinate assistant turn transcript: {e}")

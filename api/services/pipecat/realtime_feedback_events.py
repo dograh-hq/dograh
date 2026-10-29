@@ -112,13 +112,20 @@ def build_ttfb_metric_event(
     ttfb_seconds: float,
     processor: str | None,
     model: str | None,
+    kind: str,
 ) -> dict[str, Any]:
+    """``kind`` ("stt" | "llm" | "tts") names the pipeline stage measured.
+
+    Runs recorded before STT and TTS were forwarded carry no ``kind``; those events
+    are LLM measurements, so consumers read a missing ``kind`` as "llm".
+    """
     return {
         "type": RealtimeFeedbackType.TTFB_METRIC.value,
         "payload": {
             "ttfb_seconds": ttfb_seconds,
             "processor": processor,
             "model": model,
+            "kind": kind,
         },
     }
 
@@ -164,6 +171,9 @@ def stamp_realtime_feedback_event(
     return stamped
 
 
-def realtime_feedback_event_sort_key(event: dict[str, Any]) -> str:
-    payload_timestamp = (event.get("payload") or {}).get("timestamp")
-    return event.get("timestamp") or payload_timestamp or ""
+def realtime_feedback_event_sort_key(event: dict[str, Any]) -> tuple[str, int]:
+    payload = event.get("payload") or {}
+    timestamp = event.get("timestamp") or payload.get("timestamp") or ""
+    # A completed greeting answers speech heard in its background. Both events
+    # share an ordering timestamp; keep the user first without altering audio times.
+    return timestamp, 0 if payload.get("background_greeting_id") else 1

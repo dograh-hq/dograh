@@ -286,7 +286,6 @@ SPEC = ProviderSpec(
     transport_factory=create_transport,
     audio_config=_AUDIO_CONFIG,
     config_request_cls=YourProviderConfigurationRequest,
-    config_response_cls=YourProviderConfigurationResponse,
     ui_metadata=_UI_METADATA,
     # Credential field that uniquely identifies the provider account.
     # Used to disambiguate inbound webhooks across multiple configs of the
@@ -306,7 +305,7 @@ register(SPEC)
 | `config_loader` | `factory._normalize_with_phone_numbers` (replaces the old if/elif chain) |
 | `transport_factory` | `run_pipeline_telephony` |
 | `audio_config` | `create_audio_config()` and `run_pipeline_telephony` |
-| `config_request_cls` / `config_response_cls` | `TelephonyConfigRequest` discriminated union |
+| `config_request_cls` | `TelephonyConfigRequest` discriminated union |
 | `ui_metadata` | `GET /api/v1/organizations/telephony-providers/metadata` (drives the form UI) and the `_sensitive_fields` masking helper |
 | `account_id_credential_field` | Inbound webhook routing across multiple configs of the same provider |
 

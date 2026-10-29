@@ -1,4 +1,5 @@
 import type { HttpMethod, KeyValueItem, ParameterType, PresetToolParameter, ToolParameter } from "@/components/http";
+import type { ToolMessages } from "@/components/tools/toolMessages";
 
 const TYPE_SAMPLE_VALUES: Record<ParameterType, string> = {
     string: "sample_text",
@@ -64,10 +65,9 @@ export type HttpToolTestSnapshotFields = {
     presetParameters: PresetToolParameter[];
     bodyTemplateEnabled: boolean;
     bodyTemplate: Record<string, unknown> | null;
+    bodyFormat: "json" | "form";
     timeoutMs: number;
-    customMessage: string;
-    customMessageType: "text" | "audio";
-    customMessageRecordingId: string;
+    messages: ToolMessages;
 };
 
 /**

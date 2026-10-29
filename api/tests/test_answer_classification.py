@@ -60,6 +60,284 @@ def test_ivr_recognizes_all_spoken_digits(instruction, digit):
     )
 
 
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # IVR: a keypad instruction carrying a spoken digit.
+        ("Premere zero", MachineSubtype.IVR),
+        ("Premere 0", MachineSubtype.IVR),
+        ("Digitare lo zero per parlare con un operatore.", MachineSubtype.IVR),
+        ("Selezionare 0 per continuare.", MachineSubtype.IVR),
+        ("Per il commerciale digitare due.", MachineSubtype.IVR),
+        ("Premere uno per parlare con l'amministrazione.", MachineSubtype.IVR),
+        ("Selezionare tre per il magazzino.", MachineSubtype.IVR),
+        ("Digiti quattro per l'ufficio tecnico.", MachineSubtype.IVR),
+        ("Se conoscete il numero dell'interno, digitatelo ora.", MachineSubtype.IVR),
+        ("Selezionare l'interno desiderato.", MachineSubtype.IVR),
+        ("Per inglese premere due.", MachineSubtype.IVR),
+        # VOICEMAIL: a mailbox that will record something.
+        ("Questa e' una segreteria telefonica.", MachineSubtype.VOICEMAIL),
+        ("Lasciate un messaggio dopo il segnale acustico.", MachineSubtype.VOICEMAIL),
+        ("Lasciateci il vostro nominativo e recapito.", MachineSubtype.VOICEMAIL),
+        ("Potete lasciarci un messaggio in segreteria.", MachineSubtype.VOICEMAIL),
+        # NO_MESSAGE: an announcement with nothing to record.
+        ("La segreteria e' piena.", MachineSubtype.NO_MESSAGE),
+        ("Il tempo a disposizione e' esaurito.", MachineSubtype.NO_MESSAGE),
+        ("Memoria esaurita.", MachineSubtype.NO_MESSAGE),
+        # SCREENING_WAIT: a queue announcement.
+        ("Si prega di restare in linea.", MachineSubtype.SCREENING_WAIT),
+        (
+            "Vi rispondera' il primo operatore disponibile.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        (
+            "Tutti i nostri operatori sono momentaneamente occupati.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        (
+            "I nostri operatori sono temporaneamente occupati.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        (
+            "Le nostre linee sono momentaneamente occupate.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        (
+            "Le linee sono temporaneamente occupate.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        ("Attendere in linea.", MachineSubtype.SCREENING_WAIT),
+        (
+            "Un operatore le rispondera' appena possibile.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        # Phrasings taken from the deployment's own classifier instructions,
+        # kept only where a live person has no reason to say them.
+        (
+            "Risponde la segreteria telefonica di Studio Esempio.",
+            MachineSubtype.VOICEMAIL,
+        ),
+        ("Vi richiameremo appena possibile.", MachineSubtype.VOICEMAIL),
+        ("Sarete richiamati il prima possibile.", MachineSubtype.VOICEMAIL),
+        ("Siamo momentaneamente assenti.", MachineSubtype.VOICEMAIL),
+        ("La casella vocale e' piena.", MachineSubtype.NO_MESSAGE),
+        ("La casella non e' stata attivata.", MachineSubtype.NO_MESSAGE),
+        (
+            "L'utente da lei chiamato non e' al momento raggiungibile.",
+            MachineSubtype.NO_MESSAGE,
+        ),
+        (
+            "Il numero da lei chiamato non e' raggiungibile.",
+            MachineSubtype.NO_MESSAGE,
+        ),
+        (
+            "L'utente da lei chiamato non è al momento raggiungibile.",
+            MachineSubtype.NO_MESSAGE,
+        ),
+        (
+            "Il numero da lei composto non e' attivo o raggiungibile.",
+            MachineSubtype.NO_MESSAGE,
+        ),
+        (
+            "L’utente da lei chiamato non e’ raggiungibile.",
+            MachineSubtype.NO_MESSAGE,
+        ),
+        ("Il numero selezionato e' inesistente.", MachineSubtype.NO_MESSAGE),
+        ("Tutte le linee sono occupate.", MachineSubtype.NO_MESSAGE),
+        # Recorded "we cannot take your call" announcements.
+        (
+            "In questo momento non e' possibile rispondere alla sua chiamata.",
+            MachineSubtype.VOICEMAIL,
+        ),
+        ("Al momento non siamo raggiungibili.", MachineSubtype.VOICEMAIL),
+        ("Salve, al momento non possiamo rispondere.", MachineSubtype.VOICEMAIL),
+        # 'attenti' is the 8 kHz STT's rendering of 'assenti'.
+        ("Salve, siamo momentaneamente attenti.", MachineSubtype.VOICEMAIL),
+        ("Stiamo momentaneamente assenti.", MachineSubtype.VOICEMAIL),
+        # Recorded closure and opening-hours announcements.
+        ("I nostri uffici sono chiusi.", MachineSubtype.VOICEMAIL),
+        (
+            "Siamo chiusi per le ferie, riapriamo il quindici settembre.",
+            MachineSubtype.VOICEMAIL,
+        ),
+        (
+            "Gli uffici sono aperti dal lunedi' al venerdi'.",
+            MachineSubtype.VOICEMAIL,
+        ),
+        (
+            "Gli uffici sono chiusi, la preghiamo di richiamare piu' tardi.",
+            MachineSubtype.VOICEMAIL,
+        ),
+        # The deaf window clips the head off "risponde la segreteria telefonica".
+        ("Telefonica.", MachineSubtype.VOICEMAIL),
+        ("via telefonica.", MachineSubtype.VOICEMAIL),
+        # Italian keypad symbols, which the digit alternation cannot reach.
+        ("Premere cancelletto per il menu.", MachineSubtype.IVR),
+        ("Digitare il codice seguito da cancelletto.", MachineSubtype.IVR),
+        ("Selezioni una delle seguenti opzioni.", MachineSubtype.IVR),
+        ("Le preghiamo di selezionare l'interno.", MachineSubtype.IVR),
+        # Carrier and mailbox refusals.
+        ("Questa segreteria non prende i messaggi.", MachineSubtype.NO_MESSAGE),
+        ("Il numero selezionato non e' piu' attivo.", MachineSubtype.NO_MESSAGE),
+        (
+            "L'utente che si sta cercando di contattare e' occupato "
+            "e non puo' ricevere la chiamata.",
+            MachineSubtype.NO_MESSAGE,
+        ),
+        # Queue announcements: a person is coming, so these wait.
+        ("Attendere, prego.", MachineSubtype.SCREENING_WAIT),
+        ("Vi preghiamo di attendere.", MachineSubtype.SCREENING_WAIT),
+        (
+            "L'operatore sara' presto a sua disposizione.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        (
+            "Siete in attesa di essere collegati ad un nostro operatore.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        ("Sei nella posizione uno in questa coda.", MachineSubtype.SCREENING_WAIT),
+        ("Trasferendo la tua chiamata. Grazie.", MachineSubtype.SCREENING_WAIT),
+        # Recorded switchboard identifications: a machine answered, but a person
+        # may be seconds behind it, so these wait rather than drop.
+        ("Siete in linea con la ditta Cavallotti.", MachineSubtype.SCREENING_WAIT),
+        ("In linea con Bricofer Appia.", MachineSubtype.SCREENING_WAIT),
+        ("Benvenuti in ferramenta Vignola.", MachineSubtype.SCREENING_WAIT),
+        (
+            "Il gruppo Serena vi da' il benvenuto.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        (
+            "Grazie per aver chiamato Casale Pontrelli.",
+            MachineSubtype.SCREENING_WAIT,
+        ),
+        ("Risponde il supermercato Sigma.", MachineSubtype.SCREENING_WAIT),
+    ],
+)
+def test_italian_machine_subtypes(text, expected):
+    assert classify_machine_utterance(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A live person answering, in the phrasings that dominate Italian
+        # outbound answers. None of these may reach a machine subtype: the
+        # cheapest outcome of a miss is one classifier call, the cheapest
+        # outcome of a false match is a dropped human.
+        "Pronto?",
+        "Si', mi dica.",
+        "Sono io.",
+        "Sono io, prego.",
+        "Buongiorno, sono Giulia.",
+        "Puo' dire a me?",
+        "Per che cosa, scusi?",
+        "Di cosa si tratta?",
+        # Screening and objections: a person, however unhelpful.
+        "Guardi, il titolare non c'e' in questo momento.",
+        "Al momento non c'e'. Puo' chiamare piu' tardi?",
+        "Non c'e' nessuno, mi dispiace.",
+        "Lo trova domani mattina.",
+        "E' fuori sede, rientra la settimana prossima.",
+        # A receptionist reporting unavailability is still a live answer.
+        "Il signor Rossi non è raggiungibile al momento",
+        "Il titolare non è al momento raggiungibile.",
+        "Il signor Rossi non e' raggiungibile al momento.",
+        "Il titolare non e’ al momento raggiungibile.",
+        "Non è al momento raggiungibile, posso aiutarla io?",
+        "Non sono interessato, la ringrazio.",
+        "Guardi, siamo gia' a posto con la telefonia.",
+        "Non siamo interessati, buona giornata.",
+        # Being busy alone does not identify an automated queue announcement.
+        "Sono momentaneamente occupato",
+        "Sono momentaneamente occupata, puo' richiamare?",
+        "Sono temporaneamente occupato.",
+        "Scusi, sono temporaneamente occupata.",
+        "Siamo momentaneamente occupati.",
+        "Il titolare e' temporaneamente occupato.",
+        # Numbers spoken by a person: times and quantities, not a keypad menu.
+        "Richiami verso le due, dopo pranzo.",
+        "Siamo aperti dalle otto alle dodici.",
+        "Ci sono tre persone in ufficio adesso.",
+        "Ho zero tempo per parlare adesso.",
+        "Ho 0 chiamate perse.",
+        # Closure and absence phrasings that the deployment's instructions list
+        # as voicemail. A recorded greeting and a live employee say these in the
+        # same words, so they stay with the classifier, which reads the whole
+        # utterance, rather than becoming a pattern that would drop the person.
+        "Buongiorno, no, siamo chiusi adesso a quest'ora.",
+        "Noi siamo chiusi, alle dodici e trenta chiudiamo.",
+        "Gli uffici sono chiusi, li trova domani mattina.",
+        "Non c'e' nessuno in ufficio adesso.",
+        "Oggi il negozio e' chiuso, richiami domani.",
+        # Observed live answers that the closure and absence fragments must not
+        # reach: the speaker is describing their own shop or colleague.
+        "A quest'ora l'azienda e' chiusa, il titolare non c'e' piu'.",
+        "Guardi, la titolare sono io, pero' adesso il negozio e' aperto, "
+        "c'ho gente, non posso stare al telefono.",
+        "Per il momento non c'e' nessuno.",
+        "In questo momento non c'e' nessuno, lo trova la prossima settimana.",
+        "Il titolare lo trova lunedi'.",
+        "Non c'e' nessuno, siamo in pausa.",
+        # The commonest human answers in this deployment.
+        "Pronto?",
+        "Buongiorno.",
+        "Si', pronto, buongiorno.",
+        "Buongiorno, sono Filippo.",
+    ],
+)
+def test_italian_live_answers_are_never_a_machine_subtype(text):
+    assert classify_machine_utterance(text) == MachineSubtype.UNKNOWN
+
+
+def test_language_fragments_share_one_pattern_per_subtype():
+    """Adding a language must add an alternation, not another search() call."""
+    from api.services.pipecat.answer_classification import _PATTERNS
+
+    subtypes = [subtype for subtype, _ in _PATTERNS]
+    assert len(subtypes) == len(set(subtypes))
+    assert subtypes == [
+        MachineSubtype.NO_MESSAGE,
+        MachineSubtype.SCREENER,
+        MachineSubtype.IVR,
+        MachineSubtype.VOICEMAIL,
+        MachineSubtype.SCREENING_WAIT,
+    ]
+
+
+def test_patterns_use_bounded_gaps_only():
+    """Unbounded gaps next to alternation are how this layer would go quadratic."""
+    from api.services.pipecat.answer_classification import _PATTERNS
+
+    for subtype, pattern in _PATTERNS:
+        assert ".*" not in pattern.pattern, subtype
+        assert ".+" not in pattern.pattern, subtype
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # A mailbox prompt or a closure notice after the identification is the
+        # more actionable signal, and is tested before it.
+        (
+            "Siete in linea con la ditta Rossi. Lasciate un messaggio dopo il segnale.",
+            MachineSubtype.VOICEMAIL,
+        ),
+        (
+            "Benvenuti in Rossi SRL. I nostri uffici sono chiusi.",
+            MachineSubtype.VOICEMAIL,
+        ),
+        (
+            "Grazie per aver chiamato Rossi. Per il commerciale digiti due.",
+            MachineSubtype.IVR,
+        ),
+        # With nothing more actionable, the identification alone only waits.
+        ("Siete in linea con la ditta Rossi.", MachineSubtype.SCREENING_WAIT),
+    ],
+)
+def test_recorded_identification_yields_to_a_more_actionable_prompt(text, expected):
+    assert classify_machine_utterance(text) == expected
+
+
 def test_no_message_takes_precedence_over_generic_voicemail_instructions():
     assert (
         classify_machine_utterance(
@@ -117,6 +395,50 @@ async def test_private_classifier_validates_output_and_uses_a_fresh_context(
     assert "system_instruction" in llm.run_inference.call_args.kwargs
     await service.classify("Another answer")
     assert llm.run_inference.call_args.args[0] is not first_context
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response, system_prompt, custom_instructions",
+    [
+        ("SEGRETERIA", "Rispondi con SEGRETERIA o PERSONA.", True),
+        ("It sounds like an answering machine.", "builtin", False),
+        ("It sounds like an answering machine.", None, False),
+        ("It sounds like an answering machine.", "", False),
+        ("It sounds like an answering machine.", " \n ", False),
+    ],
+)
+async def test_an_unrecognized_label_is_reported_before_it_becomes_unknown(
+    monkeypatch, response, system_prompt, custom_instructions
+):
+    """UNKNOWN releases the call, so a prompt that stops answering in the label
+    contract degrades silently. Log metadata; keep raw output in its trace."""
+    from api.services.workflow import answer_classification_service as service_module
+    from api.services.workflow.answer_classification_service import (
+        ANSWER_CLASSIFIER_SYSTEM_PROMPT,
+        AnswerClassificationService,
+    )
+
+    warnings = []
+    monkeypatch.setattr(
+        service_module,
+        "logger",
+        SimpleNamespace(warning=lambda fmt, *args: warnings.append(fmt.format(*args))),
+    )
+    llm = SimpleNamespace(run_inference=AsyncMock(return_value=response))
+    service = AnswerClassificationService(
+        llm,
+        system_prompt=(
+            ANSWER_CLASSIFIER_SYSTEM_PROMPT
+            if system_prompt == "builtin"
+            else system_prompt
+        ),
+    )
+    assert await service.classify("Un messaggio registrato") == MachineSubtype.UNKNOWN
+    assert len(warnings) == 1
+    assert response not in warnings[0]
+    assert f"reply_chars={len(response)}" in warnings[0]
+    assert f"custom_instructions={custom_instructions}" in warnings[0]
 
 
 @pytest.mark.asyncio

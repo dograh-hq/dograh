@@ -1,5 +1,6 @@
 """Telnyx telephony provider package."""
 
+import asyncio
 import uuid
 from typing import Any, Dict
 
@@ -21,6 +22,10 @@ from .transport import create_transport
 
 TELNYX_API_BASE_URL = "https://api.telnyx.com/v2"
 
+# Bound the best-effort profile lookup so a hung Telnyx API cannot stall the
+# config save for aiohttp's 5-minute default.
+_PROFILE_LIST_TIMEOUT = aiohttp.ClientTimeout(total=10)
+
 
 def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     return {
@@ -30,6 +35,94 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "webhook_public_key": value.get("webhook_public_key"),
         "from_numbers": value.get("from_numbers", []),
     }
+
+
+async def _select_outbound_voice_profile(
+    session: aiohttp.ClientSession,
+    headers: Dict[str, str],
+) -> Dict[str, Any] | None:
+    """Return an enabled Outbound Voice Profile to bind, or None.
+
+    Telnyx refuses outbound dialing from a Call Control Application with no
+    Outbound Voice Profile attached (error D38), so the auto-created
+    application is enriched with an existing profile when one is available.
+    Profiles are never created here — they are a billing-affecting resource.
+
+    Disabled profiles are skipped: binding one still yields a D38-equivalent
+    rejection at dial time, so it is no better than no profile at all. Beyond
+    that the first candidate wins — the account's own ordering is the only
+    signal available here — and the caller logs which profile it bound, so the
+    choice stays auditable when a dial is later rejected for a destination the
+    profile does not whitelist.
+
+    Failures to list profiles are logged and swallowed: the config save must
+    still succeed so inbound calls work either way.
+    """
+    endpoint = f"{TELNYX_API_BASE_URL}/outbound_voice_profiles"
+    try:
+        async with session.get(
+            endpoint,
+            headers=headers,
+            params={"page[size]": "100"},
+            timeout=_PROFILE_LIST_TIMEOUT,
+        ) as response:
+            if response.status != 200:
+                response_text = await response.text()
+                logger.error(
+                    f"[Telnyx] outboundVoiceProfileList failed: "
+                    f"HTTP {response.status} body={response_text}"
+                )
+                return None
+            payload = await response.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        logger.error(f"[Telnyx] outboundVoiceProfileList transport error: {e}")
+        return None
+    except ValueError as e:
+        # A 200 carrying a JSON content type but a truncated or empty body
+        # raises json.JSONDecodeError, a ValueError rather than an aiohttp
+        # error. Uncaught it would escape _ensure_connection_id's
+        # aiohttp.ClientError handler and 500 the config save.
+        logger.error(f"[Telnyx] outboundVoiceProfileList malformed JSON body: {e}")
+        return None
+
+    # Defensively tolerate any payload shape the API might return: a listing
+    # failure must never abort the config save, so anything unexpected is
+    # treated the same as "no profiles available".
+    if not isinstance(payload, dict):
+        logger.warning(
+            f"[Telnyx] outboundVoiceProfileList unexpected payload type: "
+            f"{type(payload).__name__}"
+        )
+        return None
+    profiles = payload.get("data") or []
+    if not isinstance(profiles, list):
+        logger.warning(
+            "[Telnyx] outboundVoiceProfileList 'data' is not a list; "
+            "treating as no profiles available"
+        )
+        return None
+
+    for entry in profiles:
+        if not isinstance(entry, dict):
+            continue
+        # Telnyx omits ``enabled`` on some payload versions; absent means usable.
+        if entry.get("enabled") is False:
+            continue
+        profile_id = entry.get("id")
+        if profile_id is None:
+            continue
+        return {
+            "id": str(profile_id),
+            "name": entry.get("name"),
+            "whitelisted_destinations": entry.get("whitelisted_destinations"),
+        }
+
+    if profiles:
+        logger.warning(
+            f"[Telnyx] outboundVoiceProfileList returned {len(profiles)} profile(s) "
+            f"but none were usable (all disabled or missing an id)."
+        )
+    return None
 
 
 async def _ensure_connection_id(
@@ -42,6 +135,14 @@ async def _ensure_connection_id(
     ``webhook_event_url`` — the same URL ``configure_inbound`` would PATCH
     later — so inbound calls work immediately for any number bound to this
     application.
+
+    When the account already has an Outbound Voice Profile, it is attached
+    via the nested ``outbound.outbound_voice_profile_id`` field so the first
+    outbound call does not fail with Telnyx error D38 ("Connection has no
+    Outbound Profile assigned"). Without one, the application is still
+    created and saved — inbound is unaffected — and a warning is logged
+    pointing at Mission Control. Profile listing failures never break the
+    save for the same reason.
     """
     if credentials.get("connection_id"):
         return credentials
@@ -66,6 +167,28 @@ async def _ensure_connection_id(
 
     try:
         async with aiohttp.ClientSession() as session:
+            outbound_profile = await _select_outbound_voice_profile(session, headers)
+            if outbound_profile:
+                body["outbound"] = {"outbound_voice_profile_id": outbound_profile["id"]}
+                # Which profile got bound is a billing- and routing-relevant
+                # choice made on the user's behalf, so name it in the logs: a
+                # later D38-adjacent rejection (destination not whitelisted,
+                # spend limit hit) is only diagnosable if this is recorded.
+                logger.info(
+                    f"[Telnyx] Binding Outbound Voice Profile "
+                    f"{outbound_profile['id']} "
+                    f"(name={outbound_profile.get('name')!r}, "
+                    f"whitelisted_destinations="
+                    f"{outbound_profile.get('whitelisted_destinations')}) "
+                    f"to auto-created Call Control Application."
+                )
+            else:
+                logger.warning(
+                    "[Telnyx] Auto-created Call Control Application will "
+                    "have no Outbound Voice Profile; outbound calls will "
+                    "fail with Telnyx error D38 until one is assigned in "
+                    "Mission Control. Inbound calls are unaffected."
+                )
             async with session.post(endpoint, json=body, headers=headers) as response:
                 response_text = await response.text()
                 if response.status not in (200, 201):

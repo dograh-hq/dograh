@@ -238,7 +238,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
             and not has_registered_integrations
             and not has_campaign
         ):
-            logger.debug("No integration nodes and no campaign, skipping")
+            logger.info("No integration nodes and no campaign, skipping")
             return
 
         public_token = await db_client.ensure_public_access_token(workflow_run_id)
@@ -303,7 +303,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
 
         # Step 7: Execute webhooks
         if not webhook_nodes:
-            logger.debug("No webhook nodes in workflow")
+            logger.info("No webhook nodes in workflow")
             return
 
         logger.info(f"Found {len(webhook_nodes)} webhook nodes to execute")
@@ -479,7 +479,7 @@ async def _enqueue_webhook_delivery(
     webhook_name = webhook_data.name
 
     if not webhook_data.enabled:
-        logger.debug(f"Webhook '{webhook_name}' is disabled, skipping")
+        logger.info(f"Webhook '{webhook_name}' is disabled, skipping")
         return
 
     url = webhook_data.endpoint_url

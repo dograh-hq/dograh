@@ -1,5 +1,6 @@
 """Service helpers for text-chat session lifecycle orchestration."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -12,7 +13,7 @@ from api.db.models import WorkflowRunTextSessionModel
 from api.db.workflow_run_text_session_client import (
     WorkflowRunTextSessionRevisionConflictError,
 )
-from api.enums import WorkflowRunState
+from api.enums import WorkflowRunMode, WorkflowRunState
 from api.services.workflow.disposition_mapping import map_disposition
 from api.services.workflow.text_chat_logs import (
     build_text_chat_realtime_feedback_events,
@@ -20,6 +21,7 @@ from api.services.workflow.text_chat_logs import (
 from api.services.workflow.text_chat_runner import (
     default_text_chat_checkpoint,
     execute_text_chat_pending_turn,
+    extract_text_chat_final_variables,
     merge_text_chat_usage_info,
     normalize_text_chat_checkpoint,
 )
@@ -42,6 +44,10 @@ class TextChatSessionRevisionConflictError(Exception):
 
 class TextChatSessionExecutionError(Exception):
     """Raised when the assistant turn fails to execute."""
+
+
+class TextChatTurnInProgressError(Exception):
+    """A new message or rewind cannot replace an executing turn."""
 
 
 class TextChatPendingTurnLostError(Exception):
@@ -123,6 +129,8 @@ async def append_text_chat_user_message(
     session_data = normalize_text_chat_session_data(text_session.session_data)
     checkpoint = normalize_text_chat_checkpoint(text_session.checkpoint)
 
+    if session_data["status"] == "pending_assistant_turn":
+        raise TextChatTurnInProgressError("An assistant turn is already running")
     active_turns, discarded_future = truncate_text_chat_future_turns(session_data)
     active_turns.append(build_pending_text_chat_turn(user_text=user_text))
 
@@ -137,7 +145,11 @@ async def append_text_chat_user_message(
             run_id,
             session_data=session_data,
             checkpoint=checkpoint,
-            expected_revision=expected_revision,
+            expected_revision=(
+                text_session.revision
+                if expected_revision is None
+                else expected_revision
+            ),
         )
     except WorkflowRunTextSessionRevisionConflictError as e:
         raise TextChatSessionRevisionConflictError(
@@ -156,6 +168,8 @@ async def rewind_text_chat_session_state(
     expected_revision: int | None,
 ) -> WorkflowRunTextSessionModel:
     session_data = normalize_text_chat_session_data(text_session.session_data)
+    if session_data["status"] == "pending_assistant_turn":
+        raise TextChatTurnInProgressError("An assistant turn is already running")
     validate_text_chat_turn_cursor(session_data, cursor_turn_id)
 
     session_data["cursor_turn_id"] = cursor_turn_id
@@ -165,7 +179,11 @@ async def rewind_text_chat_session_state(
         await db_client.update_workflow_run_text_session(
             run_id,
             session_data=session_data,
-            expected_revision=expected_revision,
+            expected_revision=(
+                text_session.revision
+                if expected_revision is None
+                else expected_revision
+            ),
         )
     except WorkflowRunTextSessionRevisionConflictError as e:
         raise TextChatSessionRevisionConflictError(
@@ -185,6 +203,64 @@ async def rewind_text_chat_session_state(
     return await _reload_text_chat_session(run_id)
 
 
+def _build_text_chat_completion_write(
+    *,
+    text_session: WorkflowRunTextSessionModel,
+    completed_at: datetime,
+    disposition: str,
+    mapped_disposition: str,
+    extracted: dict[str, Any],
+) -> dict[str, Any]:
+    """Project one session snapshot into the completion write's arguments.
+
+    Kept separate from ``complete_text_chat_session`` so a revision conflict can
+    rebuild the write against whatever state won, instead of re-committing the
+    stale snapshot the call started from.
+    """
+    workflow_run = text_session.workflow_run
+    completed_session_data = normalize_text_chat_session_data(text_session.session_data)
+    completed_session_data["status"] = "completed"
+
+    gathered_context = workflow_run.gathered_context or {}
+    call_tags = list(gathered_context.get("call_tags") or [])
+    if disposition not in call_tags:
+        call_tags.append(disposition)
+    # A workflow author turns an extracted variable into a call tag by naming it
+    # `tag_*`; PipecatEngine.record_call_tags does this promotion on the voice
+    # path, after extraction has landed.
+    for key, value in extracted.items():
+        if not key.startswith("tag_") or not isinstance(value, str) or not value:
+            continue
+        if value not in call_tags:
+            call_tags.append(value)
+
+    usage_info = dict(workflow_run.usage_info or {})
+    usage_info["call_duration_seconds"] = _text_chat_duration_seconds(
+        text_session,
+        completed_at=completed_at,
+    )
+
+    return {
+        "session_data": completed_session_data,
+        "usage_info": usage_info,
+        "gathered_context": {
+            **extracted,
+            "call_disposition": disposition,
+            "mapped_call_disposition": mapped_disposition,
+            # Text chats end on an explicit completion reason rather than a
+            # teardown Dograh observed, so mechanism and outcome coincide.
+            "call_status": disposition,
+            "call_tags": call_tags,
+        },
+        "logs": {
+            "realtime_feedback_events": build_text_chat_realtime_feedback_events(
+                completed_session_data
+            )
+        },
+        "state": WorkflowRunState.COMPLETED.value,
+    }
+
+
 async def complete_text_chat_session(
     *,
     run_id: int,
@@ -199,6 +275,12 @@ async def complete_text_chat_session(
     That makes an end request race safely with an in-flight message: whichever
     operation locks and updates the session first wins, and the other receives
     the normal revision conflict.
+
+    The write is always guarded by a revision, even when the caller pins none:
+    final variable extraction waits on an LLM between reading the session and
+    writing it back, and an unguarded write would clobber anything committed in
+    that window. A caller that pinned no revision still gets its chat ended --
+    the conflict is retried once against the state that won.
     """
     workflow_run = text_session.workflow_run
     if workflow_run.is_completed:
@@ -206,47 +288,87 @@ async def complete_text_chat_session(
         await _enqueue_text_chat_completion(run_id)
         return await _reload_text_chat_session(run_id)
 
-    completed_session_data = normalize_text_chat_session_data(text_session.session_data)
-    completed_session_data["status"] = "completed"
     completed_at = completed_at or datetime.now(UTC)
     disposition = completion_reason
     mapped_disposition = await map_disposition(
         workflow_run.workflow.organization_id, disposition
     )
-    gathered_context = workflow_run.gathered_context or {}
-    call_tags = list(gathered_context.get("call_tags") or [])
-    if disposition not in call_tags:
-        call_tags.append(disposition)
 
-    feedback_events = build_text_chat_realtime_feedback_events(completed_session_data)
-    usage_info = dict(workflow_run.usage_info or {})
-    usage_info["call_duration_seconds"] = _text_chat_duration_seconds(
-        text_session,
-        completed_at=completed_at,
+    # A voice call extracts the current node's variables during engine teardown.
+    # Text chat has no engine here, and a chat the user walks away from never
+    # transitions, so without this the node's variables are never extracted at
+    # all -- and the webhooks rendered from gathered_context ship blanks.
+    extracted = await extract_text_chat_final_variables(
+        workflow_run_id=run_id,
+        workflow_id=workflow_run.workflow_id,
+        # The organization this call was already authorized against, so the
+        # helper's unscoped run read can be validated rather than trusted.
+        organization_id=workflow_run.workflow.organization_id,
+        checkpoint=text_session.checkpoint,
+        # Completion can win while a turn is still pending, and that turn's user
+        # message is only in session_data until it executes. The transcript
+        # reads it from there; so must extraction.
+        session_data=normalize_text_chat_session_data(text_session.session_data),
     )
 
+    # The snapshot this write is built from was read before the extraction
+    # above, which waits on an LLM for a second or more. Guard the write with
+    # the revision that snapshot came from even when the caller pinned none,
+    # or a message or rewind committing meanwhile is silently overwritten.
     try:
         await db_client.complete_workflow_run_text_session(
             run_id,
-            session_data=completed_session_data,
-            expected_revision=expected_revision,
-            usage_info=usage_info,
-            gathered_context={
-                "call_disposition": disposition,
-                "mapped_call_disposition": mapped_disposition,
-                # Text chats end on an explicit completion reason rather than a
-                # teardown Dograh observed, so mechanism and outcome coincide.
-                "call_status": disposition,
-                "call_tags": call_tags,
-            },
-            logs={"realtime_feedback_events": feedback_events},
-            state=WorkflowRunState.COMPLETED.value,
+            expected_revision=(
+                text_session.revision
+                if expected_revision is None
+                else expected_revision
+            ),
+            **_build_text_chat_completion_write(
+                text_session=text_session,
+                completed_at=completed_at,
+                disposition=disposition,
+                mapped_disposition=mapped_disposition,
+                extracted=extracted,
+            ),
         )
     except WorkflowRunTextSessionRevisionConflictError as e:
-        raise TextChatSessionRevisionConflictError(
-            expected_revision=e.expected_revision,
-            actual_revision=e.actual_revision,
-        ) from e
+        if expected_revision is not None:
+            raise TextChatSessionRevisionConflictError(
+                expected_revision=e.expected_revision,
+                actual_revision=e.actual_revision,
+            ) from e
+
+        # No revision was pinned, so the caller asked to end the chat whatever
+        # else lands. Honour that, but off the state that actually won rather
+        # than the snapshot this call started from. `extracted` is reused: the
+        # racing turn only appended to the same conversation, and a second LLM
+        # round trip on an already-contended path is not worth the freshness.
+        text_session = await _reload_text_chat_session(run_id)
+        if text_session.workflow_run.is_completed:
+            await _enqueue_text_chat_completion(run_id)
+            return text_session
+        try:
+            await db_client.complete_workflow_run_text_session(
+                run_id,
+                expected_revision=text_session.revision,
+                **_build_text_chat_completion_write(
+                    text_session=text_session,
+                    completed_at=completed_at,
+                    disposition=disposition,
+                    mapped_disposition=mapped_disposition,
+                    extracted=extracted,
+                ),
+            )
+        except WorkflowRunTextSessionRevisionConflictError as retry_error:
+            # Lost twice: report it rather than retry until something sticks.
+            raise TextChatSessionRevisionConflictError(
+                expected_revision=retry_error.expected_revision,
+                actual_revision=retry_error.actual_revision,
+            ) from retry_error
+
+    completed_session_data = normalize_text_chat_session_data(text_session.session_data)
+    completed_session_data["status"] = "completed"
+    feedback_events = build_text_chat_realtime_feedback_events(completed_session_data)
 
     await _upload_text_chat_transcript(run_id, feedback_events)
     await _enqueue_text_chat_completion(run_id)
@@ -259,10 +381,18 @@ async def execute_pending_text_chat_turn(
     workflow_id: int,
     run_id: int,
     text_session: WorkflowRunTextSessionModel,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> WorkflowRunTextSessionModel:
     """Execute the current pending assistant turn and persist its side effects."""
     session_data = normalize_text_chat_session_data(text_session.session_data)
     checkpoint = normalize_text_chat_checkpoint(text_session.checkpoint)
+
+    captured_events: list[dict[str, Any]] = []
+
+    def capture_event(event: dict[str, Any]) -> None:
+        captured_events.append(event)
+        if on_event:
+            on_event(event)
 
     try:
         execution = await execute_text_chat_pending_turn(
@@ -270,12 +400,14 @@ async def execute_pending_text_chat_turn(
             workflow_id=workflow_id,
             session_data=session_data,
             checkpoint=checkpoint,
+            on_event=capture_event,
         )
     except Exception as e:
         await _mark_pending_turn_failed(
             run_id=run_id,
             text_session=text_session,
             error_message=str(e),
+            events=captured_events,
         )
         raise TextChatSessionExecutionError(
             f"Failed to execute text chat assistant turn: {e}"
@@ -298,6 +430,7 @@ async def execute_pending_text_chat_turn(
         else None
     )
     completed_turns[-1]["events"] = execution.events
+    completed_turns[-1]["message_events_version"] = 1
     completed_turns[-1]["usage"] = execution.usage
     completed_turns[-1]["checkpoint_after_turn"] = execution.checkpoint
     completed_session_data["turns"] = completed_turns
@@ -415,6 +548,9 @@ def build_pending_text_chat_turn(*, user_text: str | None) -> dict[str, Any]:
             else None
         ),
         "assistant_message": None,
+        # Every assistant segment is represented by a bot_speech event. Legacy
+        # turns lack this marker and still render their combined message.
+        "message_events_version": 1,
         "events": [],
         "usage": {},
     }
@@ -425,15 +561,17 @@ async def _mark_pending_turn_failed(
     run_id: int,
     text_session: WorkflowRunTextSessionModel,
     error_message: str,
-) -> None:
+    events: list[dict[str, Any]] | None = None,
+) -> bool:
+    """Return whether this caller won the revision-guarded failure write."""
     failed_session_data = normalize_text_chat_session_data(text_session.session_data)
     failed_turns = list(failed_session_data.get("turns") or [])
     if not failed_turns or failed_turns[-1].get("status") != "pending":
-        return
+        return False
 
     failed_turns[-1]["status"] = "failed"
     failed_turns[-1]["events"] = [
-        *(failed_turns[-1].get("events") or []),
+        *(events if events is not None else failed_turns[-1].get("events") or []),
         {
             "type": "execution_error",
             "created_at": datetime.now(UTC).isoformat(),
@@ -449,7 +587,46 @@ async def _mark_pending_turn_failed(
             expected_revision=text_session.revision,
         )
     except WorkflowRunTextSessionRevisionConflictError:
+        return False
+    return True
+
+
+async def hand_off_completed_text_chat(
+    run_id: int,
+) -> WorkflowRunTextSessionModel | None:
+    """Queue replayable post-commit work before its local owner is cancelled."""
+    text_session = await _reload_text_chat_session(run_id)
+    if (
+        text_session.workflow_run.mode != WorkflowRunMode.TEXTCHAT.value
+        or not text_session.workflow_run.is_completed
+    ):
+        return None
+
+    from api.tasks.arq import enqueue_job
+
+    # An existing job with this ID also owns the work. Its worker reconstructs
+    # the transcript from the committed session, with no in-memory payload.
+    await enqueue_job(
+        FunctionNames.FINALIZE_COMPLETED_TEXT_CHAT,
+        run_id,
+        _job_id=f"text-chat-finalization-{run_id}",
+    )
+    return text_session
+
+
+async def finalize_completed_text_chat(run_id: int) -> None:
+    """Recover a completed run's transcript and deduplicated completion enqueue."""
+    text_session = await _reload_text_chat_session(run_id)
+    if (
+        text_session.workflow_run.mode != WorkflowRunMode.TEXTCHAT.value
+        or not text_session.workflow_run.is_completed
+    ):
         return
+    feedback_events = build_text_chat_realtime_feedback_events(
+        normalize_text_chat_session_data(text_session.session_data)
+    )
+    await _upload_text_chat_transcript(run_id, feedback_events)
+    await _enqueue_text_chat_completion(run_id)
 
 
 async def _enqueue_text_chat_completion(run_id: int) -> None:
@@ -492,9 +669,7 @@ async def _upload_text_chat_transcript(
     """Persist the text transcript before webhooks render their payload."""
     transcript_text = generate_transcript_text(feedback_events)
     if not transcript_text:
-        logger.debug(
-            f"No text-chat transcript events for run {run_id}; skipping upload"
-        )
+        logger.info(f"No text-chat transcript events for run {run_id}; skipping upload")
         return
     try:
         await upload_workflow_run_artifacts(
@@ -522,16 +697,19 @@ async def _reload_text_chat_session(run_id: int) -> WorkflowRunTextSessionModel:
 
 __all__ = [
     "TEXT_CHAT_SESSION_VERSION",
+    "TextChatPendingTurnLostError",
+    "TextChatSessionExecutionError",
+    "TextChatSessionRevisionConflictError",
+    "TextChatTurnInProgressError",
     "TextChatTurnNotFoundError",
     "append_text_chat_user_message",
     "build_pending_text_chat_turn",
     "complete_text_chat_session",
-    "TextChatPendingTurnLostError",
-    "TextChatSessionExecutionError",
-    "TextChatSessionRevisionConflictError",
     "default_text_chat_checkpoint",
     "default_text_chat_session_data",
     "execute_pending_text_chat_turn",
+    "finalize_completed_text_chat",
+    "hand_off_completed_text_chat",
     "initialize_text_chat_session",
     "latest_completed_text_chat_turn_id",
     "normalize_text_chat_checkpoint",

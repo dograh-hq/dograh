@@ -64,7 +64,7 @@ class Qa(TypedNode):
     false to specify a separate provider/model.
     """
 
-    qa_provider: Optional[Literal['openai', 'azure', 'openrouter', 'anthropic']] = None
+    qa_provider: Optional[Literal['openai', 'azure', 'openrouter', 'google', 'anthropic']] = None
     """
     LLM provider used for the QA pass.
     """

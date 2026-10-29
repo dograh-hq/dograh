@@ -266,10 +266,15 @@ class RateLimiter:
             logger.error(f"Error releasing concurrent slot: {e}")
             return None
 
-    async def get_concurrent_count(self, organization_id: int) -> int:
+    async def get_concurrent_count(
+        self, organization_id: int, *, raise_on_error: bool = False
+    ) -> int:
         """
         Get current number of active concurrent calls for an organization.
         Automatically cleans up stale entries.
+
+        Public status reads set ``raise_on_error`` so an unavailable count is
+        not reported as zero. The default preserves existing admission logging.
         """
         redis_client = await self._get_redis()
         concurrent_key = f"concurrent_calls:{organization_id}"
@@ -284,6 +289,8 @@ class RateLimiter:
             return count
         except Exception as e:
             logger.error(f"Error getting concurrent count: {e}")
+            if raise_on_error:
+                raise
             return 0
 
     async def get_fleet_concurrent_count(self) -> int:

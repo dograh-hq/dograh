@@ -111,6 +111,32 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                 value["workflow_id"] = request.workflow_id
                 value["previous_code"] = request.previous_code
                 value["candidate"] = None
+                # Give the planner the current agent as hidden context (the
+                # visible transcript stays just the user's message, since
+                # present() renders `messages`, not `plan_messages`). Without
+                # this the planner can't see existing behavior and asks the user
+                # to restate details that already exist (e.g. "paste your current
+                # greeting"). Only the requested change needs discussion.
+                if request.previous_code:
+                    value["plan_messages"] = [
+                        HumanMessage(
+                            content=json.dumps(
+                                {
+                                    "editing_existing_agent": True,
+                                    "current_workflow_sdk": request.previous_code,
+                                    "instruction": (
+                                        "This is the agent being edited. Read it to "
+                                        "answer your own questions about current "
+                                        "behavior (greeting, nodes, prompts, tools, "
+                                        "variables). Only ask the user about the "
+                                        "change they want; never ask them to restate "
+                                        "details already present here."
+                                    ),
+                                }
+                            )
+                        ),
+                        message,
+                    ]
         elif request.resume is not None:
             pending = {item["id"]: item for item in current["pending"]}
             if set(request.resume) != set(pending):

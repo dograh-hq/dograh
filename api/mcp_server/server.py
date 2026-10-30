@@ -16,6 +16,7 @@ from api.mcp_server.tools.node_types import get_node_type, list_node_types
 from api.mcp_server.tools.preview_workflow import preview_workflow
 from api.mcp_server.tools.save_workflow import save_workflow
 from api.mcp_server.tools.tool_creation import create_tool
+from api.mcp_server.tools.tool_edit import get_tool, update_tool
 from api.mcp_server.tools.voice_prompting_guide import get_voice_prompting_guide
 from api.mcp_server.tools.workflow_authoring_guide import get_workflow_authoring_guide
 from api.mcp_server.tools.workflows import get_workflow, list_workflows
@@ -27,6 +28,7 @@ for _tool in (
     create_tool,
     get_call_transcript,
     get_node_type,
+    get_tool,
     get_workflow,
     get_workflow_code,
     list_calls,
@@ -38,6 +40,7 @@ for _tool in (
     list_workflows,
     preview_workflow,
     save_workflow,
+    update_tool,
 ):
     mcp.tool(_tool)
 

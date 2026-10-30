@@ -194,6 +194,23 @@ async def _builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
                 resume = {
                     approval.interrupt_id: approval.model_dump(exclude={"interrupt_id"})
                 }
+            elif request.tool_approval is not None:
+                previous = await local_step(user, session_id)
+                pending = {item["id"]: item for item in previous["pending"]}
+                approval = request.tool_approval
+                if (
+                    set(pending) != {approval.interrupt_id}
+                    or pending[approval.interrupt_id]["kind"] != "tool_approval"
+                ):
+                    raise HTTPException(
+                        409, "No matching tool change to review; reload and try again"
+                    )
+                # On approve the graph replays propose_tool past the approval
+                # interrupt and fires the create/update relay, which the loop
+                # below auto-executes -- the tool commits only after approval.
+                resume = {
+                    approval.interrupt_id: approval.model_dump(exclude={"interrupt_id"})
+                }
             else:
                 resume = None
             # Edit mode: seed the build stage from the workflow's live code so a

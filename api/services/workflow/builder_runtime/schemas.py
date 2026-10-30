@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from api.schemas.workflow_builder import BuilderPlanDecision
+from api.schemas.workflow_builder import BuilderPlanDecision, BuilderToolDecision
 
 
 def validate_plan_decision(revision: int, value: Any) -> BuilderPlanDecision:
@@ -11,6 +11,10 @@ def validate_plan_decision(revision: int, value: Any) -> BuilderPlanDecision:
     if decision.brief_revision != revision:
         raise ValueError("The plan changed; reload and review it again")
     return decision
+
+
+def validate_tool_decision(value: Any) -> BuilderToolDecision:
+    return BuilderToolDecision.model_validate(value)
 
 
 class BuilderQuestion(BaseModel):

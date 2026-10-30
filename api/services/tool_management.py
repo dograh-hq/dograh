@@ -14,12 +14,13 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import PostHogEvent, ToolCategory
+from api.enums import PostHogEvent, ToolCategory, ToolStatus
 from api.schemas.tool import (
     CreatedByResponse,
     CreateToolRequest,
     McpRefreshResponse,
     ToolResponse,
+    UpdateToolRequest,
 )
 from api.services.posthog_client import capture_event
 from api.services.workflow.mcp_tool_session import discover_mcp_tools
@@ -232,6 +233,113 @@ async def create_tool_for_user(
         properties={
             "tool_name": request.name,
             "tool_category": request.category,
+            "source": source,
+            "organization_id": user.selected_organization_id,
+        },
+    )
+
+    return build_tool_response(tool)
+
+
+async def get_tool_for_user(
+    tool_uuid: str,
+    user: UserModel,
+    *,
+    include_archived: bool = True,
+) -> ToolResponse:
+    """Read one tool's full definition for the user's selected org."""
+    if not user.selected_organization_id:
+        raise ToolManagementError(
+            "organization_required",
+            "No organization selected for the user",
+            status_code=400,
+        )
+
+    tool = await db_client.get_tool_by_uuid(
+        tool_uuid, user.selected_organization_id, include_archived=include_archived
+    )
+    if not tool:
+        raise ToolManagementError("tool_not_found", "Tool not found", status_code=404)
+
+    return build_tool_response(tool, include_created_by=True)
+
+
+async def update_tool_for_user(
+    tool_uuid: str,
+    request: UpdateToolRequest,
+    user: UserModel,
+    *,
+    source: str = "api",
+) -> ToolResponse:
+    """Apply a partial update to a tool in the user's selected org.
+
+    `definition`, when given, is the FULL replacement definition -- not a
+    field-level patch: read the tool first, change what you need, and send the
+    whole definition back. Its `type` must equal the tool's existing category,
+    because a tool cannot change category and the runtime dispatches on it.
+    Reference checks and MCP discovery mirror `create_tool_for_user`.
+    """
+    if not user.selected_organization_id:
+        raise ToolManagementError(
+            "organization_required",
+            "No organization selected for the user",
+            status_code=400,
+        )
+
+    existing = await db_client.get_tool_by_uuid(
+        tool_uuid, user.selected_organization_id, include_archived=True
+    )
+    if not existing:
+        raise ToolManagementError("tool_not_found", "Tool not found", status_code=404)
+
+    if request.status is not None:
+        valid_statuses = [s.value for s in ToolStatus]
+        if request.status not in valid_statuses:
+            raise ToolManagementError(
+                "validation_error",
+                f"Invalid status '{request.status}'. Must be one of: "
+                f"{', '.join(valid_statuses)}.",
+            )
+
+    definition = None
+    if request.definition is not None:
+        definition = request.definition.model_dump()
+        if definition.get("type") != existing.category:
+            raise ToolManagementError(
+                "category_mismatch",
+                (
+                    f"This tool's category is '{existing.category}', and a tool "
+                    f"cannot change category. The supplied definition has type "
+                    f"'{definition.get('type')}'. Create a new tool instead."
+                ),
+            )
+        await validate_tool_references(
+            definition, organization_id=user.selected_organization_id
+        )
+        definition = await populate_discovered_tools(
+            definition,
+            organization_id=user.selected_organization_id,
+        )
+
+    tool = await db_client.update_tool(
+        tool_uuid=tool_uuid,
+        organization_id=user.selected_organization_id,
+        name=request.name,
+        description=request.description,
+        definition=definition,
+        icon=request.icon,
+        icon_color=request.icon_color,
+        status=request.status,
+    )
+    if not tool:
+        raise ToolManagementError("tool_not_found", "Tool not found", status_code=404)
+
+    capture_event(
+        distinct_id=str(user.provider_id),
+        event=PostHogEvent.TOOL_UPDATED,
+        properties={
+            "tool_name": tool.name,
+            "tool_category": tool.category,
             "source": source,
             "organization_id": user.selected_organization_id,
         },

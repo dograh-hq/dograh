@@ -25,6 +25,7 @@ from langgraph.types import Command, interrupt
 from pydantic import Field
 from typing_extensions import TypedDict
 
+from api.schemas.tool import CreateToolRequest, UpdateToolRequest
 from api.services.workflow.authoring import authoring_stage
 from api.services.workflow.authoring.contracts import (
     AuthoringStage,
@@ -38,6 +39,7 @@ from .schemas import (
     QuestionBatch,
     validate_answers,
     validate_plan_decision,
+    validate_tool_decision,
 )
 
 ASSETS = Path(__file__).parent / "assets"
@@ -48,6 +50,7 @@ STAGE_MCP_TOOLS = {
             "list_node_types",
             "get_node_type",
             "list_tools",
+            "get_tool",
             "list_documents",
             "list_credentials",
             "list_recordings",
@@ -58,6 +61,7 @@ STAGE_MCP_TOOLS = {
         {
             "get_node_type",
             "list_tools",
+            "get_tool",
             "list_documents",
             "list_credentials",
             "list_recordings",
@@ -65,9 +69,25 @@ STAGE_MCP_TOOLS = {
         }
     ),
 }
-ALLOWED_TOOLS = frozenset.union(*STAGE_MCP_TOOLS.values()) | {"preview_workflow"}
+# create_tool/update_tool are NOT agent-callable: the relay auto-executes any
+# tool in a stage's set without a human gate, and these mutate the account.
+# They stay relay-executable (so the gated propose_tool handoff can run them
+# on approval) but are kept out of STAGE_MCP_TOOLS so the agent cannot call
+# them directly and commit un-approved.
+GATED_TOOLS = frozenset({"create_tool", "update_tool"})
+ALLOWED_TOOLS = (
+    frozenset.union(*STAGE_MCP_TOOLS.values()) | {"preview_workflow"} | GATED_TOOLS
+)
 MAX_VALIDATION_ATTEMPTS = 3
 MAX_REVIEW_ATTEMPTS = 3
+
+
+def _keep_latest(_current, new):
+    # A handoff tool that interrupts twice in one turn (propose_tool: approval,
+    # then the create/update relay) makes run_step write last_request_id on both
+    # resumes within one superstep. Take the latest rather than erroring on the
+    # concurrent write; the value is only a replay-dedup marker.
+    return new
 
 
 class BuilderState(TypedDict, total=False):
@@ -88,7 +108,7 @@ class BuilderState(TypedDict, total=False):
     validation_attempts: int
     review_attempts: int
     idle_turns: int
-    last_request_id: str
+    last_request_id: Annotated[str, _keep_latest]
 
 
 def _fresh_messages(payload: dict) -> list[AnyMessage]:
@@ -328,6 +348,101 @@ def propose_workflow(
 
 
 @tool
+def propose_tool(
+    tool: CreateToolRequest,
+    plain_language: Annotated[str, Field(min_length=1)],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Propose creating a reusable tool, gated for human approval.
+
+    Use for a tool the agent needs that does not exist yet: http_api,
+    transfer_call, transfer_agent, end_call, calculator, or mcp. `tool` is the
+    full `CreateToolRequest`; `plain_language` is a one-paragraph description of
+    what the tool does, when it runs, and what it sends, for the approval card.
+
+    The tool is created only if the human approves; on approval the new
+    `tool_uuid` is returned, which you then add to the node's `tool_uuids`. On
+    denial, revise per the feedback or drop the tool. Never assume approval.
+    Leave unknown endpoints/credentials as placeholders and say so.
+    """
+    decision = validate_tool_decision(
+        interrupt(
+            {
+                "kind": "tool_approval",
+                "operation": "create",
+                "tool": tool.model_dump(),
+                "plain_language": plain_language,
+                "used_by_count": None,
+            }
+        )
+    )
+    if decision.decision == "deny":
+        return _result(
+            "build",
+            tool_call_id,
+            {"created": False, "approved": False, "feedback": decision.feedback},
+        )
+    result = interrupt(
+        {
+            "kind": "mcp",
+            "tool_name": "create_tool",
+            "arguments": {"request": tool.model_dump()},
+        }
+    )
+    return _result("build", tool_call_id, result)
+
+
+@tool
+def propose_tool_edit(
+    tool_uuid: Annotated[str, Field(min_length=1)],
+    changes: UpdateToolRequest,
+    plain_language: Annotated[str, Field(min_length=1)],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Propose editing an existing reusable tool, gated for human approval.
+
+    Read the tool with `get_tool` first. `changes` is an `UpdateToolRequest`
+    with only the fields to change; `definition`, when included, is the FULL
+    replacement definition (not a field-level patch) and its type must match
+    the tool's category. `plain_language` summarizes the change for the card.
+
+    This edits the shared tool in place, so it affects every workflow that
+    references this tool_uuid — the approval card says so. The edit is applied
+    only if the human approves; on denial, revise per the feedback (for example
+    create a separate tool instead). Never assume approval.
+    """
+    decision = validate_tool_decision(
+        interrupt(
+            {
+                "kind": "tool_approval",
+                "operation": "update",
+                "tool_uuid": tool_uuid,
+                "tool": changes.model_dump(exclude_none=True),
+                "plain_language": plain_language,
+                "used_by_count": None,
+            }
+        )
+    )
+    if decision.decision == "deny":
+        return _result(
+            "build",
+            tool_call_id,
+            {"updated": False, "approved": False, "feedback": decision.feedback},
+        )
+    result = interrupt(
+        {
+            "kind": "mcp",
+            "tool_name": "update_tool",
+            "arguments": {
+                "tool_uuid": tool_uuid,
+                "request": changes.model_dump(exclude_none=True),
+            },
+        }
+    )
+    return _result("build", tool_call_id, result)
+
+
+@tool
 def submit_review(
     review: ReviewResult,
     state: Annotated[dict, InjectedState],
@@ -404,7 +519,7 @@ def submit_review(
 
 LOCAL_TOOLS = {
     "plan": [ask_questions, submit_brief],
-    "build": [request_clarification, propose_workflow],
+    "build": [request_clarification, propose_tool, propose_tool_edit, propose_workflow],
     "review": [submit_review],
 }
 

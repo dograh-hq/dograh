@@ -12,7 +12,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
-from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.utils.enums import EndTaskReason

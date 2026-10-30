@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from pipecat.adapters.services.aws_nova_sonic_adapter import Role
+from pipecat.adapters.llm.services.aws_nova_sonic_adapter import Role
 from pipecat.frames.frames import (
     FunctionCallFromLLM,
     InputAudioRawFrame,

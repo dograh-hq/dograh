@@ -2,9 +2,9 @@ from unittest.mock import patch
 
 import pytest
 from google.genai.types import GenerateContentConfig, LiveConnectConfig
-from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
-from pipecat.adapters.services.gemini_live_adapter import GeminiLiveLLMAdapter
+from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.llm.services.gemini_live_adapter import GeminiLiveLLMAdapter
 
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.gemini_json_schema_adapter import (

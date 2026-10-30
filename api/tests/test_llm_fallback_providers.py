@@ -379,8 +379,8 @@ async def test_bedrock_tool_boundary_wins_without_gemini_info_frame(monkeypatch)
                 {"contentBlockStop": {"contentBlockIndex": 0}},
             ),
         )
-        from pipecat.adapters.schemas.function_schema import FunctionSchema
-        from pipecat.adapters.schemas.tools_schema import ToolsSchema
+        from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
+        from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 
         context = LLMContext(
             messages=[{"role": "user", "content": "book"}],

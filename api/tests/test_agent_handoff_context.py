@@ -275,7 +275,7 @@ async def test_provider_conversion_keeps_one_user_message(
     module_name, class_name, kwargs
 ):
     module = pytest.importorskip(
-        f"pipecat.adapters.services.{module_name}", exc_type=ImportError
+        f"pipecat.adapters.llm.services.{module_name}", exc_type=ImportError
     )
     adapter = getattr(module, class_name)()
     source = LLMContext(

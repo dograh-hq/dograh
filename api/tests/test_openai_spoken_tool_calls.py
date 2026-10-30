@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from openai.types.chat import ChatCompletionChunk
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.clocks.system_clock import SystemClock
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,

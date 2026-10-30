@@ -25,7 +25,7 @@ from api.services.pipecat.realtime.conversation import (
     opening_request,
 )
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
-from pipecat.adapters.services.aws_nova_sonic_adapter import (
+from pipecat.adapters.llm.services.aws_nova_sonic_adapter import (
     AWSNovaSonicConversationHistoryMessage,
     AWSNovaSonicLLMAdapter,
     AWSNovaSonicLLMInvocationParams,

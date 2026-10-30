@@ -7,7 +7,7 @@ import uuid
 from loguru import logger
 
 from api.services.pipecat.spoken_tool_call_guard import SpokenToolCallGuard
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.services.llm_service import FunctionCallFromLLM, FunctionCallRunnerItem
 
 

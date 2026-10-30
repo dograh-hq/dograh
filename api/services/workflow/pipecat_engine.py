@@ -13,7 +13,7 @@ from typing import (
     Union,
 )
 
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,

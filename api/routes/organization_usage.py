@@ -444,30 +444,26 @@ class BillingPaymentsResponse(BaseModel):
 
 
 @router.get("/billing/payments", response_model=BillingPaymentsResponse)
-async def get_billing_payments(
-    user: UserModel = Depends(get_user_with_selected_organization),
-):
+async def get_billing_payments(user: UserModel = Depends(get_user)):
     """Paid credit top-ups, newest first, each with its tax invoice if any."""
     if DEPLOYMENT_MODE == "oss":
         raise HTTPException(
             status_code=404, detail="Payments are not available in OSS mode"
         )
-
     organization_id = user.selected_organization_id
-    assert organization_id is not None
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
     try:
         result = await mps_service_key_client.list_payments(
             organization_id=organization_id, created_by=str(user.provider_id)
         )
+        return BillingPaymentsResponse(**result)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(f"Failed to list payments for org {organization_id}: {exc}")
         raise HTTPException(status_code=502, detail="Could not load payments")
-    return BillingPaymentsResponse(
-        payments=[
-            BillingPaymentResponse(**{**payment, "paid_at": str(payment["paid_at"])})
-            for payment in result.get("payments", [])
-        ]
-    )
 
 
 @router.get(
@@ -476,23 +472,25 @@ async def get_billing_payments(
     responses={200: {"content": {"application/pdf": {}}}},
 )
 async def download_billing_invoice(
-    payment_order_id: int,
-    user: UserModel = Depends(get_user_with_selected_organization),
+    payment_order_id: int, user: UserModel = Depends(get_user)
 ):
     """Download a paid credit top-up's tax invoice as a PDF."""
     if DEPLOYMENT_MODE == "oss":
         raise HTTPException(
             status_code=404, detail="Invoices are not available in OSS mode"
         )
-
     organization_id = user.selected_organization_id
-    assert organization_id is not None
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
     try:
         mps_response = await mps_service_key_client.get_invoice_pdf(
             organization_id=organization_id,
             payment_order_id=payment_order_id,
             created_by=str(user.provider_id),
         )
+    except HTTPException:
+        raise
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Invoice not found")

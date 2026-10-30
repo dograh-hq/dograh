@@ -34,12 +34,16 @@ import { formatDate } from "@/lib/dateTime";
 // for people without an email app.
 const INVOICE_REQUEST_EMAIL = "founders@dograh.com";
 
-const formatAmount = (amountMinor: number, currency: string) => (
-    new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amountMinor / 100)
-);
+// Amounts arrive in the currency's minor unit: cents, paise, or whole yen.
+const formatAmount = (amountMinor: number, currency: string) => {
+    const format = new Intl.NumberFormat(undefined, { style: "currency", currency });
+    const digits = format.resolvedOptions().maximumFractionDigits ?? 2;
+    return format.format(amountMinor / 10 ** digits);
+};
 
 export default function InvoicesPage() {
     const auth = useAuth();
+    const { redirectToLogin } = auth;
     const { config, loading: configLoading } = useAppConfig();
     const { orgContext, loading: orgLoading } = useOrgConfig();
     const timezone = useOrganizationTimezone();
@@ -48,6 +52,13 @@ export default function InvoicesPage() {
     const [downloading, setDownloading] = useState<number | null>(null);
     const [requesting, setRequesting] = useState<BillingPaymentResponse | null>(null);
     const isOssMode = !configLoading && config?.deploymentMode === "oss";
+
+    // Redirect if not authenticated
+    useEffect(() => {
+        if (!auth.loading && !auth.isAuthenticated) {
+            redirectToLogin();
+        }
+    }, [auth.loading, auth.isAuthenticated, redirectToLogin]);
 
     useEffect(() => {
         if (auth.loading || configLoading || orgLoading || isOssMode) {
@@ -124,7 +135,16 @@ export default function InvoicesPage() {
             </Button>}>
             {isOssMode ? (
                 <p className="text-muted-foreground">
-                    Invoices for credits bought on app.dograh.com are available there.
+                    Invoices for credits bought on{" "}
+                    <a
+                        href="https://app.dograh.com/billing/invoices"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-foreground underline underline-offset-2"
+                    >
+                        app.dograh.com
+                    </a>{" "}
+                    are available there.
                 </p>
             ) : fetchError ? (
                 <p role="alert" className="py-8 text-center text-destructive">{fetchError}</p>
@@ -152,12 +172,12 @@ export default function InvoicesPage() {
                                         {formatAmount(payment.amount_minor, payment.currency)}
                                     </TableCell>
                                     <TableCell className="text-right">
-                                        {payment.invoice_status === "issued" ? (
+                                        {payment.invoice_status === "issued" && payment.invoice_number ? (
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
                                                 className="h-8 px-2"
-                                                disabled={downloading === payment.payment_order_id}
+                                                disabled={downloading !== null}
                                                 onClick={() => downloadInvoice(payment)}
                                             >
                                                 {downloading === payment.payment_order_id ? (

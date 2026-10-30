@@ -36,6 +36,47 @@ class _Response:
 
 
 @pytest.mark.asyncio
+async def test_invoice_calls_name_the_team_and_acting_user(monkeypatch):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        if request.url.path.endswith("/pdf"):
+            return httpx.Response(200, content=b"%PDF-1.4")
+        return httpx.Response(200, json={"payments": []})
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        mps_client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: async_client(
+            transport=httpx.MockTransport(handle),
+            **kwargs,
+        ),
+    )
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(mps_client_module, "DOGRAH_MPS_SECRET_KEY", "mps-secret")
+    client = MPSServiceKeyClient()
+
+    payments = await client.list_payments(organization_id=42, created_by="stack-user")
+    pdf = await client.get_invoice_pdf(
+        organization_id=42, payment_order_id=200, created_by="stack-user"
+    )
+
+    assert payments == {"payments": []}
+    assert pdf.content == b"%PDF-1.4"
+    assert [request.url.path for request in requests] == [
+        f"/api/v1/billing/teams/{TEAM_ID}/payments",
+        f"/api/v1/billing/teams/{TEAM_ID}/invoices/200/pdf",
+    ]
+    for request in requests:
+        assert request.method == "GET"
+        assert request.headers["X-Stack-Team-Id"] == TEAM_ID
+        assert request.headers["X-Created-By"] == "stack-user"
+        assert request.headers["X-Secret-Key"] == "mps-secret"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("entry_type", [None, "purchase", "credit"])
 async def test_credit_ledger_forwards_filters_with_organization_auth(
     monkeypatch, entry_type

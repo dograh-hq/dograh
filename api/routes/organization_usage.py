@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Any, Dict, List, Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -426,6 +427,87 @@ async def create_mps_credit_purchase_url(
             detail="MPS checkout session response missing checkout_url",
         )
     return MPSCreditPurchaseUrlResponse(checkout_url=checkout_url)
+
+
+class BillingPaymentResponse(BaseModel):
+    payment_order_id: int
+    paid_at: str
+    amount_minor: int
+    currency: str
+    gateway_payment_id: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_status: Literal["issued", "pending", "unavailable"]
+
+
+class BillingPaymentsResponse(BaseModel):
+    payments: List[BillingPaymentResponse]
+
+
+@router.get("/billing/payments", response_model=BillingPaymentsResponse)
+async def get_billing_payments(user: UserModel = Depends(get_user)):
+    """Paid credit top-ups, newest first, each with its tax invoice if any."""
+    if DEPLOYMENT_MODE == "oss":
+        raise HTTPException(
+            status_code=404, detail="Payments are not available in OSS mode"
+        )
+    organization_id = user.selected_organization_id
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    try:
+        result = await mps_service_key_client.list_payments(
+            organization_id=organization_id, created_by=str(user.provider_id)
+        )
+        return BillingPaymentsResponse(**result)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Failed to list payments for org {organization_id}: {exc}")
+        raise HTTPException(status_code=502, detail="Could not load payments")
+
+
+@router.get(
+    "/billing/invoices/{payment_order_id}/pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+async def download_billing_invoice(
+    payment_order_id: int, user: UserModel = Depends(get_user)
+):
+    """Download a paid credit top-up's tax invoice as a PDF."""
+    if DEPLOYMENT_MODE == "oss":
+        raise HTTPException(
+            status_code=404, detail="Invoices are not available in OSS mode"
+        )
+    organization_id = user.selected_organization_id
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    try:
+        mps_response = await mps_service_key_client.get_invoice_pdf(
+            organization_id=organization_id,
+            payment_order_id=payment_order_id,
+            created_by=str(user.provider_id),
+        )
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        logger.error(f"Failed to fetch invoice for order {payment_order_id}: {exc}")
+        raise HTTPException(status_code=502, detail="Could not download invoice")
+    except Exception as exc:
+        logger.error(f"Failed to fetch invoice for order {payment_order_id}: {exc}")
+        raise HTTPException(status_code=502, detail="Could not download invoice")
+    return Response(
+        content=mps_response.content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": mps_response.headers.get(
+                "content-disposition", 'attachment; filename="invoice.pdf"'
+            )
+        },
+    )
 
 
 FILTERS_DESCRIPTION = """\

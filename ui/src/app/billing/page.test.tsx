@@ -114,6 +114,12 @@ describe("billing ledger filters", () => {
         expect(screen.queryByText("No entries match these filters.")).toBeNull();
     });
 
+    it("links to the invoices page", async () => {
+        render(<BillingPage />);
+        await screen.findByText("Credit Ledger");
+        expect(screen.getByRole("link", { name: "Invoices" }).getAttribute("href")).toBe("/billing/invoices");
+    });
+
     it("preserves the OSS credit view without ledger filters", async () => {
         mocks.config.deploymentMode = "oss";
         render(<BillingPage />);

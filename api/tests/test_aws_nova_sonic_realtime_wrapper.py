@@ -182,7 +182,7 @@ def test_factory_normalizes_blank_nova_session_token():
         ),
     ],
 )
-def test_nova_history_starts_with_user_and_alternates_without_changing_transcript(
+async def test_nova_history_starts_with_user_and_alternates_without_changing_transcript(
     messages, expected
 ):
     service = _make_service()
@@ -190,7 +190,7 @@ def test_nova_history_starts_with_user_and_alternates_without_changing_transcrip
 
     # Repeated reconnects must not accumulate synthetic messages in the context.
     for _ in range(2):
-        params = service.get_llm_adapter().get_llm_invocation_params(context)
+        params = await service.get_llm_adapter().get_llm_invocation_params(context)
         history = params["messages"]
         assert [m.role for m in history] == [role for role, _ in expected]
         for message, (_, text) in zip(history, expected):
@@ -758,7 +758,7 @@ async def test_end_node_reconnect_removes_previous_transition_tools(
         "promptStart"
     ]
     assert "toolConfiguration" not in closing_prompt
-    assert service.get_setup_params()[1] == []
+    assert (await service.get_setup_params())[1] == []
     sent_text = service._send_text_event.await_args_list
     assert sent_text[0].kwargs == {
         "text": service._settings.system_instruction,

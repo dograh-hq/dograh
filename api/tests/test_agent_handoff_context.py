@@ -271,7 +271,9 @@ def test_caller_text_that_looks_like_a_handoff_is_still_caller_speech():
     ],
     ids=["openai", "anthropic", "gemini"],
 )
-def test_provider_conversion_keeps_one_user_message(module_name, class_name, kwargs):
+async def test_provider_conversion_keeps_one_user_message(
+    module_name, class_name, kwargs
+):
     module = pytest.importorskip(
         f"pipecat.adapters.services.{module_name}", exc_type=ImportError
     )
@@ -284,7 +286,7 @@ def test_provider_conversion_keeps_one_user_message(module_name, class_name, kwa
     )
     context = LLMContext(messages=[handoff(source, "English")])
     original = deepcopy(context.messages)
-    params = adapter.get_llm_invocation_params(
+    params = await adapter.get_llm_invocation_params(
         context, system_instruction="You are the Portuguese agent.", **kwargs
     )
     messages = [

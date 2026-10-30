@@ -83,7 +83,7 @@ async def test_gemini_modality_counts_survive_aggregation_and_public_serializati
     public_usage = format_public_usage_info(stored_usage)
     assert public_usage["llm"][USAGE_KEY] == {
         "prompt_tokens": 1000,
-        "completion_tokens": 200,
+        "completion_tokens": 220,
         "total_tokens": 1220,
         "cache_read_input_tokens": 100,
         "cache_creation_input_tokens": None,

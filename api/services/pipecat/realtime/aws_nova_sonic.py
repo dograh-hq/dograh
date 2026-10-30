@@ -54,11 +54,15 @@ _NODE_TRANSITION_RESPONSE_PROMPT = (
 class DograhAWSNovaSonicLLMAdapter(AWSNovaSonicLLMAdapter):
     """Keep bot-first conversations valid when replaying history to Nova."""
 
-    def get_llm_invocation_params(
-        self, context: LLMContext, *, system_instruction: str | None = None
+    async def get_llm_invocation_params(
+        self,
+        context: LLMContext,
+        *,
+        system_instruction: str | None = None,
+        service_tools: Any = None,
     ) -> AWSNovaSonicLLMInvocationParams:
-        params = super().get_llm_invocation_params(
-            context, system_instruction=system_instruction
+        params = await super().get_llm_invocation_params(
+            context, system_instruction=system_instruction, service_tools=service_tools
         )
         messages = params["messages"]
         history: list[AWSNovaSonicConversationHistoryMessage] = []
@@ -215,7 +219,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
             return
         if transcript:
             self._pending_message_batches.append(
-                (self._prerecorded_greeting_turns(transcript), False)
+                (await self._prerecorded_greeting_turns(transcript), False)
             )
         self._opening_after_prerecorded_greeting = True
         try:
@@ -224,7 +228,9 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         finally:
             self._opening_after_prerecorded_greeting = False
 
-    def _prerecorded_greeting_turns(self, transcript: str) -> list[tuple[Role, str]]:
+    async def _prerecorded_greeting_turns(
+        self, transcript: str
+    ) -> list[tuple[Role, str]]:
         """The greeting as Nova history: never opening on ASSISTANT, alternating.
 
         AWS rejects history that begins with ASSISTANT and requires roles to
@@ -234,9 +240,9 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         """
         messages = []
         if self._context is not None:
-            messages = self.get_llm_adapter().get_llm_invocation_params(self._context)[
-                "messages"
-            ]
+            messages = (
+                await self.get_llm_adapter().get_llm_invocation_params(self._context)
+            )["messages"]
         turns: list[tuple[Role, str]] = []
         if not messages or messages[-1].role is not Role.USER:
             turns.append((Role.USER, _INITIAL_RESPONSE_PROMPT))
@@ -398,7 +404,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         # (common when a transition follows spoken text), queue a short user
         # nudge so the fresh session still responds exactly once.
         adapter = self.get_llm_adapter()
-        invocation_params = adapter.get_llm_invocation_params(
+        invocation_params = await adapter.get_llm_invocation_params(
             context,
             system_instruction=self._settings.system_instruction,
         )

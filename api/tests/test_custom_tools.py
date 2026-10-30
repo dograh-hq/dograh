@@ -25,7 +25,6 @@ from pipecat.frames.frames import (
     LLMFullResponseStartFrame,
     LLMServiceMetadataFrame,
     TTSSpeakFrame,
-    UserTurnInferenceCompletedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -1611,7 +1610,6 @@ class TestCustomToolManagerIntegration:
                 LLMServiceMetadataFrame,
                 LLMFullResponseStartFrame,
                 FunctionCallsFromLLMInfoFrame,
-                UserTurnInferenceCompletedFrame,
                 FunctionCallsStartedFrame,
                 LLMFullResponseEndFrame,
                 FunctionCallInProgressFrame,

@@ -313,7 +313,7 @@ export type BuilderInterrupt = {
     /**
      * Kind
      */
-    kind: 'questions' | 'plan_approval' | 'mcp';
+    kind: 'questions' | 'plan_approval' | 'mcp' | 'tool_approval';
     brief?: CallBrief | null;
     /**
      * Brief Revision
@@ -333,6 +333,28 @@ export type BuilderInterrupt = {
     arguments?: {
         [key: string]: unknown;
     };
+    /**
+     * Operation
+     */
+    operation?: 'create' | 'update' | null;
+    /**
+     * Tool
+     */
+    tool?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Tool Uuid
+     */
+    tool_uuid?: string | null;
+    /**
+     * Plain Language
+     */
+    plain_language?: string | null;
+    /**
+     * Used By Count
+     */
+    used_by_count?: number | null;
 };
 
 /**
@@ -365,6 +387,24 @@ export type BuilderPlanApproval = {
      * Decision
      */
     decision: 'approve' | 'revise';
+    /**
+     * Feedback
+     */
+    feedback?: string;
+    /**
+     * Interrupt Id
+     */
+    interrupt_id: string;
+};
+
+/**
+ * BuilderToolApproval
+ */
+export type BuilderToolApproval = {
+    /**
+     * Decision
+     */
+    decision: 'approve' | 'deny';
     /**
      * Feedback
      */
@@ -505,6 +545,7 @@ export type BuilderTurnRequest = {
         };
     } | null;
     approval?: BuilderPlanApproval | null;
+    tool_approval?: BuilderToolApproval | null;
     /**
      * Workflow Id
      */

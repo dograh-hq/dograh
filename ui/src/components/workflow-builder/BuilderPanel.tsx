@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { PlanApprovalCard } from '@/components/workflow-builder/PlanApprovalCard';
 import { QuestionCards } from '@/components/workflow-builder/QuestionCards';
+import { ToolApprovalCard } from '@/components/workflow-builder/ToolApprovalCard';
 import { WorkflowPreview } from '@/components/workflow-builder/WorkflowPreview';
 import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
@@ -79,7 +80,8 @@ export function BuilderPanel({ workflowId, onSaved }: { workflowId?: number; onS
     useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [session?.messages?.length, session?.pending?.length, status]);
     const pendingQuestions = session?.pending?.filter(item => item.kind === 'questions') ?? [];
     const pendingApproval = session?.pending?.find(item => item.kind === 'plan_approval');
-    const awaitingUser = !!pendingQuestions.length || !!pendingApproval;
+    const pendingToolApproval = session?.pending?.find(item => item.kind === 'tool_approval');
+    const awaitingUser = !!pendingQuestions.length || !!pendingApproval || !!pendingToolApproval;
     const isStarting = !restoring && !session?.messages?.length && !awaitingUser && !session?.proposal && !busy && !optimisticMessage && !session?.can_continue;
     useEffect(() => { if (isStarting) composer.current?.focus(); }, [isStarting]);
     const newConversation = () => {
@@ -88,7 +90,7 @@ export function BuilderPanel({ workflowId, onSaved }: { workflowId?: number; onS
         const url = new URL(window.location.href); url.searchParams.delete('session');
         window.history.replaceState(window.history.state, '', url);
     };
-    const send = async (content: Pick<BuilderTurnRequest, 'message' | 'answers' | 'approval'> = {}) => {
+    const send = async (content: Pick<BuilderTurnRequest, 'message' | 'answers' | 'approval' | 'tool_approval'> = {}) => {
         if (!user || busy || restoring || !sessionId) return;
         const controller = new AbortController(); abort.current = controller;
         setBusy(true); setError(null); setStatus('Thinking about your agent…'); setOptimisticMessage(content.message ?? '');
@@ -147,6 +149,7 @@ export function BuilderPanel({ workflowId, onSaved }: { workflowId?: number; onS
                     {optimisticMessage && <div className="ml-8 rounded-2xl bg-muted px-4 py-3 text-sm">{optimisticMessage}</div>}
                     {!!pendingQuestions.length && <QuestionCards key={pendingQuestions.map(item => item.id).join(':')} pending={pendingQuestions} disabled={busy} onSubmit={answers => void send({ answers })} />}
                     {pendingApproval?.brief && pendingApproval.brief_revision != null && <PlanApprovalCard key={pendingApproval.id} interruptId={pendingApproval.id} revision={pendingApproval.brief_revision} brief={pendingApproval.brief} disabled={busy || restoring} onSubmit={approval => void send({ approval })} />}
+                    {pendingToolApproval?.operation && <ToolApprovalCard key={pendingToolApproval.id} interruptId={pendingToolApproval.id} operation={pendingToolApproval.operation} tool={pendingToolApproval.tool} toolUuid={pendingToolApproval.tool_uuid} plainLanguage={pendingToolApproval.plain_language} usedByCount={pendingToolApproval.used_by_count} disabled={busy || restoring} onSubmit={tool_approval => void send({ tool_approval })} />}
                     {busy && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{status}</div>}
                     {error && <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}
                         {error.includes('/model-configurations') && <Link href="/model-configurations" className="mt-2 block font-medium underline">Open Model Configurations</Link>}
@@ -155,7 +158,7 @@ export function BuilderPanel({ workflowId, onSaved }: { workflowId?: number; onS
                     <div ref={bottom} />
                 </div>
                 <form className={`rounded-xl border bg-background p-3 ${isStarting ? 'shadow-sm' : 'm-4'}`} onSubmit={event => { event.preventDefault(); if (input.trim()) void send({ message: input.trim() }); }}>
-                    <Textarea ref={composer} aria-label="Describe your agent or request a change" placeholder={pendingApproval ? 'Review the plan above to continue…' : pendingQuestions.length ? 'Answer the questions above to continue…' : session?.proposal ? 'Ask for a change to your agent…' : editMode ? 'Describe a change to your agent…' : 'Build me an agent that…'} className="min-h-[80px] resize-none border-0 shadow-none focus-visible:ring-0" value={input} maxLength={12000} disabled={busy || restoring || awaitingUser}
+                    <Textarea ref={composer} aria-label="Describe your agent or request a change" placeholder={pendingApproval ? 'Review the plan above to continue…' : pendingToolApproval ? 'Review the tool above to continue…' : pendingQuestions.length ? 'Answer the questions above to continue…' : session?.proposal ? 'Ask for a change to your agent…' : editMode ? 'Describe a change to your agent…' : 'Build me an agent that…'} className="min-h-[80px] resize-none border-0 shadow-none focus-visible:ring-0" value={input} maxLength={12000} disabled={busy || restoring || awaitingUser}
                         onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (input.trim()) void send({ message: input.trim() }); } }} />
                     <div className="flex items-center justify-between"><span className="pl-3 text-xs text-muted-foreground">Shift + Enter for a new line</span><Button type="submit" size="icon" aria-label="Send message" disabled={!input.trim() || busy || restoring || authLoading || !user || awaitingUser}><ArrowUp className="h-4 w-4" /></Button></div>
                 </form>

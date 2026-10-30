@@ -537,6 +537,40 @@ class MPSServiceKeyClient:
                 response=response,
             )
 
+    async def list_payments(
+        self, organization_id: int, created_by: Optional[str] = None
+    ) -> dict:
+        """List the org's paid credit top-ups, newest first, with invoices."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{await self._billing_url(organization_id)}/payments",
+                headers=await self._tenant_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_invoice_pdf(
+        self,
+        organization_id: int,
+        payment_order_id: int,
+        created_by: Optional[str] = None,
+    ) -> httpx.Response:
+        """Fetch a paid top-up's invoice PDF; raises httpx.HTTPStatusError."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{await self._billing_url(organization_id)}"
+                f"/invoices/{payment_order_id}/pdf",
+                headers=await self._tenant_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+            response.raise_for_status()
+            return response
+
     async def get_credit_ledger(
         self,
         organization_id: int,

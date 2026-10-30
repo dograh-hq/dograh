@@ -74,7 +74,7 @@ def enqueue():
         patch(
             "api.services.knowledge_base_content.enqueue_job", new=AsyncMock()
         ) as mock,
-        patch("api.routes.knowledge_base.capture_event"),
+        patch("api.routes.knowledge_base.capture_tenant_event"),
     ):
         yield mock
 

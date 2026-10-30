@@ -298,7 +298,7 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
             patch(
                 "api.services.workflow.text_chat_runner.create_llm_service",
                 return_value=llm,
-            ),
+            ) as create_llm,
             patch(
                 "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
                 new=AsyncMock(return_value=False),
@@ -309,6 +309,8 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
                 json={"initial_context": {"name": "explicit"}},
             )
             assert create_response.status_code == 200
+            # Chat replies are read, so the guard must keep their markup.
+            assert create_llm.call_args.kwargs["spoken_output"] is False
             if endpoint_suffix:
                 updates = [
                     json.loads(line[6:])

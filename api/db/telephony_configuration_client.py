@@ -181,37 +181,36 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return list(result.scalars().all())
 
-    async def list_active_whatsapp_configurations_by_phone_number_id(
-        self, phone_number_id: str
+    async def list_active_whatsapp_configurations_by_waba_id(
+        self, waba_id: str
     ) -> list[TelephonyConfigurationModel]:
-        """Every active WhatsApp configuration whose credentials name this Meta phone number."""
+        """Every active WhatsApp configuration whose credentials name this Business Account."""
         async with self.async_session() as session:
             result = await session.execute(
                 select(TelephonyConfigurationModel).where(
                     TelephonyConfigurationModel.provider == "whatsapp",
-                    TelephonyConfigurationModel.credentials.op("->>")("phone_number_id")
-                    == phone_number_id,
+                    TelephonyConfigurationModel.credentials.op("->>")("waba_id")
+                    == waba_id,
                     TelephonyConfigurationModel.inactive.is_(False),
                 )
             )
             return list(result.scalars().all())
 
-    async def get_whatsapp_configuration_by_phone_number_id(
-        self, phone_number_id: str
+    async def get_whatsapp_configuration_by_waba_id(
+        self, waba_id: str
     ) -> Optional[TelephonyConfigurationModel]:
-        """The active WhatsApp configuration whose credentials name this Meta phone number.
+        """The active WhatsApp configuration for this WhatsApp Business Account.
 
-        Meta's webhook carries no tenant, so this is the only thing that routes
-        a call to an organization. Two active configurations claiming the same
-        number is therefore refused rather than guessed between.
+        Meta's webhook names the account in ``entry[].id`` and carries no
+        tenant, so this is the only thing that routes a call to an
+        organization. Two active configurations claiming the same account is
+        therefore refused rather than guessed between.
         """
-        rows = await self.list_active_whatsapp_configurations_by_phone_number_id(
-            phone_number_id
-        )
+        rows = await self.list_active_whatsapp_configurations_by_waba_id(waba_id)
         if len(rows) > 1:
             ids = ", ".join(str(r.id) for r in rows)
             logger.error(
-                f"[WhatsApp] phone_number_id={phone_number_id!r} matches "
+                f"[WhatsApp] waba_id={waba_id!r} matches "
                 f"{len(rows)} active configurations ({ids}); refusing to route."
             )
             return None

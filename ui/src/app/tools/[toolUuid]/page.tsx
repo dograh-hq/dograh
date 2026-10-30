@@ -77,6 +77,7 @@ import {
     TransferAgentToolConfig,
     type TransferAgentWorkflowOption,
     TransferCallToolConfig,
+    type TransferGreetingMode,
 } from "./components";
 
 function normalizeParameterType(value: string | null | undefined): ParameterType {
@@ -149,7 +150,9 @@ export default function ToolDetailPage() {
     const [transferAgentMessage, setTransferAgentMessage] = useState(
         DEFAULT_TRANSFER_AGENT_MESSAGE,
     );
-    const [transferAgentPlayGreeting, setTransferAgentPlayGreeting] = useState(true);
+    const [transferAgentGreetingMode, setTransferAgentGreetingMode] =
+        useState<TransferGreetingMode>("start_greeting");
+    const [transferAgentIntroduction, setTransferAgentIntroduction] = useState("");
     const [agentOptions, setAgentOptions] = useState<TransferAgentWorkflowOption[]>([]);
     const [agentOptionsLoading, setAgentOptionsLoading] = useState(false);
 
@@ -315,7 +318,8 @@ export default function ToolDetailPage() {
             setTransferAgentWorkflowId(
                 config?.workflow_id ? String(config.workflow_id) : "",
             );
-            setTransferAgentPlayGreeting(config?.play_greeting ?? true);
+            setTransferAgentGreetingMode(config?.greeting_mode ?? "start_greeting");
+            setTransferAgentIntroduction(config?.introduction ?? "");
         } else if (tool.category === "mcp") {
             // Populate MCP specific fields
             const config = tool.definition?.config as
@@ -472,6 +476,13 @@ export default function ToolDetailPage() {
         } else if (tool.category === "transfer_agent") {
             if (!transferAgentWorkflowId) {
                 setError("Choose the agent to transfer to");
+                return;
+            }
+            if (
+                transferAgentGreetingMode === "introduce_and_continue" &&
+                !transferAgentIntroduction.trim()
+            ) {
+                setError("Enter what the destination agent should say when it picks up");
                 return;
             }
         } else if (tool.category === "transfer_call") {
@@ -716,7 +727,10 @@ export default function ToolDetailPage() {
                     description: description || undefined,
                     definition: createTransferAgentDefinition({
                         workflow_id: Number(transferAgentWorkflowId),
-                        play_greeting: transferAgentPlayGreeting,
+                        greeting_mode: transferAgentGreetingMode,
+                        ...(transferAgentGreetingMode === "introduce_and_continue"
+                            ? { introduction: transferAgentIntroduction.trim() }
+                            : {}),
                     }, controlMessages),
                 };
             } else {
@@ -1061,8 +1075,10 @@ const data = await response.json();`;
                         workflowsLoading={agentOptionsLoading}
                         message={transferAgentMessage}
                         onMessageChange={setTransferAgentMessage}
-                        playGreeting={transferAgentPlayGreeting}
-                        onPlayGreetingChange={setTransferAgentPlayGreeting}
+                        greetingMode={transferAgentGreetingMode}
+                        onGreetingModeChange={setTransferAgentGreetingMode}
+                        introduction={transferAgentIntroduction}
+                        onIntroductionChange={setTransferAgentIntroduction}
                     />
                 ) : isMcpTool ? (
                     <Card>

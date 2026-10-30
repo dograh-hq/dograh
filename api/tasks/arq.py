@@ -14,6 +14,7 @@ setup_logging()
 # Now import ARQ and task dependencies
 from arq import create_pool, cron
 from arq.connections import ArqRedis, RedisSettings
+from arq.worker import func
 from redis.asyncio.retry import Retry
 from redis.backoff import ExponentialBackoff
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -69,13 +70,16 @@ from api.tasks.text_chat_inactivity import (
     sweep_inactive_text_chat_sessions,
 )
 from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
-from api.tasks.workflow_completion import process_workflow_completion
+from api.tasks.workflow_completion import (
+    process_workflow_completion,
+    sweep_workflow_completions,
+)
 
 
 class WorkerSettings:
     functions = [
         run_integrations_post_workflow_run,
-        process_workflow_completion,
+        func(process_workflow_completion, timeout=300),
         sync_campaign_source,
         process_campaign_batch,
         process_knowledge_base_document,
@@ -84,6 +88,12 @@ class WorkerSettings:
         finalize_completed_text_chat,
     ]
     cron_jobs = [
+        cron(
+            sweep_workflow_completions,
+            minute=set(range(0, 60, 15)),
+            second=15,
+            run_at_startup=True,
+        ),
         # Safety net for webhook deliveries whose ARQ job was lost (worker
         # restart / Redis flush): re-enqueue any pending delivery that is overdue.
         cron(

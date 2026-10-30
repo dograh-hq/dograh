@@ -142,6 +142,23 @@ export function cleanSettings(settings: Record<string, unknown>, schema?: FieldS
     }));
 }
 
+/** Clear or re-default fields whose value was scoped to the sibling that just changed.
+ *  If the dependent field provides model_options for the new choice, its first option
+ *  is selected as default. Otherwise, the value is set to null rather than removed
+ *  so the form does not show the schema default belonging to the previous choice. */
+export function resetDependentFields(settings: Record<string, unknown>, schema: FieldSchema | undefined, changed: string): Record<string, unknown> {
+    const dependents = Object.entries(schema?.properties || {})
+        .filter(([name, field]) => name !== changed && resolveFieldSchema(field, schema).reset_on_change?.includes(changed))
+        .map(([name, field]) => {
+            const resolved = resolveFieldSchema(field, schema);
+            const parentValue = String(settings[changed] ?? "");
+            const modelDefault = resolved.model_options?.[parentValue]?.[0];
+            return [name, modelDefault ?? null];
+        });
+    if (!dependents.length) return settings;
+    return { ...settings, ...Object.fromEntries(dependents) };
+}
+
 export function cleanFallbackPolicy(policy: FallbackPolicy, catalog: ModelConnectionCatalog, connections: ProviderConnection[]): FallbackPolicy {
     return { ...policy, rules: policy.rules.map(rule => {
         const connection = connections.find(item => item.uuid === rule.target.provider_connection_uuid);

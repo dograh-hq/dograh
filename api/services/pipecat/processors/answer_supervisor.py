@@ -1,4 +1,4 @@
-"""Observe answer turns while suppressing their workflow inference triggers.
+"""Share opening timing and inference gating, with optional answer classification.
 
 The gate runs synchronously in the aggregator's push: committing text and
 dropping its trigger complete before on_user_turn_stopped grants permission.
@@ -16,9 +16,11 @@ from pipecat.frames.frames import (
     EndFrame,
     LLMContextFrame,
     ProposedUserStartedSpeakingFrame,
+    ProposedUserStoppedSpeakingFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameProcessor
@@ -29,6 +31,7 @@ from api.services.pipecat.answer_classification import (
     MachineSubtype,
     classify_machine_utterance,
 )
+from api.services.pipecat.call_opening import OpeningDeadline
 
 
 @dataclass(frozen=True)
@@ -75,7 +78,9 @@ class AnswerSupervisor(FrameProcessor):
         self._classify = classify
         self._gate = AnswerContextGate()
         self._armed_at: float | None = None
+        self.opening_deadline = OpeningDeadline()
         self._onset: float | None = None
+        self._speech_ended_at: float | None = None
         self._logical_turn = False
         self._uses_external_turns = True
         self._screening = False
@@ -136,6 +141,15 @@ class AnswerSupervisor(FrameProcessor):
             and not self._logical_turn
             and not aggregator.aggregation_string()
         ):
+            if (
+                self._onset is not None
+                and not self._opening_started
+                and not self._screening
+            ):
+                # An empty/discarded first transcript has not resolved the
+                # answer. Speech already disabled the silence fallback, so keep
+                # its bounded utterance timer until we have usable text.
+                return
             # A start strategy discarded this transcript. It must not leave
             # the answer timer waiting for a user turn that will never end.
             self._onset = None
@@ -164,12 +178,14 @@ class AnswerSupervisor(FrameProcessor):
         """Start the clock at the two-event readiness barrier, before pre-call fetch."""
         if self._armed_at is not None or self._closed:
             return
-        self._armed_at = asyncio.get_running_loop().time()
+        self.opening_deadline.arm()
+        self._armed_at = self.opening_deadline.armed_at
         # Emit the resolved budgets once per call. listening_window_ms is derived
         # from the Start node's Delayed Start.
         self._log(
             "armed",
             strategy="config",
+            detection_enabled=self.config.enabled,
             listening_window_ms=self.config.listening_window_ms,
             human_utterance_max_ms=self.config.human_utterance_max_ms,
             machine_utterance_cap_ms=self.config.machine_utterance_cap_ms,
@@ -191,7 +207,8 @@ class AnswerSupervisor(FrameProcessor):
         Screening and committed decisions are excluded. Classification stays
         active through playback and any turn or classification already underway.
         """
-        await asyncio.sleep(self.config.listening_window_ms / 1000)
+        if not await self.opening_deadline.wait(self.config.listening_window_ms):
+            return
         if self._epoch == 0 and not self._screening and not self._committed:
             self._publish(
                 AnswerVerdict(AnswerAction.START_OPENING, "silent_window"),
@@ -225,11 +242,21 @@ class AnswerSupervisor(FrameProcessor):
         or at arm() if the user turn started before readiness. A resolved turn with
         nonempty text cancels it; LLM classification has a separate budget.
         If it expires for the same speech epoch before a decision is committed,
-        drop the call with machine_timeout, including during screening.
+        detection drops the call with machine_timeout (including screening);
+        ordinary opening supervision proceeds with the greeting.
         The epoch check prevents an older timer from deciding a newer turn.
         """
         await asyncio.sleep(self.config.machine_utterance_cap_ms / 1000)
         if epoch != self._epoch or self._closed or self._committed:
+            return
+        if not self.config.enabled:
+            # Missing STT must not leave an ordinary call silent forever or
+            # apply a machine hangup policy when detection is disabled.
+            self._publish(
+                AnswerVerdict(AnswerAction.RELEASE, "unresolved_turn"),
+                strategy="utterance_timeout",
+                machine_utterance_cap_ms=self.config.machine_utterance_cap_ms,
+            )
             return
         self._publish(
             AnswerVerdict(AnswerAction.DROP, "machine_timeout"),
@@ -243,6 +270,7 @@ class AnswerSupervisor(FrameProcessor):
         if self._onset is not None:
             return  # Duplicate starts must not extend the same turn's deadline.
         self._onset = asyncio.get_running_loop().time()
+        self._speech_ended_at = None
         self._epoch += 1
         self._verdict = None  # Revoke unused permission during a slow pre-call fetch.
         self._changed.set()
@@ -264,7 +292,13 @@ class AnswerSupervisor(FrameProcessor):
         ):
             # Classification measures physical speech; interruption strategies
             # may delay the logical turn until enough words have arrived.
+            self._speech_ended_at = None
             self._speech_started()
+        elif isinstance(frame, ProposedUserStoppedSpeakingFrame) or (
+            isinstance(frame, VADUserStoppedSpeakingFrame)
+            and not self._uses_external_turns
+        ):
+            self._speech_ended_at = asyncio.get_running_loop().time()
         elif isinstance(frame, UserStartedSpeakingFrame):
             # Logged before _speech_started(), which returns early once the
             # opening has been released -- those released calls are exactly the
@@ -282,10 +316,20 @@ class AnswerSupervisor(FrameProcessor):
         await self.push_frame(frame, direction)
 
     async def _on_turn_stopped(self, aggregator, strategy, message):
+        await self._classify_transcript(message.content or "", strategy)
+
+    async def observe_background_turn(self, message: dict) -> None:
+        """Classify retained opening speech without requesting a conversation reply."""
+        if self._closed or self._released or self._committed:
+            return
+        self._gate.held_user_messages[id(message)] = message
+        await self._classify_transcript(message["content"], None)
+
+    async def _classify_transcript(self, text: str, strategy) -> None:
         self._logical_turn = False
         if self._closed or self._released or self._committed:
             return
-        text = (message.content or "").strip()
+        text = text.strip()
         if not text:
             return  # Music/no STT evidence is never a human answer.
         if self._screening:
@@ -295,8 +339,9 @@ class AnswerSupervisor(FrameProcessor):
         # uncommitted. Keep the evidence outside the cancelled task.
         self._turn_texts.append(text)
         text = " ".join(self._turn_texts)
-        now = asyncio.get_running_loop().time()
-        duration = now - self._onset if self._onset is not None else float("inf")
+        # A greeting may defer this commit long after the caller finished.
+        end = self._speech_ended_at or asyncio.get_running_loop().time()
+        duration = end - self._onset if self._onset is not None else float("inf")
         signals = {
             "turn_stop_strategy": str(strategy),
             "duration_ms": round(duration * 1000) if self._onset is not None else None,
@@ -308,6 +353,15 @@ class AnswerSupervisor(FrameProcessor):
         self._onset = None
         if self._utterance_task:
             self._utterance_task.cancel()
+        if not self.config.enabled:
+            # Keep the completed turn in context and the transcript, but consume
+            # its inference trigger. Any utterance can release the one opening.
+            self._publish(
+                AnswerVerdict(AnswerAction.RELEASE, "caller_turn"),
+                strategy="turn_complete",
+                **signals,
+            )
+            return
         subtype = classify_machine_utterance(text)
         # What the patterns alone concluded, kept beside the final subtype so the
         # two can be compared in gathered_context. UNKNOWN here next to a machine
@@ -456,7 +510,11 @@ class AnswerSupervisor(FrameProcessor):
             elapsed,
             subtype,
             strategy,
-            " ".join(f"{key}={value!r}" for key, value in signals.items()),
+            " ".join(
+                f"{key}={value!r}"
+                for key, value in signals.items()
+                if key != "transcript"
+            ),
         )
 
     async def wait_for_verdict(self) -> AnswerVerdict:

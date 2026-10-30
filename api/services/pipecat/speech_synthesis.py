@@ -4,6 +4,7 @@ import asyncio
 import io
 import wave
 
+from api.services.pipecat.pipeline_worker import DograhPipelineWorker
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -16,7 +17,7 @@ from pipecat.frames.frames import (
     TTSStoppedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.pipeline.worker import PipelineParams
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.tts_service import TTSService
 from pipecat.workers.runner import WorkerRunner
@@ -100,7 +101,7 @@ async def synthesize_speech(
     if tts.previous or tts.next:
         raise ValueError("Synthesis requires a fresh, unlinked TTS processor")
     collector = _WavCollector(max_duration)
-    worker = PipelineWorker(
+    worker = DograhPipelineWorker(
         Pipeline([tts, collector]),
         params=PipelineParams(audio_out_sample_rate=sample_rate),
         enable_rtvi=False,

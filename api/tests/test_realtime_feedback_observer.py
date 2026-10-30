@@ -15,6 +15,9 @@ from pipecat.observers.base_observer import FramePushed
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import TransportParams
+from websockets.datastructures import Headers
+from websockets.exceptions import InvalidStatus
+from websockets.http11 import Response
 
 from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.realtime_feedback_observer import (
@@ -205,6 +208,43 @@ async def test_observer_classifies_each_distinct_error_frame(monkeypatch):
     assert failures[0][0].code == "deepgram-401"
     assert failures[0][1] == {"fatal": False}
     assert failures[1][1] == {"fatal": True}
+
+
+@pytest.mark.asyncio
+async def test_rejected_handshake_reason_reaches_the_pipeline_error_event(monkeypatch):
+    messages = []
+
+    async def ws_sender(message):
+        messages.append(message)
+
+    monkeypatch.setattr(
+        "api.services.pipecat.realtime_feedback_observer.log_failure",
+        lambda failure, **context: None,
+    )
+    processor = type("DeepgramTTSService", (), {})()
+    observer = RealtimeFeedbackObserver(ws_sender=ws_sender)
+    exc = InvalidStatus(
+        Response(
+            400,
+            "Bad Request",
+            Headers(),
+            b'{"err_code":"Bad Request","err_msg":"Requested model does not support'
+            b" the 'speed' parameter.\"}",
+        )
+    )
+    frame = ErrorFrame(
+        f"DeepgramTTSService#0 error: {exc}",
+        fatal=True,
+        processor=processor,
+        exception=exc,
+    )
+
+    await observer.on_push_frame(_frame_pushed(frame, FrameDirection.UPSTREAM))
+
+    payload = messages[0]["payload"]
+    reason = "Requested model does not support the 'speed' parameter."
+    assert payload["error"] == f"DeepgramTTSService#0 error: {exc} ({reason})"
+    assert payload["exception_message"] == f"{exc} ({reason})"
 
 
 @pytest.mark.asyncio
@@ -503,6 +543,80 @@ async def test_interrupted_bot_transcript_keeps_the_interrupted_turn_interval():
 
     await coordinator.record_bot_started_speaking(3, "2026-07-14T13:33:06.654+00:00")
     assert event["payload"]["timestamp"] == "2026-07-14T13:33:02.254+00:00"
+
+
+@pytest.mark.asyncio
+async def test_handoff_line_keeps_its_interval_when_the_next_agent_speaks_in_the_same_turn():
+    """Run 2901: the handoff line, the destination's introduction and its reply
+    all played within one logical turn. The two later lines are logged by their
+    own playback path. Their timing must not stretch the handoff entry, and the
+    reply's empty aggregator turn must not re-stamp it after them."""
+    logs = InMemoryLogsBuffer(workflow_run_id=2901)
+    coordinator = TranscriptLogCoordinator(logs)
+    handoff = "Let me connect you with the right person. One moment please."
+
+    await coordinator.record_turn_started(2)
+    await coordinator.record_bot_started_speaking(2, "2026-10-18T19:23:49.536+00:00")
+    await coordinator.record_bot_stopped_speaking(2, "2026-10-18T19:23:52.817+00:00")
+    await coordinator.record_assistant_transcript(
+        text=handoff,
+        timestamp="2026-10-18T19:23:49.530+00:00",
+        event_timestamp="2026-10-18T19:23:52.850+00:00",
+    )
+    # The introduction, then the generated reply right behind it.
+    await coordinator.record_bot_started_speaking(2, "2026-10-18T19:23:54.376+00:00")
+    await coordinator.record_bot_stopped_speaking(2, "2026-10-18T19:23:56.416+00:00")
+    await coordinator.record_bot_started_speaking(2, "2026-10-18T19:23:56.418+00:00")
+    await coordinator.record_assistant_transcript(
+        text="",
+        timestamp="2026-10-18T19:23:54.300+00:00",
+        event_timestamp="2026-10-18T19:23:56.601+00:00",
+    )
+    await coordinator.record_bot_stopped_speaking(2, "2026-10-18T19:24:02.019+00:00")
+    await coordinator.record_turn_ended(2, interrupted=False)
+
+    [event] = logs.get_events()
+    assert event["timestamp"] == "2026-10-18T19:23:52.850+00:00"
+    assert event["payload"] == {
+        "text": handoff,
+        "timestamp": "2026-10-18T19:23:49.536+00:00",
+        "end_timestamp": "2026-10-18T19:23:52.817+00:00",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_response_after_a_pause_in_the_same_turn_is_its_own_entry():
+    """A tool ran between two responses, with too little silence for the turn
+    tracker to end the turn. The second response's transcript lands before its
+    audio starts; it still gets its own interval, not the first one's."""
+    logs = InMemoryLogsBuffer(workflow_run_id=1)
+    coordinator = TranscriptLogCoordinator(logs)
+
+    await coordinator.record_turn_started(1)
+    await coordinator.record_bot_started_speaking(1, "t0")
+    await coordinator.record_assistant_transcript(
+        text="Let me check.", timestamp=None, event_timestamp="e1"
+    )
+    await coordinator.record_bot_stopped_speaking(1, "t1")
+    await coordinator.record_assistant_transcript(
+        text="It is ready.", timestamp=None, event_timestamp="e2"
+    )
+    await coordinator.record_bot_started_speaking(1, "t2")
+    await coordinator.record_bot_stopped_speaking(1, "t3")
+    await coordinator.record_turn_ended(1, interrupted=False)
+
+    first, second = logs.get_events()
+    assert (first["turn"], second["turn"]) == (1, 1)
+    assert first["payload"] == {
+        "text": "Let me check.",
+        "timestamp": "t0",
+        "end_timestamp": "t1",
+    }
+    assert second["payload"] == {
+        "text": "It is ready.",
+        "timestamp": "t2",
+        "end_timestamp": "t3",
+    }
 
 
 @pytest.mark.asyncio

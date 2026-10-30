@@ -18,7 +18,7 @@ export interface FieldSchema {
     docs_label?: string;
     anyOf?: FieldSchema[];
     items?: FieldSchema;
-    enum?: string[];
+    enum?: (string | number)[];
     examples?: string[];
     minimum?: number;
     maximum?: number;
@@ -30,6 +30,8 @@ export interface FieldSchema {
     option_labels?: Record<string, string>;
     model_options?: Record<string, string[]>;
     visible_for_models?: string[];
+    /** Sibling fields whose change invalidates this field's value, e.g. a voice scoped to a model. */
+    reset_on_change?: string[];
     visible_for_languages?: string[];
     hidden_for_models?: string[];
     supported?: boolean;

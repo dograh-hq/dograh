@@ -180,7 +180,7 @@ async def process_knowledge_base_document(
             content_type=mime_type or "application/octet-stream",
             retrieval_mode=retrieval_mode,
             max_tokens=max_tokens,
-            organization_id=organization_id,
+            organization_id=document.organization_id,
             created_by=created_by_provider_id,
         )
 

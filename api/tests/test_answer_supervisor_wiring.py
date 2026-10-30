@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from pipecat.turns.user_mute import (
     FunctionCallUserMuteStrategy,
-    MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 
 from api.services.pipecat.event_handlers import register_event_handlers
@@ -21,11 +20,11 @@ from api.services.workflow.pipecat_engine import PipecatEngine
     [
         (False, False, FunctionCallUserMuteStrategy),
         (False, True, FunctionCallUserMuteStrategy),
-        (True, False, MuteUntilFirstBotCompleteUserMuteStrategy),
+        (True, False, FunctionCallUserMuteStrategy),
         (True, True, FunctionCallUserMuteStrategy),
     ],
 )
-def test_initial_user_mute_depends_on_realtime_and_answer_handling(
+def test_initial_user_mute_never_discards_opening_caller_input(
     realtime, enabled, expected
 ):
     engine = SimpleNamespace(should_mute_user=AsyncMock(), _is_realtime=realtime)
@@ -65,20 +64,16 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
     transport.output = Mock(return_value=SimpleNamespace(queue_frame=AsyncMock()))
     fetched, permission = asyncio.Event(), asyncio.Event()
     supervisor = SimpleNamespace(arm=Mock())
-    engine = SimpleNamespace(
-        active_agent=SimpleNamespace(workflow=SimpleNamespace(start_node_id="start")),
-        _call_context_vars={},
-        hold_audio_sample_rate=16000,
-        set_node=AsyncMock(),
-        queue_node_opening=AsyncMock(),
-        handle_answer_supervision=AsyncMock(side_effect=permission.wait),
-        call_monitor=Mock(),
-        # Readiness now also waits for the agent this call starts on.
-        start_initial_agent=AsyncMock(return_value=True),
-        finalize_initial_agent=Mock(),
-        record_context=Mock(),
-        is_call_disposed=Mock(return_value=False),
-    )
+    engine = PipecatEngine(workflow=None, call_context_vars={})
+    engine.active_agent.workflow = SimpleNamespace(start_node_id="start", nodes={})
+    engine._audio_config = SimpleNamespace(transport_out_sample_rate=16000)
+    engine.set_node = AsyncMock()
+    engine.queue_node_opening = AsyncMock()
+    engine.handle_answer_supervision = AsyncMock(side_effect=permission.wait)
+    engine.call_monitor = Mock()
+    engine.start_initial_agent = AsyncMock(return_value=True)
+    engine.finalize_initial_agent = Mock()
+    engine.record_context = Mock()
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
     )
@@ -132,6 +127,7 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
                 if connected.done():
                     await connected
                 await asyncio.sleep(0)
+        assert await engine.wait_for_generation_ready()
         engine.set_node.assert_awaited_once_with("start")
         engine.queue_node_opening.assert_not_awaited()
         engine.call_monitor.activate.assert_not_called()
@@ -151,7 +147,7 @@ async def test_readiness_arms_before_fetch_and_opens_only_after_permission(monke
 async def test_no_supervisor_activates_monitor_before_the_opening(monkeypatch):
     task, transport = EventSource(), EventSource()
     engine = PipecatEngine(workflow=None, call_context_vars={})
-    engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
+    engine.active_agent.workflow = SimpleNamespace(start_node_id="start", nodes={})
     engine.start_initial_agent = AsyncMock(return_value=True)
     engine.set_node = AsyncMock()
 
@@ -214,7 +210,7 @@ async def test_initial_response_respects_call_disposal(
 ):
     task, transport = EventSource(), EventSource()
     engine = PipecatEngine(workflow=None, call_context_vars={})
-    engine.active_agent.workflow = SimpleNamespace(start_node_id="start")
+    engine.active_agent.workflow = SimpleNamespace(start_node_id="start", nodes={})
     engine._call_disposed = hangup_phase == "before"
     engine.queue_node_opening = AsyncMock()
     engine.end_call_with_reason = AsyncMock()
@@ -235,7 +231,7 @@ async def test_initial_response_respects_call_disposal(
     engine.start_initial_agent = AsyncMock(side_effect=start)
     engine.set_node = AsyncMock(side_effect=set_node)
     logger = Mock()
-    monkeypatch.setattr("api.services.pipecat.event_handlers.logger", logger)
+    monkeypatch.setattr("api.services.workflow.pipecat_engine.logger", logger)
     monkeypatch.setattr(
         "api.services.pipecat.event_handlers._capture_call_event", AsyncMock()
     )
@@ -290,10 +286,10 @@ async def test_initial_response_respects_call_disposal(
         assert engine.call_monitor.active
     if not disposed and not started:
         engine.end_call_with_reason.assert_awaited_once_with("pipeline_error")
-        logger.error.assert_called_once()
+        logger.exception.assert_called_once()
     else:
         engine.end_call_with_reason.assert_not_awaited()
-        logger.error.assert_not_called()
+        logger.exception.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -416,15 +412,17 @@ def test_unsupported_or_disabled_calls_do_not_create_a_classifier(
     monkeypatch.setattr(
         "api.services.pipecat.run_pipeline.create_llm_service_from_provider", factory
     )
-    assert (
-        _create_answer_supervisor(
-            {"enabled": enabled},
-            is_realtime=realtime,
-            start_node=None,
-            context=LLMContext(),
-            user_config=None,
-            correlation_id=None,
-        )
-        is None
+    supervisor = _create_answer_supervisor(
+        {"enabled": enabled},
+        is_realtime=realtime,
+        start_node=None,
+        context=LLMContext(),
+        user_config=None,
+        correlation_id=None,
     )
+    if realtime:
+        assert supervisor is None
+    else:
+        assert not supervisor.config.enabled
+        assert supervisor.llm_gate().closed
     factory.assert_not_called()

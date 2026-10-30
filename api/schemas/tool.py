@@ -623,6 +623,9 @@ class TransferCallToolDefinition(ToolDefinitionBase):
     config: TransferCallConfig = Field(description="Transfer Call configuration.")
 
 
+TransferGreetingMode = Literal["start_greeting", "continue", "introduce_and_continue"]
+
+
 class TransferAgentConfig(BaseModel):
     """Configuration for Transfer Agent tools.
 
@@ -634,9 +637,10 @@ class TransferAgentConfig(BaseModel):
 
     Most of how a handoff sounds is fixed: the caller hears a ringer while the
     next agent is prepared. The handover line is configurable because it is
-    caller-facing and Dograh runs in more than one language, and so is whether
-    the next agent opens with its greeting, because an agent that greets
-    callers on its own number should not re-introduce itself mid-conversation.
+    caller-facing and Dograh runs in more than one language, and so is how the
+    next agent opens: an agent that greets callers on its own number should
+    not re-introduce itself mid-conversation, and one that only ever answers
+    handoffs needs a line of its own before it picks the conversation up.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -651,15 +655,42 @@ class TransferAgentConfig(BaseModel):
             "describe when to use it -- that is what the model routes on."
         ),
     )
-    play_greeting: bool = Field(
-        default=True,
+    greeting_mode: TransferGreetingMode = Field(
+        default="start_greeting",
         description=(
-            "Whether the destination agent opens with its Start Call greeting. "
-            "When false, it skips the greeting and opens with a reply generated "
-            "from the handover note, continuing the conversation instead of "
-            "introducing itself."
+            "How the destination agent opens. 'start_greeting' plays its Start "
+            "Call greeting and waits for the caller. 'continue' skips the "
+            "greeting and opens with a reply generated from the handover note. "
+            "'introduce_and_continue' speaks the introduction in the "
+            "destination's own voice and then opens with a generated reply, so "
+            "the caller hears who picked up without having to repeat themselves."
         ),
     )
+    introduction: str | None = Field(
+        default=None,
+        max_length=500,
+        description=(
+            "What the destination agent says as it takes over, in its own voice, "
+            "before its first generated reply. Required with greeting_mode "
+            "'introduce_and_continue' and not accepted otherwise. Supports "
+            "template variables."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _introduction_matches_greeting_mode(self):
+        introduces = self.greeting_mode == "introduce_and_continue"
+        if introduces and not (self.introduction and self.introduction.strip()):
+            raise ValueError(
+                "introduction is required when greeting_mode is "
+                "'introduce_and_continue'"
+            )
+        if not introduces and self.introduction is not None:
+            raise ValueError(
+                "introduction is only accepted when greeting_mode is "
+                "'introduce_and_continue'"
+            )
+        return self
 
 
 class TransferAgentToolDefinition(ToolDefinitionBase):

@@ -9,7 +9,10 @@ import httpx
 
 from api.schemas.voices import VoiceInfo
 from api.services.configuration.options.deepgram import DEEPGRAM_DEFAULT_BASE_URL
-from api.services.configuration.options.sarvam import SARVAM_V2_VOICES, SARVAM_V3_VOICES
+from api.services.configuration.options.sarvam import (
+    SARVAM_V3_VOICES,
+    SARVAM_V4_VOICES,
+)
 
 
 @dataclass(frozen=True)
@@ -63,8 +66,12 @@ class VoiceCatalog(ABC):
             else {}
         )
 
-    async def get(self, client: httpx.AsyncClient, params=None) -> Any:
-        response = await client.get(self.url, headers=self.headers, params=params)
+    async def get(
+        self, client: httpx.AsyncClient, params=None, url: str | None = None
+    ) -> Any:
+        response = await client.get(
+            url or self.url, headers=self.headers, params=params
+        )
         response.raise_for_status()
         return response.json()
 
@@ -191,42 +198,61 @@ class DeepgramVoiceCatalog(VoiceCatalog):
     path = "/v1/models"
     auth_header = "Authorization"
     auth_prefix = "Token "
+    # Aura voices are listed by /v1/models and Flux voices by /v2/models, and
+    # neither listing includes the other family. Each listing's architecture
+    # names are mapped onto the configuration's model values.
+    listings: ClassVar[tuple[tuple[str, dict[str, str]], ...]] = (
+        ("/v1/models", {"aura": "aura-1", "aura-2": "aura-2"}),
+        ("/v2/models", {"flux-tts": "flux"}),
+    )
+
+    def __init__(self, api_key: str | None, base_url: str | None):
+        super().__init__(api_key, base_url)
+        self.listing_urls = [
+            (_catalog_url(base_url or self.base_url, path), models)
+            for path, models in self.listings
+        ]
 
     async def voices(self, client, query):
         # https://developers.deepgram.com/guides/fundamentals/model-metadata
-        data = await self.get(client)
         voices = []
-        for entry in data["tts"]:
-            voice_id = entry["canonical_name"]
-            architecture = entry.get("architecture")
-            model = "aura" if query.model == "aura-1" else query.model
-            if not architecture:
-                architecture = "aura-2" if voice_id.startswith("aura-2-") else "aura"
-            if model and architecture != model:
+        for url, models in self.listing_urls:
+            if query.model and query.model not in models.values():
                 continue
-            languages = entry.get("languages") or []
-            if query.language and query.language not in languages:
-                continue
-            metadata = entry.get("metadata") or {}
-            tags = metadata.get("tags") or []
-            voices.append(
-                VoiceInfo(
-                    voice_id=voice_id,
-                    name=metadata.get("display_name") or entry["name"].title(),
-                    description=", ".join(tags) or None,
-                    accent=metadata.get("accent"),
-                    gender=next(
-                        (
-                            {"feminine": "female", "masculine": "male"}[tag]
-                            for tag in tags
-                            if tag in {"feminine", "masculine"}
+            data = await self.get(client, url=url)
+            for entry in data["tts"]:
+                voice_id = entry["canonical_name"]
+                architecture = entry.get("architecture")
+                if not architecture:
+                    architecture = (
+                        "aura-2" if voice_id.startswith("aura-2-") else "aura"
+                    )
+                model = models.get(architecture, architecture)
+                if query.model and model != query.model:
+                    continue
+                languages = entry.get("languages") or []
+                if query.language and query.language not in languages:
+                    continue
+                metadata = entry.get("metadata") or {}
+                tags = metadata.get("tags") or []
+                voices.append(
+                    VoiceInfo(
+                        voice_id=voice_id,
+                        name=metadata.get("display_name") or entry["name"].title(),
+                        description=", ".join(tags) or None,
+                        accent=metadata.get("accent"),
+                        gender=next(
+                            (
+                                {"feminine": "female", "masculine": "male"}[tag]
+                                for tag in tags
+                                if tag in {"feminine", "masculine"}
+                            ),
+                            None,
                         ),
-                        None,
-                    ),
-                    language=query.language or next(iter(languages), None),
-                    preview_url=metadata.get("sample"),
+                        language=query.language or next(iter(languages), None),
+                        preview_url=metadata.get("sample"),
+                    )
                 )
-            )
         return voices
 
 
@@ -273,16 +299,74 @@ class RimeVoiceCatalog(VoiceCatalog):
         return voices
 
 
+SARVAM_LANG_NAMES: dict[str, tuple[str, str]] = {
+    "as": ("Assamese", "as"),
+    "bn": ("Bengali", "bn"),
+    "en": ("English", "en"),
+    "enhi": ("English-Hindi", "en-hi"),
+    "gu": ("Gujarati", "gu"),
+    "hi": ("Hindi", "hi"),
+    "kn": ("Kannada", "kn"),
+    "mr": ("Marathi", "mr"),
+    "pa": ("Punjabi", "pa"),
+    "ta": ("Tamil", "ta"),
+    "te": ("Telugu", "te"),
+}
+
+
+def _sarvam_style_name(style_key: str) -> str:
+    if style_key == "kyc":
+        return "KYC"
+    return style_key.replace("_", " ").title()
+
+
 class SarvamVoiceCatalog(VoiceCatalog):
     name = "Sarvam"
 
     async def voices(self, client, query):
-        # Bulbul v2/v3 speakers are static. The separate voice-cloning API uses
+        # Bulbul v3/v4 speakers are static. The separate voice-cloning API uses
         # a different synthesis endpoint that our current service doesn't use.
         # https://docs.sarvam.ai/api/migrations/from-cartesia/text-to-speech
-        options = {"bulbul:v2": SARVAM_V2_VOICES, "bulbul:v3": SARVAM_V3_VOICES}
-        names = options.get(query.model or "bulbul:v2", ())
-        return [VoiceInfo(voice_id=name, name=name.title()) for name in names]
+        options = {
+            "bulbul:v4-flash": SARVAM_V4_VOICES,
+            "bulbul:v3": SARVAM_V3_VOICES,
+        }
+        names = options.get(query.model or "bulbul:v4-flash", ())
+        if query.model == "bulbul:v3":
+            return [
+                VoiceInfo(
+                    voice_id=name,
+                    name=name.title(),
+                    description="Multilingual",
+                    language="multilingual",
+                )
+                for name in names
+            ]
+        voices = []
+        for voice_id in names:
+            parts = voice_id.split("_", 2)
+            if len(parts) == 3:
+                raw_name, lang_code, style_key = parts
+                lang_name, lang_tag = SARVAM_LANG_NAMES.get(
+                    lang_code, (lang_code.title(), lang_code)
+                )
+                style_name = _sarvam_style_name(style_key)
+                voices.append(
+                    VoiceInfo(
+                        voice_id=voice_id,
+                        name=raw_name.title(),
+                        description=f"{lang_name} • {style_name} • {voice_id}",
+                        language=lang_tag,
+                    )
+                )
+            else:
+                voices.append(
+                    VoiceInfo(
+                        voice_id=voice_id,
+                        name=voice_id.replace("_", " ").title(),
+                    )
+                )
+        return voices
 
 
 VOICE_CATALOGS: dict[str, type[VoiceCatalog]] = {

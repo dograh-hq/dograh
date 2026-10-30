@@ -521,6 +521,69 @@ async def test_deepgram_uses_regional_connection_and_filters_tts_models(
     assert [voice.voice_id for voice in legacy.voices] == ["aura-asteria-en"]
 
 
+@pytest.mark.asyncio
+async def test_deepgram_lists_flux_voices_from_the_v2_catalog(connection, upstream):
+    # Flux voices are absent from /v1/models and Aura voices from /v2/models, so
+    # a configuration whose voice is a Flux voice would otherwise see an empty
+    # dropdown.
+    connection.provider = "deepgram"
+    connection.credentials = {"api_key": "deepgram-key"}
+    connection.connection_settings = {"base_url": "https://api.eu.deepgram.com"}
+    listings = {
+        "/v1/models": {
+            "stt": [],
+            "tts": [
+                {
+                    "canonical_name": "aura-2-helena-en",
+                    "name": "helena",
+                    "architecture": "aura-2",
+                    "languages": ["en"],
+                }
+            ],
+        },
+        "/v2/models": {
+            "stt": [{"canonical_name": "flux-general-en", "architecture": "flux"}],
+            "tts": [
+                {
+                    "canonical_name": "flux-maeve-en",
+                    "name": "maeve",
+                    "architecture": "flux-tts",
+                    "languages": ["en", "en-US"],
+                    "metadata": {
+                        "display_name": "Maeve",
+                        "accent": "Irish",
+                        "tags": ["feminine", "warm"],
+                        "sample": "https://audio.example/maeve.wav",
+                    },
+                }
+            ],
+        },
+    }
+    requests = upstream(
+        lambda request: httpx.Response(200, json=listings[request.url.path])
+    )
+
+    flux = await voice_catalog.get_connection_voices(
+        "deepgram", 42, connection.uuid, model="flux"
+    )
+    assert [voice.voice_id for voice in flux.voices] == ["flux-maeve-en"]
+    assert flux.voices[0].name == "Maeve"
+    assert flux.voices[0].accent == "Irish"
+    assert flux.voices[0].gender == "female"
+    assert flux.voices[0].preview_url == "https://audio.example/maeve.wav"
+    assert [str(r.url) for r in requests] == ["https://api.eu.deepgram.com/v2/models"]
+    assert requests[0].headers["Authorization"] == "Token deepgram-key"
+
+    everything = await voice_catalog.get_connection_voices(
+        "deepgram", 42, connection.uuid
+    )
+    assert [voice.voice_id for voice in everything.voices] == [
+        "aura-2-helena-en",
+        "flux-maeve-en",
+    ]
+    assert [r.url.path for r in requests[1:]] == ["/v1/models", "/v2/models"]
+
+
 @pytest.mark.parametrize(
     "model,language,expected",
     [
@@ -555,28 +618,66 @@ async def test_rime_model_and_language_filtering_without_sending_secrets(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("language", [None, "hi-IN"])
 async def test_sarvam_reuses_model_options_without_external_requests(
-    language, connection, upstream
+    connection, upstream
 ):
     from api.services.configuration.options.sarvam import (
-        SARVAM_V2_VOICES,
         SARVAM_V3_VOICES,
+        SARVAM_V4_VOICES,
     )
 
     connection.provider = "sarvam"
     connection.connection_settings = {}
     requests = upstream(lambda request: pytest.fail("Bulbul voice options are static"))
     for model, expected in [
-        ("bulbul:v2", SARVAM_V2_VOICES),
+        ("bulbul:v4-flash", SARVAM_V4_VOICES),
         ("bulbul:v3", SARVAM_V3_VOICES),
     ]:
         response = await voice_catalog.get_connection_voices(
-            "sarvam", 42, connection.uuid, model=model, language=language
+            "sarvam", 42, connection.uuid, model=model
         )
         assert {voice.voice_id for voice in response.voices} == set(expected)
-        assert all(voice.language is None for voice in response.voices)
+        assert all(voice.name for voice in response.voices)
+        assert all(voice.description for voice in response.voices)
+        assert all(voice.language for voice in response.voices)
+        if model == "bulbul:v4-flash":
+            shubh_voice = next(
+                v for v in response.voices if v.voice_id == "shubh_enhi_ads"
+            )
+            assert shubh_voice.name == "Shubh"
+            assert shubh_voice.description == "English-Hindi • Ads • shubh_enhi_ads"
+            assert shubh_voice.accent is None
+            assert shubh_voice.language == "en-hi"
+            kyc_voice = next(
+                v for v in response.voices if v.voice_id == "aparna_hi_kyc"
+            )
+            assert kyc_voice.name == "Aparna"
+            assert kyc_voice.description == "Hindi • KYC • aparna_hi_kyc"
+            assert kyc_voice.accent is None
+            assert kyc_voice.language == "hi"
+        elif model == "bulbul:v3":
+            shubh_voice = next(v for v in response.voices if v.voice_id == "shubh")
+            assert shubh_voice.name == "Shubh"
+            assert shubh_voice.description == "Multilingual"
     assert requests == []
+
+
+@pytest.mark.asyncio
+async def test_sarvam_v4_voices_allow_cross_lingual_selection(connection, upstream):
+    from api.services.configuration.options.sarvam import SARVAM_V4_VOICES
+
+    connection.provider = "sarvam"
+    connection.connection_settings = {}
+    upstream(lambda request: pytest.fail("Bulbul voice options are static"))
+    response = await voice_catalog.get_connection_voices(
+        "sarvam", 42, connection.uuid, model="bulbul:v4-flash", language="pa"
+    )
+    # Sarvam Bulbul voices are cross-lingual; passing language must not restrict voice choice
+    assert {v.voice_id for v in response.voices} == set(SARVAM_V4_VOICES)
+    pa_voice = next(v for v in response.voices if v.voice_id == "anand_pa_conversation")
+    assert pa_voice.language == "pa"
+    hi_voice = next(v for v in response.voices if v.voice_id == "shubh_enhi_ads")
+    assert hi_voice.language == "en-hi"
 
 
 @pytest.mark.asyncio
@@ -614,7 +715,14 @@ def test_dynamic_voice_fields_are_backed_by_catalog_adapters():
         voice = config.model_json_schema()["properties"].get("voice", {})
         if voice.get("voice_catalog"):
             dynamic_providers.add(provider.value)
-    assert dynamic_providers == {"dograh", "elevenlabs", "cartesia", "deepgram", "rime"}
+    assert dynamic_providers == {
+        "dograh",
+        "elevenlabs",
+        "cartesia",
+        "deepgram",
+        "rime",
+        "sarvam",
+    }
     assert dynamic_providers - {"dograh"} <= VOICE_CATALOGS.keys()
 
 

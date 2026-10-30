@@ -119,6 +119,8 @@ export async function impersonateAsSuperadmin(params: {
   providerUserId?: string;
   email?: string;
   redirectPath?: string;
+  /** Destination deployment. Must use the same Stack Auth project as the admin. */
+  appUrl?: string;
   /**
    * If true the browser opens the impersonated session in a **new tab**
    * (via `window.open`). Defaults to `false` which navigates in the current tab.
@@ -131,6 +133,7 @@ export async function impersonateAsSuperadmin(params: {
     providerUserId,
     email,
     redirectPath,
+    appUrl,
     openInNewTab = false,
   } = params;
   const targetWindow = openInNewTab ? window.open('', '_blank') : null;
@@ -190,10 +193,9 @@ export async function impersonateAsSuperadmin(params: {
   // destination.
   // ---------------------------------------------------------------------------------
 
-  // Determine the base URL that should handle the impersonation cookie. Configured
-  // via NEXT_PUBLIC_APP_URL (e.g. https://app.dograh.com); falls back to the current
-  // origin (e.g. localhost, staging, or already on the app).
-  const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+  // An explicitly selected deployment takes priority over NEXT_PUBLIC_APP_URL.
+  // Preserve the current origin fallback for local and staging deployments.
+  const appBaseUrl = appUrl || process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
 
   const finalRedirect = redirectPath ?? '/workflow';
 

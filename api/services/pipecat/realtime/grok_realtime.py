@@ -6,6 +6,8 @@ so this wrapper stays close to the OpenAI realtime shim.
 
 Adds:
 
+- **One playback scope per response**, including duplicate item events and
+  late output after cancellation.
 - **Silent audio while muted** via ``UserMuteStarted/StoppedFrame``.
 - **TTSSpeakFrame as initial-response trigger** so the engine's greeting
   flow kicks off the bot's first response.
@@ -14,8 +16,8 @@ Adds:
 - **Workflow-control deferral** so node transitions, call termination, and
   transfers wait for any current bot audio to finish while ordinary tools run
   immediately.
-- **finalized=True on TranscriptionFrame** for parity with Dograh's other
-  realtime providers.
+- **Final transcripts only in context**, with ``finalized=True`` for parity
+  with Dograh's other realtime providers; provisional snapshots remain interim.
 """
 
 import json
@@ -23,7 +25,15 @@ from typing import Any
 
 from loguru import logger
 
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.connection import BackgroundConnectionMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
+from api.services.pipecat.realtime.response_lifecycle import (
+    RealtimeResponseLifecycleMixin,
+    response_event,
+)
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     Frame,
@@ -39,10 +49,23 @@ from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
 from pipecat.utils.time import time_now_iso8601
 
 
-class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMService):
+class DograhGrokRealtimeLLMService(
+    BackgroundConnectionMixin,
+    RealtimeConversationMixin,
+    RealtimeResponseLifecycleMixin,
+    GrokRealtimeLLMService,
+):
     """Grok Realtime with Dograh engine integration quirks."""
 
     _workflow_tools_follow_voice_response = False
+
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(
+            self._api_session_ready
+            and self._pending_prerecorded_greeting is None
+            and self._pending_initial_greeting_text is None
+        )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -86,6 +109,7 @@ class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMSer
         if frame.run_llm and appended_any:
             await self._send_manual_response_create()
 
+    @opening_request
     async def _handle_context(self, context: LLMContext | None):
         if context is None:
             logger.warning(f"{self}: received context trigger before context was set")
@@ -111,6 +135,7 @@ class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMSer
         self._context = context
         await self._create_initial_greeting_response(greeting_text)
 
+    @opening_request
     async def _create_initial_greeting_response(self, greeting_text: str):
         if self._disconnecting:
             return
@@ -185,6 +210,7 @@ class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMSer
         await self._send_session_update()
         self._llm_needs_conversation_setup = False
 
+    @opening_request
     async def _handle_evt_session_updated(self, evt):
         session_id = getattr(getattr(evt, "session", None), "id", None)
         if session_id:
@@ -261,18 +287,25 @@ class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMSer
             )
         )
 
-    async def _handle_evt_response_created(self, evt):
-        self._workflow_tool_deferral.begin_response(collecting=True)
-        await super()._handle_evt_response_created(evt)
+    async def _cancel_realtime_response(self):
+        await self.send_client_event(events.ResponseCancelEvent())
+
+    @response_event
+    async def _handle_evt_audio_done(self, evt):
+        await super()._handle_evt_audio_done(evt)
 
     async def _handle_evt_response_done(self, evt):
+        already_finished = self._is_stale_response(evt.response.id)
         await super()._handle_evt_response_done(evt)
+        if already_finished:
+            return
         await self._workflow_tool_deferral.complete_response(
             evt.response.id,
             speaking=self._workflow_bot_is_speaking,
             succeeded=evt.response.status == "completed",
         )
 
+    @response_event
     async def _handle_evt_function_call_arguments_done(self, evt):
         """Only a response's sole workflow-control call may wait for playback."""
         try:
@@ -312,6 +345,11 @@ class DograhGrokRealtimeLLMService(RealtimeConversationMixin, GrokRealtimeLLMSer
             logger.error(f"Failed to process function call arguments: {e}")
 
     async def _handle_evt_input_audio_transcription_completed(self, evt):
+        # Grok sends provisional snapshots under the completed event name too.
+        if getattr(evt, "status", None) == "in_progress":
+            await super()._handle_evt_input_audio_transcription_updated(evt)
+            return
+
         await self._call_event_handler(
             "on_conversation_item_updated", evt.item_id, None
         )

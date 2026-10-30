@@ -34,6 +34,7 @@ from api.services.configuration.options import (
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
+    DEEPGRAM_TTS_DEFAULT_VOICES,
     ELEVENLABS_STT_LANGUAGES,
     ELEVENLABS_STT_MODELS,
     GLADIA_STT_LANGUAGES,
@@ -56,8 +57,8 @@ from api.services.configuration.options import (
     SARVAM_STT_LANGUAGES_V25,
     SARVAM_STT_MODELS,
     SARVAM_TTS_MODELS,
-    SARVAM_V2_VOICES,
     SARVAM_V3_VOICES,
+    SARVAM_V4_VOICES,
     SMALLEST_TTS_LANGUAGES,
     SMALLEST_TTS_MODELS,
     SMALLEST_TTS_PRO_VOICES,
@@ -65,6 +66,7 @@ from api.services.configuration.options import (
     SONIOX_STT_LANGUAGES,
     SONIOX_STT_MODELS,
     SPEECHMATICS_STT_LANGUAGES,
+    deepgram_tts_model_for_voice,
 )
 from api.services.configuration.options.google import (
     GOOGLE_VERTEX_DEFAULT_LOCATION,
@@ -702,6 +704,7 @@ class DograhLLMService(BaseChatLLMConfiguration):
         json_schema_extra={
             "examples": DOGRAH_LLM_MODELS,
             "option_labels": {"default": "default (recommended)"},
+            "allow_custom_input": True,
         },
     )
 
@@ -1265,10 +1268,25 @@ RealtimeConfig = Annotated[
 @register_tts(provider=DEEPGRAM_PROVIDER)
 class DeepgramTTSConfiguration(BaseServiceConfiguration):
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
+    model: Literal["aura-2", "aura-1", "flux"] = Field(
+        default="aura-2",
+        description=(
+            "Voice family. Aura-2 and Aura-1 voices are served from Deepgram's v1 "
+            "endpoint; Flux voices stream from the v2 endpoint and support "
+            "expressivity. Changing the model clears the voice."
+        ),
+        json_schema_extra={
+            "option_labels": {"aura-2": "Aura-2", "aura-1": "Aura-1", "flux": "Flux"}
+        },
+    )
     voice: str = Field(
         default="aura-2-helena-en",
-        description="Deepgram voice ID (model is inferred from the 'aura-N' prefix).",
-        json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
+        description="Deepgram voice ID from the selected family.",
+        json_schema_extra={
+            "voice_catalog": "dropdown",
+            "allow_custom_input": True,
+            "reset_on_change": ["model"],
+        },
     )
     speed: float | None = Field(
         default=None,
@@ -1276,9 +1294,23 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
         le=1.5,
         description=(
             "Speaking rate multiplier (1.0 is normal speed). Leave blank to use "
-            "Deepgram's default. Supported by Aura-2 English and Spanish voices; "
-            "0.9–1.5 is recommended for Spanish."
+            "Deepgram's default. Supported by Flux voices and by Aura-2 English "
+            "and Spanish voices; 0.9–1.5 is recommended for Spanish."
         ),
+        json_schema_extra={
+            "model_constraints": [{"pattern": "^aura-1$", "supported": False}]
+        },
+    )
+    expressivity: Literal[-2, -1, 0, 1, 2] | None = Field(
+        default=None,
+        description=(
+            "Expressive range for Flux voices, from -2 (calm) to 2 (animated). "
+            "Leave blank to use Deepgram's default."
+        ),
+        json_schema_extra={
+            "option_labels": {"-2": "-2 (calm)", "2": "2 (animated)"},
+            "visible_for_models": ["flux"],
+        },
     )
     base_url: str = Field(
         default=DEEPGRAM_DEFAULT_BASE_URL,
@@ -1294,18 +1326,61 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
         },
     )
 
-    @computed_field
-    @property
-    def model(self) -> str:
-        # Deepgram model's name is inferred using the voice name.
-        # It can either contain aura-2 or aura-1
-        if "aura-2" in self.voice:
-            return "aura-2"
-        elif "aura-1" in self.voice:
-            return "aura-1"
-        else:
-            # Default fallback
-            return "aura-2"
+    @model_validator(mode="before")
+    @classmethod
+    def complete_model_or_voice(cls, data):
+        # Stored settings predate the model field and carry only the voice, and
+        # a model switch arrives without a voice; either half names the other.
+        if not isinstance(data, dict):
+            return data
+        model, voice = data.get("model"), data.get("voice")
+        # Only well-typed halves complete each other; anything else is left for
+        # field validation to reject with a field error.
+        if model is not None and not isinstance(model, str):
+            return data
+        if isinstance(voice, str) and voice:
+            if model is None:
+                return {
+                    **data,
+                    "model": deepgram_tts_model_for_voice(voice) or "aura-2",
+                }
+            return data
+        if voice is None or voice == "":
+            model = "aura-2" if model is None else model
+            if model in DEEPGRAM_TTS_DEFAULT_VOICES:
+                return {
+                    **data,
+                    "model": model,
+                    "voice": DEEPGRAM_TTS_DEFAULT_VOICES[model],
+                }
+        return data
+
+    @field_validator("voice")
+    @classmethod
+    def voice_belongs_to_model(cls, voice, info):
+        family = deepgram_tts_model_for_voice(voice)
+        model = info.data.get("model")
+        if family is not None and model is not None and family != model:
+            raise ValueError(
+                f"{voice} is a {family} voice; pick a voice from the {model} "
+                "family or change the model"
+            )
+        return voice
+
+    @field_validator("speed")
+    @classmethod
+    def speed_supported_by_voice(cls, speed, info):
+        # Deepgram rejects the parameter outright for every other voice, so a
+        # saved value would only fail at call time.
+        model, voice = info.data.get("model"), info.data.get("voice") or ""
+        if speed is None or model == "flux":
+            return speed
+        if model == "aura-2" and voice.endswith(("-en", "-es")):
+            return speed
+        raise ValueError(
+            "Speed is only supported by Flux voices and by Aura-2 English and "
+            f"Spanish voices; leave it blank for {voice}"
+        )
 
 
 ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN = r"^eleven_v[34]"
@@ -1536,19 +1611,21 @@ class InworldTTSConfiguration(BaseTTSConfiguration):
 class SarvamTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="bulbul:v2",
+        default="bulbul:v3",
         description="Sarvam TTS model (voice list depends on this).",
         json_schema_extra={"examples": SARVAM_TTS_MODELS},
     )
     voice: str = Field(
-        default="anushka",
+        default="shubh",
         description="Sarvam voice name or custom voice ID.",
         json_schema_extra={
-            "examples": SARVAM_V2_VOICES,
+            "voice_catalog": "dropdown",
+            "examples": SARVAM_V3_VOICES,
             "allow_custom_input": True,
+            "reset_on_change": ["model"],
             "model_options": {
-                "bulbul:v2": SARVAM_V2_VOICES,
                 "bulbul:v3": SARVAM_V3_VOICES,
+                "bulbul:v4-flash": SARVAM_V4_VOICES,
             },
         },
     )
@@ -1563,6 +1640,34 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         le=2.0,
         description="Speech speed multiplier.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_voice_for_model(cls, data):
+        if isinstance(data, dict):
+            model = data.get("model")
+            voice = data.get("voice")
+            if (
+                not voice
+                or not str(voice).strip()
+                or (
+                    voice == "shubh_enhi_ads"
+                    and model in ("bulbul:v3", "bulbul:v3-beta")
+                )
+            ):
+                if model in ("bulbul:v3", "bulbul:v3-beta"):
+                    data["voice"] = "shubh"
+                elif model == "bulbul:v4-flash":
+                    data["voice"] = "shubh_enhi_ads"
+        return data
+
+    @model_validator(mode="after")
+    def _align_default_voice_for_model(self):
+        if self.model in ("bulbul:v3", "bulbul:v3-beta") and (
+            not self.voice or self.voice == "shubh_enhi_ads"
+        ):
+            object.__setattr__(self, "voice", "shubh")
+        return self
 
 
 CAMB_TTS_MODELS = ["mars-flash", "mars-pro", "mars-instruct"]
@@ -1674,6 +1779,15 @@ class MiniMaxTTSConfiguration(BaseTTSConfiguration):
     )
     speed: float = Field(
         default=1.0, ge=0.5, le=2.0, description="Speech speed (0.5 to 2.0)."
+    )
+    volume: float = Field(
+        default=1.0,
+        gt=0.0,
+        le=10.0,
+        description=(
+            "Volume multiplier for generated speech (greater than 0, up to 10). "
+            "1.0 is normal volume."
+        ),
     )
     group_id: str = Field(
         description="MiniMax Group ID (found in your MiniMax dashboard under Account → Group).",

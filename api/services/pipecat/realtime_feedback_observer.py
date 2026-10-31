@@ -118,10 +118,10 @@ class RealtimeFeedbackObserver(BaseObserver):
 
     async def log_speech(self, text: str):
         """Persist speech that is intentionally excluded from assistant context."""
-        from pipecat.utils.text.spoken_text_filter import SpokenTextFilter
+        from pipecat.utils.text.transforms.spoken_text import SpokenTextTransform
 
         # Queued announcements can be logged before reaching the TTS service.
-        text = await SpokenTextFilter().filter(text)
+        text = await SpokenTextTransform()(text, "sentence")
         if text.strip():
             await self._append_to_buffer(build_bot_text_event(text=text))
 

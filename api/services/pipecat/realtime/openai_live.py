@@ -163,7 +163,7 @@ class DograhOpenAILiveLLMService(
     async def _maybe_send_tools_update(self):
         if not self._session_started or self._context is None:
             return
-        params = self._invocation_params()
+        params = await self._invocation_params()
         self._sync_registered_tool_handlers(self._context.tools)
         delegation = self._delegation_config(params["tools"], params["tool_choice"])
         # Empty tools must be sent explicitly when a node removes its tools.

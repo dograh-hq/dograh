@@ -22,7 +22,7 @@ from loguru import logger
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
-from pipecat.utils.text.spoken_text_filter import SpokenTextSanitizer
+from pipecat.utils.text.transforms.spoken_text import SpokenTextSanitizer
 
 
 @dataclass(frozen=True)

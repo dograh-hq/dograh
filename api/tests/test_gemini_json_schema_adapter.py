@@ -2,9 +2,9 @@ from unittest.mock import patch
 
 import pytest
 from google.genai.types import GenerateContentConfig, LiveConnectConfig
-from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
-from pipecat.adapters.services.gemini_live_adapter import GeminiLiveLLMAdapter
+from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.llm.services.gemini_live_adapter import GeminiLiveLLMAdapter
 
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.gemini_json_schema_adapter import (
@@ -188,7 +188,7 @@ def test_gemini_live_config_accepts_json_schema_tools():
 
 
 @pytest.mark.parametrize("same_connection", [False, True])
-def test_signature_scopes_preserve_own_history_and_import_foreign_tools(
+async def test_signature_scopes_preserve_own_history_and_import_foreign_tools(
     same_connection,
 ):
     from pipecat.processors.aggregators.llm_context import LLMContext
@@ -229,8 +229,8 @@ def test_signature_scopes_preserve_own_history_and_import_foreign_tools(
     context = LLMContext(messages=messages)
     assert signature in own.get_messages(context)
     assert signature not in backup.get_messages(context)
-    original = own.get_llm_invocation_params(context)["messages"]
-    imported = backup.get_llm_invocation_params(context)["messages"]
+    original = (await own.get_llm_invocation_params(context))["messages"]
+    imported = (await backup.get_llm_invocation_params(context))["messages"]
     assert any(
         part.thought_signature == b"original-signature"
         for message in original

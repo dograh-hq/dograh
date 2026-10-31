@@ -20,13 +20,13 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMAssistantAggregator
+from pipecat.processors.aggregators.llm_text_processor import LLMTextProcessor
+from pipecat.processors.filters.spoken_text_processor import SpokenTextProcessor
 from pipecat.processors.frame_processor import FrameProcessor, FrameProcessorSetup
 from pipecat.services.tts_service import TextAggregationMode, TTSService, TTSSettings
 from pipecat.tests.utils import SleepFrame, run_test
 from pipecat.utils.asyncio.task_manager import TaskManager
-from pipecat.utils.text.base_text_aggregator import AggregationType
-from pipecat.utils.text.base_text_filter import BaseTextFilter
-from pipecat.utils.text.spoken_text_filter import SpokenTextFilter
+from pipecat.utils.text.base_text_aggregator import TextType
 
 from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.realtime_feedback_observer import (
@@ -51,7 +51,6 @@ class OfflineTTS(TTSService):
                 if token_streaming
                 else TextAggregationMode.SENTENCE
             ),
-            text_filters=[SpokenTextFilter()],
         )
         self.mode = mode
         self.requests = []
@@ -155,7 +154,7 @@ async def test_speech_context_and_persisted_transcript_agree(
     unused_user = SimpleNamespace(event_handler=lambda *_: lambda handler: handler)
     register_turn_log_handlers(coordinator, unused_user, assistant)
     await coordinator.record_turn_started(1)
-    pipeline = Pipeline([tts, sink, assistant])
+    pipeline = Pipeline([SpokenTextProcessor(), tts, sink, assistant])
     tasks = TaskManager()
     await pipeline.setup(
         FrameProcessorSetup(
@@ -172,14 +171,14 @@ async def test_speech_context_and_persisted_transcript_agree(
         for char in text:
             chunk = guard.feed(char) if guard else char
             await pipeline.queue_frame(
-                AggregatedTextFrame(chunk, AggregationType.TOKEN, raw_text=chunk)
+                AggregatedTextFrame(chunk, TextType.TOKEN, raw_text=chunk)
                 if pre_aggregated
                 else LLMTextFrame(chunk)
             )
         if guard:
             tail = guard.finish()
             await pipeline.queue_frame(
-                AggregatedTextFrame(tail, AggregationType.TOKEN, raw_text=tail)
+                AggregatedTextFrame(tail, TextType.TOKEN, raw_text=tail)
                 if pre_aggregated
                 else LLMTextFrame(tail)
             )
@@ -237,7 +236,7 @@ async def test_queued_speech_and_interruption_do_not_share_pending_control_text(
     context = LLMContext()
     assistant = LLMAssistantAggregator(context)
     await run_test(
-        Pipeline([tts, assistant]),
+        Pipeline([SpokenTextProcessor(), tts, assistant]),
         frames_to_send=[
             LLMFullResponseStartFrame(),
             LLMTextFrame('{"debug":"unfinished'),
@@ -262,20 +261,24 @@ async def test_queued_speech_and_interruption_do_not_share_pending_control_text(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["sentence", "words", "missing_words"])
-async def test_post_aggregation_filters_clean_context_but_pronunciation_does_not(mode):
-    class RemoveAnnotation(BaseTextFilter):
-        async def filter(self, text):
-            return text.replace("debug_annotation", "")
+async def test_llm_text_transforms_clean_context_but_pronunciation_does_not(mode):
+    async def remove_annotation(text, text_type):
+        return text.replace("debug_annotation", "")
 
     async def pronounce(text, aggregation_type):
         return text.replace("Hello", "HELLO")
 
     tts = OfflineTTS(mode, token_streaming=False)
-    tts._text_filters = [RemoveAnnotation()]
     tts._text_transforms = [("*", pronounce)]
     context = LLMContext()
     await run_test(
-        Pipeline([tts, LLMAssistantAggregator(context)]),
+        Pipeline(
+            [
+                LLMTextProcessor(text_transforms=[("*", remove_annotation)]),
+                tts,
+                LLMAssistantAggregator(context),
+            ]
+        ),
         frames_to_send=[
             LLMFullResponseStartFrame(),
             LLMTextFrame("Hello debug_annotation world."),

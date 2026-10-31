@@ -657,6 +657,25 @@ def failure_metadata_for_processor(processor: object | None) -> ServiceFailureMe
     return ServiceFailureMetadata(source, provider, ErrorOwner.OPERATOR)
 
 
+def classify_error_frame(frame: Any) -> DograhFailure:
+    """Classify a Pipecat ``ErrorFrame`` by the processor that pushed it."""
+
+    metadata = failure_metadata_for_processor(frame.processor)
+    if frame.exception is not None:
+        return classify_exception(
+            frame.exception,
+            source=metadata.source,
+            provider=metadata.provider,
+            error_owner=metadata.error_owner,
+        )
+    return classify_message(
+        frame.error,
+        source=metadata.source,
+        provider=metadata.provider,
+        error_owner=metadata.error_owner,
+    )
+
+
 def _safe_log_context(context: dict[str, Any]) -> dict[str, Any]:
     safe: dict[str, Any] = {}
     for key, value in context.items():

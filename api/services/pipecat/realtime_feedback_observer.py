@@ -27,10 +27,8 @@ from typing import TYPE_CHECKING, Optional
 from loguru import logger
 
 from api.errors.failure import (
-    classify_exception,
-    classify_message,
+    classify_error_frame,
     describe_exception,
-    failure_metadata_for_processor,
     log_failure,
     response_body_detail,
 )
@@ -353,25 +351,7 @@ class RealtimeFeedbackObserver(BaseObserver):
             # them (e.g. google.genai APIError: code=1008, status=None,
             # message="Your project has been denied access...").
             exc = frame.exception
-            metadata = failure_metadata_for_processor(frame.processor)
-            if exc is not None:
-                failure = classify_exception(
-                    exc,
-                    source=metadata.source,
-                    provider=metadata.provider,
-                    error_owner=metadata.error_owner,
-                )
-            else:
-                failure = classify_message(
-                    frame.error,
-                    source=metadata.source,
-                    provider=metadata.provider,
-                    error_owner=metadata.error_owner,
-                )
-            log_failure(
-                failure,
-                fatal=fatal,
-            )
+            log_failure(classify_error_frame(frame), fatal=fatal)
 
             error_text = frame.error
             if exc is not None:

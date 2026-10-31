@@ -31,6 +31,14 @@ if TYPE_CHECKING:
 async def handle_user_idle(engine: "PipecatEngine", aggregator, attempt: int) -> None:
     """Execute the monitor's idle decision; timing and retry state live there."""
     logger.info(f"Handling user_idle, attempt: {attempt}")
+    if attempt > 1:
+        # Claim the farewell response before requesting it. Realtime services
+        # deliver audio after the push returns, so the call may only end once
+        # that response has played (or its bounded deadline expires).
+        if not engine.defer_end_call_until_bot_playback(
+            EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value
+        ):
+            return
     content = (
         "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far."
         if attempt == 1
@@ -39,10 +47,6 @@ async def handle_user_idle(engine: "PipecatEngine", aggregator, attempt: int) ->
     await aggregator.push_frame(
         LLMMessagesAppendFrame([{"role": "user", "content": content}], run_llm=True)
     )
-    if attempt > 1:
-        await engine.end_call_with_reason(
-            EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value
-        )
 
 
 # ---------------------------------------------------------------------------

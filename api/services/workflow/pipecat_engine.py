@@ -197,6 +197,7 @@ class PipecatEngine:
         self._initial_agent_startup: asyncio.Task[bool] | None = None
         self._gathered_context: dict = {}
         self._response_timeout_task: Optional[asyncio.Task] = None
+        self._pending_farewell_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
         self._pending_extraction_requests: dict[asyncio.Task, dict] = {}
         self._defer_final_extraction = defer_final_extraction
@@ -1504,6 +1505,10 @@ class PipecatEngine:
         await self.cancel_initial_agent_startup()
         self.speech_playback.cancel_all()
 
+        farewell_task = self._pending_farewell_task
+        if farewell_task and farewell_task is not asyncio.current_task():
+            farewell_task.cancel()
+
         # Mute the pipeline
         self._mute_pipeline = True
         await self.greeting.flush()
@@ -1788,6 +1793,73 @@ class PipecatEngine:
             PlaybackOutcome.SKIPPED,
             PlaybackOutcome.CLOSED,
         )
+
+    def defer_end_call_until_bot_playback(
+        self, reason: str, fallback_secs: float = 8.0
+    ) -> bool:
+        """Arm a terminal farewell before its prompt is delivered.
+
+        Claim the next generated response before the prompt is pushed, then let
+        one background task wait for it to play. Realtime services return
+        audio asynchronously, so ending the call as soon as the prompt is
+        queued closes the session before the caller hears the goodbye. The
+        speech's own deadline bounds a response that never arrives, and other
+        termination paths can still win during the wait.
+        """
+        if self._call_disposed or self._pending_farewell_task is not None:
+            return False
+
+        agent = self.active_agent
+        try:
+            speech = self.speech_playback.expect_response(
+                source=agent.llm if agent is not None else None,
+                timeout=fallback_secs,
+            )
+        except RuntimeError:
+            # Another generated response already owns the next output, so
+            # there is nothing this farewell can wait on.
+            logger.warning("Idle farewell could not claim a response; ending call")
+            speech = None
+
+        self._mute_pipeline = True
+        self._pending_farewell_task = asyncio.create_task(
+            self._end_call_after_bot_playback(reason, speech),
+            name="idle-farewell-playback",
+        )
+        return True
+
+    async def _end_call_after_bot_playback(
+        self, reason: str, speech: SpeechPlayback | None
+    ) -> None:
+        try:
+            if speech is not None and not await speech.wait():
+                logger.warning(
+                    f"Idle farewell did not play ({speech.outcome}); ending call"
+                )
+
+            # Detach before termination so it cannot cancel its own extraction
+            # or terminal frame. Those have a separate lifetime and timeout.
+            self._pending_farewell_task = None
+            try:
+                await self.end_call_with_reason(reason)
+            except Exception as e:
+                # This task is unawaited. `_end_call` sets `_call_disposed`
+                # and `_shutdown_task` before extraction / `queue_frame`, so
+                # a later retry is a no-op and the user stays muted unless
+                # those are cleared and a terminal frame still goes out.
+                logger.error(
+                    f"Idle farewell termination failed: {e}",
+                    exc_info=True,
+                )
+                self._call_disposed = False
+                self._shutdown_task = None
+                await self.end_call_with_reason(
+                    EndTaskReason.PIPELINE_ERROR.value,
+                    abort_immediately=True,
+                )
+        finally:
+            if self._pending_farewell_task is asyncio.current_task():
+                self._pending_farewell_task = None
 
     async def should_mute_user(self, frame: "Frame") -> bool:
         """
@@ -2472,6 +2544,17 @@ class PipecatEngine:
         Connection owners are finalized by close_mcp_sessions() in the run
         finally block, including failures before the pipeline starts.
         """
+        farewell_task = self._pending_farewell_task
+        if farewell_task and farewell_task is not asyncio.current_task():
+            farewell_task.cancel()
+            try:
+                await farewell_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                if self._pending_farewell_task is farewell_task:
+                    self._pending_farewell_task = None
+
         await self.opening.close()
         await self.cancel_initial_agent_startup()
         for agent in [self.active_agent, self.pending_agent, *self._retired_agents]:

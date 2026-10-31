@@ -724,9 +724,8 @@ class PaygentCollector(BaseObserver):
             elif isinstance(frame, (EndFrame, CancelFrame)):
                 self._acc.finalize()
         except Exception as exc:
-            logger.warning(
+            logger.opt(exception=True).warning(
                 "[paygent] Unexpected error processing frame {!r} in collector: {}",
                 type(data.frame).__name__,
                 exc,
-                exc_info=True,
             )

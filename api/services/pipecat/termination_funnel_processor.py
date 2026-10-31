@@ -154,7 +154,9 @@ class TerminationFunnelProcessor(FrameProcessor):
                 f"{TERMINATION_GRACE_SECONDS}s; cancelling the pipeline"
             )
         except Exception as exc:
-            logger.error(f"Engine failed to dispose of the call: {exc}", exc_info=True)
+            logger.opt(exception=True).error(
+                f"Engine failed to dispose of the call: {exc}"
+            )
 
         # The handler is disposed of, but a call already being torn down by
         # another path (a client disconnect, an end-call tool) returns from it

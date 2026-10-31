@@ -2445,9 +2445,8 @@ class PipecatEngine:
                 agent.mcp_sessions[tool.tool_uuid] = session
                 await session.start_managed()
         except Exception as e:
-            logger.warning(
+            logger.opt(exception=True).warning(
                 f"Failed to open MCP sessions; call proceeds without MCP tools: {e}",
-                exc_info=True,
             )
 
     def record_tool_result(self, result: dict) -> None:

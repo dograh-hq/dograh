@@ -186,9 +186,8 @@ class CloudonixHangupStrategy(HangupStrategy):
                         return False
 
         except Exception as e:
-            logger.error(
+            logger.opt(exception=True).error(
                 f"Error terminating Cloudonix call "
                 f"{context.get('call_sid') or context.get('call_id')}: {e}",
-                exc_info=True,
             )
             return False

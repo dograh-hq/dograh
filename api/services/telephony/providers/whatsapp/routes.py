@@ -529,7 +529,7 @@ async def handle_whatsapp_webhook(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[WhatsApp] Error processing webhook: {e}", exc_info=True)
+        logger.opt(exception=True).error(f"[WhatsApp] Error processing webhook: {e}")
         raise HTTPException(
             status_code=500, detail=f"Webhook processing failed: {str(e)}"
         )
@@ -821,9 +821,8 @@ async def _run_whatsapp_pipeline(
             f"[WhatsApp] Pipeline finished cleanly for workflow_run {workflow_run_id}"
         )
     except Exception as e:
-        logger.error(
+        logger.opt(exception=True).error(
             f"[WhatsApp] Pipeline error for workflow_run {workflow_run_id}: {e}",
-            exc_info=True,
         )
         # Best-effort by contract; a run the pipeline already completed is left
         # as it is, so a teardown error cannot rewrite a finished call.

@@ -479,9 +479,8 @@ async def _run_pipeline_telephony_impl(
     except Exception as e:
         # Closest layer to the failure and the only one with the traceback, so
         # it owns the report; outer handlers see the mark and stay quiet.
-        logger.error(
+        logger.opt(exception=True).error(
             f"[run {workflow_run_id}] Error in {provider_name} pipeline: {e}",
-            exc_info=True,
         )
         mark_failure_reported(e)
         raise

@@ -5,11 +5,15 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
+import httpx
+import openai
 import pytest
+from loguru import logger
 from pipecat.processors.aggregators.llm_context import LLMSpecificMessage
 from pipecat.utils.enums import EndTaskReason
 
 from api.db.models import OrganizationModel, UserModel, organization_users_association
+from api.errors.failure import ErrorOwner, ErrorSource, annotate_failure_metadata
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.pipecat.pre_call_fetch import PreCallFetchResult
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
@@ -2793,3 +2797,98 @@ async def test_text_chat_stream_sends_announcement_while_http_tool_is_pending(
     assert [item["event"] for item in observed if item["type"] == "turn_event"] == turn[
         "events"
     ]
+
+
+class _RejectedKeyLLM(MockLLMService):
+    """An OpenAI-compatible LLM whose provider rejects the customer's key."""
+
+    async def get_chat_completions(self, *args, **kwargs):
+        request = httpx.Request("POST", "https://llm.example/v1/chat/completions")
+        raise openai.AuthenticationError(
+            "Invalid API Key",
+            response=httpx.Response(401, request=request),
+            body=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_text_chat_tags_a_rejected_provider_key_as_the_users(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "You are a helpful assistant.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            },
+            {
+                "id": "end",
+                "type": "endCall",
+                "position": {"x": 0, "y": 200},
+                "data": {
+                    "name": "End",
+                    "prompt": "Wrap up the conversation.",
+                    "is_end": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-end",
+                "source": "start",
+                "target": "end",
+                "data": {"label": "End Call", "condition": "When the task is done."},
+            }
+        ],
+    }
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="rejected-key",
+    )
+    llm = _RejectedKeyLLM(mock_steps=[], chunk_delay=0.001)
+    # What the service factory attaches to a service built from the org's own key.
+    annotate_failure_metadata(
+        llm, source=ErrorSource.LLM, provider="groq", error_owner=ErrorOwner.USER
+    )
+
+    records = []
+    sink_id = logger.add(lambda message: records.append(message.record), level="ERROR")
+    try:
+        async with test_client_factory(user) as client:
+            with (
+                patch(
+                    "api.services.workflow.text_chat_runner.create_llm_service",
+                    return_value=llm,
+                ),
+                patch(
+                    "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                    new=AsyncMock(return_value=False),
+                ),
+            ):
+                response = await client.post(
+                    f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                    json={},
+                )
+    finally:
+        logger.remove(sink_id)
+
+    assert response.status_code == 200
+    [failure] = [record for record in records if record["extra"].get("classified")]
+    assert failure["extra"]["error_source"] == "llm"
+    assert failure["extra"]["error_type"] == "config_error"
+    assert failure["extra"]["error_owner"] == "user"
+    assert failure["extra"]["provider"] == "groq"

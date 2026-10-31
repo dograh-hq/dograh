@@ -107,7 +107,7 @@ def test_dograh_flux_sends_combined_language_hints_to_proxy(language, hints):
     )
     service = create_stt_service(config, _audio_config(), correlation_id="corr-123")
 
-    query = parse_qs(service._build_dograh_query_string())
+    query = parse_qs(service._build_query_string())
     assert query["model"] == ["flux-general-multi"]
     assert query["language_hint"] == ["en", "es"]
     assert query["correlation_id"] == ["corr-123"]

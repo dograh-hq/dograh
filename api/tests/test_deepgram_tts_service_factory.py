@@ -118,7 +118,7 @@ def test_flux_voice_is_routed_to_the_flux_service_on_the_v2_endpoint():
     assert kwargs["settings"].expressivity == 1
     # The function-tag filter needs a whole tag, so tokens are not streamed raw.
     assert kwargs["text_aggregation_mode"] is TextAggregationMode.SENTENCE
-    assert kwargs["text_filters"]
+    assert "text_filters" not in kwargs
 
 
 def test_flux_voice_leaves_unset_tuning_at_the_provider_default():

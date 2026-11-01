@@ -789,8 +789,7 @@ class HuggingFaceLLMConfiguration(BaseChatLLMConfiguration):
 
 
 MINIMAX_MODELS = [
-    "MiniMax-M2.7",
-    "MiniMax-M2.7-highspeed",
+    "MiniMax-M3.1-Flash",
     "MiniMax-M3",
 ]
 
@@ -800,7 +799,7 @@ class MiniMaxLLMConfiguration(BaseChatLLMConfiguration):
     temperature: float | None = temperature_field("minimax", 1.0)
     provider: Literal[ServiceProviders.MINIMAX] = ServiceProviders.MINIMAX
     model: str = Field(
-        default="MiniMax-M2.7",
+        default="MiniMax-M3.1-Flash",
         description="MiniMax chat model.",
         json_schema_extra={"examples": MINIMAX_MODELS, "allow_custom_input": True},
     )

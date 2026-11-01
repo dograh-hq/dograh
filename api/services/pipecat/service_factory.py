@@ -20,6 +20,7 @@ from api.services.configuration.options import (
     DEEPGRAM_DEFAULT_BASE_URL,
     DEEPGRAM_FLUX_MODELS,
     GOOGLE_VERTEX_DEFAULT_LOCATION,
+    soniox_host,
 )
 from api.services.configuration.registry import (
     ATLASCLOUD_API_BASE_URL,
@@ -131,6 +132,7 @@ from pipecat.services.soniox.stt import (
     SonioxSTTService,
     SonioxSTTSettings,
 )
+from pipecat.services.soniox.tts import SonioxTTSService, SonioxTTSSettings
 from pipecat.services.speaches.llm import SpeachesLLMService as BaseSpeachesLLMService
 from pipecat.services.speaches.llm import SpeachesLLMSettings
 from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
@@ -789,6 +791,8 @@ def create_stt_service(
             settings_kwargs["context"] = SonioxContextObject(terms=keyterms)
         return SonioxSTTService(
             api_key=user_config.stt.api_key,
+            # The key only works in its own project's region.
+            url=f"wss://{soniox_host('stt-rt', getattr(user_config.stt, 'region', None))}/transcribe-websocket",
             settings=SonioxSTTSettings(**settings_kwargs),
             # Local VAD ends the turn and triggers Soniox finalize; Soniox's own
             # endpoint detection stays off so turn strategies behave as for Nova.
@@ -1221,6 +1225,28 @@ def create_tts_service(
             api_key=user_config.tts.api_key,
             settings=settings_kwargs,
             skip_text_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.SONIOX.value:
+        language_code = getattr(user_config.tts, "language", None) or "en"
+        try:
+            pipecat_language = Language(language_code)
+        except ValueError:
+            pipecat_language = Language.EN
+        speed = getattr(user_config.tts, "speed", None)
+        region = getattr(user_config.tts, "region", None)
+        return SonioxTTSService(
+            api_key=user_config.tts.api_key,
+            # https://soniox.com/docs/api-reference/tts/websocket-api
+            url=f"wss://{soniox_host('tts-rt', region)}/tts-websocket",
+            settings=SonioxTTSSettings(
+                model=user_config.tts.model,
+                voice=user_config.tts.voice,
+                language=pipecat_language,
+                speed=speed if speed and speed != 1.0 else None,
+            ),
+            text_filters=[spoken_text_filter],
+            skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.XAI.value:

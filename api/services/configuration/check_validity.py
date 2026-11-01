@@ -12,6 +12,7 @@ from groq import Groq
 from api.schemas.ai_model_configuration import (
     EffectiveAIModelConfiguration,
 )
+from api.services.configuration.options import soniox_host
 from api.services.configuration.registry import (
     HOPPER_API_BASE_URL,
     ServiceConfig,
@@ -294,6 +295,7 @@ class UserConfigurationValidator:
             ServiceProviders.ATLASCLOUD.value,
             ServiceProviders.HOPPER.value,
             ServiceProviders.OPENAI_REALTIME.value,
+            ServiceProviders.SONIOX.value,
         ):
             return validator(provider, api_key, service_config)
         return validator(provider, api_key)
@@ -558,10 +560,14 @@ class UserConfigurationValidator:
     def _check_gladia_api_key(self, model: str, api_key: str) -> bool:
         return True
 
-    def _check_soniox_api_key(self, model: str, api_key: str) -> bool:
+    def _check_soniox_api_key(
+        self, model: str, api_key: str, service_config: Optional[ServiceConfig] = None
+    ) -> bool:
+        # Keys are issued per region, so check against the configured one.
+        host = soniox_host("api", getattr(service_config, "region", None))
         try:
             response = httpx.get(
-                "https://api.soniox.com/v1/models",
+                f"https://{host}/v1/models",
                 headers={"Authorization": f"Bearer {api_key}"},
                 timeout=10.0,
             )
@@ -570,8 +576,9 @@ class UserConfigurationValidator:
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in (401, 403):
                 raise ValueError(
-                    "Invalid Soniox API key. The key was rejected by the Soniox API. "
-                    "Please verify that your API key is correct and active."
+                    f"Invalid Soniox API key. The key was rejected by {host}. "
+                    "Please verify that your API key is correct and active, and that "
+                    "the region matches the Soniox project that issued it."
                 ) from exc
             raise ValueError(
                 "The Soniox API returned an error while validating the API key. "

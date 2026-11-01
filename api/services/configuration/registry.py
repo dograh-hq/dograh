@@ -63,8 +63,12 @@ from api.services.configuration.options import (
     SMALLEST_TTS_MODELS,
     SMALLEST_TTS_PRO_VOICES,
     SMALLEST_TTS_VOICES,
+    SONIOX_REGIONS,
     SONIOX_STT_LANGUAGES,
     SONIOX_STT_MODELS,
+    SONIOX_TTS_LANGUAGES,
+    SONIOX_TTS_MODELS,
+    SONIOX_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
     deepgram_tts_model_for_voice,
 )
@@ -455,6 +459,33 @@ SPEECHMATICS_PROVIDER = Provider("speechmatics", "Speechmatics")
 ASSEMBLYAI_PROVIDER = Provider("assemblyai", "AssemblyAI")
 GLADIA_PROVIDER = Provider("gladia", "Gladia")
 SONIOX_PROVIDER = Provider("soniox", "Soniox")
+
+
+def soniox_region_field():
+    """The Soniox data-residency region, shared by a connection's STT and TTS."""
+    return Field(
+        default="us",
+        description=(
+            "Soniox region whose endpoints serve this connection: us (default), "
+            "eu, jp or in. API keys are issued per region, so pick the region of "
+            "the Soniox project that created the key."
+        ),
+        json_schema_extra={
+            "examples": SONIOX_REGIONS,
+            "docs_url": "https://soniox.com/docs/data-residency",
+        },
+    )
+
+
+def validate_soniox_region(region: str) -> str:
+    normalized = (region or "us").strip().lower()
+    if normalized not in SONIOX_REGIONS:
+        raise ValueError(
+            f"Unknown Soniox region {region!r}; expected one of {', '.join(SONIOX_REGIONS)}."
+        )
+    return normalized
+
+
 SPEACHES_PROVIDER = Provider(
     "speaches",
     "Local Models (Speaches)",
@@ -1875,6 +1906,48 @@ class SmallestAITTSConfiguration(BaseTTSConfiguration):
     )
 
 
+@register_tts(provider=SONIOX_PROVIDER)
+class SonioxTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.SONIOX] = ServiceProviders.SONIOX
+    model: str = Field(
+        default="tts-rt-v2",
+        description="Soniox real-time TTS model.",
+        json_schema_extra={"examples": SONIOX_TTS_MODELS, "allow_custom_input": True},
+    )
+    voice: str = Field(
+        default="Daniel",
+        description=(
+            "Soniox voice id, or the UUID of a voice cloned in the same Soniox "
+            "project. Every voice speaks every supported language."
+        ),
+        json_schema_extra={
+            "examples": SONIOX_TTS_VOICES,
+            "allow_custom_input": True,
+            "docs_url": "https://soniox.com/docs/tts/concepts/voices",
+        },
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for synthesis.",
+        json_schema_extra={
+            "examples": SONIOX_TTS_LANGUAGES,
+            "docs_url": "https://soniox.com/docs/tts/concepts/languages",
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.7,
+        le=1.3,
+        description="Speech speed multiplier (0.7 to 1.3).",
+    )
+    region: str = soniox_region_field()
+
+    @field_validator("region")
+    @classmethod
+    def validate_region(cls, v):
+        return validate_soniox_region(v)
+
+
 XAI_TTS_VOICES = ["eve", "ara", "leo", "rex", "sal"]
 
 
@@ -2018,6 +2091,7 @@ TTSConfig = Annotated[
         XAITTSConfiguration,
         LmntTTSConfiguration,
         SpeechifyTTSConfiguration,
+        SonioxTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -2376,6 +2450,12 @@ class SonioxSTTConfiguration(BaseSTTConfiguration):
             "docs_url": "https://soniox.com/docs/stt/concepts/supported-languages",
         },
     )
+    region: str = soniox_region_field()
+
+    @field_validator("region")
+    @classmethod
+    def validate_region(cls, v):
+        return validate_soniox_region(v)
 
 
 @register_stt(provider=AZURE_SPEECH_PROVIDER)

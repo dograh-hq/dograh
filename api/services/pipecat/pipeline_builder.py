@@ -14,6 +14,7 @@ from pipecat.pipeline.worker import (
     ProcessorUnusablePolicy,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.filters.spoken_text_processor import SpokenTextProcessor
 from pipecat.utils.run_context import turn_var
 
 
@@ -116,7 +117,7 @@ def build_agent_generation_pipeline(
     processors = [llm, generation_callback_processor]
     if recording_router:
         processors.append(recording_router)
-    processors.append(tts)
+    processors.extend([SpokenTextProcessor(), tts])
     return Pipeline(processors)
 
 

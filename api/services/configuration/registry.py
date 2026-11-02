@@ -498,11 +498,9 @@ AWS_NOVA_SONIC_PROVIDER = Provider(
 OPENAI_MODELS = [
     "gpt-4.1",
     "gpt-4.1-mini",
-    "gpt-4.1-nano",
     "gpt-5",
     "gpt-5-mini",
     "gpt-5-nano",
-    "gpt-3.5-turbo",
 ]
 
 ATLASCLOUD_API_BASE_URL = "https://api.atlascloud.ai/v1"

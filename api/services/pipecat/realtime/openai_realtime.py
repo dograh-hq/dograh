@@ -124,6 +124,8 @@ class DograhOpenAIRealtimeLLMService(
         }
         async for message in self._websocket:
             evt = events.parse_server_event(message)
+            if evt is None:
+                continue
             if handler := handlers.get(evt.type):
                 await handler(evt)
             elif evt.type == "error":
@@ -170,7 +172,9 @@ class DograhOpenAIRealtimeLLMService(
             await self._send_manual_response_create()
 
     @opening_request
-    async def _handle_context(self, context: LLMContext):
+    async def _handle_context(
+        self, context: LLMContext, direction: FrameDirection = FrameDirection.DOWNSTREAM
+    ):
         if not self._handled_initial_context:
             if context is None:
                 logger.warning(
@@ -183,6 +187,8 @@ class DograhOpenAIRealtimeLLMService(
         else:
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
+            if direction == FrameDirection.UPSTREAM and self._results_awaiting_response:
+                await self._create_response()
 
     async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
         if context is None:
@@ -248,7 +254,7 @@ class DograhOpenAIRealtimeLLMService(
             return
 
         adapter = self.get_llm_adapter()
-        llm_invocation_params = adapter.get_llm_invocation_params(self._context)
+        llm_invocation_params = await adapter.get_llm_invocation_params(self._context)
         for item in llm_invocation_params["messages"]:
             evt = events.ConversationItemCreateEvent(item=item)
             self._messages_added_manually[evt.item.id] = True
@@ -363,6 +369,7 @@ class DograhOpenAIRealtimeLLMService(
             function_call_item = self._pending_function_calls.get(evt.call_id)
             if function_call_item:
                 del self._pending_function_calls[evt.call_id]
+                self._open_function_calls.add(evt.call_id)
 
                 function_calls = [
                     FunctionCallFromLLM(

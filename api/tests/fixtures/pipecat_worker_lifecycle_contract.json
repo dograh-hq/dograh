@@ -4,12 +4,14 @@
       "__init__",
       "_advance_flush_probe",
       "_cancel",
+      "_cancel_children",
+      "_cancel_pipeline_setup",
+      "_cancel_pipeline_start",
       "_cancel_tasks",
       "_cleanup",
       "_create_start_metadata",
       "_create_tasks",
       "_drain_pipeline",
-      "_find_processor",
       "_handle_ui_bus_message",
       "_handle_unusable_processor",
       "_handle_worker_cancel",
@@ -19,11 +21,13 @@
       "_idle_monitor_handler",
       "_idle_timeout_detected",
       "_initial_metrics_frame",
+      "_iter_processors",
       "_load_setup_files",
       "_maybe_cancel_heartbeat_tasks",
       "_maybe_cancel_idle_task",
       "_maybe_start_heartbeat_tasks",
       "_maybe_start_idle_task",
+      "_pipeline_setup_done",
       "_process_push_queue",
       "_queue_bridged_frame",
       "_report_flush_progress",
@@ -32,9 +36,12 @@
       "_setup_within_timeout",
       "_sink_push_frame",
       "_source_push_frame",
+      "_start_pipeline",
       "_wait_for_pipeline_end",
       "_wait_for_pipeline_finished",
       "_wait_for_pipeline_start",
+      "_wait_for_start_task",
+      "_watch_pipeline_setup",
       "activate_worker",
       "add_observer",
       "add_reached_downstream_filter",
@@ -78,7 +85,8 @@
           "await self._cancel",
           "await self._wait_for_pipeline_finished",
           "await self._cancel_tasks",
-          "self._print_dangling_tasks"
+          "self._print_dangling_tasks",
+          "await self._cancel_children"
         ]
       },
       "cancel": {
@@ -137,8 +145,12 @@
           "await self._load_setup_files",
           "await self._observer.setup",
           "FrameProcessorSetup",
-          "await self.create_task",
-          "self._pipeline.setup"
+          "self._pipeline._setup_started",
+          "self.create_task",
+          "self._pipeline.setup",
+          "self._pipeline_setup_task.add_done_callback",
+          "self.create_task",
+          "self._start_pipeline"
         ]
       },
       "_cleanup": {
@@ -156,10 +168,13 @@
         "signature": "(self, *, reason: str | None = None)",
         "async": true,
         "calls": [
-          "self._pipeline_start_event.is_set",
-          "self._pipeline_start_event.set",
           "await self.queue_frame",
-          "CancelFrame"
+          "CancelFrame",
+          "self._pipeline_setup_task.done",
+          "self._pipeline_setup_task.cancel",
+          "self._pipeline_start_event.is_set",
+          "self._pipeline_start_task.done",
+          "self._pipeline_start_task.cancel"
         ]
       },
       "_create_tasks": {
@@ -167,27 +182,92 @@
         "async": true,
         "calls": [
           "self.create_task",
-          "self._process_push_queue"
+          "self._process_push_queue",
+          "self.create_task",
+          "self._watch_pipeline_setup"
         ]
       },
       "_cancel_tasks": {
         "signature": "(self)",
         "async": true,
         "calls": [
+          "await self._cancel_pipeline_setup",
+          "await self._cancel_pipeline_start",
+          "await self.cancel_task",
           "await self.cancel_task",
           "await self._maybe_cancel_heartbeat_tasks",
           "await self._maybe_cancel_idle_task"
+        ]
+      },
+      "_watch_pipeline_setup": {
+        "signature": "(self)",
+        "async": true,
+        "calls": [
+          "await asyncio.wait_for",
+          "asyncio.shield",
+          "await self._call_event_handler('on_setup_timeout')",
+          "await self._cancel_pipeline_setup",
+          "await self._cancel_pipeline_start"
+        ]
+      },
+      "_cancel_pipeline_setup": {
+        "signature": "(self)",
+        "async": true,
+        "calls": [
+          "self._pipeline_setup_task.done",
+          "await self.cancel_task"
+        ]
+      },
+      "_cancel_pipeline_start": {
+        "signature": "(self)",
+        "async": true,
+        "calls": [
+          "self._pipeline_start_task.done",
+          "await self.cancel_task"
+        ]
+      },
+      "_start_pipeline": {
+        "signature": "(self) -> bool",
+        "async": true,
+        "calls": [
+          "StartFrame",
+          "self._create_start_metadata",
+          "await self._pipeline.queue_frame",
+          "await self._wait_for_pipeline_start"
+        ]
+      },
+      "_wait_for_start_task": {
+        "signature": "(self) -> bool",
+        "async": true,
+        "calls": [
+          "await asyncio.wait",
+          "self._pipeline_start_task.cancelled",
+          "bool",
+          "self._pipeline_start_task.result"
+        ]
+      },
+      "_pipeline_setup_done": {
+        "signature": "(self, task: _asyncio.Task)",
+        "async": false,
+        "calls": [
+          "task.cancelled",
+          "self._pipeline._setup_finished"
+        ]
+      },
+      "_cancel_children": {
+        "signature": "(self) -> None",
+        "async": true,
+        "calls": [
+          "await self.send_bus_message",
+          "BusCancelWorkerMessage"
         ]
       },
       "_process_push_queue": {
         "signature": "(self)",
         "async": true,
         "calls": [
+          "await self._wait_for_start_task",
           "self._maybe_start_idle_task",
-          "StartFrame",
-          "self._create_start_metadata",
-          "await self._pipeline.queue_frame",
-          "await self._wait_for_pipeline_start",
           "await self._pipeline.queue_frame",
           "self._initial_metrics_frame",
           "await self._push_queue.get",
@@ -204,6 +284,7 @@
         "signature": "(self, frame: pipecat.frames.frames.Frame) -> bool",
         "async": true,
         "calls": [
+          "await asyncio.wait",
           "await asyncio.wait_for",
           "self._pipeline_start_event.wait",
           "await self._call_event_handler('on_pipeline_timeout')",
@@ -447,6 +528,9 @@
           "list",
           "self._active_jobs.keys",
           "await self.send_job_response",
+          "list",
+          "self._job_handler_tasks.values",
+          "await self.cancel_task",
           "self._finished_event.set"
         ]
       },
@@ -582,6 +666,7 @@
         "signature": "(self, worker: pipecat.workers.base_worker.BaseWorker | None = None, *, auto_end: bool = True) -> None",
         "async": true,
         "calls": [
+          "warn_deprecated",
           "self._shutdown_event.clear",
           "await self.add_workers",
           "await self._setup_session",

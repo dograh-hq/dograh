@@ -40,6 +40,7 @@ from pipecat.frames.frames import (
     FunctionCallFromLLM,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.utils.tracing.service_decorators import traced_gemini_live
 
@@ -281,7 +282,11 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     # ------------------------------------------------------------------
 
     @opening_request
-    async def _handle_context(self, context: LLMContext | None):
+    async def _handle_context(
+        self,
+        context: LLMContext | None,
+        direction: FrameDirection = FrameDirection.DOWNSTREAM,
+    ):
         if context is None:
             logger.warning(f"{self}: received context trigger before context was set")
             return
@@ -298,6 +303,8 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
         else:
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
+            if direction == FrameDirection.UPSTREAM and self._content_awaiting_response:
+                await self._complete_turn()
 
     async def _prepare_context_for_fresh_session(self) -> None:
         """Account for tool results that will be represented in a history seed.
@@ -356,7 +363,11 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
         adapter = self.get_llm_adapter()
         turns = cast(
             "list[Content | ContentDict]",
-            list(adapter.get_llm_invocation_params(self._context).get("messages", [])),
+            list(
+                (await adapter.get_llm_invocation_params(self._context)).get(
+                    "messages", []
+                )
+            ),
         )
         if transcript:
             turns.append(Content(role="model", parts=[Part(text=transcript)]))

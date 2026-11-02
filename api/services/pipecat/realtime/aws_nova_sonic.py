@@ -20,9 +20,12 @@ from typing import Any
 
 from loguru import logger
 
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
-from pipecat.adapters.services.aws_nova_sonic_adapter import (
+from pipecat.adapters.llm.services.aws_nova_sonic_adapter import (
     AWSNovaSonicConversationHistoryMessage,
     AWSNovaSonicLLMAdapter,
     AWSNovaSonicLLMInvocationParams,
@@ -51,11 +54,15 @@ _NODE_TRANSITION_RESPONSE_PROMPT = (
 class DograhAWSNovaSonicLLMAdapter(AWSNovaSonicLLMAdapter):
     """Keep bot-first conversations valid when replaying history to Nova."""
 
-    def get_llm_invocation_params(
-        self, context: LLMContext, *, system_instruction: str | None = None
+    async def get_llm_invocation_params(
+        self,
+        context: LLMContext,
+        *,
+        system_instruction: str | None = None,
+        service_tools: Any = None,
     ) -> AWSNovaSonicLLMInvocationParams:
-        params = super().get_llm_invocation_params(
-            context, system_instruction=system_instruction
+        params = await super().get_llm_invocation_params(
+            context, system_instruction=system_instruction, service_tools=service_tools
         )
         messages = params["messages"]
         history: list[AWSNovaSonicConversationHistoryMessage] = []
@@ -84,6 +91,15 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
     """AWS Nova 2 Sonic with Dograh workflow integration."""
 
     adapter_class = DograhAWSNovaSonicLLMAdapter
+
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(
+            self._stream
+            and self._audio_input_started
+            and self._prompt_name
+            and self._input_audio_content_name
+        )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -158,6 +174,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
     # Initial and one-off response triggers
     # ------------------------------------------------------------------
 
+    @opening_request
     async def _handle_context(self, context: LLMContext):
         if self._disconnecting:
             return
@@ -202,7 +219,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
             return
         if transcript:
             self._pending_message_batches.append(
-                (self._prerecorded_greeting_turns(transcript), False)
+                (await self._prerecorded_greeting_turns(transcript), False)
             )
         self._opening_after_prerecorded_greeting = True
         try:
@@ -211,7 +228,9 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         finally:
             self._opening_after_prerecorded_greeting = False
 
-    def _prerecorded_greeting_turns(self, transcript: str) -> list[tuple[Role, str]]:
+    async def _prerecorded_greeting_turns(
+        self, transcript: str
+    ) -> list[tuple[Role, str]]:
         """The greeting as Nova history: never opening on ASSISTANT, alternating.
 
         AWS rejects history that begins with ASSISTANT and requires roles to
@@ -221,9 +240,9 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         """
         messages = []
         if self._context is not None:
-            messages = self.get_llm_adapter().get_llm_invocation_params(self._context)[
-                "messages"
-            ]
+            messages = (
+                await self.get_llm_adapter().get_llm_invocation_params(self._context)
+            )["messages"]
         turns: list[tuple[Role, str]] = []
         if not messages or messages[-1].role is not Role.USER:
             turns.append((Role.USER, _INITIAL_RESPONSE_PROMPT))
@@ -252,6 +271,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         await self._finish_connecting_if_context_available()
         await self._flush_pending_text_inputs()
 
+    @opening_request
     async def _finish_connecting_if_context_available(self):
         # Upstream assumes this method is invoked once. Dograh can reach it from
         # connection-ready, runtime settings, and the initial response trigger.
@@ -384,7 +404,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         # (common when a transition follows spoken text), queue a short user
         # nudge so the fresh session still responds exactly once.
         adapter = self.get_llm_adapter()
-        invocation_params = adapter.get_llm_invocation_params(
+        invocation_params = await adapter.get_llm_invocation_params(
             context,
             system_instruction=self._settings.system_instruction,
         )

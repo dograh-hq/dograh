@@ -42,17 +42,25 @@ export interface StartCall {
      */
     greeting?: string;
     /**
-     * Pre-recorded audio file played at the start of the call.
+     * Pre-recorded audio file played at the start of the call. Required when Greeting Type is Pre-recorded Audio.
      *
      * LLM hint: Value is the `recording_id` string. Use the `list_recordings` MCP tool to discover available recordings.
      */
     greeting_recording_id?: string;
     /**
+     * Let the caller interrupt the opening greeting. When off, caller speech is retained until the greeting finishes. Applies to cascade and realtime openings. Realtime uses provider or local speech detection according to the adapter when interruptions are allowed.
+     */
+    allow_greeting_interrupt?: boolean;
+    /**
+     * Cascade only: interrupt when the caller's transcription contains at least this many words. Realtime providers do not support this word threshold; they use provider or local speech detection according to the adapter.
+     */
+    greeting_interrupt_min_words?: number;
+    /**
      * Agent system prompt for the opening turn. Supports {{template_variables}} from pre-call fetch and the initial context.
      */
     prompt: string;
     /**
-     * When true, the user can interrupt the agent mid-utterance.
+     * Allow the caller to interrupt responses after the opening greeting.
      */
     allow_interrupt?: boolean;
     /**
@@ -60,11 +68,11 @@ export interface StartCall {
      */
     add_global_prompt?: boolean;
     /**
-     * Set the initial listening window for outbound voicemail and screening handling. A brief human greeting can end the wait sooner.
+     * Listen before the opening in cascade and realtime calls. If the caller speaks first, respond to them instead. Enabled voicemail handling can resolve a human answer sooner.
      */
     delayed_start?: boolean;
     /**
-     * Seconds to listen for a silent answer before opening. 0.1–10. Replaces the default 1.2-second listening window.
+     * Seconds to listen for a silent answer before opening. 0–10. With voicemail handling, replaces its default 1.2-second window.
      */
     delayed_start_duration?: number;
     /**

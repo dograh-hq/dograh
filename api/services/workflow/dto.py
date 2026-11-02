@@ -1,7 +1,13 @@
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from api.schemas.answer_supervisor import DEFAULT_LISTENING_WINDOW_SECONDS
 from api.services.integrations import (
@@ -16,7 +22,9 @@ from api.services.workflow.node_specs._base import (
     GraphConstraints,
     NodeCategory,
     NodeExample,
+    NumberInputOptions,
     PropertyOption,
+    PropertyRendererOptions,
     PropertyType,
 )
 from api.services.workflow.node_specs.constants import DEFAULT_QA_SYSTEM_PROMPT
@@ -216,6 +224,8 @@ class _ToolDocumentRefsMixin(BaseModel):
         "greeting_type",
         "greeting",
         "greeting_recording_id",
+        "allow_greeting_interrupt",
+        "greeting_interrupt_min_words",
         "prompt",
         "allow_interrupt",
         "add_global_prompt",
@@ -266,7 +276,7 @@ class _ToolDocumentRefsMixin(BaseModel):
         },
         "greeting_recording_id": {
             "display_name": "Greeting Recording",
-            "description": "Pre-recorded audio file played at the start of the call.",
+            "description": "Pre-recorded audio file played at the start of the call. Required when Greeting Type is Pre-recorded Audio.",
             "ui_type": PropertyType.recording_ref,
             "llm_hint": (
                 "Value is the `recording_id` string. Use the `list_recordings` "
@@ -275,7 +285,8 @@ class _ToolDocumentRefsMixin(BaseModel):
             "display_options": DisplayOptions(show={"greeting_type": ["audio"]}),
         },
         "allow_interrupt": {
-            "description": "When true, the user can interrupt the agent mid-utterance.",
+            "display_name": "Allow Interruptions After Greeting",
+            "description": "Allow the caller to interrupt responses after the opening greeting.",
         },
         "tool_uuids": {
             "description": "Tools the agent can invoke during the opening turn.",
@@ -286,18 +297,19 @@ class _ToolDocumentRefsMixin(BaseModel):
         "delayed_start": {
             "display_name": "Delayed Start",
             "description": (
-                "Set the initial listening window for outbound voicemail and screening "
-                "handling. A brief human greeting can end the wait sooner."
+                "Listen before the opening in cascade and realtime calls. "
+                "If the caller speaks first, respond to them instead. Enabled "
+                "voicemail handling can resolve a human answer sooner."
             ),
         },
         "delayed_start_duration": {
             "display_name": "Delay Duration (seconds)",
             "description": (
-                "Seconds to listen for a silent answer before opening. 0.1–10. "
-                "Replaces the default 1.2-second listening window."
+                "Seconds to listen for a silent answer before opening. 0–10. "
+                "With voicemail handling, replaces its default 1.2-second window."
             ),
             "spec_default": DEFAULT_LISTENING_WINDOW_SECONDS,
-            "min_value": 0.1,
+            "min_value": 0.0,
             "max_value": 10.0,
             "display_options": DisplayOptions(show={"delayed_start": [True]}),
         },
@@ -350,7 +362,36 @@ class StartCallNodeData(
         default=None, ui_type=PropertyType.options
     )
     greeting_recording_id: Optional[str] = spec_field(
-        default=None, ui_type=PropertyType.recording_ref
+        default=None,
+        ui_type=PropertyType.recording_ref,
+    )
+    allow_greeting_interrupt: bool = spec_field(
+        default=True,
+        ui_type=PropertyType.boolean,
+        display_name="Allow Greeting Interruption",
+        description=(
+            "Let the caller interrupt the opening greeting. When off, caller speech "
+            "is retained until the greeting finishes. Applies to cascade and "
+            "realtime openings. Realtime uses provider or local speech detection "
+            "according to the adapter when interruptions are allowed."
+        ),
+    )
+    greeting_interrupt_min_words: int = spec_field(
+        default=2,
+        ge=1,
+        strict=True,
+        ui_type=PropertyType.number,
+        display_name="Minimum Words to Interrupt",
+        description=(
+            "Cascade only: interrupt when the caller's transcription contains at "
+            "least this many words. Realtime providers do not support this word "
+            "threshold; they use provider or local speech detection according "
+            "to the adapter."
+        ),
+        display_options=DisplayOptions(show={"allow_greeting_interrupt": [True]}),
+        renderer_options=PropertyRendererOptions(
+            number_input=NumberInputOptions(fractional=False)
+        ),
     )
     delayed_start: bool = spec_field(default=False, ui_type=PropertyType.boolean)
     delayed_start_duration: Optional[float] = spec_field(

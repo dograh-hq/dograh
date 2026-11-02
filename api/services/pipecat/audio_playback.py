@@ -265,3 +265,54 @@ async def play_hold_audio_loop(
         audio_file=audio_file,
         chunk_ms=chunk_ms,
     )
+
+
+class HoldAudio:
+    """One ringer the caller hears while the call has nothing else to say.
+
+    Used both while the pre-call fetch runs at call start and while a
+    destination agent is built during a handoff, so both sound the same and
+    both stop within one chunk of being told to.
+    """
+
+    def __init__(
+        self,
+        *,
+        sample_rate: int,
+        queue_frame: Callable[[Frame], Awaitable[None]],
+        name: str = "hold",
+    ):
+        self._sample_rate = sample_rate
+        self._queue_frame = queue_frame
+        self._name = name
+        self._stop: asyncio.Event | None = None
+        self._task: asyncio.Task | None = None
+
+    @property
+    def active(self) -> bool:
+        return self._task is not None
+
+    def start(self) -> None:
+        if self._task is not None:
+            return
+        self._stop = asyncio.Event()
+        self._task = asyncio.create_task(
+            play_hold_audio_loop(
+                stop_event=self._stop,
+                sample_rate=self._sample_rate,
+                queue_frame=self._queue_frame,
+            ),
+            name=self._name,
+        )
+
+    async def stop(self) -> None:
+        if self._stop is not None:
+            self._stop.set()
+        task = self._task
+        self._task = None
+        self._stop = None
+        if task is not None:
+            try:
+                await asyncio.wait_for(task, timeout=2)
+            except TimeoutError:
+                logger.warning("Hold audio producer timed out while stopping")

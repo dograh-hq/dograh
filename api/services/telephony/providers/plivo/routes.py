@@ -128,10 +128,8 @@ async def handle_plivo_xml_webhook(
 
     call_id = callback_data.get("CallUUID") or callback_data.get("RequestUUID")
     if call_id:
-        gathered_context = dict(workflow_run.gathered_context or {})
-        gathered_context["call_id"] = call_id
         await db_client.update_workflow_run(
-            run_id=workflow_run_id, gathered_context=gathered_context
+            run_id=workflow_run_id, gathered_context={"call_id": call_id}
         )
 
     response_content = await provider.get_webhook_response(

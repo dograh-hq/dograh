@@ -9,6 +9,7 @@ import RenderWorkflow from './RenderWorkflow';
 const mocks = vi.hoisted(() => ({
     query: 'version=3&source=campaign',
     push: vi.fn(),
+    replace: vi.fn(),
     versions: vi.fn(),
     updateMetadata: vi.fn(),
     save: vi.fn(),
@@ -21,7 +22,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@xyflow/react/dist/style.css', () => ({}));
 vi.mock('next/navigation', () => ({
-    useRouter: () => ({ push: mocks.push }),
+    useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
     useSearchParams: () => new URLSearchParams(mocks.query),
 }));
 vi.mock('@/client', () => ({
@@ -42,6 +43,12 @@ vi.mock('@/components/flow/AddNodePanel', () => ({ default: () => null }));
 vi.mock('@/components/flow/edges/CustomEdge', () => ({ default: () => null }));
 vi.mock('@/components/flow/nodes/GenericNode', () => ({ GenericNode: () => null }));
 vi.mock('./components/PhoneCallDialog', () => ({ PhoneCallDialog: () => null }));
+vi.mock('./components/EditorSetup', () => ({
+    isEditorView: (value: string | null) => value === 'model',
+    EditorSetup: ({ view, onViewChange }: { view: string; onViewChange: (view: string) => void }) => (
+        <button onClick={() => onViewChange(view === 'model' ? 'canvas' : 'model')}>View: {view}</button>
+    ),
+}));
 vi.mock('./components/WorkflowVersionDiffDialog', () => ({ WorkflowVersionDiffDialog: () => null }));
 vi.mock('./components/WorkflowTesterPanel', () => ({
     WorkflowTesterPanel: ({ disabled }: { disabled: boolean }) => <div data-testid="tester" data-disabled={disabled} />,
@@ -129,4 +136,17 @@ it.each(['current', 'historical'])('selects the editable published version from 
     fireEvent.click(await screen.findByRole('button', { name: /^v20/ }));
 
     expect(mocks.push).toHaveBeenCalledWith('/workflow/12?source=campaign', { scroll: false });
+});
+
+it.each([
+    ['source=campaign', 'canvas', '/workflow/12?source=campaign&view=model'],
+    ['source=campaign&view=model', 'model', '/workflow/12?source=campaign'],
+])('keeps the editor view in the URL (%s)', (query, view, next) => {
+    mocks.query = query;
+    mocks.versions.mockResolvedValue({ data: [version(20, 'draft')] });
+    render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" initialVersionNumber={20} initialVersionStatus="draft" user={{ id: '1' }} />);
+
+    fireEvent.click(screen.getByRole('button', { name: `View: ${view}` }));
+
+    expect(mocks.replace).toHaveBeenCalledWith(next, { scroll: false });
 });

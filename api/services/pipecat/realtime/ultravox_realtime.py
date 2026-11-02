@@ -24,7 +24,10 @@ from loguru import logger
 from pydantic import Field
 from websockets.exceptions import ConnectionClosed
 
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
 from pipecat.frames.frames import (
     Frame,
     LLMMessagesAppendFrame,
@@ -60,6 +63,10 @@ class DograhUltravoxRealtimeLLMService(
     RealtimeConversationMixin, UltravoxRealtimeLLMService
 ):
     """Ultravox realtime with Dograh engine integration quirks."""
+
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(self._socket and self._call_started)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -134,6 +141,7 @@ class DograhUltravoxRealtimeLLMService(
         """
         await self._connect_call(greeting_text=None, agent_speaks_first=False)
 
+    @opening_request
     async def _handle_context(self, context: LLMContext):
         self._handled_initial_context = True
         self._context = context

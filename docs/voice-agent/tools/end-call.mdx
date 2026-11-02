@@ -21,13 +21,17 @@ The End Call tool provides a clean way to terminate conversations:
 - **End Message**: Optional closing message played before termination
 - **Reason**: Optional reason code for call termination tracking
 
+The closing message is stored in `definition.messages` as one entry with `event: "start"`. Use `type: "text"` with `text`, or `type: "audio"` with a numeric `recording_id`. An empty array disables it. End Call supports one message and waits for its playback before hanging up.
+
 ## Agent Usage
 
 Your AI agent can end calls during conversations:
 
+```python
+end_call(reason="conversation_complete")
 ```
-end_call(message="Thank you for calling. Have a great day!", reason="conversation_complete")
-```
+
+The `reason` argument is available when reason tracking is enabled. Set the closing message in the tool configuration.
 
 Common scenarios:
 - Conversation has reached natural conclusion

@@ -16,7 +16,7 @@ These are DB integration tests using the transactional test session.
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -464,7 +464,7 @@ class TestPublishDraft:
         )
         draft.extra_metadata = {"source": "editor"}
         await async_session.flush()
-        monkeypatch.setattr("api.routes.workflow.capture_event", Mock())
+        monkeypatch.setattr("api.routes.workflow.capture_tenant_event", AsyncMock())
         async with test_client_factory(user) as client:
             published = await client.post(
                 f"/api/v1/workflow/{workflow.id}/publish",
@@ -871,66 +871,6 @@ class TestVersionDataOnDefinition:
 # ---------------------------------------------------------------------------
 # Model-configuration migration persistence
 # ---------------------------------------------------------------------------
-
-
-class TestModelConfigurationMigrationPersistence:
-    async def test_migration_reads_and_updates_are_organization_scoped(
-        self, db_session, async_session, org_and_user
-    ):
-        org, user = org_and_user
-        other_org = OrganizationModel(provider_id="test-org-migration-other")
-        async_session.add(other_org)
-        await async_session.flush()
-        other_user = UserModel(
-            provider_id="test-user-migration-other",
-            selected_organization_id=other_org.id,
-        )
-        async_session.add(other_user)
-        await async_session.flush()
-
-        workflow = await db_session.create_workflow(
-            name="Migration target",
-            workflow_definition=GRAPH_V1,
-            user_id=user.id,
-            organization_id=org.id,
-        )
-        other_workflow = await db_session.create_workflow(
-            name="Other organization workflow",
-            workflow_definition=GRAPH_V1,
-            user_id=other_user.id,
-            organization_id=other_org.id,
-        )
-        workflow_definition = (await db_session.get_workflow_versions(workflow.id))[0]
-        other_definition = (await db_session.get_workflow_versions(other_workflow.id))[
-            0
-        ]
-
-        loaded = await db_session.list_workflows_for_model_configuration_migration(
-            org.id
-        )
-        assert [row.id for row in loaded] == [workflow.id]
-        assert [row.id for row in loaded[0].definitions] == [workflow_definition.id]
-
-        await db_session.bulk_update_workflow_model_configurations(
-            organization_id=org.id,
-            workflow_updates=[
-                (workflow.id, {"migrated": True}),
-                (other_workflow.id, {"cross_tenant": True}),
-            ],
-            definition_updates=[
-                (workflow_definition.id, {"migrated": True}),
-                (other_definition.id, {"cross_tenant": True}),
-            ],
-        )
-        await async_session.refresh(workflow)
-        await async_session.refresh(other_workflow)
-        await async_session.refresh(workflow_definition)
-        await async_session.refresh(other_definition)
-
-        assert workflow.workflow_configurations == {"migrated": True}
-        assert workflow_definition.workflow_configurations == {"migrated": True}
-        assert other_workflow.workflow_configurations != {"cross_tenant": True}
-        assert other_definition.workflow_configurations != {"cross_tenant": True}
 
 
 # ---------------------------------------------------------------------------

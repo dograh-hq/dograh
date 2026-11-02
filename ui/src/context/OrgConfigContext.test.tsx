@@ -60,7 +60,6 @@ describe('OrgConfigProvider', () => {
                 organization_provider_id: null,
                 model_services: {
                     config_source: 'empty',
-                    has_model_configuration_v2: false,
                     managed_service_version: null,
                     uses_managed_service_v2: false,
                 },

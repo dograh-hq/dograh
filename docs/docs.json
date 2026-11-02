@@ -119,6 +119,7 @@
               "integrations/telephony/cloudonix",
               "integrations/telephony/exotel",
               "integrations/telephony/vobiz",
+              "integrations/telephony/whatsapp",
               "integrations/telephony/asterisk-ari",
               "integrations/telephony/vicidial",
               "integrations/telephony/webhooks",

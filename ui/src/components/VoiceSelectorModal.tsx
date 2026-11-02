@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, Loader2, Pencil, Play, Square } from "lucide-react";
+import { Check, ChevronDown, Loader2, Play, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getVoicesApiV1UserConfigurationsVoicesProviderGet } from "@/client/sdk.gen";
@@ -9,14 +9,16 @@ import { Button } from "@/components/ui/button";
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ACCENT_DISPLAY_NAMES } from "@/constants/accents";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
+import { detailFromError } from "@/lib/apiError";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const ALL_FILTER_VALUE = "__all__";
@@ -37,13 +39,14 @@ interface Facets {
 const EMPTY_FACETS: Facets = { genders: [], accents: [], languages: [] };
 
 interface VoiceSelectorModalProps {
+    id?: string;
     provider: string;
+    providerConnectionUuid?: string;
+    connectionRevision?: number;
     value: string;
     onChange: (voiceId: string) => void;
     /** Optional model passed through to the voice catalog query. */
     model?: string;
-    /** Allow typing a raw voice ID for voices outside the catalog. */
-    allowManualInput?: boolean;
     className?: string;
 }
 
@@ -68,14 +71,37 @@ function withSelected(options: string[], selected: string): string[] {
     return [selected, ...options];
 }
 
+const voiceInfoCache = new Map<string, VoiceInfo>();
+
+export function clearVoiceInfoCache(providerConnectionUuid?: string) {
+    if (!providerConnectionUuid) {
+        voiceInfoCache.clear();
+        return;
+    }
+    for (const key of Array.from(voiceInfoCache.keys())) {
+        const parts = key.split(":");
+        if (parts[2] === providerConnectionUuid) {
+            voiceInfoCache.delete(key);
+        }
+    }
+}
+
 export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
+    id,
     provider,
+    providerConnectionUuid,
+    connectionRevision,
     value,
     onChange,
     model,
-    allowManualInput = false,
     className,
 }) => {
+    const { user, loading: authLoading } = useAuth();
+    const userId = user?.id;
+    const voiceCacheKey = (!authLoading && userId && provider && value)
+        ? `${userId}:${provider}:${providerConnectionUuid || ""}:${connectionRevision ?? ""}:${model || ""}:${value}`
+        : null;
+
     const [isOpen, setIsOpen] = useState(false);
     const [voices, setVoices] = useState<VoiceInfo[]>([]);
     const [facets, setFacets] = useState<Facets>(EMPTY_FACETS);
@@ -91,9 +117,9 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
 
     // Pending (in-modal) selection; only committed via "Use this voice".
     const [pendingVoiceId, setPendingVoiceId] = useState(value);
-    const [selectedVoiceInfo, setSelectedVoiceInfo] = useState<VoiceInfo | null>(null);
-    const [manualMode, setManualMode] = useState(false);
-    const [manualVoiceId, setManualVoiceId] = useState("");
+    const [selectedVoiceInfo, setSelectedVoiceInfo] = useState<VoiceInfo | null>(() => (
+        voiceCacheKey ? voiceInfoCache.get(voiceCacheKey) ?? null : null
+    ));
 
     // Preview playback.
     const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
@@ -117,34 +143,45 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
     // Resolve the currently-selected voice (for the trigger label) without
     // pulling the catalog: a targeted lookup by voice ID.
     useEffect(() => {
+        if (authLoading || !userId) return;
         if (!value) {
             setSelectedVoiceInfo(null);
             return;
         }
+        if (voiceCacheKey && voiceInfoCache.has(voiceCacheKey)) {
+            setSelectedVoiceInfo(voiceInfoCache.get(voiceCacheKey)!);
+            return;
+        }
         let active = true;
         (async () => {
-            const response = await getVoicesApiV1UserConfigurationsVoicesProviderGet({
-                path: { provider: provider as never },
-                query: { q: value },
-            });
-            if (!active) return;
-            const found = response.data?.voices?.find((voice) => voice.voice_id === value) ?? null;
-            setSelectedVoiceInfo(found);
+            try {
+                const response = await getVoicesApiV1UserConfigurationsVoicesProviderGet({
+                    path: { provider: provider as never },
+                    query: { q: value, ...(model ? { model } : {}), ...(providerConnectionUuid ? { provider_connection_uuid: providerConnectionUuid } : {}) },
+                });
+                if (!active) return;
+                const found = response.error ? null : response.data?.voices?.find((voice) => voice.voice_id === value) ?? null;
+                if (found && voiceCacheKey) {
+                    voiceInfoCache.set(voiceCacheKey, found);
+                }
+                setSelectedVoiceInfo(found);
+            } catch { if (active) setSelectedVoiceInfo(null); }
         })();
         return () => {
             active = false;
         };
-    }, [value, provider]);
+    }, [value, provider, providerConnectionUuid, connectionRevision, model, authLoading, userId, voiceCacheKey]);
 
     // Fetch the filtered voice list (server-side) whenever the modal is open
     // and a filter changes. A request counter discards out-of-order responses.
     useEffect(() => {
-        if (!isOpen || manualMode) return;
+        if (authLoading || !userId || !isOpen) return;
         const id = ++requestId.current;
         setIsLoading(true);
         setError(null);
         (async () => {
             const query: Record<string, string> = {};
+            if (providerConnectionUuid) query.provider_connection_uuid = providerConnectionUuid;
             if (model) query.model = model;
             if (gender !== ALL_FILTER_VALUE) query.gender = gender;
             if (accent !== ALL_FILTER_VALUE) query.accent = accent;
@@ -152,28 +189,34 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
             const search = debouncedSearch.trim();
             if (search) query.q = search;
 
-            const response = await getVoicesApiV1UserConfigurationsVoicesProviderGet({
-                path: { provider: provider as never },
-                query,
-            });
-            if (id !== requestId.current) return; // a newer request superseded this one
+            try {
+                const response = await getVoicesApiV1UserConfigurationsVoicesProviderGet({
+                    path: { provider: provider as never },
+                    query,
+                });
+                if (id !== requestId.current) return; // a newer request superseded this one
 
-            if (response.error) {
+                if (response.error) {
+                    setError(detailFromError(response.error, "Failed to load voices"));
+                    setVoices([]);
+                } else {
+                    setVoices(response.data?.voices ?? []);
+                    if (response.data?.facets) {
+                        setFacets({
+                            genders: response.data.facets.genders ?? [],
+                            accents: response.data.facets.accents ?? [],
+                            languages: response.data.facets.languages ?? [],
+                        });
+                    }
+                }
+            } catch {
+                if (id !== requestId.current) return;
                 setError("Failed to load voices");
                 setVoices([]);
-            } else {
-                setVoices(response.data?.voices ?? []);
-                if (response.data?.facets) {
-                    setFacets({
-                        genders: response.data.facets.genders ?? [],
-                        accents: response.data.facets.accents ?? [],
-                        languages: response.data.facets.languages ?? [],
-                    });
-                }
-            }
-            setIsLoading(false);
+            } finally { if (id === requestId.current) setIsLoading(false); }
         })();
-    }, [isOpen, manualMode, provider, model, gender, accent, language, debouncedSearch]);
+        return () => { requestId.current += 1; };
+    }, [isOpen, provider, providerConnectionUuid, connectionRevision, model, gender, accent, language, debouncedSearch, authLoading, userId]);
 
     // Stop any preview when the modal closes / unmounts.
     useEffect(() => {
@@ -207,8 +250,6 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
         setLanguage(DEFAULT_LANGUAGE);
         setSearchInput("");
         setDebouncedSearch("");
-        setManualMode(false);
-        setManualVoiceId(value);
         setPendingVoiceId(value);
         setIsOpen(true);
     };
@@ -233,13 +274,16 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
     };
 
     const commitSelection = () => {
-        if (manualMode) {
-            const next = manualVoiceId.trim();
-            if (next) onChange(next);
-        } else if (pendingVoiceId) {
+        if (pendingVoiceId) {
             onChange(pendingVoiceId);
             const chosen = voices.find((voice) => voice.voice_id === pendingVoiceId);
-            if (chosen) setSelectedVoiceInfo(chosen);
+            if (chosen) {
+                if (userId && provider) {
+                    const chosenKey = `${userId}:${provider}:${providerConnectionUuid || ""}:${connectionRevision ?? ""}:${model || ""}:${pendingVoiceId}`;
+                    voiceInfoCache.set(chosenKey, chosen);
+                }
+                setSelectedVoiceInfo(chosen);
+            }
         }
         setIsOpen(false);
     };
@@ -250,6 +294,8 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
     return (
         <div className={cn("space-y-2", className)}>
             <Button
+                id={id}
+                disabled={authLoading || !userId}
                 type="button"
                 variant="outline"
                 className={cn("w-full justify-between", !value && "text-muted-foreground")}
@@ -268,11 +314,12 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                 <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
                     <DialogHeader className="border-b px-6 py-4">
                         <DialogTitle>Select Voice</DialogTitle>
+                        <DialogDescription className="sr-only">Preview voices, select one, then choose Use this voice.</DialogDescription>
                     </DialogHeader>
 
                     {/* Filter row: Gender · Accent · Language · Search */}
                     <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
-                        <Select value={gender} onValueChange={setGender} disabled={manualMode}>
+                        <Select value={gender} onValueChange={setGender}>
                             <SelectTrigger className="h-9 w-[130px]">
                                 <SelectValue placeholder="Gender" />
                             </SelectTrigger>
@@ -286,7 +333,7 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                             </SelectContent>
                         </Select>
 
-                        <Select value={accent} onValueChange={setAccent} disabled={manualMode}>
+                        <Select value={accent} onValueChange={setAccent}>
                             <SelectTrigger className="h-9 w-[140px]">
                                 <SelectValue placeholder="Accent" />
                             </SelectTrigger>
@@ -300,7 +347,7 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                             </SelectContent>
                         </Select>
 
-                        <Select value={language} onValueChange={setLanguage} disabled={manualMode}>
+                        <Select value={language} onValueChange={setLanguage}>
                             <SelectTrigger className="h-9 w-[150px]">
                                 <SelectValue placeholder="Language" />
                             </SelectTrigger>
@@ -319,27 +366,12 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                             value={searchInput}
                             onChange={(event) => setSearchInput(event.target.value)}
                             className="h-9 min-w-[160px] flex-1"
-                            disabled={manualMode}
                         />
                     </div>
 
                     {/* Body */}
                     <div className="min-h-[260px] flex-1 overflow-auto px-6 py-4">
-                        {manualMode ? (
-                            <div className="space-y-2">
-                                <Label htmlFor="manual-voice-id">Custom voice ID</Label>
-                                <Input
-                                    id="manual-voice-id"
-                                    placeholder="Enter voice ID"
-                                    value={manualVoiceId}
-                                    onChange={(event) => setManualVoiceId(event.target.value)}
-                                    autoFocus
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                    Use a voice ID that isn&apos;t in the catalog above.
-                                </p>
-                            </div>
-                        ) : error ? (
+                        {error ? (
                             <p className="py-10 text-center text-sm text-destructive">{error}</p>
                         ) : isLoading ? (
                             <div className="flex items-center justify-center py-10">
@@ -414,31 +446,18 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                     </div>
 
                     {/* Footer */}
-                    <div className="flex items-center justify-between gap-3 border-t px-6 py-3">
-                        {allowManualInput ? (
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="text-muted-foreground"
-                                onClick={() => setManualMode((prev) => !prev)}
-                            >
-                                <Pencil className="mr-2 h-4 w-4" />
-                                {manualMode ? "Browse catalog" : "Custom voice ID"}
-                            </Button>
-                        ) : (
-                            <span className="text-xs text-muted-foreground">
-                                {!manualMode && !isLoading && !error ? `${voices.length} voices` : ""}
-                            </span>
-                        )}
-                        <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t px-6 py-3">
+                        <span className="text-xs text-muted-foreground">
+                            {!isLoading && !error ? `${voices.length} voices` : ""}
+                        </span>
+                        <div className="ml-auto flex items-center gap-2">
                             <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
                                 Cancel
                             </Button>
                             <Button
                                 type="button"
                                 onClick={commitSelection}
-                                disabled={manualMode ? !manualVoiceId.trim() : !pendingVoiceId}
+                                disabled={!pendingVoiceId}
                             >
                                 Use this voice
                             </Button>

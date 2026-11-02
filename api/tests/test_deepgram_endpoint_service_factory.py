@@ -3,7 +3,7 @@
 Deepgram's regional hosts are the only control over which jurisdiction sees the
 call audio, so a stored-but-ignored endpoint is not a cosmetic bug: it silently
 transfers personal data out of the region an operator selected. These tests pin
-the value all the way to the constructor argument for each of the three
+the value all the way to the constructor argument for each of the four
 Deepgram services, because each one takes a different shape of the same host.
 """
 
@@ -15,6 +15,7 @@ import pytest
 from api.services.configuration.options import (
     DEEPGRAM_BASE_URLS,
     DEEPGRAM_DEFAULT_BASE_URL,
+    deepgram_tts_model_for_voice,
 )
 from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
@@ -49,12 +50,14 @@ def _stt_config(model: str, base_url: str | None = None) -> SimpleNamespace:
     return SimpleNamespace(stt=stt)
 
 
-def _tts_config(base_url: str | None = None) -> SimpleNamespace:
+def _tts_config(
+    base_url: str | None = None, voice: str = "aura-2-helena-en"
+) -> SimpleNamespace:
     tts = SimpleNamespace(
         provider=ServiceProviders.DEEPGRAM.value,
         api_key="test-key",
-        model="aura-2",
-        voice="aura-2-helena-en",
+        model=deepgram_tts_model_for_voice(voice),
+        voice=voice,
     )
     if base_url is not None:
         tts.base_url = base_url
@@ -69,8 +72,9 @@ def _build_stt(user_config, service: str):
     return mock.call_args.kwargs
 
 
-def _build_tts(user_config):
-    with patch("api.services.pipecat.service_factory.DeepgramTTSService") as mock:
+def _build_tts(user_config, service: str = "DeepgramTTSService"):
+    target = f"api.services.pipecat.service_factory.{service}"
+    with patch(target) as mock:
         create_tts_service(user_config, _audio_config())
     mock.assert_called_once()
     return mock.call_args.kwargs
@@ -97,6 +101,14 @@ def test_tts_receives_configured_endpoint_without_a_path():
     assert kwargs["base_url"] == "wss://api.eu.deepgram.com"
 
 
+def test_flux_tts_receives_configured_endpoint_as_a_socket_url():
+    # Flux voices live on the v2 speak endpoint and want the full socket URL.
+    kwargs = _build_tts(
+        _tts_config(EU, voice="flux-maeve-en"), "DeepgramFluxTTSService"
+    )
+    assert kwargs["url"] == "wss://api.eu.deepgram.com/v2/speak"
+
+
 # --- defaults and tolerated input --------------------------------------------
 
 
@@ -116,6 +128,11 @@ def test_unset_endpoint_falls_back_to_the_default_host(model, service, key, expe
     # Older stored configurations predate the field; they must keep working.
     kwargs = _build_stt(_stt_config(model), service)
     assert kwargs[key] == expected
+
+
+def test_unset_endpoint_falls_back_to_the_default_host_for_flux_tts():
+    kwargs = _build_tts(_tts_config(voice="flux-maeve-en"), "DeepgramFluxTTSService")
+    assert kwargs["url"] == "wss://api.deepgram.com/v2/speak"
 
 
 @pytest.mark.parametrize("configured", ["api.eu.deepgram.com", EU + "/", "  " + EU])
@@ -155,7 +172,7 @@ def test_endpoint_is_offered_in_the_configuration_schema(config_cls):
 
 @pytest.mark.parametrize(
     "config_cls,primary",
-    [(DeepgramSTTConfiguration, "model"), (DeepgramTTSConfiguration, "voice")],
+    [(DeepgramSTTConfiguration, "model"), (DeepgramTTSConfiguration, "model")],
 )
 def test_endpoint_does_not_displace_the_primary_field(config_cls, primary):
     # The form promotes the first non-secret property into the slot beside the

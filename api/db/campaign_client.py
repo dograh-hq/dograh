@@ -1,4 +1,5 @@
 import json
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
@@ -1000,6 +1001,84 @@ class CampaignClient(BaseDBClient):
                 )
             )
             return [dict(row) for row in result.mappings()]
+
+    @asynccontextmanager
+    async def campaign_resume_transition(self, campaign_id: int, organization_id: int):
+        """Keep provider pauses serialized with reset and the transition to running."""
+        async with self.async_session() as session:
+            campaign = await session.scalar(
+                select(CampaignModel)
+                .where(
+                    CampaignModel.id == campaign_id,
+                    CampaignModel.organization_id == organization_id,
+                )
+                .with_for_update()
+            )
+            if campaign is None:
+                raise ValueError(f"Campaign {campaign_id} not found")
+            if campaign.state != "paused":
+                raise ValueError(
+                    "Campaign must be in 'paused' state to resume, "
+                    f"current state: {campaign.state}"
+                )
+            yield
+            campaign.state = "running"
+            campaign.updated_at = datetime.now(UTC)
+            await session.commit()
+
+    async def pause_campaign_for_provider_error(
+        self,
+        organization_id: int,
+        workflow_run_id: int,
+        *,
+        provider: str,
+        service: str,
+        status_code: int,
+    ) -> Optional[int]:
+        """Pause only the failing run's campaign and save the reason atomically.
+
+        The ordinary campaign state is the block; resuming it clears the block.
+        Row locking prevents duplicate pause entries from concurrent failures.
+        """
+        async with self.async_session() as session:
+            campaign = await session.scalar(
+                select(CampaignModel)
+                .join(
+                    WorkflowRunModel, WorkflowRunModel.campaign_id == CampaignModel.id
+                )
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.id == workflow_run_id,
+                    WorkflowModel.organization_id == organization_id,
+                    CampaignModel.organization_id == organization_id,
+                )
+                .with_for_update(of=CampaignModel)
+            )
+            # Check state only after acquiring the lock. A concurrent resume
+            # can still have the row paused while resetting its Redis window.
+            if campaign is None or campaign.state not in ("running", "syncing"):
+                return None
+            now = datetime.now(UTC)
+            campaign.state = "paused"
+            campaign.updated_at = now
+            campaign.logs = [
+                *(campaign.logs or []),
+                {
+                    "ts": now.isoformat(),
+                    "level": "warning",
+                    "event": "provider_error_circuit_breaker_tripped",
+                    "message": f"Paused: {provider} {service} returned HTTP {status_code}. Fix the provider issue, then resume the campaign.",
+                    "details": {
+                        "workflow_run_id": workflow_run_id,
+                        "provider": provider,
+                        "service": service,
+                        "status_code": status_code,
+                    },
+                },
+            ]
+            campaign_id = campaign.id
+            await session.commit()
+            return campaign_id
 
     async def append_campaign_log(
         self,

@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
 from api.services import quota_service
 from api.services.configuration.registry import ServiceProviders
@@ -10,6 +11,27 @@ from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.quota_service import QuotaCheckResult
 
 _UNSET = object()
+
+
+@pytest.fixture(autouse=True)
+def run_model_resolution(monkeypatch):
+    """These tests cover billing contracts; run resolution is tested separately.
+
+    By default a run resolves to its definition's configuration, exactly what
+    the no-run path does, so billing assertions read the same either way.
+    """
+
+    async def resolve(*, organization_id, workflow_run):
+        return await quota_service.get_effective_ai_model_configuration_for_workflow(
+            organization_id=organization_id,
+            workflow_configurations=getattr(
+                workflow_run.definition, "workflow_configurations", None
+            ),
+        )
+
+    resolve_mock = AsyncMock(side_effect=resolve)
+    monkeypatch.setattr(quota_service, "resolve_run_model_configuration", resolve_mock)
+    return resolve_mock
 
 
 def _dograh_config(
@@ -94,6 +116,63 @@ def _patch_workflow_context(monkeypatch, *, workflow=_UNSET, owner=None):
         "get_user_by_id",
         AsyncMock(return_value=owner or _workflow_owner()),
     )
+
+
+@pytest.mark.asyncio
+async def test_quota_uses_pinned_model_setup_without_resolving_lower_layers(
+    monkeypatch, run_model_resolution
+):
+    _patch_workflow_context(monkeypatch)
+    run = _pinned_run()
+    monkeypatch.setattr(
+        quota_service.db_client, "get_workflow_run", AsyncMock(return_value=run)
+    )
+    effective = _dograh_config("frozen-key", managed_service_version=2)
+    run_model_resolution.side_effect = None
+    run_model_resolution.return_value = effective
+    legacy = AsyncMock(side_effect=AssertionError("must not re-resolve models"))
+    monkeypatch.setattr(
+        quota_service, "get_effective_ai_model_configuration_for_workflow", legacy
+    )
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    authorize = AsyncMock(return_value=QuotaCheckResult(has_quota=True))
+    monkeypatch.setattr(
+        quota_service, "_authorize_hosted_workflow_run_start", authorize
+    )
+    assert (
+        await quota_service.authorize_workflow_run_start(
+            workflow_id=7, organization_id=42, workflow_run_id=51
+        )
+    ).has_quota
+    assert authorize.await_args.kwargs["user_config"] is effective
+    assert authorize.await_args.kwargs["user_config"].llm.api_key == "frozen-key"
+    legacy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_semantic_configuration_failure_precedes_billing(
+    monkeypatch, run_model_resolution
+):
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_run",
+        AsyncMock(return_value=_pinned_run()),
+    )
+    run_model_resolution.side_effect = HTTPException(
+        status_code=422, detail="Invalid model override"
+    )
+    authorize = AsyncMock()
+    monkeypatch.setattr(
+        quota_service, "_authorize_hosted_workflow_run_start", authorize
+    )
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7, organization_id=42, workflow_run_id=51
+    )
+    assert not result.has_quota
+    assert result.status_code == 422
+    assert result.error_code == "invalid_model_configuration"
+    authorize.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -828,11 +907,11 @@ async def test_campaign_preflight_uses_selected_definition_configuration(
     _patch_workflow_context(monkeypatch)
     pinned_config = {"model_configuration_v2_override": {"key": "pinned"}}
     get_definition = AsyncMock(
-        return_value=SimpleNamespace(
-            workflow_configurations=pinned_config, status=status
+        return_value=(
+            SimpleNamespace(workflow_configurations=pinned_config, status=status)
+            if status
+            else None
         )
-        if status
-        else None
     )
     monkeypatch.setattr(
         quota_service.db_client, "get_workflow_definition", get_definition
@@ -863,28 +942,23 @@ async def test_campaign_preflight_uses_selected_definition_configuration(
 
 
 @pytest.mark.asyncio
-async def test_authorize_workflow_run_falls_back_to_workflow_configs_without_definition(
-    monkeypatch,
+async def test_authorize_workflow_run_resolves_through_the_run_without_definition(
+    monkeypatch, run_model_resolution
 ):
-    """Legacy runs without a pinned definition keep using the workflow column."""
-    get_config = AsyncMock(return_value=_byok_config())
+    """A run is always pinned through its own row, even without a definition."""
+    effective = _byok_config()
+    run_model_resolution.side_effect = None
+    run_model_resolution.return_value = effective
+    run = SimpleNamespace(workflow_id=7, definition=None)
 
     monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
     _patch_workflow_context(monkeypatch)
     monkeypatch.setattr(
-        quota_service.db_client,
-        "get_workflow_run",
-        AsyncMock(return_value=SimpleNamespace(workflow_id=7, definition=None)),
+        quota_service.db_client, "get_workflow_run", AsyncMock(return_value=run)
     )
+    authorize = AsyncMock(return_value=QuotaCheckResult(has_quota=True))
     monkeypatch.setattr(
-        quota_service,
-        "get_effective_ai_model_configuration_for_workflow",
-        get_config,
-    )
-    monkeypatch.setattr(
-        quota_service,
-        "_authorize_hosted_workflow_run_start",
-        AsyncMock(return_value=QuotaCheckResult(has_quota=True)),
+        quota_service, "_authorize_hosted_workflow_run_start", authorize
     )
 
     result = await quota_service.authorize_workflow_run_start(
@@ -894,10 +968,8 @@ async def test_authorize_workflow_run_falls_back_to_workflow_configs_without_def
     )
 
     assert result.has_quota is True
-    get_config.assert_awaited_once_with(
-        organization_id=42,
-        workflow_configurations={"model_overrides": {}},
-    )
+    run_model_resolution.assert_awaited_once_with(organization_id=42, workflow_run=run)
+    assert authorize.await_args.kwargs["user_config"] is effective
 
 
 @pytest.mark.asyncio

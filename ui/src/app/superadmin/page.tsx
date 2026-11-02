@@ -4,18 +4,27 @@ import { ArrowRight, List, Loader2 } from 'lucide-react';
 import Link from "next/link";
 import { useState } from "react";
 
+import { PageLayout } from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/lib/auth';
 import { impersonateAsSuperadmin } from "@/lib/utils";
 
 type ImpersonationTarget = "provider" | "email";
 
+const DEPLOYMENTS = [
+    { value: "default", label: "Default deployment", appUrl: undefined },
+    { value: "eu", label: "Europe (EU) — eu.dograh.com", appUrl: "https://eu.dograh.com" },
+    { value: "in", label: "India (IN) — in.dograh.com", appUrl: "https://in.dograh.com" },
+];
+
 export default function SuperadminPage() {
     const [providerUserId, setProviderUserId] = useState("");
     const [email, setEmail] = useState("");
+    const [deployment, setDeployment] = useState("default");
     const [error, setError] = useState<{ target: ImpersonationTarget; message: string } | null>(null);
     const [loadingTarget, setLoadingTarget] = useState<ImpersonationTarget | null>(null);
     const { user, getAccessToken } = useAuth();
@@ -54,6 +63,7 @@ export default function SuperadminPage() {
                     ? { providerUserId: trimmedValue }
                     : { email: trimmedValue }),
                 redirectPath: '/workflow',
+                appUrl: DEPLOYMENTS.find(({ value }) => value === deployment)?.appUrl,
                 openInNewTab: true,
             });
         } catch (err) {
@@ -78,122 +88,131 @@ export default function SuperadminPage() {
     };
 
     return (
-        <>
-            <main className="container mx-auto p-6 space-y-6 max-w-5xl">
-                <div className="text-center">
-                    <h1 className="text-3xl font-bold mb-2">Superadmin Dashboard</h1>
-                    <p className="text-sm text-muted-foreground">Manage users and view system-wide data</p>
-                </div>
+        <PageLayout title="Superadmin Dashboard" description="Manage users and view system-wide data">
+            <div className="space-y-2">
+                <Label htmlFor="deployment">Deployment</Label>
+                <Select value={deployment} onValueChange={setDeployment} disabled={loadingTarget !== null}>
+                    <SelectTrigger id="deployment" className="w-full md:w-80" aria-describedby="deployment-description">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {DEPLOYMENTS.map(({ value, label }) => (
+                            <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <p id="deployment-description" className="text-sm text-muted-foreground">
+                    Choose where to open the user&apos;s session. Applies to both impersonation methods below.
+                </p>
+            </div>
+            <div className="grid gap-6 md:grid-cols-2">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Provider User ID</CardTitle>
+                        <CardDescription>
+                            Impersonate with the Stack provider user ID
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <form onSubmit={handleProviderImpersonate} className="space-y-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="providerUserId">Provider User ID</Label>
+                                <Input
+                                    id="providerUserId"
+                                    value={providerUserId}
+                                    onChange={(e) => setProviderUserId(e.target.value)}
+                                    placeholder="Provider user ID"
+                                    required
+                                />
+                            </div>
 
-                <div className="grid gap-6 md:grid-cols-2">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Provider User ID</CardTitle>
-                                <CardDescription>
-                                    Impersonate with the Stack provider user ID
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <form onSubmit={handleProviderImpersonate} className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="providerUserId">Provider User ID</Label>
-                                        <Input
-                                            id="providerUserId"
-                                            value={providerUserId}
-                                            onChange={(e) => setProviderUserId(e.target.value)}
-                                            placeholder="Provider user ID"
-                                            required
-                                        />
-                                    </div>
+                            {error?.target === "provider" && (
+                                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
+                                    {error.message}
+                                </div>
+                            )}
 
-                                    {error?.target === "provider" && (
-                                        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
-                                            {error.message}
-                                        </div>
-                                    )}
+                            <Button
+                                type="submit"
+                                disabled={loadingTarget !== null}
+                                className="w-full"
+                            >
+                                {loadingTarget === "provider" ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Processing...
+                                    </>
+                                ) : (
+                                    'Impersonate by Provider ID'
+                                )}
+                            </Button>
+                        </form>
+                    </CardContent>
+                </Card>
 
-                                    <Button
-                                        type="submit"
-                                        disabled={loadingTarget !== null}
-                                        className="w-full"
-                                    >
-                                        {loadingTarget === "provider" ? (
-                                            <>
-                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                Processing...
-                                            </>
-                                        ) : (
-                                            'Impersonate by Provider ID'
-                                        )}
-                                    </Button>
-                                </form>
-                            </CardContent>
-                        </Card>
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Email</CardTitle>
+                        <CardDescription>
+                            Impersonate with a primary email address
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <form onSubmit={handleEmailImpersonate} className="space-y-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="email">Email Address</Label>
+                                <Input
+                                    id="email"
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    placeholder="user@example.com"
+                                    required
+                                />
+                            </div>
 
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Email</CardTitle>
-                                <CardDescription>
-                                    Impersonate with a primary email address
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <form onSubmit={handleEmailImpersonate} className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="email">Email Address</Label>
-                                        <Input
-                                            id="email"
-                                            type="email"
-                                            value={email}
-                                            onChange={(e) => setEmail(e.target.value)}
-                                            placeholder="user@example.com"
-                                            required
-                                        />
-                                    </div>
+                            {error?.target === "email" && (
+                                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
+                                    {error.message}
+                                </div>
+                            )}
 
-                                    {error?.target === "email" && (
-                                        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
-                                            {error.message}
-                                        </div>
-                                    )}
+                            <Button
+                                type="submit"
+                                disabled={loadingTarget !== null}
+                                className="w-full"
+                            >
+                                {loadingTarget === "email" ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Processing...
+                                    </>
+                                ) : (
+                                    'Impersonate by Email'
+                                )}
+                            </Button>
+                        </form>
+                    </CardContent>
+                </Card>
 
-                                    <Button
-                                        type="submit"
-                                        disabled={loadingTarget !== null}
-                                        className="w-full"
-                                    >
-                                        {loadingTarget === "email" ? (
-                                            <>
-                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                Processing...
-                                            </>
-                                        ) : (
-                                            'Impersonate by Email'
-                                        )}
-                                    </Button>
-                                </form>
-                            </CardContent>
-                        </Card>
-
-                        <Card className="md:col-span-2">
-                            <CardHeader>
-                                <CardTitle>Workflow Runs</CardTitle>
-                                <CardDescription>
-                                    View and manage all workflow runs across organizations
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <Link href="/superadmin/runs">
-                                    <Button className="w-full md:w-auto">
-                                        <List className="mr-2 h-4 w-4" />
-                                        View All Runs
-                                        <ArrowRight className="ml-2 h-4 w-4" />
-                                    </Button>
-                                </Link>
-                            </CardContent>
-                        </Card>
-                </div>
-            </main>
-        </>
+                <Card className="md:col-span-2">
+                    <CardHeader>
+                        <CardTitle>Workflow Runs</CardTitle>
+                        <CardDescription>
+                            View and manage all workflow runs across organizations
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Link href="/superadmin/runs">
+                            <Button className="w-full md:w-auto">
+                                <List className="mr-2 h-4 w-4" />
+                                View All Runs
+                                <ArrowRight className="ml-2 h-4 w-4" />
+                            </Button>
+                        </Link>
+                    </CardContent>
+                </Card>
+            </div>
+        </PageLayout>
     );
 }

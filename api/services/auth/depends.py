@@ -3,18 +3,15 @@ from typing import Annotated
 from fastapi import Depends, Header, HTTPException, Query, WebSocket
 from loguru import logger
 
-from api.constants import AUTH_PROVIDER
+from api.constants import AUTH_PROVIDER, DEPLOYMENT_MODE, DOGRAH_DEPLOYMENT_ID
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent
 from api.services.auth.stack_auth import stackauth
+from api.services.mps_billing import ensure_signup_grant
 from api.services.organization_bootstrap import ensure_organization_bootstrapped
-from api.services.posthog_client import (
-    POSTHOG_ORGANIZATION_GROUP_TYPE,
-    capture_event,
-    group_identify,
-    set_person_properties,
-)
+from api.services.posthog_client import capture_event, set_person_properties
+from api.services.posthog_tenant import identify_account, tenant_groups
 from api.utils.auth import decode_jwt_token
 
 
@@ -89,6 +86,8 @@ async def get_user(
                 event=PostHogEvent.SIGNED_UP,
                 properties={
                     "auth_provider": "stack",
+                    "organization_provider_id": selected_team_id,
+                    "deployment_id": DOGRAH_DEPLOYMENT_ID,
                 },
             )
     except Exception as e:
@@ -106,6 +105,11 @@ async def get_user(
             org_was_created,
         ) = await db_client.get_or_create_organization_by_provider_id(
             org_provider_id=selected_team_id, user_id=user_model.id
+        )
+        identify_account(
+            selected_team_id,
+            name=_stack_team_name(stack_user),
+            distinct_id=str(stack_user["id"]),
         )
         if org_was_created:
             _sync_created_organization_to_posthog(
@@ -149,7 +153,55 @@ async def get_user(
         created_by=str(stack_user["id"]),
     )
 
+    # Preserve the hosted signup trial without requiring email verification.
+    # Retry on later authenticated requests if MPS was unavailable at signup.
+    await ensure_signup_grant(organization.id, created_by=str(stack_user["id"]))
+
     return user_model
+
+
+async def get_service_key_user(
+    user: UserModel = Depends(get_user),
+    authorization: Annotated[str | None, Header()] = None,
+) -> UserModel:
+    """Preserve local OSS issuance; hosted account keys require verified email."""
+    if DEPLOYMENT_MODE == "oss":
+        return user
+    return await get_verified_stack_user(user, authorization)
+
+
+async def get_verified_stack_user(
+    user: UserModel = Depends(get_user),
+    authorization: Annotated[str | None, Header()] = None,
+) -> UserModel:
+    """Key issuance requires a current verified Stack identity, never OSS/API auth."""
+    if AUTH_PROVIDER != "stack" or DEPLOYMENT_MODE == "oss":
+        raise HTTPException(
+            status_code=403,
+            detail="Get a service key at https://app.dograh.com/get-service-key",
+        )
+    identity = await stackauth.get_user(authorization)
+    if not identity or str(identity.get("id")) != str(user.provider_id):
+        raise HTTPException(
+            status_code=401, detail="Sign in with your verified email to create a key"
+        )
+    if not identity.get("primary_email_verified") or not identity.get("primary_email"):
+        raise HTTPException(
+            status_code=403, detail="Verify your email before creating a service key"
+        )
+    team_id = identity.get("selected_team_id") or (
+        identity.get("selected_team") or {}
+    ).get("id")
+    organization = await db_client.get_organization_by_id(user.selected_organization_id)
+    if not team_id or not organization or organization.provider_id != team_id:
+        raise HTTPException(
+            status_code=403, detail="Selected team does not match your organization"
+        )
+    return user
+
+
+def _stack_team_name(stack_user: dict) -> str | None:
+    return (stack_user.get("selected_team") or {}).get("display_name") or None
 
 
 def _sync_created_organization_to_posthog(
@@ -158,34 +210,28 @@ def _sync_created_organization_to_posthog(
     stack_user: dict | None = None,
     created_by_provider_id: str | None = None,
 ) -> None:
-    """Create/update the PostHog organization group for a newly-created org."""
+    """Record organization_created in the new organization's account group.
+
+    The group itself is identified by get_user, for new and existing accounts.
+    """
     try:
-        organization_id = int(organization.id)
         organization_provider_id = getattr(organization, "provider_id", None)
         created_by = created_by_provider_id
         if created_by is None and stack_user and stack_user.get("id"):
             created_by = str(stack_user["id"])
-        properties = {
-            "organization_id": organization_id,
-            "organization_provider_id": organization_provider_id,
-            "auth_provider": "stack",
-        }
-        if created_by:
-            properties["created_by_provider_id"] = created_by
-
-        group_identify(
-            POSTHOG_ORGANIZATION_GROUP_TYPE,
-            str(organization_id),
-            properties,
+        if not created_by:
+            return
+        capture_event(
             distinct_id=created_by,
+            event=PostHogEvent.ORGANIZATION_CREATED,
+            properties={
+                "organization_provider_id": organization_provider_id,
+                "auth_provider": "stack",
+                "created_by_provider_id": created_by,
+                "deployment_id": DOGRAH_DEPLOYMENT_ID,
+            },
+            groups=tenant_groups(organization_provider_id),
         )
-        if created_by:
-            capture_event(
-                distinct_id=created_by,
-                event=PostHogEvent.ORGANIZATION_CREATED,
-                properties=properties,
-                groups={POSTHOG_ORGANIZATION_GROUP_TYPE: str(organization_id)},
-            )
     except Exception:
         logger.exception("Failed to sync created organization to PostHog")
 
@@ -197,47 +243,37 @@ def _associate_user_with_posthog_organization(
     stack_user: dict | None = None,
     user_distinct_id: str | None = None,
     org_was_created: bool,
-    organization_ids: list[int] | None = None,
-    selected_organization_id: int | None = None,
     selected_organization_provider_id: str | None = None,
 ) -> None:
-    """Attach the Stack user to the PostHog organization group."""
+    """Attach the Stack user to the PostHog account group."""
     try:
-        organization_id = int(organization.id)
         organization_provider_id = getattr(organization, "provider_id", None)
         if user_distinct_id is None:
             if stack_user and stack_user.get("id"):
                 user_distinct_id = str(stack_user["id"])
             else:
                 user_distinct_id = str(user.provider_id)
-        selected_org_id = selected_organization_id or organization_id
-        selected_org_provider_id = (
-            selected_organization_provider_id or organization_provider_id
-        )
         person_properties = {
-            "user_id": user.id,
             "user_provider_id": user_distinct_id,
-            "selected_organization_id": selected_org_id,
-            "selected_organization_provider_id": selected_org_provider_id,
+            "selected_organization_provider_id": (
+                selected_organization_provider_id or organization_provider_id
+            ),
         }
-        if organization_ids is not None:
-            person_properties["organization_ids"] = organization_ids
         if user.email:
             person_properties["email"] = user.email
         set_person_properties(user_distinct_id, person_properties)
         event_properties = {
-            "user_id": user.id,
-            "organization_id": organization_id,
             "organization_provider_id": organization_provider_id,
             "auth_provider": "stack",
             "organization_was_created": org_was_created,
+            "deployment_id": DOGRAH_DEPLOYMENT_ID,
         }
 
         capture_event(
             distinct_id=user_distinct_id,
             event=PostHogEvent.ORGANIZATION_USER_ASSOCIATED,
             properties=event_properties,
-            groups={POSTHOG_ORGANIZATION_GROUP_TYPE: str(organization_id)},
+            groups=tenant_groups(organization_provider_id),
         )
     except Exception:
         logger.exception("Failed to associate user with PostHog organization")

@@ -1,6 +1,8 @@
 """Conversation behavior shared by Dograh's realtime service adapters."""
 
+import asyncio
 from dataclasses import replace
+from functools import wraps
 
 from loguru import logger
 
@@ -24,6 +26,20 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection
 
 
+def opening_request(method):
+    """Keep retained input behind session seeding, including deferred callbacks."""
+
+    @wraps(method)
+    async def wrapped(self, *args, **kwargs):
+        self._opening_requests += 1
+        try:
+            return await method(self, *args, **kwargs)
+        finally:
+            self._opening_requests -= 1
+
+    return wrapped
+
+
 class RealtimeConversationMixin:
     """Share greeting and mute policy without owning provider session state.
 
@@ -37,12 +53,29 @@ class RealtimeConversationMixin:
     """
 
     _workflow_tools_follow_voice_response = True
+    # Native providers may cancel output before publishing a transcript. A word
+    # threshold cannot be implemented by filtering local interruption frames.
+    supports_greeting_word_threshold = False
+
+    @property
+    def opening_input_ready(self) -> bool:
+        """Adapters must expose when opening audio can be accepted without loss."""
+        raise NotImplementedError
+
+    async def wait_for_input_ready(self) -> None:
+        while not (
+            self._handled_initial_context
+            and not self._opening_requests
+            and self.opening_input_ready
+        ):
+            await asyncio.sleep(0.01)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._user_is_muted = False
         # The engine assigns _context before the first context frame arrives.
         self._handled_initial_context = False
+        self._opening_requests = 0
         self._workflow_tool_deferral = WorkflowToolCallDeferral(self)
         self._workflow_response_open = False
         self._workflow_playback_stopped = False
@@ -124,6 +157,7 @@ class RealtimeConversationMixin:
             return
         await super().process_frame(frame, direction)
 
+    @opening_request
     async def handle_prerecorded_greeting(
         self, context, transcript: str | None
     ) -> None:

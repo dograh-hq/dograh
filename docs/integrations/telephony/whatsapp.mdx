@@ -1,0 +1,169 @@
+---
+title: "WhatsApp Integration"
+description: "Answer WhatsApp voice calls with Dograh AI agents using the WhatsApp Business Calling API"
+---
+
+## Overview
+
+Dograh AI answers voice calls that WhatsApp users place to your WhatsApp Business number. Only inbound calls are supported.
+
+## Prerequisites
+
+- A Meta business portfolio with a WhatsApp Business phone number on Cloud API
+- Dograh AI reachable from the internet over HTTPS
+
+<Warning>
+  Follow the steps in order. Meta verifies the webhook against a saved Dograh
+  configuration, and won't turn on calling until a `calls` webhook exists.
+</Warning>
+
+## Step 1: Create a Meta App
+
+1. Go to [developers.facebook.com/apps](https://developers.facebook.com/apps) and click **Create App**
+2. Enter an app name and contact email, then click **Next**
+3. Select **Connect with customers through WhatsApp** and click **Next**
+4. Select the business portfolio that owns your WhatsApp number, click **Next**, then click **Create app**
+
+## Step 2: Collect Credentials
+
+**WhatsApp Business account ID**
+
+1. In your app, open **Use cases** → **Connect on WhatsApp** → **API Setup**
+2. Select any of your numbers in the **From** dropdown
+3. Copy the **WhatsApp Business account ID** shown below it. One Dograh configuration covers every number on the account.
+
+**Access token**
+
+1. Open [Business settings](https://business.facebook.com/settings) → **Users** → **System users** and select a system user with **Admin** access (click **Add** to create one)
+2. Click **⋯** → **Assign assets**, and give the system user full control of your app and your WhatsApp account
+3. Click **Generate token**, select your app, set expiration to **Never**, and grant `whatsapp_business_messaging` and `whatsapp_business_management`
+4. Copy the token — Meta shows it only once
+
+**App secret**
+
+1. In your app, open **App settings** → **Basic**
+2. Click **Show** next to **App secret** and copy it
+
+<Frame caption="Meta App Dashboard — App settings > Basic (App ID and App secret)">
+  <img
+    src="/images/whatsapp-meta-app-secret.png"
+    alt="Meta App Dashboard Basic settings showing App ID and App secret"
+  />
+</Frame>
+
+## Step 3: Configure in Dograh AI
+
+1. Navigate to **/telephony-configurations**, click **Add configuration**, and select **WhatsApp**
+2. Enter the **Access Token**, **WhatsApp Business Account ID**, and **App Secret**, then click **Create**. Dograh checks them with Meta and subscribes your app to the account's webhooks before saving.
+3. Open the new configuration. Under **Webhook for your Meta app**, copy the **Callback URL** and the **Verify token** — you'll paste both into Meta in Step 4
+4. In **Phone numbers**, click **Refresh numbers**. Dograh imports the numbers Meta lists on the account. The result names any number it had to skip, so check it before assigning workflows.
+5. Edit each number that should take calls and set its **Inbound workflow** to the agent that should answer. A number with no workflow rejects calls.
+
+<CardGroup cols={2}>
+  <Frame caption="Meta App Dashboard — WhatsApp > API Setup">
+    <img
+      src="/images/whatsapp-meta-credentials.png"
+      alt="Meta WhatsApp API Setup showing Test number, Phone Number ID, Messaging account ID, and Access token"
+    />
+  </Frame>
+  <Frame caption="Dograh AI — Add telephony configuration (WhatsApp)">
+    <img
+      src="/images/whatsapp-dograh-credentials.png"
+      alt="Dograh Add telephony configuration modal showing Access Token, WhatsApp Business Account ID, and App Secret fields"
+    />
+  </Frame>
+</CardGroup>
+
+<Note>
+  On self-hosted Dograh, the Callback URL must be your backend's public HTTPS
+  URL. If the page shows a `localhost` address, expose your backend (for
+  example with a tunnel) and use that hostname instead.
+</Note>
+
+<Tip>
+  Added a number to the account in Meta later? Open the configuration and click
+  **Refresh numbers** again. Numbers Meta no longer lists stay in Dograh and are
+  reported in the result so you can remove them yourself.
+</Tip>
+
+## Step 4: Configure the Webhook in Meta
+
+1. In your app, open **Use cases** → **Connect on WhatsApp** → **Configuration**
+2. Paste the **Callback URL** and **Verify token** from Step 3, then click **Verify and save**
+3. In the **Webhook fields** list that appears, turn on **Subscribe** for `calls`
+
+<CardGroup cols={2}>
+  <Frame caption="Dograh AI — Webhook for your Meta app">
+    <img
+      src="/images/whatsapp-dograh-webhook.png"
+      alt="Dograh configuration page showing Callback URL and Verify token"
+    />
+  </Frame>
+  <Frame caption="Meta App Dashboard — Configure a webhook">
+    <img
+      src="/images/whatsapp-meta-webhook.png"
+      alt="Meta Configure a webhook modal showing Callback URL and Verify token"
+    />
+  </Frame>
+</CardGroup>
+
+## Step 5: Turn On Calling
+
+1. Open [WhatsApp Manager](https://business.facebook.com/latest/whatsapp_manager/) → **Account tools** → **Phone numbers**
+2. Click the gear icon next to each number and open **Call settings**
+3. Turn on **Allow voice calls**
+
+Alternatively, turn on calling via the Graph API (useful when testing with a Meta test phone number):
+
+```bash
+curl -X POST "https://graph.facebook.com/v26.0/<PHONE_NUMBER_ID>/settings" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "calling": {
+      "status": "ENABLED",
+      "call_icon_visibility": "DEFAULT"
+    }
+  }'
+```
+
+A successful call returns `{"success": true}`.
+
+## Step 6: Test
+
+Call one of your business numbers from the WhatsApp app on a phone. Your Dograh AI agent answers.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="'This business is not accepting calls'">
+    Calling is off for the number. Complete Step 5.
+  </Accordion>
+
+  <Accordion title="'To use WhatsApp calling features, you need to configure webhooks or set up SIP'">
+    The app has no `calls` webhook yet. Complete Step 4, then turn on calling.
+  </Accordion>
+
+  <Accordion title="Create fails with 'Meta did not accept these credentials'">
+    Meta could not list the account's numbers with the access token. Check the
+    WhatsApp Business Account ID against the API Setup page, and that the
+    token's system user has full control of your WhatsApp account.
+  </Accordion>
+
+  <Accordion title="Create fails with 'Meta did not let this app subscribe'">
+    The token's system user needs `whatsapp_business_management` and full
+    control of the WhatsApp account. Regenerate the token with that permission
+    and save again.
+  </Accordion>
+
+  <Accordion title="Verify and save fails">
+    Save the Dograh configuration first, and make sure the Verify token in
+    Meta matches the one on the configuration page exactly.
+  </Accordion>
+
+  <Accordion title="Refresh numbers finds nothing, or misses a number">
+    Dograh lists the numbers Meta shows under the WhatsApp Business Account ID
+    you saved. Check that the number is on that account in WhatsApp Manager,
+    and that the access token's system user has full control of it.
+  </Accordion>
+</AccordionGroup>

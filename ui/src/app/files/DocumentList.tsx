@@ -1,7 +1,8 @@
 'use client';
 
 import { FileText, Pencil, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import {
@@ -23,8 +24,19 @@ interface DocumentListProps {
   refreshTrigger: number;
 }
 
+const isBusy = (doc: DocumentResponseSchema) =>
+  doc.processing_status === 'processing' || doc.processing_status === 'pending';
+
+const canOpen = (doc: DocumentResponseSchema) =>
+  isEditableDocument(doc.filename) && !isBusy(doc);
+
 export default function DocumentList({ refreshTrigger }: DocumentListProps) {
   const organizationTimezone = useOrganizationTimezone();
+  // `/files?document=<uuid>` deep-links to one document (e.g. from an agent
+  // node's knowledge base section): scroll to it and open it when editable.
+  const focusedUuid = useSearchParams().get('document');
+  const focusedRowRef = useRef<HTMLDivElement | null>(null);
+  const focusHandledRef = useRef(false);
   const [documents, setDocuments] = useState<DocumentResponseSchema[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,6 +89,15 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
     return () => clearInterval(pollInterval);
   }, [documents, fetchDocuments]);
 
+  useEffect(() => {
+    if (!focusedUuid || focusHandledRef.current || isLoading) return;
+    const doc = documents.find((d) => d.document_uuid === focusedUuid);
+    if (!doc) return;
+    focusHandledRef.current = true;
+    focusedRowRef.current?.scrollIntoView?.({ block: 'center' });
+    if (canOpen(doc)) setEditingDoc(doc);
+  }, [documents, focusedUuid, isLoading]);
+
   const handleDelete = async (documentUuid: string, filename: string) => {
     if (!confirm(`Are you sure you want to delete "${filename}"?`)) return;
 
@@ -98,12 +119,6 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
       logger.error('Error deleting document:', err);
     }
   };
-
-  const isBusy = (doc: DocumentResponseSchema) =>
-    doc.processing_status === 'processing' || doc.processing_status === 'pending';
-
-  const canOpen = (doc: DocumentResponseSchema) =>
-    isEditableDocument(doc.filename) && !isBusy(doc);
 
   const getStatusBadge = (doc: DocumentResponseSchema) => {
     // A previously indexed document keeps serving agents while it is re-indexed
@@ -210,14 +225,16 @@ export default function DocumentList({ refreshTrigger }: DocumentListProps) {
           {filteredDocuments.map((doc) => (
             <div
               key={doc.document_uuid}
+              ref={doc.document_uuid === focusedUuid ? focusedRowRef : undefined}
               role={canOpen(doc) ? 'button' : undefined}
               tabIndex={canOpen(doc) ? 0 : undefined}
               aria-label={canOpen(doc) ? `Edit ${doc.filename}` : undefined}
+              aria-current={doc.document_uuid === focusedUuid ? 'true' : undefined}
               className={`flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors ${
                 canOpen(doc)
                   ? 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
                   : ''
-              }`}
+              } ${doc.document_uuid === focusedUuid ? 'ring-2 ring-primary/60' : ''}`}
               onClick={canOpen(doc) ? () => setEditingDoc(doc) : undefined}
               onKeyDown={(event) => {
                 if (!canOpen(doc) || event.target !== event.currentTarget) return;

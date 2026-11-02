@@ -47,9 +47,18 @@ TURN traffic: dedicated L4 Service of type `LoadBalancer`.
 These are choices the chart made where `HELM_DEPLOYMENT_PLAN.md` was
 silent. Each is exposed in `values.yaml` for operator override.
 
-- **terminationGracePeriodSeconds for web: 1260s.** Covers a full-length
+- **terminationGracePeriodSeconds for web: 1275s.** Covers a full-length
   (20-minute) call so scale-down / rolling updates drain instead of cutting
-  it; tune to your call-length distribution.
+  it, plus 60s after preStop for bounded text-chat finalization and resource
+  shutdown; tune to your call-length distribution. Shutdown attempts to mark
+  unfinished chat turns failed before cancellation. If completion already
+  committed, it hands transcript upload and completion enqueue to an ARQ worker
+  before cancelling the local task. Both operations share a 5-second deadline;
+  a failed database write or handoff leaves the local task running for the
+  remaining shutdown window. This is best effort: dependency outages or forced
+  termination can still leave a session pending or interrupt work before handoff.
+  Deploy ARQ workers with `finalize_completed_text_chat` support before updating
+  web instances that can enqueue that job.
 - **preStop active-call drain (scripts/drain_web.sh).** Waits
   `preStopSleepSeconds` (15s) for the gateway to stop dispatching new
   connections, then polls /api/v1/health/active-calls and holds SIGTERM until
@@ -126,7 +135,7 @@ Spot-check expectations:
   `strategy.type: Recreate`.
 - `Deployment/<release>-campaign-orchestrator` has `replicas: 1` and
   `strategy.type: Recreate`.
-- `Deployment/<release>-web` has `terminationGracePeriodSeconds: 1260`
+- `Deployment/<release>-web` has `terminationGracePeriodSeconds: 1275`
   and a `lifecycle.preStop` exec hook running `./scripts/drain_web.sh`.
 - Liveness probe on ari-manager / campaign-orchestrator uses `exec`,
   not `httpGet`.

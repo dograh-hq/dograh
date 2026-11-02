@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 
 import { getWorkflowsApiV1WorkflowFetchGet, listFoldersApiV1FolderGet } from '@/client/sdk.gen';
 import type { FolderResponse, WorkflowListResponse } from '@/client/types.gen';
+import { PageShell } from '@/components/layout/PageShell';
 import { Card, CardContent } from '@/components/ui/card';
 import { CreateWorkflowButton } from "@/components/workflow/CreateWorkflowButton";
 import { AgentFolderView } from '@/components/workflow/folders/AgentFolderView';
@@ -11,7 +12,6 @@ import { UploadWorkflowButton } from '@/components/workflow/UploadWorkflowButton
 import { getServerAccessToken, getServerAuthProvider } from '@/lib/auth/server';
 import logger from '@/lib/logger';
 
-import WorkflowLayout from "./WorkflowLayout";
 
 export const dynamic = 'force-dynamic';
 
@@ -110,7 +110,7 @@ async function PageContent() {
     const workflowList = await WorkflowList();
 
     return (
-        <div className="container mx-auto px-4 py-8">
+        <PageShell>
             {/* Your Workflows Section */}
             <div className="mb-6">
                 <div className="flex justify-between items-center mb-6">
@@ -123,13 +123,13 @@ async function PageContent() {
                 </div>
                 {workflowList}
             </div>
-        </div>
+        </PageShell>
     );
 }
 
 function WorkflowsLoading() {
     return (
-        <div className="container mx-auto px-4 py-8">
+        <PageShell>
             {/* Get Started Section Loading */}
             <div className="mb-12">
                 <div className="h-8 w-48 bg-muted rounded mb-6"></div>
@@ -156,17 +156,14 @@ function WorkflowsLoading() {
                     </CardContent>
                 </Card>
             </div>
-        </div>
+        </PageShell>
     );
 }
 
 export default function WorkflowPage() {
     return (
-        <WorkflowLayout showFeaturesNav={true}>
-            <Suspense fallback={<WorkflowsLoading />}>
-                <PageContent />
-            </Suspense>
-        </WorkflowLayout>
-
+        <Suspense fallback={<WorkflowsLoading />}>
+            <PageContent />
+        </Suspense>
     );
 }

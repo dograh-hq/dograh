@@ -22,7 +22,6 @@ import posthog from 'posthog-js';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import {
     getWorkflowApiV1WorkflowFetchWorkflowIdGet,
     getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet,
@@ -787,9 +786,8 @@ export default function WorkflowRunPage() {
                 };
                 setWorkflowRun(runData);
                 posthog.capture(PostHogEvent.WORKFLOW_RUN_DETAILS_VIEWED, {
-                    workflow_id: workflowId,
+                    workflow_uuid: workflowResponse.data?.workflow_uuid ?? null,
                     workflow_name: workflowResponse.data?.name ?? null,
-                    run_id: runId,
                     is_completed: runData.is_completed,
                     has_recording: !!runData.recording_url,
                     has_split_recordings: !!runData.user_recording_url && !!runData.bot_recording_url,
@@ -1029,7 +1027,7 @@ export default function WorkflowRunPage() {
     }
 
     return (
-        <WorkflowLayout>
+        <>
             {returnValue}
             {dialog}
 
@@ -1043,6 +1041,6 @@ export default function WorkflowRunPage() {
                     showNext={false}
                 />
             )}
-        </WorkflowLayout>
+        </>
     );
 }

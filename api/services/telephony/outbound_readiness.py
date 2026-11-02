@@ -42,6 +42,12 @@ async def _ensure_row_outbound_setup_ready(row: Any, *, db: Any) -> int:
             row.name,
             f"Provider '{row.provider}' is unavailable.",
         )
+    if not spec.supports_outbound:
+        raise OutboundSetupIncompleteError(
+            row.id,
+            row.name,
+            "This provider receives calls only and cannot place them.",
+        )
     trunks = await db.list_trunks_for_config(row.id) if spec.supports_trunks else []
     checklist = get_setup_checklist(
         row.provider,

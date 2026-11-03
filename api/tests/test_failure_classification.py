@@ -3,6 +3,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from loguru import logger
+from websockets.datastructures import Headers
+from websockets.exceptions import InvalidStatus
+from websockets.http11 import Response
 
 from api.errors import failure as failure_module
 from api.errors.failure import (
@@ -13,13 +16,94 @@ from api.errors.failure import (
     annotate_failure_metadata,
     classify_exception,
     classify_http_response,
+    describe_exception,
     failure_already_reported,
     failure_metadata_for_processor,
     log_failure,
     mark_failure_reported,
     redact_failure_message,
+    response_body_detail,
 )
 from api.services.configuration.registry import REGISTRY, ServiceType
+
+
+def _rejected_handshake(status_code: int, body: bytes) -> InvalidStatus:
+    return InvalidStatus(Response(status_code, "Rejected", Headers(), body))
+
+
+SPEED_REJECTION = (
+    b'{"err_code":"Bad Request","err_msg":"Requested model does not support '
+    b"the 'speed' parameter.\"}"
+)
+
+
+def test_rejected_handshake_reason_is_read_from_the_response_body():
+    # The library's own message names only the status; the reason the server
+    # gave is what lets a user fix their configuration.
+    exc = _rejected_handshake(400, SPEED_REJECTION)
+    reason = "Requested model does not support the 'speed' parameter."
+
+    assert reason not in str(exc)
+    assert response_body_detail(exc) == reason
+    assert describe_exception(exc) == f"{exc} ({reason})"
+
+    failure = classify_exception(exc, source=ErrorSource.TTS, provider="deepgram")
+
+    assert failure.type is ErrorType.CONFIG_ERROR
+    assert reason in failure.internal_message
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (b"", None),
+        (b"<html><body>Bad gateway</body></html>", None),
+        (b"  upstream \n  timed out \n", "upstream timed out"),
+        (b'{"error": {"message": "nested reason"}}', "nested reason"),
+        (b'{"status": "failed"}', '{"status": "failed"}'),
+        (b"x" * 500, "x" * 300),
+    ],
+)
+def test_response_body_detail_handles_other_body_shapes(body, expected):
+    assert response_body_detail(_rejected_handshake(502, body)) == expected
+
+
+def test_unreadable_response_attribute_never_masks_the_original_error():
+    class Flaky(Exception):
+        @property
+        def response(self):
+            raise RuntimeError("connection already closed")
+
+    exc = Flaky("boom")
+
+    assert response_body_detail(exc) is None
+    assert describe_exception(exc) == "boom"
+    failure = classify_exception(exc, source=ErrorSource.TTS, provider="deepgram")
+    assert "boom" in failure.internal_message
+
+
+def test_response_body_detail_is_redacted_before_it_leaves_the_server():
+    # The detail reaches the browser and the log sinks, so a proxy or provider
+    # that echoes credentials back must not leak them.
+    exc = _rejected_handshake(
+        401,
+        b'{"err_msg": "Authorization: Bearer abc.def-123 rejected; api_key=sk-live-999 revoked"}',
+    )
+
+    detail = response_body_detail(exc)
+
+    assert detail is not None
+    assert "abc.def-123" not in detail
+    assert "sk-live-999" not in detail
+    assert "[REDACTED]" in detail
+    assert "rejected" in detail
+
+
+def test_describe_exception_without_a_response_is_plain_str():
+    exc = RuntimeError("boom")
+
+    assert response_body_detail(exc) is None
+    assert describe_exception(exc) == "boom"
 
 
 @pytest.mark.parametrize(

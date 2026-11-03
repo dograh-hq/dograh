@@ -10,16 +10,20 @@ and inspect what arrives downstream.
 """
 
 from typing import Optional
+from unittest.mock import AsyncMock
 
 import pytest
 from pipecat.frames.frames import (
+    InterruptionFrame,
     LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
     LLMTextFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
     TTSTextFrame,
 )
+from pipecat.processors.frame_processor import FrameDirection
 
 from api.services.pipecat.recording_audio_cache import RecordingAudio
 from api.services.pipecat.recording_router_processor import (
@@ -44,16 +48,61 @@ async def _fake_fetch(recording_id: str) -> Optional[RecordingAudio]:
 
 
 def _make_processor(**kwargs) -> RecordingRouterProcessor:
-    return RecordingRouterProcessor(
+    enabled = kwargs.pop("enabled", True)
+    processor = RecordingRouterProcessor(
         audio_sample_rate=16_000,
         fetch_recording_audio=kwargs.pop("fetch", _fake_fetch),
         **kwargs,
     )
+    processor.set_enabled(enabled)
+    return processor
 
 
 def _llm_tokens(tokens: list[str]) -> list[LLMTextFrame]:
     """Build a list of LLMTextFrame from raw strings."""
     return [LLMTextFrame(text=t) for t in tokens]
+
+
+@pytest.mark.asyncio
+async def test_disabled_router_streams_text_before_response_end():
+    fetch = AsyncMock()
+    processor = RecordingRouterProcessor(
+        audio_sample_rate=16_000, fetch_recording_audio=fetch
+    )
+    processor.push_frame = AsyncMock()
+    direction = FrameDirection.DOWNSTREAM
+    await processor.process_frame(LLMFullResponseStartFrame(), direction)
+
+    for text in ("Hello", " world", " ● leave this unchanged"):
+        frame = LLMTextFrame(text)
+        await processor.process_frame(frame, direction)
+        processor.push_frame.assert_called_with(frame, direction)
+        assert frame.text == text
+        assert not frame.skip_tts
+
+    fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", [LLMFullResponseEndFrame, InterruptionFrame])
+async def test_node_change_applies_to_next_response(boundary):
+    fetch = AsyncMock(return_value=RecordingAudio(audio=FAKE_AUDIO))
+    processor = _make_processor(fetch=fetch, enable_direct_mode=True)
+    processor.push_frame = AsyncMock()
+    direction = FrameDirection.DOWNSTREAM
+
+    await processor.process_frame(LLMFullResponseStartFrame(), direction)
+    await processor.process_frame(LLMTextFrame(RECORDING_MARKER), direction)
+    # Preparing the next node must not change the current generation's mode.
+    processor.set_enabled(False)
+    await processor.process_frame(LLMTextFrame(" rec123 transcript"), direction)
+    fetch.assert_awaited_once_with(recording_id="rec123")
+    await processor.process_frame(boundary(), direction)
+
+    await processor.process_frame(LLMFullResponseStartFrame(), direction)
+    frame = LLMTextFrame("The next node streams immediately.")
+    await processor.process_frame(frame, direction)
+    processor.push_frame.assert_called_with(frame, direction)
 
 
 # ---------------------------------------------------------------------------

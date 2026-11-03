@@ -266,6 +266,35 @@
     background-repeat: no-repeat;
   }
 
+  /* "On air" indicator for the event banner's LIVE eyebrow: the dot itself
+     breathes while a halo ring expands out of it, so the label reads as a live
+     signal rather than a static bullet. The ring is a box-shadow (no extra
+     element), so the dot stays a 1.5x1.5 box in the flex row. */
+  .signal-pulse {
+    animation: signal-pulse 2s ease-out infinite;
+  }
+
+  @keyframes signal-pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--cta) 55%, transparent);
+      opacity: 1;
+    }
+    70% {
+      box-shadow: 0 0 0 4px color-mix(in oklab, var(--cta) 0%, transparent);
+      opacity: 0.65;
+    }
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--cta) 0%, transparent);
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .signal-pulse {
+      animation: none;
+    }
+  }
+
 }
 
 /* ---------------------------------------------------------------------------
@@ -361,4 +390,29 @@
   outline: none;
   box-shadow: none;
   border-bottom-color: var(--cta);
+}
+
+/* Event banner (Dograh Cloud only, NEXT_PUBLIC_EVENT_BANNER=1). The bar is
+   sticky at top-0 in the root layout, so while it is up it permanently owns
+   --event-banner-h pixels at the top of the viewport. Two things have to give
+   way, and both are utility-class'd primitives we do not want to fork:
+
+   - the shadcn sidebar's FIXED container (inset-y-0 h-svh), which would
+     otherwise start underneath the bar and run past the bottom of the screen;
+   - every full-height page shell (min-h-screen / min-h-svh: the sidebar
+     wrapper, the app shell, the auth shell), which would otherwise demand a
+     full viewport BELOW the bar and add a phantom scrollbar.
+
+   Both rules are gated on [data-event-banner], set on <html> by EventBanner
+   only while the bar is actually rendered — dismissed or env-gated off, these
+   selectors do not match and the layout is byte-for-byte what it was before
+   this block existed. */
+[data-event-banner] [data-slot="sidebar-container"] {
+  top: var(--event-banner-h, 0px);
+  height: calc(100svh - var(--event-banner-h, 0px));
+}
+
+[data-event-banner] [class~="min-h-screen"],
+[data-event-banner] [class~="min-h-svh"] {
+  min-height: calc(100svh - var(--event-banner-h, 0px));
 }

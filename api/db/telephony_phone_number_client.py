@@ -20,6 +20,11 @@ from api.db.models import (
 )
 from api.utils.telephony_address import normalize_telephony_address
 
+# The key under which provider-reported details live in
+# ``telephony_phone_numbers.extra_metadata``. Everything else in that column is
+# the operator's, and a provider refresh only ever replaces this one key.
+PROVIDER_METADATA_KEY = "provider"
+
 
 class TelephonyPhoneNumberConflictError(Exception):
     """Raised when a phone number violates a DB constraint."""
@@ -221,6 +226,49 @@ class TelephonyPhoneNumberClient(BaseDBClient):
             )
             return config, phone_number
 
+    async def find_inbound_route_by_called_number(
+        self,
+        provider: str,
+        to_number: str,
+        country_hint: Optional[str] = None,
+    ) -> Optional[Tuple[TelephonyConfigurationModel, TelephonyPhoneNumberModel]]:
+        """Inbound route lookup when the webhook omits account_id.
+
+        Some providers (Exotel Voicebot Applet dynamic URL) POST/GET inbound
+        webhooks without an account identifier. In that case we match on
+        ``(provider, canonical called number)`` across all orgs. Returns a
+        route only when exactly one active, non-parked config owns that
+        number; returns None on zero matches or when multiple configs would
+        race for the same call.
+        """
+        if not (provider and to_number):
+            return None
+
+        normalized = normalize_telephony_address(to_number, country_hint=country_hint)
+
+        async with self.async_session() as session:
+            stmt = (
+                select(TelephonyConfigurationModel, TelephonyPhoneNumberModel)
+                .join(
+                    TelephonyPhoneNumberModel,
+                    TelephonyPhoneNumberModel.telephony_configuration_id
+                    == TelephonyConfigurationModel.id,
+                )
+                .where(
+                    TelephonyConfigurationModel.provider == provider,
+                    TelephonyPhoneNumberModel.address_normalized
+                    == normalized.canonical,
+                    TelephonyPhoneNumberModel.is_active.is_(True),
+                    TelephonyConfigurationModel.inactive.is_(False),
+                )
+                .limit(2)
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+            if len(rows) == 1:
+                return rows[0][0], rows[0][1]
+            return None
+
     async def find_inbound_routing_conflicts(
         self,
         provider: str,
@@ -326,10 +374,25 @@ class TelephonyPhoneNumberClient(BaseDBClient):
     ) -> Optional[TelephonyPhoneNumberModel]:
         """Partial update. ``address`` is intentionally immutable — create a new
         row instead. Set ``clear_inbound_workflow``/``clear_trunk`` to null out
-        the respective FK."""
+        the respective FK.
+
+        ``extra_metadata`` replaces the operator's keys but keeps the
+        provider-owned ``PROVIDER_METADATA_KEY`` entry unless the caller sets
+        one, and the row is locked while it is rewritten, so an operator save
+        cannot undo a provider refresh that landed in between.
+        """
         async with self.async_session() as session:
-            row = await session.get(TelephonyPhoneNumberModel, phone_number_id)
-            if not row or row.telephony_configuration_id != telephony_configuration_id:
+            result = await session.execute(
+                select(TelephonyPhoneNumberModel)
+                .where(
+                    TelephonyPhoneNumberModel.id == phone_number_id,
+                    TelephonyPhoneNumberModel.telephony_configuration_id
+                    == telephony_configuration_id,
+                )
+                .with_for_update()
+            )
+            row = result.scalars().first()
+            if not row:
                 return None
 
             if label is not None:
@@ -347,7 +410,58 @@ class TelephonyPhoneNumberClient(BaseDBClient):
             if country_code is not None:
                 row.country_code = country_code
             if extra_metadata is not None:
-                row.extra_metadata = extra_metadata
+                merged = dict(extra_metadata)
+                provider_details = (row.extra_metadata or {}).get(PROVIDER_METADATA_KEY)
+                if provider_details is not None and PROVIDER_METADATA_KEY not in merged:
+                    merged[PROVIDER_METADATA_KEY] = provider_details
+                row.extra_metadata = merged
+
+            await session.commit()
+            await session.refresh(row)
+            return row
+
+    async def refresh_phone_number_from_provider(
+        self,
+        phone_number_id: int,
+        telephony_configuration_id: int,
+        *,
+        provider_metadata: Dict[str, Any],
+        label: Optional[str] = None,
+    ) -> Optional[TelephonyPhoneNumberModel]:
+        """Fold the provider's current details into a row, against its live state.
+
+        The row is locked and re-read inside the transaction, so an operator
+        edit that landed after the caller listed the row is kept: provider
+        data only ever replaces the ``PROVIDER_METADATA_KEY`` entry of
+        ``extra_metadata``, and ``label`` is applied only while the row still
+        has none. Returns the row when something changed, ``None`` when it
+        was already current or does not belong to the configuration.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(TelephonyPhoneNumberModel)
+                .where(
+                    TelephonyPhoneNumberModel.id == phone_number_id,
+                    TelephonyPhoneNumberModel.telephony_configuration_id
+                    == telephony_configuration_id,
+                )
+                .with_for_update()
+            )
+            row = result.scalars().first()
+            if not row:
+                return None
+
+            changed = False
+            current = dict(row.extra_metadata or {})
+            if current.get(PROVIDER_METADATA_KEY) != provider_metadata:
+                current[PROVIDER_METADATA_KEY] = dict(provider_metadata)
+                row.extra_metadata = current
+                changed = True
+            if label and not row.label:
+                row.label = label
+                changed = True
+            if not changed:
+                return None
 
             await session.commit()
             await session.refresh(row)

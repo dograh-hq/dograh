@@ -50,6 +50,25 @@ Classify each dograh-touched file:
 
 Read `CHANGELOG.md` for the OLD_TAG..NEW_TAG range — it names breaking changes and deprecations that the diff alone obscures.
 
+Some **take theirs** verdicts are invisible in the diff: upstream sometimes rejects a fork
+patch and fixes the same bug its own way. Nothing conflicts, so the merge keeps both — two
+mechanisms for one problem, where whichever trips first silences the other, with no marker
+and no failing test to show for it. List the fork's PRs to upstream and read the close
+comment on each closed-unmerged one; it names the PR they took instead:
+
+```bash
+gh api "search/issues?q=repo:pipecat-ai/pipecat+type:pr+author:<gh-user>" \
+  --jq '.items[] | select(.pull_request.merged_at == null) | "\(.number)\t\(.state)\t\(.title)"'
+gh api repos/pipecat-ai/pipecat/issues/<PR>/comments --jq '.[].body'
+```
+
+Precedent: at v1.8.1 the fork's #5217 (bound the output-transport drain) was closed for
+upstream's #5424, which shipped in that same tag — and the fork's 5s bound pre-empted
+upstream's 10s one, keeping the hang fixed but losing the error report upstream added.
+
+A leftover `changelog/<pr>.md` fragment is the same signal from the other side: upstream
+merged that PR and consumed the fragment into `CHANGELOG.md`, so the fork's copy is cruft.
+
 ## 3. Merge
 
 ```bash

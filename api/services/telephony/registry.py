@@ -277,12 +277,25 @@ class ProviderSpec:
         connectivity: Whether the customer buys phone service from this
             provider ("api") or connects their own carrier to it ("sip").
             Drives how the UI offers the choice; nothing at runtime reads it.
+        supports_outbound: Whether this provider can place calls at all. False
+            for a channel that only delivers calls made *to* the business, so
+            the UI never offers it as an outbound default or a caller-ID source
+            and the outbound call paths skip it before dialing.
         requires_caller_id: Whether an outbound call fails without at least one
             phone number on the configuration. True for every carrier, so it is
             the default and a new provider is honest about readiness for free.
             Only providers that can originate without a caller ID (a PBX
             dialling an extension, say) opt out. Ignored when the provider
             supplies its own ``setup_checklist_resolver``.
+        requires_e164_destinations: Whether destinations must be E.164 numbers.
+            True for every carrier. Campaign uploads are checked against it, so
+            a provider that reaches extensions or SIP URIs opts out rather than
+            having those rows rejected as malformed numbers.
+        supports_phone_number_sync: Whether the provider can list the phone
+            numbers its account holds. Pairs with
+            ``TelephonyProvider.list_provider_phone_numbers``; the shared
+            sync route imports that inventory into ``telephony_phone_numbers``
+            so customers refresh numbers instead of typing them.
         trunk_settings_cls: Schema for a trunk's provider-specific settings.
             Providing it declares that this provider's calls travel over named
             carrier paths, which phone numbers are then assigned to. Paired
@@ -326,9 +339,23 @@ class ProviderSpec:
     # Whether phone service is bought from this provider or brought to it.
     # Defaults to "api": most providers are carriers in their own right.
     connectivity: ProviderConnectivity = "api"
+    # Whether this provider can place calls at all. Every carrier can; an
+    # inbound-only channel opts out so nothing offers it for outbound.
+    supports_outbound: bool = True
     # Whether outbound calls need a phone number on the configuration. True by
     # default so a provider is never reported ready when it cannot dial.
     requires_caller_id: bool = True
+    # Whether every destination this provider dials has to be an E.164 number.
+    # True for a carrier, which hands the call to the PSTN. False only for a
+    # provider that also reaches destinations the PSTN has no name for -- a PBX
+    # extension, a SIP URI, a dial string naming a trunk -- where demanding
+    # E.164 rejects the addresses the customer actually dials.
+    requires_e164_destinations: bool = True
+    # Whether ``TelephonyProvider.list_provider_phone_numbers`` is implemented,
+    # so the shared "refresh numbers" route can import the account's inventory
+    # and the UI can offer the button. Off by default: a provider with no
+    # listing must say so rather than report an empty account.
+    supports_phone_number_sync: bool = False
     # Schema for a trunk's provider-specific settings. Setting it is what
     # declares that this provider has trunks at all: the trunk endpoints,
     # the checklist's trunk step and the number-to-trunk picker all key off it.

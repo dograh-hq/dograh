@@ -1,0 +1,78 @@
+name: Build API Image
+
+# The deploy path for the EKS cluster: one image, one platform, pushed under a
+# tag derived from the commit. docker-image.yml is the release path — it builds
+# api and ui for amd64 and arm64 and assembles manifest lists in a merge job.
+#
+# The cluster's nodes are x86_64 and app.dograh.com is served by Vercel, so of
+# the four images a release builds, the cluster pulls one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or SHA to build. Defaults to main."
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+# Queue rather than cancel: a cancelled deploy build leaves a tag that was
+# announced but never pushed.
+concurrency:
+  group: build-api-image
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: false
+          dotnet: false
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: true
+
+      - name: Compute tag
+        id: tag
+        run: echo "tag=prod-$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/dograh-api:${{ steps.tag.outputs.tag }}
+          # Same scope as docker-image.yml's amd64 api build, so the two share
+          # layers in both directions.
+          cache-from: type=gha,scope=dograh-api-amd64
+          cache-to: type=gha,mode=max,scope=dograh-api-amd64
+
+      - name: Summary
+        run: |
+          echo "\`${{ secrets.DOCKERHUB_USERNAME }}/dograh-api:${{ steps.tag.outputs.tag }}\`" \
+            >> "$GITHUB_STEP_SUMMARY"

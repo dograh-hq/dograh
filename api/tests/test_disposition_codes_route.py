@@ -11,6 +11,7 @@ from api.services.workflow.disposition_codes import (
     END_TASK_REASON_DISPOSITION_CODES,
     SYSTEM_DISPOSITION_CODES,
 )
+from api.services.workflow.disposition_extraction import DEFAULT_DISPOSITION_CODES
 
 
 def _make_test_app() -> FastAPI:
@@ -64,6 +65,17 @@ def test_catalog_includes_telephony_statuses_for_calls_that_never_connected():
 
     for status in ("no-answer", "busy", "failed", "canceled", "error"):
         assert status in codes
+
+
+def test_mapping_catalog_includes_default_business_dispositions():
+    """The mapping editor consumes system_codes, not the run-derived codes."""
+    catalog = _get_catalog([])
+
+    for disposition in DEFAULT_DISPOSITION_CODES:
+        assert disposition in catalog["system_codes"]
+    assert "do_not_call" in catalog["system_codes"]
+    assert "voicemail" not in catalog["system_codes"]
+    assert catalog["system_codes"].count("voicemail_detected") == 1
 
 
 def test_org_custom_codes_are_appended_without_duplicating_builtins():

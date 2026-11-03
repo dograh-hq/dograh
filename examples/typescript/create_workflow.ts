@@ -47,7 +47,6 @@ const WORKFLOW_DEFINITION = {
                 delayed_start: false,
                 delayed_start_duration: 2,
                 extraction_enabled: false,
-                pre_call_fetch_enabled: false,
             },
         },
     ],

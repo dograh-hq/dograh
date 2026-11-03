@@ -46,6 +46,8 @@ class DeferredTunerObserver(Observer):
         llm_model: str = "",
         tts_model: str = "",
         agent_version: int | None = None,
+        sip_call_id: str | None = None,
+        sip_headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(
             api_key=_DEFERRED_API_KEY,
@@ -58,6 +60,8 @@ class DeferredTunerObserver(Observer):
             llm_model=llm_model,
             tts_model=tts_model,
             agent_version=agent_version,
+            sip_call_id=sip_call_id,
+            sip_headers=sip_headers,
         )
 
     async def _flush(self) -> None:

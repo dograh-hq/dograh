@@ -93,9 +93,15 @@ async def test_acquire_org_slot_fires_usage_event_per_org_member_when_limit_reac
             "api.services.call_concurrency.service.rate_limiter"
         ) as mock_rate_limiter,
         patch("api.services.call_concurrency.service.capture_event") as mock_capture,
+        patch("api.services.posthog_tenant.get_posthog", return_value=object()),
+        patch("api.services.posthog_tenant._provider_ids", {}),
+        patch("api.services.posthog_tenant.db_client") as mock_tenant_db,
     ):
         mock_db.get_configuration = AsyncMock(return_value=None)
         mock_db.get_organization_users = AsyncMock(return_value=members)
+        mock_tenant_db.get_organization_by_id = AsyncMock(
+            return_value=SimpleNamespace(id=199, provider_id="team-199")
+        )
         mock_rate_limiter.try_acquire_concurrent_slot_details = AsyncMock(
             return_value=None
         )
@@ -113,11 +119,73 @@ async def test_acquire_org_slot_fires_usage_event_per_org_member_when_limit_reac
         assert kwargs["event"] == PostHogEvent.USAGE_CONCURRENT_CALL_LIMIT_REACHED
         assert "groups" not in kwargs
         assert kwargs["properties"]["event_source"] == "dograh"
-        assert kwargs["properties"]["organization_id"] == 199
+        assert "organization_id" not in kwargs["properties"]
+        assert kwargs["properties"]["organization_provider_id"] == "team-199"
+        assert "deployment_id" in kwargs["properties"]
         assert kwargs["properties"]["source"] == "webrtc"
         assert kwargs["properties"]["active_calls"] == 10
         assert kwargs["properties"]["max_concurrent"] == 10
         assert "scope_key" not in kwargs["properties"]
+
+
+@pytest.mark.asyncio
+async def test_limit_event_labels_carry_no_database_ids():
+    """A campaign id is only unique within one deployment, so the source and
+    scope labels lose it before they reach PostHog."""
+    from types import SimpleNamespace
+
+    service = CallConcurrencyService()
+
+    with (
+        patch("api.services.call_concurrency.service.db_client") as mock_db,
+        patch(
+            "api.services.call_concurrency.service.rate_limiter"
+        ) as mock_rate_limiter,
+        patch("api.services.call_concurrency.service.capture_event") as mock_capture,
+        patch("api.services.posthog_tenant.get_posthog", return_value=object()),
+        patch("api.services.posthog_tenant._provider_ids", {}),
+        patch("api.services.posthog_tenant.db_client") as mock_tenant_db,
+    ):
+        mock_db.get_configuration = AsyncMock(return_value=None)
+        mock_db.get_organization_users = AsyncMock(
+            return_value=[SimpleNamespace(provider_id="user-a")]
+        )
+        mock_tenant_db.get_organization_by_id = AsyncMock(
+            return_value=SimpleNamespace(id=199, provider_id="team-199")
+        )
+        mock_rate_limiter.try_acquire_concurrent_slot_details = AsyncMock(
+            return_value=None
+        )
+        mock_rate_limiter.get_concurrent_count = AsyncMock(return_value=10)
+
+        with pytest.raises(CallConcurrencyLimitError):
+            await service.acquire_org_slot(
+                199,
+                source="campaign:4521",
+                timeout=0,
+                scope_key="campaign:4521",
+                scope_max_concurrent=3,
+            )
+
+    properties = mock_capture.call_args.kwargs["properties"]
+    assert properties["source"] == "campaign"
+    assert properties["scope_key"] == "campaign"
+    assert properties["scope_max_concurrent"] == 3
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("webrtc", "webrtc"),
+        ("inbound:twilio", "inbound:twilio"),
+        ("campaign:4521", "campaign"),
+        ("public_embed_chat:messages:88123", "public_embed_chat:messages"),
+    ],
+)
+def test_without_ids_strips_only_trailing_ids(label, expected):
+    from api.services.call_concurrency.service import _without_ids
+
+    assert _without_ids(label) == expected
 
 
 @pytest.mark.asyncio
@@ -233,6 +301,64 @@ requires_redis = pytest.mark.skipif(
 
 def _unique_org_id() -> int:
     return uuid.uuid4().int % 10_000_000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_operation", ["zremrangebyscore", "zcard"])
+async def test_strict_org_count_propagates_storage_errors(failed_operation):
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    rl = RateLimiter()
+    redis_client = AsyncMock()
+    getattr(redis_client, failed_operation).side_effect = RedisConnectionError(
+        "redis unavailable"
+    )
+    rl._get_redis = AsyncMock(return_value=redis_client)
+
+    with pytest.raises(RedisConnectionError):
+        await rl.get_concurrent_count(42, raise_on_error=True)
+    # Admission logging keeps its existing fallback behavior.
+    assert await rl.get_concurrent_count(42) == 0
+
+
+@requires_redis
+@pytest.mark.asyncio
+async def test_org_count_spans_workers_excludes_other_orgs_and_stale_slots():
+    import time
+
+    from api.services.call_concurrency.rate_limiter import FLEET_CONCURRENT_KEY
+
+    first_worker, second_worker = RateLimiter(), RateLimiter()
+    org_a, org_b = uuid.uuid4().int, uuid.uuid4().int
+    redis_client = await first_worker._get_redis()
+    slots = []
+    try:
+        assert await first_worker.get_concurrent_count(org_a, raise_on_error=True) == 0
+        for worker, org in (
+            (first_worker, org_a),
+            (second_worker, org_a),
+            (second_worker, org_b),
+        ):
+            slot = await worker.try_acquire_concurrent_slot_details(org, 10)
+            assert slot
+            slots.append((org, slot.slot_id))
+
+        await redis_client.zadd(
+            f"concurrent_calls:{org_a}",
+            {"stale": time.time() - first_worker.stale_call_timeout - 1},
+        )
+        assert await first_worker.get_concurrent_count(org_a, raise_on_error=True) == 2
+        assert await second_worker.get_concurrent_count(org_b, raise_on_error=True) == 1
+        await second_worker.release_concurrent_slot(*slots[0])
+        assert await first_worker.get_concurrent_count(org_a, raise_on_error=True) == 1
+    finally:
+        for org, slot_id in slots:
+            await redis_client.zrem(FLEET_CONCURRENT_KEY, f"{org}:{slot_id}")
+        await redis_client.delete(
+            f"concurrent_calls:{org_a}", f"concurrent_calls:{org_b}"
+        )
+        await first_worker.close()
+        await second_worker.close()
 
 
 @requires_redis

@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 from dataclasses import dataclass
 
@@ -9,6 +10,16 @@ from api.db import db_client
 from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.services.call_concurrency.rate_limiter import rate_limiter
 from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import tenant_properties
+
+# Trailing ":<id>" segments, e.g. the campaign id in "campaign:123".
+_TRAILING_IDS = re.compile(r"(:\d+)+$")
+
+
+def _without_ids(label: str) -> str:
+    """A source or scope label without its database ids, which are only unique
+    within one deployment and so never go to PostHog."""
+    return _TRAILING_IDS.sub("", label)
 
 
 @dataclass(frozen=True)
@@ -80,6 +91,16 @@ class CallConcurrencyService:
         fleet — see get_fleet_concurrent_count)."""
         return await rate_limiter.get_fleet_concurrent_count()
 
+    async def get_org_active_calls(self, organization_id: int) -> int:
+        """Occupied org slots across workers, with storage failures propagated.
+
+        Includes reservations made before a voice pipeline starts. Uses the
+        same stale-slot expiry as concurrency enforcement.
+        """
+        return await rate_limiter.get_concurrent_count(
+            organization_id, raise_on_error=True
+        )
+
     async def acquire_org_slot(
         self,
         organization_id: int,
@@ -139,14 +160,13 @@ class CallConcurrencyService:
                 )
                 properties = {
                     "event_source": "dograh",
-                    "organization_id": organization_id,
-                    "source": source,
+                    "source": _without_ids(source),
                     "max_concurrent": max_concurrent,
                     "active_calls": current_count,
                     "waited_seconds": round(wait_time, 1),
                 }
                 if scope_key:
-                    properties["scope_key"] = scope_key
+                    properties["scope_key"] = _without_ids(scope_key)
                     properties["scope_max_concurrent"] = scope_max_concurrent
                 await self._notify_limit_reached(organization_id, properties)
                 raise CallConcurrencyLimitError(
@@ -169,10 +189,11 @@ class CallConcurrencyService:
         how MPS emits org-scoped billing events (billing_posthog_service.py)
         into the shared PostHog project. Never raises.
 
-        NOTE: intentionally NOT attaching ``$groups`` (organization) to this
+        NOTE: intentionally NOT attaching ``$groups`` (account) to this
         event. PostHog evaluates a $groups event at both person and group
         scope, which double-triggers person-scoped workflows enrolled on the
-        event. The org is still available as the ``organization_id`` property.
+        event. The tenant is still available as the ``organization_provider_id``
+        property.
         """
         try:
             members = await db_client.get_organization_users(organization_id)
@@ -182,6 +203,7 @@ class CallConcurrencyService:
                     "concurrent-call-limit PostHog event"
                 )
                 return
+            properties = {**properties, **await tenant_properties(organization_id)}
             for member in members:
                 capture_event(
                     distinct_id=str(member.provider_id),
@@ -259,6 +281,7 @@ class CallConcurrencyService:
         return bool(released)
 
     async def release_workflow_run_slot(self, workflow_run_id: int) -> bool:
+        """Release the org/campaign slot held by a workflow run."""
         mapping = await rate_limiter.get_workflow_slot_mapping(workflow_run_id)
         if not mapping:
             return False
@@ -280,7 +303,7 @@ class CallConcurrencyService:
         if released:
             logger.info(f"Released concurrent slot for workflow run {workflow_run_id}")
         else:
-            logger.debug(
+            logger.info(
                 f"Concurrent slot mapping for workflow run {workflow_run_id} "
                 "had no live slot; deleted stale mapping"
             )

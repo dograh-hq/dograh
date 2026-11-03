@@ -122,7 +122,18 @@ async def test_public_agent_rejects_incomplete_outbound_setup_before_run_creatio
     provider.initiate_call.assert_not_awaited()
 
 
-def test_trigger_route_executes_as_workflow_owner():
+@pytest.mark.parametrize(
+    "model_overrides",
+    [
+        None,
+        {
+            "model_configuration_uuid": "11111111-1111-4111-8111-111111111111",
+            "llm": {"settings": {"temperature": 0.4}},
+            "tts": {"settings": {"voice": "Alice"}},
+        },
+    ],
+)
+def test_trigger_route_executes_as_workflow_owner(model_overrides):
     app = _make_test_app()
     client = TestClient(app)
 
@@ -174,7 +185,7 @@ def test_trigger_route_executes_as_workflow_owner():
         response = client.post(
             "/public/agent/trigger-uuid-123",
             headers={"X-API-Key": "test-api-key"},
-            json={"phone_number": "+15551234567"},
+            json={"phone_number": "+15551234567", "model_overrides": model_overrides},
         )
 
     assert response.status_code == 200
@@ -192,6 +203,8 @@ def test_trigger_route_executes_as_workflow_owner():
     mock_db.get_workflow.assert_awaited_once_with(workflow.id, organization_id=11)
 
     create_kwargs = mock_db.create_workflow_run.await_args.kwargs
+    assert create_kwargs["model_configuration_overrides"] == model_overrides
+    assert "model_overrides" not in create_kwargs["initial_context"]
     assert create_kwargs["workflow_id"] == workflow.id
     assert create_kwargs["user_id"] == workflow.user_id
     assert create_kwargs["organization_id"] == workflow.organization_id
@@ -710,14 +723,17 @@ def test_trigger_route_rejects_when_concurrency_limit_reached():
     mock_db.create_workflow_run.assert_not_called()
 
 
-def test_trigger_route_releases_concurrency_slot_when_quota_fails():
+@pytest.mark.parametrize("status_code", [402, 422])
+def test_trigger_route_releases_concurrency_slot_when_quota_fails(status_code):
     app = _make_test_app()
     client = TestClient(app)
 
     workflow = _active_workflow(trigger_path="trigger-uuid-123")
     provider = _provider()
     quota_mock = AsyncMock(
-        return_value=SimpleNamespace(has_quota=False, error_message="Quota exceeded")
+        return_value=SimpleNamespace(
+            has_quota=False, error_message="Quota exceeded", status_code=status_code
+        )
     )
     mark_failed_mock = AsyncMock()
 
@@ -764,10 +780,26 @@ def test_trigger_route_releases_concurrency_slot_when_quota_fails():
             json={"phone_number": "+15551234567"},
         )
 
-    assert response.status_code == 402
+    assert response.status_code == status_code
     mark_failed_mock.assert_awaited_once_with(501, "Quota exceeded")
     mock_concurrency.release_workflow_run_slot.assert_awaited_once_with(501)
     provider.initiate_call.assert_not_awaited()
+
+
+def test_trigger_rejects_inline_credentials_without_echoing_or_creating_run():
+    client = TestClient(_make_test_app())
+    with patch("api.routes.public_agent.db_client") as mock_db:
+        response = client.post(
+            "/public/agent/trigger-uuid-123",
+            headers={"X-API-Key": "test-api-key"},
+            json={
+                "phone_number": "+15551234567",
+                "model_overrides": {"llm": {"settings": {"api_key": "must-not-leak"}}},
+            },
+        )
+    assert response.status_code == 422
+    assert "must-not-leak" not in response.text
+    mock_db.create_workflow_run.assert_not_called()
 
 
 def test_workflow_uuid_route_rejects_archived_workflows():

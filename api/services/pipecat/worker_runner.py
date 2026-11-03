@@ -4,6 +4,35 @@ from pipecat.pipeline.worker import PipelineWorker
 from pipecat.workers.runner import WorkerRunner
 
 
+def create_worker_runner(
+    *,
+    handle_sigint: bool = False,
+    handle_sigterm: bool = False,
+) -> WorkerRunner:
+    """Create the runner that owns a call's worker bus and registry.
+
+    Agent transfer needs the bus before the pipeline is built, because the
+    call pipeline's bridge is constructed with it, so the runner is created up
+    front and handed to :func:`run_worker_runner` once everything is wired.
+    """
+    return WorkerRunner(handle_sigint=handle_sigint, handle_sigterm=handle_sigterm)
+
+
+async def run_worker_runner(
+    runner: WorkerRunner,
+    worker: PipelineWorker,
+    *,
+    auto_end: bool = True,
+) -> None:
+    """Run ``worker`` as the runner's root worker until it finishes.
+
+    Agent workers added later are children of ``worker``: they carry a parent,
+    so they do not hold the runner up once the call pipeline has finished.
+    """
+    await runner.add_workers(worker)
+    await runner.run(auto_end=auto_end)
+
+
 async def run_pipeline_worker(
     worker: PipelineWorker,
     *,
@@ -12,9 +41,10 @@ async def run_pipeline_worker(
     auto_end: bool = True,
 ) -> None:
     """Run a pipeline worker through the v1.3 worker runner lifecycle."""
-    runner = WorkerRunner(handle_sigint=handle_sigint, handle_sigterm=handle_sigterm)
-    await runner.add_workers(worker)
-    await runner.run(auto_end=auto_end)
+    runner = create_worker_runner(
+        handle_sigint=handle_sigint, handle_sigterm=handle_sigterm
+    )
+    await run_worker_runner(runner, worker, auto_end=auto_end)
 
 
 async def wait_for_pipeline_worker_started(

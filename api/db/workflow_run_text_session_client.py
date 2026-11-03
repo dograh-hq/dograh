@@ -84,6 +84,35 @@ class WorkflowRunTextSessionClient(BaseDBClient):
             result = await session.execute(query)
             return result.scalars().first()
 
+    async def get_workflow_run_text_session_by_request_id(
+        self,
+        *,
+        workflow_id: int,
+        request_id: str,
+        organization_id: int,
+    ) -> WorkflowRunTextSessionModel | None:
+        """Recover an initialized creation within the selected org and workflow."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunTextSessionModel)
+                .options(joinedload(WorkflowRunTextSessionModel.workflow_run))
+                .join(WorkflowRunTextSessionModel.workflow_run)
+                .join(WorkflowRunModel.workflow)
+                .where(
+                    WorkflowModel.organization_id == organization_id,
+                    WorkflowRunModel.workflow_id == workflow_id,
+                    WorkflowRunModel.mode == WorkflowRunMode.TEXTCHAT.value,
+                    WorkflowRunModel.annotations["text_chat_request_id"].as_string()
+                    == request_id,
+                    # Do not expose the idle placeholder before the opening
+                    # turn is accepted by initialize_text_chat_session.
+                    WorkflowRunTextSessionModel.revision > 0,
+                )
+                .order_by(WorkflowRunTextSessionModel.workflow_run_id.desc())
+                .limit(1)
+            )
+            return result.scalars().first()
+
     async def get_inactive_workflow_run_text_sessions(
         self,
         *,

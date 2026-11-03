@@ -1,16 +1,12 @@
 import uuid
 from datetime import datetime, timezone
 
-from loguru import logger
-from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.models import UserConfigurationModel, UserModel
-from api.enums import UserConfigurationKey
-from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 
 
 class UserClient(BaseDBClient):
@@ -103,57 +99,6 @@ class UserClient(BaseDBClient):
                 await session.rollback()
                 raise e
             return result.scalar_one()
-
-    async def get_user_configurations(
-        self, user_id: int
-    ) -> EffectiveAIModelConfiguration:
-        async with self.async_session() as session:
-            configuration_obj = await self._get_user_configuration_row(
-                session, user_id, UserConfigurationKey.MODEL_CONFIGURATION.value
-            )
-            if not configuration_obj:
-                return EffectiveAIModelConfiguration()
-
-            try:
-                return EffectiveAIModelConfiguration.model_validate(
-                    {
-                        **configuration_obj.configuration,
-                        "last_validated_at": configuration_obj.last_validated_at,
-                    }
-                )
-            except ValidationError as e:
-                # If configuration contains an unsupported provider,
-                # return a default configuration without failing
-                logger.warning(
-                    f"Failed to validate user configuration for user {user_id}: {e}. "
-                    "Returning default configuration."
-                )
-                return EffectiveAIModelConfiguration()
-
-    async def update_user_configuration(
-        self, user_id: int, configuration: EffectiveAIModelConfiguration
-    ) -> EffectiveAIModelConfiguration:
-        value = await self.upsert_user_configuration_value(
-            user_id,
-            UserConfigurationKey.MODEL_CONFIGURATION.value,
-            configuration.model_dump(),
-        )
-        return EffectiveAIModelConfiguration.model_validate(value)
-
-    async def update_user_configuration_last_validated_at(self, user_id: int) -> None:
-        async with self.async_session() as session:
-            configuration_obj = await self._get_user_configuration_row(
-                session, user_id, UserConfigurationKey.MODEL_CONFIGURATION.value
-            )
-            if not configuration_obj:
-                raise ValueError(f"User configuration with ID {user_id} not found")
-            configuration_obj.last_validated_at = datetime.now()
-            try:
-                await session.commit()
-            except Exception as e:
-                await session.rollback()
-                raise e
-            await session.refresh(configuration_obj)
 
     async def update_user_selected_organization(
         self, user_id: int, organization_id: int

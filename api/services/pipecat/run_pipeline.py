@@ -7,13 +7,17 @@ from loguru import logger
 from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.errors.failure import mark_failure_reported
+from api.schemas.answer_supervisor import (
+    resolve_answer_supervisor_config,
+    resolve_listening_window_ms,
+)
 from api.schemas.workflow_configurations import (
     DEFAULT_MAX_CALL_DURATION_SECONDS,
     DEFAULT_MAX_USER_IDLE_TIMEOUT_SECONDS,
-    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_SMART_TURN_STOP_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_TURN_START_STRATEGY,
+    WorkflowConfigurationDefaults,
 )
 from api.services.call_concurrency import call_concurrency
 from api.services.configuration.registry import ServiceProviders
@@ -27,7 +31,14 @@ from api.services.observability.active_calls import (
 from api.services.observability.active_calls import (
     unregister_active_call as unregister_worker_active_call,
 )
+from api.services.pipecat.agent_bridge import AgentBridgeProcessor
+from api.services.pipecat.agent_generation_processor import AgentGenerationProcessor
+from api.services.pipecat.agent_runtime_factory import (
+    AgentGenerationCallbacks,
+    AgentRuntimeFactory,
+)
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
+from api.services.pipecat.call_opening import OpeningInputGate
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
     register_event_handlers,
@@ -39,11 +50,9 @@ from api.services.pipecat.pipeline_builder import (
     create_pipeline_components,
     create_pipeline_task,
 )
-from api.services.pipecat.pipeline_engine_callbacks_processor import (
-    PipelineEngineCallbacksProcessor,
-)
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
-from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
+from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch_result
+from api.services.pipecat.processors.answer_supervisor import AnswerSupervisor
 from api.services.pipecat.realtime_feedback_events import (
     build_node_transition_event,
 )
@@ -55,23 +64,31 @@ from api.services.pipecat.recording_audio_cache import (
     create_recording_audio_fetcher,
     warm_recording_cache,
 )
-from api.services.pipecat.recording_router_processor import RecordingRouterProcessor
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_llm_service_from_provider,
     create_realtime_llm_service,
     create_stt_service,
-    create_tts_service,
+    get_llm_runtime_configuration,
     stt_uses_external_turns,
+)
+from api.services.pipecat.termination_funnel_processor import (
+    TerminationFunnelProcessor,
 )
 from api.services.pipecat.tracing_config import (
     ensure_tracing,
 )
 from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
 from api.services.pipecat.transport_setup import create_webrtc_transport
-from api.services.pipecat.worker_runner import run_pipeline_worker
+from api.services.pipecat.worker_runner import (
+    create_worker_runner,
+    run_worker_runner,
+)
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
+from api.services.workflow.answer_classification_service import (
+    AnswerClassificationService,
+)
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
@@ -80,7 +97,6 @@ from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -90,12 +106,10 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
     FunctionCallUserMuteStrategy,
-    MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
     MinWordsUserTurnStartStrategy,
-    ProvisionalVADUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
     TranscriptionUserTurnStartStrategy,
@@ -109,7 +123,7 @@ from pipecat.turns.user_stop import (
     TurnAnalyzerUserTurnStopStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
-from pipecat.utils.enums import EndTaskReason, RealtimeFeedbackType
+from pipecat.utils.enums import RealtimeFeedbackType
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 # Setup tracing if enabled
@@ -117,6 +131,67 @@ ensure_tracing()
 
 DEFAULT_USER_TURN_STOP_TIMEOUT = 5.0
 EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
+
+
+def _create_answer_supervisor(
+    voicemail_config,
+    *,
+    is_realtime,
+    start_node,
+    context,
+    user_config,
+    correlation_id,
+    get_parent_context=None,
+):
+    config = resolve_answer_supervisor_config(
+        voicemail_config,
+        is_realtime=is_realtime,
+        start_node=start_node,
+    )
+    if config is None:
+        return None
+    if not config.enabled:
+        return AnswerSupervisor(config, context=context)
+    # Private inference uses its own service and fixed subtype instructions.
+    if voicemail_config.get("use_workflow_llm", True):
+        classifier_llm = create_llm_service(
+            user_config,
+            correlation_id=correlation_id,
+            usage_context="voicemail_detection",
+        )
+    else:
+        classifier_llm = create_llm_service_from_provider(
+            provider=voicemail_config.get("provider", "openai"),
+            model=voicemail_config.get("model", "gpt-4.1"),
+            api_key=voicemail_config.get("api_key", ""),
+            usage_context="voicemail_detection",
+        )
+    classifier = AnswerClassificationService(
+        classifier_llm,
+        system_prompt=voicemail_config.get("system_prompt"),
+        get_parent_context=get_parent_context,
+    )
+    return AnswerSupervisor(config, context=context, classify=classifier.classify)
+
+
+def _create_opening_input_gate(start_node, audio_buffer):
+    # The downstream aggregator cannot detect speech while this gate retains
+    # realtime audio. Cascade calls keep aggregation live behind an inference gate.
+    window_ms = resolve_listening_window_ms(start_node)
+    return OpeningInputGate(
+        capture_audio=audio_buffer.capture_opening_audio,
+        vad=SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
+        if window_ms > 0
+        else None,
+    )
+
+
+def _create_user_mute_strategies(engine, answer_supervisor):
+    strategies = [
+        FunctionCallUserMuteStrategy(),
+        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
+    ]
+    return strategies
 
 
 def _resolve_user_turn_stop_timeout(
@@ -130,20 +205,10 @@ def _resolve_user_turn_stop_timeout(
 
 
 def _resolve_turn_start_min_words(run_configs: dict) -> int:
+    min_words = run_configs.get("turn_start_min_words")
     return max(
         1,
-        int(run_configs.get("turn_start_min_words", DEFAULT_TURN_START_MIN_WORDS)),
-    )
-
-
-def _resolve_provisional_vad_pause_secs(run_configs: dict) -> float:
-    return max(
-        0.1,
-        float(
-            run_configs.get(
-                "provisional_vad_pause_secs", DEFAULT_PROVISIONAL_VAD_PAUSE_SECS
-            )
-        ),
+        int(DEFAULT_TURN_START_MIN_WORDS if min_words is None else min_words),
     )
 
 
@@ -155,6 +220,8 @@ def _create_non_realtime_user_turn_start_strategies(
     turn_start_strategy = run_configs.get(
         "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
     )
+    if turn_start_strategy not in ("default", "min_words"):
+        turn_start_strategy = DEFAULT_TURN_START_STRATEGY
 
     if turn_start_strategy == "min_words":
         return [
@@ -163,18 +230,9 @@ def _create_non_realtime_user_turn_start_strategies(
             )
         ]
 
-    if turn_start_strategy == "provisional_vad":
-        return [
-            ProvisionalVADUserTurnStartStrategy(
-                pause_secs=_resolve_provisional_vad_pause_secs(run_configs)
-            ),
-        ]
-
+    # Voice activity mode follows provider turn starts when available. Keep local VAD
+    # out of that path so it cannot interrupt before the provider confirms speech.
     if uses_external_turns:
-        # The STT emits its own turn boundaries and owns interruptions. Local
-        # VAD is deliberately kept out of the default start strategies: it would
-        # win the race on raw voice activity and start the turn before the STT
-        # confirms a real turn.
         return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
 
     return [TranscriptionUserTurnStartStrategy(), VADUserTurnStartStrategy()]
@@ -203,13 +261,28 @@ def _create_non_realtime_user_turn_stop_strategies(
     return [SpeechTimeoutUserTurnStopStrategy()]
 
 
-def _create_realtime_user_turn_config(provider: str):
+def _create_realtime_user_turn_config(provider: str, model: str | None = None):
     """Return user turn strategies and optional local VAD for realtime providers."""
 
-    def external_provider_turn_config():
+    if provider == ServiceProviders.OPENAI_REALTIME.value and model == "gpt-live-1":
+        # Live keeps listening while speaking and handles barge-in itself.
         return (
             UserTurnStrategies(
-                start=[ExternalUserTurnStartStrategy()],
+                start=[ExternalUserTurnStartStrategy(enable_interruptions=False)],
+                stop=[ExternalUserTurnStopStrategy(wait_for_transcript=False)],
+            ),
+            None,
+        )
+
+    def external_provider_turn_config():
+        # Since pipecat 1.8 these services propose turn boundaries
+        # (Proposed*SpeakingFrame) instead of announcing them, and no longer
+        # broadcast the barge-in themselves — the start strategy resolving the
+        # proposal owns it. Interruptions must therefore be enabled here, or
+        # nothing in the pipeline would broadcast them.
+        return (
+            UserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy(enable_interruptions=True)],
                 stop=[ExternalUserTurnStopStrategy(wait_for_transcript=False)],
             ),
             None,
@@ -229,8 +302,9 @@ def _create_realtime_user_turn_config(provider: str):
     if provider in {
         ServiceProviders.GOOGLE_REALTIME.value,
         ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
+        ServiceProviders.AWS_NOVA_SONIC.value,
     }:
-        # Let Gemini Live own barge-in via its server-side VAD, but keep local
+        # Let the provider own barge-in via its server-side VAD, but keep local
         # Silero VAD for early user-turn start and speaking-state tracking.
         return local_vad_turn_config(enable_interruptions=False)
 
@@ -341,6 +415,19 @@ async def _run_pipeline_telephony_impl(
     if workflow_run.workflow_id != workflow_id:
         raise HTTPException(status_code=400, detail="workflow_run_workflow_mismatch")
 
+    # Marked here, once the stream has started, rather than when the socket
+    # connects: some carriers open the socket while the callee is still
+    # ringing, and the status callback reads 'initialized' as "the pipeline
+    # never started" when deciding whether an unanswered call needs its
+    # post-call integrations. A lost claim still runs the pipeline: a stream
+    # only starts on answer, so a terminal run here is an answered call whose
+    # hangup callback won the race, and pipeline finalization is what records
+    # its outcome and fires its webhooks.
+    if await db_client.mark_workflow_run_running(workflow_run_id, organization_id):
+        logger.info(
+            f"[run {workflow_run_id}] Set workflow run state to 'running' for {provider_name} provider"
+        )
+
     telephony_configuration_id = None
     if workflow_run.initial_context:
         telephony_configuration_id = workflow_run.initial_context.get(
@@ -350,14 +437,15 @@ async def _run_pipeline_telephony_impl(
     # Resolve effective org config here so the transport can tune its
     # bot-stopped-speaking fallback based on is_realtime; pass the resolved
     # values into _run_pipeline so it doesn't fetch them again.
-    from api.services.configuration.ai_model_configuration import (
-        get_effective_ai_model_configuration_for_workflow,
+    from api.services.configuration.run_model_configuration import (
+        get_effective_ai_model_configuration_for_run,
     )
 
     run_configs = workflow_run.definition.workflow_configurations or {}
-    user_config = await get_effective_ai_model_configuration_for_workflow(
+    user_config = await get_effective_ai_model_configuration_for_run(
         organization_id=workflow.organization_id,
         workflow_configurations=run_configs,
+        workflow_run=workflow_run,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -386,13 +474,13 @@ async def _run_pipeline_telephony_impl(
             workflow_run=workflow_run,
             resolved_user_config=user_config,
             organization_id=organization_id,
+            provider_call_id=call_id,
         )
     except Exception as e:
         # Closest layer to the failure and the only one with the traceback, so
         # it owns the report; outer handlers see the mark and stay quiet.
-        logger.error(
+        logger.opt(exception=True).error(
             f"[run {workflow_run_id}] Error in {provider_name} pipeline: {e}",
-            exc_info=True,
         )
         mark_failure_reported(e)
         raise
@@ -469,8 +557,8 @@ async def _run_pipeline_smallwebrtc_impl(
     # Resolve workflow_run + effective org config here so the transport can
     # tune its bot-stopped-speaking fallback based on is_realtime. _run_pipeline
     # reuses these via kwargs so we don't fetch twice.
-    from api.services.configuration.ai_model_configuration import (
-        get_effective_ai_model_configuration_for_workflow,
+    from api.services.configuration.run_model_configuration import (
+        get_effective_ai_model_configuration_for_run,
     )
 
     workflow_run = await db_client.get_workflow_run(workflow_run_id, **workflow_scope)
@@ -485,9 +573,10 @@ async def _run_pipeline_smallwebrtc_impl(
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
-    user_config = await get_effective_ai_model_configuration_for_workflow(
+    user_config = await get_effective_ai_model_configuration_for_run(
         organization_id=workflow.organization_id if workflow else None,
         workflow_configurations=run_configs,
+        workflow_run=workflow_run,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -557,6 +646,7 @@ async def _run_pipeline_impl(
     workflow_run=None,
     resolved_user_config=None,
     organization_id: int | None = None,
+    provider_call_id: str | None = None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -592,13 +682,21 @@ async def _run_pipeline_impl(
     if workflow_run.is_completed:
         raise HTTPException(status_code=400, detail="Workflow run already completed")
 
-    merged_call_context_vars = dict(workflow_run.initial_context or {})
-    # If there is some extra call_context_vars, fold them in. Persistence
-    # happens once below, after runtime_configuration is also resolved.
-    if call_context_vars:
-        merged_call_context_vars = merge_external_initial_context(
-            merged_call_context_vars, call_context_vars
-        )
+    # The start request's variables win over what the run was created with;
+    # the pre-call fetch, applied once the caller is connected, wins over both.
+    merged_call_context_vars = {
+        **(workflow_run.initial_context or {}),
+        **merge_external_initial_context({}, call_context_vars),
+    }
+
+    # Use the actual run ID even if persisted context contains a stale value.
+    merged_call_context_vars["workflow_run_id"] = workflow_run_id
+
+    # Only telephony passes an authenticated provider call identifier. Make it
+    # available to workflow prompts and tools, overriding any stale or
+    # externally supplied value persisted on the workflow run.
+    if provider_call_id is not None:
+        merged_call_context_vars["call_id"] = provider_call_id
 
     # Get workflow for metadata (name, organization_id, call_disposition_codes)
     workflow = await db_client.get_workflow(workflow_id, **workflow_scope)
@@ -636,13 +734,14 @@ async def _run_pipeline_impl(
     # Resolve model overrides from the version onto global org config (skip
     # when the caller already resolved it).
     if resolved_user_config is None:
-        from api.services.configuration.ai_model_configuration import (
-            get_effective_ai_model_configuration_for_workflow,
+        from api.services.configuration.run_model_configuration import (
+            get_effective_ai_model_configuration_for_run,
         )
 
-        user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_config = await get_effective_ai_model_configuration_for_run(
             organization_id=workflow.organization_id,
             workflow_configurations=run_configs,
+            workflow_run=workflow_run,
         )
     else:
         user_config = resolved_user_config
@@ -651,96 +750,16 @@ async def _run_pipeline_impl(
         ReactFlowDTO.model_validate(run_workflow_json),
         skip_instance_constraints_for={"trigger"},
     )
-    uses_variable_extraction = workflow_graph.uses_variable_extraction()
-
-    from api.services.managed_model_services import (
-        MPS_CORRELATION_ID_CONTEXT_KEY,
-        ensure_mps_correlation_id,
+    call_dispositions = WorkflowConfigurationDefaults.model_validate(
+        {"call_dispositions": run_configs.get("call_dispositions") or []}
+    ).call_dispositions
+    needs_extraction_llm = workflow_graph.uses_variable_extraction() or bool(
+        call_dispositions
     )
 
-    mps_correlation_id = await ensure_mps_correlation_id(
-        ai_model_config=user_config,
-        workflow_run_id=workflow_run_id,
-        initial_context=merged_call_context_vars,
-    )
-    if mps_correlation_id:
-        merged_call_context_vars[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id
-
-    # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
-    is_realtime = user_config.is_realtime and user_config.realtime is not None
-
-    # Create services based on user configuration
-    if is_realtime:
-        llm = create_realtime_llm_service(user_config, audio_config)
-        stt = None
-        tts = None
-        # Realtime services don't implement run_inference, so create a
-        # separate text LLM for variable extraction and other out-of-band
-        # inference calls.
-        inference_llm = create_llm_service(
-            user_config,
-            correlation_id=mps_correlation_id,
-        )
-    else:
-        stt = create_stt_service(
-            user_config,
-            audio_config,
-            keyterms=keyterms,
-            correlation_id=mps_correlation_id,
-        )
-        tts = create_tts_service(
-            user_config,
-            audio_config,
-            correlation_id=mps_correlation_id,
-        )
-        llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
-        inference_llm = None
-
-    # A shared LLM cannot carry an extraction usage_context without also tagging
-    # normal conversation or context-summarization requests. Create a dedicated
-    # client only for the managed provider; other providers ignore usage_context.
-    variable_extraction_llm = (
-        create_llm_service(
-            user_config,
-            correlation_id=mps_correlation_id,
-            usage_context="variable_extraction",
-        )
-        if uses_variable_extraction
-        and user_config.llm.provider == ServiceProviders.DOGRAH.value
-        else inference_llm or llm
-    )
-
-    # Stamp the providers/models actually resolved for this run onto
-    # initial_context so they're available for post-call analytics
-    # (model_overrides may have shifted them away from the org-level
-    # user_config).
-    if is_realtime:
-        # llm_* refers to the side-channel text LLM (variable extraction,
-        # voicemail detection); realtime_* is the speech-to-speech service.
-        runtime_configuration = {
-            "realtime_provider": user_config.realtime.provider,
-            "realtime_model": user_config.realtime.model,
-            "llm_provider": user_config.llm.provider,
-            "llm_model": user_config.llm.model,
-        }
-    else:
-        runtime_configuration = {
-            "stt_provider": user_config.stt.provider,
-            "stt_model": user_config.stt.model,
-            "tts_provider": user_config.tts.provider,
-            "tts_model": user_config.tts.model,
-            "llm_provider": user_config.llm.provider,
-            "llm_model": user_config.llm.model,
-        }
-    merged_call_context_vars = {
-        **merged_call_context_vars,
-        "runtime_configuration": runtime_configuration,
-    }
-    await db_client.update_workflow_run(
-        workflow_run_id, initial_context=merged_call_context_vars
-    )
-
-    # Pre-call fetch: fire early so it runs concurrently with remaining setup
+    # Pre-call fetch: started before anything else is built so it overlaps the
+    # rest of setup. The caller hears a ringer if it is still pending once the
+    # pipeline is up, and the first agent is built from its result.
     pre_call_fetch_task = None
     start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
     call_direction = getattr(workflow_run, "call_type", None)
@@ -758,14 +777,80 @@ async def _run_pipeline_impl(
             f"firing request to {start_node.pre_call_fetch_url}"
         )
         pre_call_fetch_task = asyncio.create_task(
-            execute_pre_call_fetch(
+            execute_pre_call_fetch_result(
                 url=start_node.pre_call_fetch_url,
                 credential_uuid=start_node.pre_call_fetch_credential_uuid,
                 call_context_vars=merged_call_context_vars,
                 workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
                 organization_id=workflow.organization_id,
             )
         )
+
+    from api.services.managed_model_services import (
+        MPS_CORRELATION_ID_CONTEXT_KEY,
+        ensure_mps_correlation_id,
+    )
+
+    mps_correlation_id = await ensure_mps_correlation_id(
+        ai_model_config=user_config,
+        workflow_run_id=workflow_run_id,
+        initial_context=merged_call_context_vars,
+    )
+    if mps_correlation_id:
+        merged_call_context_vars[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id
+
+    # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
+    is_realtime = user_config.is_realtime and user_config.realtime is not None
+
+    # Only call-scoped services are built here. A cascade call's first agent
+    # (its LLM and TTS) is a visit-scoped stage, built once the pre-call fetch
+    # has settled in `PipecatEngine.finalize_initial_agent`, so the fetch can
+    # still choose those models. A realtime call's one service is call-owned.
+    if is_realtime:
+        llm = create_realtime_llm_service(user_config, audio_config)
+        stt = None
+        # Realtime services don't implement run_inference, so create a
+        # separate text LLM for variable extraction and other out-of-band
+        # inference calls.
+        inference_llm = create_llm_service(
+            user_config,
+            correlation_id=mps_correlation_id,
+        )
+        # Extraction gets a separately tagged client only where it would be
+        # billed separately from the conversation.
+        variable_extraction_llm = (
+            create_llm_service(
+                user_config,
+                correlation_id=mps_correlation_id,
+                usage_context="variable_extraction",
+            )
+            if needs_extraction_llm
+            and user_config.llm.provider == ServiceProviders.DOGRAH.value
+            else inference_llm
+        )
+        # llm_* refers to the side-channel text LLM (variable extraction,
+        # voicemail detection); realtime_* is the speech-to-speech service.
+        runtime_configuration = {
+            "realtime_provider": user_config.realtime.provider,
+            "realtime_model": user_config.realtime.model,
+            **get_llm_runtime_configuration(user_config),
+        }
+    else:
+        stt = create_stt_service(
+            user_config,
+            audio_config,
+            keyterms=keyterms,
+            correlation_id=mps_correlation_id,
+        )
+        llm = None
+        inference_llm = None
+        variable_extraction_llm = None
+        runtime_configuration = None
+
+    await db_client.update_workflow_run(
+        workflow_run_id, initial_context=merged_call_context_vars
+    )
 
     # Create in-memory logs buffer early so it can be used by engine callbacks
     in_memory_logs_buffer = InMemoryLogsBuffer(workflow_run_id)
@@ -828,8 +913,8 @@ async def _run_pipeline_impl(
         embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
         embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
 
-    # Check if the workflow has any active recordings so the engine can
-    # include recording response mode instructions in all node prompts.
+    # Check organization-level recording availability. Node preparation enables
+    # recording instructions and routing only for prompts that reference them.
     has_recordings = await db_client.has_active_recordings(workflow.organization_id)
 
     context_compaction_enabled = (workflow.workflow_configurations or {}).get(
@@ -856,7 +941,11 @@ async def _run_pipeline_impl(
         embeddings_endpoint=embeddings_endpoint,
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
+        is_realtime=is_realtime,
         context_compaction_enabled=context_compaction_enabled,
+        call_dispositions=call_dispositions,
+        # Voice calls hand final extraction to the completion worker after hangup.
+        defer_final_extraction=True,
     )
 
     # Create pipeline components
@@ -882,11 +971,19 @@ async def _run_pipeline_impl(
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
 
-    user_mute_strategies = [
-        MuteUntilFirstBotCompleteUserMuteStrategy(),
-        FunctionCallUserMuteStrategy(),
-        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
-    ]
+    voicemail_config = run_configs.get("voicemail_detection", {})
+    answer_supervisor = _create_answer_supervisor(
+        voicemail_config,
+        is_realtime=is_realtime,
+        start_node=start_node,
+        context=context,
+        user_config=user_config,
+        correlation_id=mps_correlation_id,
+        get_parent_context=engine._get_otel_context,
+    )
+    user_mute_strategies = _create_user_mute_strategies(engine, answer_supervisor)
+    if answer_supervisor is None:
+        engine.opening.input_gate = _create_opening_input_gate(start_node, audio_buffer)
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
 
     # Configure turn strategies based on STT provider, model, and workflow configuration
@@ -895,12 +992,11 @@ async def _run_pipeline_impl(
         # Realtime services still need user-turn tracking even when the model
         # itself owns speech generation and interruption behavior.
         user_turn_strategies, user_vad_analyzer = _create_realtime_user_turn_config(
-            user_config.realtime.provider
+            user_config.realtime.provider, user_config.realtime.model
         )
     else:
-        # Some STT services emit their own turn boundaries, so the aggregator
-        # follows those external signals. Other models use configurable turn
-        # detection.
+        # Provider turn endings stay authoritative even when a word threshold
+        # controls when the caller can interrupt.
         uses_external_turns = stt_uses_external_turns(user_config)
         user_turn_start_strategies = _create_non_realtime_user_turn_start_strategies(
             run_configs,
@@ -909,9 +1005,11 @@ async def _run_pipeline_impl(
         turn_start_strategy = run_configs.get(
             "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
         )
+        # Log the configured choice alongside the concrete strategies it selects.
         logger.info(
             f"[run {workflow_run_id}] Non-realtime interrupt strategy "
             f"requested={turn_start_strategy} "
+            f"resolved={','.join(type(s).__name__ for s in user_turn_start_strategies)} "
             f"uses_external_turns={uses_external_turns}"
         )
 
@@ -931,44 +1029,64 @@ async def _run_pipeline_impl(
 
     user_params = LLMUserAggregatorParams(
         user_turn_strategies=user_turn_strategies,
+        should_interrupt=engine.should_interrupt_user_turn,
         user_mute_strategies=user_mute_strategies,
         user_turn_stop_timeout=user_turn_stop_timeout,
-        user_idle_timeout=max_user_idle_timeout,
+        # The call monitor owns idle reminders and response deadlines together.
+        user_idle_timeout=0,
         vad_analyzer=user_vad_analyzer,
     )
-    context_aggregator = LLMContextAggregatorPair(
-        context,
-        assistant_params=assistant_params,
-        user_params=user_params,
-        realtime_service_mode=is_realtime,
-    )
+    if is_realtime:
+        context_aggregator = LLMContextAggregatorPair(
+            context,
+            assistant_params=assistant_params,
+            user_params=user_params,
+            # Live publishes final user transcripts before delegation starts.
+            realtime_service_mode=not (
+                user_config.realtime.provider == ServiceProviders.OPENAI_REALTIME.value
+                and user_config.realtime.model == "gpt-live-1"
+            ),
+        )
+        user_context_aggregator, assistant_context_aggregator = context_aggregator
+    else:
+        user_context_aggregator, assistant_context_aggregator = (
+            LLMContextAggregatorPair(
+                context,
+                user_params=user_params,
+                assistant_params=assistant_params,
+                realtime_service_mode=False,
+            )
+        )
+        engine.greeting.bind(user_context_aggregator)
 
-    # Create usage metrics aggregator with engine's callback
-    pipeline_engine_callback_processor = PipelineEngineCallbacksProcessor(
-        max_call_duration_seconds=max_call_duration_seconds,
-        max_duration_end_task_callback=engine.create_max_duration_callback(),
-        generation_started_callback=engine.create_generation_started_callback(),
-        llm_text_frame_callback=engine.handle_llm_text_frame,
+    # Every cascade call runs the split pipeline: everything call-scoped stays
+    # here and the generation stage (LLM through TTS) runs in a worker per
+    # agent visit, so replacing the agent never touches the transport, the
+    # recording or the conversation. A realtime call has no such stage to lift
+    # out -- the one speech-to-speech service consumes the caller's audio
+    # directly -- so it keeps its own single-worker shape and cannot transfer.
+    worker_runner = create_worker_runner()
+    call_worker_name = f"call-{workflow_run_id}"
+
+    # One call monitor owns user-idle, response and duration limits in both shapes.
+    call_monitor_processor = engine.call_monitor
+    call_monitor_processor.max_call_duration_seconds = max_call_duration_seconds
+    call_monitor_processor.bind_user(
+        user_context_aggregator, idle_timeout=max_user_idle_timeout
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
 
-    user_context_aggregator = context_aggregator.user()
-    assistant_context_aggregator = context_aggregator.assistant()
+    # Terminations raised from inside the pipeline are handed to the engine
+    # instead of cancelling the worker directly. Its handler is registered by
+    # `register_event_handlers` once the task exists.
+    termination_funnel = TerminationFunnelProcessor()
 
-    # Register user idle event handlers
-    user_idle_handler = engine.create_user_idle_handler()
-
-    @user_context_aggregator.event_handler("on_user_turn_idle")
-    async def on_user_turn_idle(aggregator):
-        await user_idle_handler.handle_idle(aggregator)
-
-    @user_context_aggregator.event_handler("on_user_turn_started")
-    async def on_user_turn_started(aggregator, strategy):
-        user_idle_handler.reset()
-
-    voicemail_detector = None
-    recording_router = None
+    if answer_supervisor is not None:
+        answer_supervisor.bind(user_context_aggregator)
+        engine.set_answer_supervisor(
+            answer_supervisor, user_context_aggregator, max_user_idle_timeout
+        )
 
     # Create recording audio fetcher (used by recording router, audio greetings,
     # and audio transition speech)
@@ -978,60 +1096,15 @@ async def _run_pipeline_impl(
     )
     engine.set_fetch_recording_audio(fetch_audio)
 
-    voicemail_config = (workflow.workflow_configurations or {}).get(
-        "voicemail_detection", {}
-    )
     if is_realtime and voicemail_config.get("enabled", False):
         logger.info(
             f"Disabling voicemail detection for realtime workflow run {workflow_run_id}"
         )
-    if voicemail_config.get("enabled", False) and not is_realtime:
-        logger.info(f"Voicemail detection enabled for workflow run {workflow_run_id}")
-        # Create a separate LLM instance for the voicemail sub-pipeline
-        # (can't share with main pipeline as it would mess up frame linking)
-        if voicemail_config.get("use_workflow_llm", True):
-            voicemail_llm = create_llm_service(
-                user_config,
-                correlation_id=mps_correlation_id,
-                usage_context="voicemail_detection",
-            )
-        else:
-            voicemail_llm = create_llm_service_from_provider(
-                provider=voicemail_config.get("provider", "openai"),
-                model=voicemail_config.get("model", "gpt-4.1"),
-                api_key=voicemail_config.get("api_key", ""),
-                usage_context="voicemail_detection",
-            )
-
-        long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
-        custom_system_prompt = voicemail_config.get("system_prompt") or None
-
-        voicemail_detector = VoicemailDetector(
-            llm=voicemail_llm,
-            long_speech_timeout=long_speech_timeout,
-            custom_system_prompt=custom_system_prompt,
-        )
-
-        # Register event handler to end task when voicemail is detected
-        @voicemail_detector.event_handler("on_voicemail_detected")
-        async def _on_voicemail_detected(_processor):
-            logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
-            await engine.end_call_with_reason(
-                reason=EndTaskReason.VOICEMAIL_DETECTED.value,
-                abort_immediately=True,
-            )
-
-    # Recording router is only meaningful in non-realtime mode (it routes between
-    # pre-recorded audio playback and dynamic TTS; realtime LLMs produce audio
-    # directly).
-    if not is_realtime and has_recordings:
-        recording_router = RecordingRouterProcessor(
-            audio_sample_rate=audio_config.pipeline_sample_rate,
-            fetch_recording_audio=fetch_audio,
-        )
+    # Recorded openings use the same cache in both pipeline shapes.
+    if has_recordings:
         # Warm the recording cache in the background so audio is ready
         # before the first playback request.
-        asyncio.create_task(
+        engine.opening.prepare(
             warm_recording_cache(
                 organization_id=workflow.organization_id,
                 pipeline_sample_rate=audio_config.pipeline_sample_rate,
@@ -1046,27 +1119,51 @@ async def _run_pipeline_impl(
             audio_buffer,
             user_context_aggregator,
             assistant_context_aggregator,
-            pipeline_engine_callback_processor,
+            call_monitor_processor,
+            # No agent worker to carry it, so the realtime service's own
+            # generation stage reports from the call pipeline.
+            AgentGenerationProcessor(
+                generation_started_callback=engine.create_generation_started_callback(),
+                llm_text_frame_callback=engine.handle_llm_text_frame,
+            ),
             pipeline_metrics_aggregator,
-            voicemail_detector=voicemail_detector,
+            termination_funnel,
+            opening_input=engine.opening.input_gate,
         )
     else:
         pipeline = build_pipeline(
             transport,
             stt,
             audio_buffer,
-            llm,
-            tts,
             user_context_aggregator,
             assistant_context_aggregator,
-            pipeline_engine_callback_processor,
+            call_monitor_processor,
+            [
+                AgentBridgeProcessor(
+                    bus=worker_runner.bus,
+                    worker_name=call_worker_name,
+                    selected_visit=lambda: engine.selected_visit_id,
+                    allow_inference=lambda: engine.agent_can_generate(
+                        engine.active_agent
+                    ),
+                    generation_ready=lambda: engine.generation_ready,
+                    wait_for_generation=engine.wait_for_generation_ready,
+                    name=f"{call_worker_name}::AgentBridge",
+                )
+            ],
             pipeline_metrics_aggregator,
-            voicemail_detector=voicemail_detector,
-            recording_router=recording_router,
+            termination_funnel,
+            answer_supervisor=answer_supervisor,
+            opening_input=engine.opening.input_gate,
         )
 
     # Create pipeline task with audio configuration
-    task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
+    task = create_pipeline_task(
+        pipeline,
+        workflow_run_id,
+        audio_config,
+        name=call_worker_name,
+    )
     transcript_log_coordinator = TranscriptLogCoordinator(in_memory_logs_buffer)
     if task.turn_tracking_observer is None:
         raise RuntimeError("Transcript logging requires turn tracking to be enabled")
@@ -1083,15 +1180,89 @@ async def _run_pipeline_impl(
         )
 
     # Now set the task and transport output on the engine
-    engine.set_task(task)
+    engine.call_worker = task
     engine.set_transport_output(transport.output())
 
-    # Add the observer before initialization so early ErrorFrames are not missed.
+    from api.services.observability.call_events.runtime import create_session
+
+    call_events_session = await create_session(
+        organization_id=workflow.organization_id,
+        run_id=workflow_run_id,
+        workflow_id=workflow_id,
+        engine=engine,
+    )
+    if call_events_session is not None:
+        call_events_session.attach(
+            task, user_context_aggregator, call_monitor_processor
+        )
+
+    # Share frame-ID deduplication across the call and all agent workers.
     feedback_observer = RealtimeFeedbackObserver(
         ws_sender=ws_sender,
         logs_buffer=in_memory_logs_buffer,
+        selected_visit=lambda: engine.selected_visit_id,
+        call_event_recorder=(
+            call_events_session.recorder if call_events_session else None
+        ),
     )
     task.add_observer(feedback_observer)
+    engine.greeting.log_speech = feedback_observer.log_greeting
+    engine.greeting.log_background_speech = (
+        feedback_observer.log_background_greeting_speech
+    )
+    engine.greeting.get_log_context = feedback_observer.speech_log_context
+
+    if not is_realtime:
+
+        def _agent_generation_callbacks(visit_id: str) -> AgentGenerationCallbacks:
+            # Tagged with the visit so a retired agent finishing its last
+            # generation cannot corrupt the running agent's transcript
+            # correction, which is call-scoped.
+            return AgentGenerationCallbacks(
+                generation_started=engine.create_generation_started_callback(visit_id),
+                llm_text_frame=engine.create_llm_text_frame_callback(visit_id),
+            )
+
+        agent_factory = AgentRuntimeFactory(
+            organization_id=workflow.organization_id,
+            workflow_run_id=workflow_run_id,
+            call_worker=task,
+            audio_config=audio_config,
+            callbacks_factory=_agent_generation_callbacks,
+            fetch_recording_audio=fetch_audio,
+            has_recordings=has_recordings,
+            mps_correlation_id=mps_correlation_id,
+            on_agent_error=engine.handle_agent_error,
+            use_draft=bool(workflow_run.extra.get("use_draft")),
+            observers=[feedback_observer],
+            run_definition=run_definition,
+            run_model_configuration=user_config,
+            stt=stt,
+        )
+        engine.set_agent_factory(agent_factory)
+        # The agent this call starts on. Its services are populated by the
+        # factory once the pre-call fetch has settled, and its worker is
+        # attached once the call pipeline is running, both in the call-start
+        # sequence that `register_event_handlers` runs.
+        agent = engine.active_agent
+        agent.workflow_id = workflow_id
+        agent.definition_id = run_definition.id
+        agent.workflow_name = workflow.name
+        agent.is_child = True
+        agent.worker = None
+    else:
+        # The realtime agent is call-owned: its one service is already in the
+        # pipeline, so only its identity and what it runs are recorded here.
+        agent = engine.active_agent
+        agent.workflow_id = workflow_id
+        agent.definition_id = run_definition.id
+        agent.workflow_name = workflow.name
+        agent.user_config = user_config
+        agent.runtime_configuration = runtime_configuration
+
+    engine.active_agent.model_configuration_snapshot = dict(
+        workflow_run.model_configuration_snapshot or {}
+    )
 
     # Initialize the engine to set the initial context with
     # System Prompt and Tools
@@ -1145,10 +1316,16 @@ async def _run_pipeline_impl(
         in_memory_logs_buffer=in_memory_logs_buffer,
         transcript_log_coordinator=transcript_log_coordinator,
         pipeline_metrics_aggregator=pipeline_metrics_aggregator,
+        termination_funnel=termination_funnel,
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,
+        workflow_run=workflow_run,
+        organization_id=workflow.organization_id,
+        run_model_configuration=user_config,
+        answer_supervisor=answer_supervisor,
         user_provider_id=user_provider_id,
         integration_runtime_sessions=integration_runtime_sessions,
+        call_events_session=call_events_session,
         include_transcript_end_timestamps=include_transcript_end_timestamps,
     )
 
@@ -1156,7 +1333,7 @@ async def _run_pipeline_impl(
 
     try:
         # Run the pipeline
-        await run_pipeline_worker(task)
+        await run_worker_runner(worker_runner, task)
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
@@ -1165,6 +1342,18 @@ async def _run_pipeline_impl(
         # scopes opened by MCPClient.start() in engine.initialize() are
         # task-affine; this finally runs in the same task as initialize(),
         # whereas engine.cleanup() runs in a pipecat event-handler task.
+        if call_events_session is not None:
+            # Fallback for cancellation or failures in unrelated completion
+            # work. Normal completion already sealed this session.
+            try:
+                await call_events_session.finish()
+            except (Exception, asyncio.CancelledError) as exc:
+                # Diagnostic failures must not skip MCP or observer cleanup.
+                logger.warning(
+                    "Error finalizing call events during cleanup for workflow run {} ({})",
+                    workflow_run_id,
+                    type(exc).__name__,
+                )
         await engine.close_mcp_sessions()
         await feedback_observer.cleanup()
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

@@ -73,6 +73,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         # Pre-split configurations have no stasis_app_name and still run on
         # app_name, which is what they told Asterisk to use.
         "stasis_app_name": value.get("stasis_app_name") or value.get("app_name"),
+        "dial_string_template": value.get("dial_string_template"),
         "external_pbx": value.get("external_pbx"),
         "from_numbers": value.get("from_numbers", []),
     }
@@ -115,6 +116,21 @@ _UI_METADATA = ProviderUIMetadata(
                 "Generated for you, and unique to this configuration. Route "
                 "calls into it from extensions.conf with Stasis(<this name>)."
             ),
+        ),
+        ProviderUIField(
+            name="dial_string_template",
+            label="Dial String Template",
+            type="text",
+            required=False,
+            description=(
+                "How a dialed number reaches your trunk. {number} is replaced "
+                "with the number being called. Use PJSIP/{number}@my-trunk to "
+                "dial a trunk directly, or Local/{number}@from-internal to let "
+                "your dialplan's outbound routes choose one. Leave as "
+                "PJSIP/{number} when your endpoints are named after the "
+                "extensions you dial."
+            ),
+            placeholder="PJSIP/{number}",
         ),
         ProviderUIField(
             name="from_numbers",
@@ -225,6 +241,10 @@ SPEC = ProviderSpec(
     # Origination sets ``callerId`` only when one is configured — a PBX
     # dialling an internal extension needs no number at all.
     requires_caller_id=False,
+    # The destinations are whatever the customer's dialplan can reach:
+    # extensions, SIP URIs and dial strings naming a trunk, none of which are
+    # E.164 numbers.
+    requires_e164_destinations=False,
     # Assigns stasis_app_name. Deliberately not listed in
     # server_managed_credential_fields: those are dropped from the
     # configuration response, and this one has to stay readable so the customer

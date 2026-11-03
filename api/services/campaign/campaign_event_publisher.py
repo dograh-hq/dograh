@@ -3,6 +3,7 @@
 Handles publishing of campaign events to Redis pub/sub channels.
 """
 
+import asyncio
 from typing import Dict, Optional
 
 import redis.asyncio as aioredis
@@ -13,11 +14,14 @@ from api.enums import RedisChannel
 from api.services.campaign.campaign_event_protocol import (
     BatchCompletedEvent,
     BatchFailedEvent,
+    CallCompletedEvent,
     CampaignCompletedEvent,
     CircuitBreakerTrippedEvent,
     RetryNeededEvent,
     SyncCompletedEvent,
 )
+
+CALL_COMPLETION_EVENT_TIMEOUT_SECONDS = 2
 
 
 class CampaignEventPublisher:
@@ -25,6 +29,12 @@ class CampaignEventPublisher:
 
     def __init__(self, redis_client):
         self.redis = redis_client
+
+    async def publish_call_completed(self, campaign_id: int, workflow_run_id: int):
+        event = CallCompletedEvent(
+            campaign_id=campaign_id, workflow_run_id=workflow_run_id
+        )
+        await self.redis.publish(RedisChannel.CAMPAIGN_EVENTS.value, event.to_json())
 
     async def publish_batch_completed(
         self,
@@ -164,3 +174,22 @@ async def get_campaign_event_publisher() -> CampaignEventPublisher:
         _campaign_publisher = CampaignEventPublisher(_campaign_redis_client)
 
     return _campaign_publisher
+
+
+async def notify_campaign_call_completed(
+    campaign_id: Optional[int], workflow_run_id: int
+) -> None:
+    """Wake completion checks; the periodic database scan recovers missed events."""
+    if not campaign_id:
+        return
+    try:
+        # Notifications must not hold up artifact uploads or call teardown
+        # when Redis is unreachable. The database remains authoritative.
+        async with asyncio.timeout(CALL_COMPLETION_EVENT_TIMEOUT_SECONDS):
+            publisher = await get_campaign_event_publisher()
+            await publisher.publish_call_completed(campaign_id, workflow_run_id)
+    except Exception:
+        logger.exception(
+            f"campaign_id: {campaign_id} - Could not publish call completion "
+            f"for run {workflow_run_id}; periodic completion check will recover"
+        )

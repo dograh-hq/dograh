@@ -9,8 +9,6 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", Environment.LOCAL.value)
 # when constructing file-system paths elsewhere in the codebase.
 APP_ROOT_DIR: Path = Path(__file__).resolve().parent
 
-FILLER_SOUND_PROBABILITY = 0.0
-
 VOICEMAIL_RECORDING_DURATION = 5.0
 
 # Langfuse Configuration
@@ -77,7 +75,13 @@ STACK_AUTH_PROJECT_ID = os.getenv("STACK_AUTH_PROJECT_ID")
 STACK_PUBLISHABLE_CLIENT_KEY = os.getenv("STACK_PUBLISHABLE_CLIENT_KEY")
 DOGRAH_MPS_SECRET_KEY = os.getenv("DOGRAH_MPS_SECRET_KEY", None)
 MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
+DOGRAH_DEPLOYMENT_ID = os.getenv(
+    "DOGRAH_DEPLOYMENT_ID", "oss" if DEPLOYMENT_MODE == "oss" else "us"
+)
 DOGRAH_DEVOPS_SECRET = os.getenv("DOGRAH_DEVOPS_SECRET") or None
+ENABLE_PROMETHEUS_METRICS = (
+    os.getenv("ENABLE_PROMETHEUS_METRICS", "false").lower() == "true"
+)
 
 # Storage Configuration
 ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"
@@ -120,6 +124,16 @@ POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
 
 ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
 SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"
+
+# Whether the end-of-call audio recordings (mixed / user / bot tracks) are
+# uploaded to object storage. Deployments that must not retain call audio, or
+# that simply do not want to pay for the storage, can turn this off. The
+# transcript upload and every other artifact are unaffected. Audio is still
+# buffered in memory during the call (integrations such as Noveum consume it);
+# only the upload and the recording_url / recordings metadata are skipped.
+ENABLE_CALL_RECORDING_UPLOAD = (
+    os.getenv("ENABLE_CALL_RECORDING_UPLOAD", "true").lower() == "true"
+)
 
 # Telephony media WebSocket authentication.
 # The carrier/connector dials back the media socket
@@ -194,6 +208,9 @@ COUNTRY_CODES = {
 DEFAULT_ORG_CONCURRENCY_LIMIT = max(
     1, int(os.getenv("DEFAULT_ORG_CONCURRENCY_LIMIT", "10"))
 )
+# Outlast both the dispatcher's 240-second timeout and ARQ's 300-second deadline.
+CAMPAIGN_PROCESSING_CLAIM_TIMEOUT_SECONDS = 360
+
 DEFAULT_CAMPAIGN_RETRY_CONFIG = {
     "enabled": True,
     "max_retries": 1,

@@ -441,3 +441,27 @@ def test_query_token_still_authenticates(ws_client):
     """ARI's transport, which Asterisk builds itself and nothing strips."""
     tok = ws_auth.mint_ws_token(7, 3, 42)
     assert _close_code(ws_client, f"/api/v1/telephony/ws/7/3/42?token={tok}") == 4404
+
+
+def test_events_token_disabled_when_no_secret(no_secret):
+    assert ws_auth.mint_events_token(42) is None
+    assert ws_auth.verify_events_token(42, "anything") is False
+
+
+def test_events_token_round_trip(secret):
+    tok = ws_auth.mint_events_token(42)
+    assert tok
+    assert ws_auth.verify_events_token(42, tok) is True
+    # Bound to the run id: another run's token must not verify.
+    assert ws_auth.verify_events_token(43, tok) is False
+    # Same secret, different message prefix than the ws token: the two token
+    # flavors are not interchangeable.
+    assert ws_auth.verify_events_token(42, ws_auth.mint_ws_token(7, 3, 42)) is False
+
+
+def test_events_token_rejects_garbage_and_missing(secret):
+    tok = ws_auth.mint_events_token(42)
+    assert ws_auth.verify_events_token(42, None) is False
+    assert ws_auth.verify_events_token(42, "") is False
+    assert ws_auth.verify_events_token(42, tok[:-2] + "zz") is False
+    assert ws_auth.verify_events_token(42, tok + "x") is False

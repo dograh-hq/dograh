@@ -8,13 +8,16 @@ from api.tasks.function_names import FunctionNames
 
 
 @pytest.mark.asyncio
-async def test_mark_workflow_run_failed_records_error_and_completes_run():
+async def test_mark_workflow_run_failed_records_error_and_completes_run(
+    no_disposition_mapping,
+):
     enqueue = AsyncMock()
     with (
         patch("api.services.workflow_run_failure.db_client") as mock_db,
         patch("api.tasks.arq.enqueue_job", enqueue),
     ):
         mock_db.update_workflow_run = AsyncMock()
+        mock_db.get_organization_id_by_workflow_run_id = AsyncMock(return_value=7)
 
         await mark_workflow_run_failed(597930, "You have exhausted your credits")
 
@@ -28,6 +31,7 @@ async def test_mark_workflow_run_failed_records_error_and_completes_run():
         "error": "You have exhausted your credits",
         "call_disposition": TelephonyCallStatus.ERROR.value,
         "mapped_call_disposition": TelephonyCallStatus.ERROR.value,
+        "call_status": TelephonyCallStatus.ERROR.value,
     }
 
     [failure_event] = update["logs"]["realtime_feedback_events"]
@@ -47,7 +51,7 @@ async def test_mark_workflow_run_failed_records_error_and_completes_run():
 
 
 @pytest.mark.asyncio
-async def test_mark_workflow_run_failed_swallows_db_errors():
+async def test_mark_workflow_run_failed_swallows_db_errors(no_disposition_mapping):
     enqueue = AsyncMock()
     with (
         patch("api.services.workflow_run_failure.db_client") as mock_db,
@@ -56,6 +60,7 @@ async def test_mark_workflow_run_failed_swallows_db_errors():
         mock_db.update_workflow_run = AsyncMock(
             side_effect=ValueError("Workflow run with ID 1 not found")
         )
+        mock_db.get_organization_id_by_workflow_run_id = AsyncMock(return_value=7)
 
         await mark_workflow_run_failed(1, "Quota exceeded")
 
@@ -63,13 +68,16 @@ async def test_mark_workflow_run_failed_swallows_db_errors():
 
 
 @pytest.mark.asyncio
-async def test_mark_workflow_run_failed_swallows_enqueue_errors():
+async def test_mark_workflow_run_failed_swallows_enqueue_errors(
+    no_disposition_mapping,
+):
     enqueue = AsyncMock(side_effect=RuntimeError("Redis unavailable"))
     with (
         patch("api.services.workflow_run_failure.db_client") as mock_db,
         patch("api.tasks.arq.enqueue_job", enqueue),
     ):
         mock_db.update_workflow_run = AsyncMock()
+        mock_db.get_organization_id_by_workflow_run_id = AsyncMock(return_value=7)
 
         await mark_workflow_run_failed(2, "Failed to initiate call")
 

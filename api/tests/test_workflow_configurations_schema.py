@@ -7,11 +7,18 @@ from api.constants import (
     TEXT_CHAT_INACTIVITY_TIMEOUT_SECONDS,
 )
 from api.schemas.workflow_configurations import (
+    DEFAULT_CALL_DISPOSITION_OPTIONS,
     DEFAULT_MAX_CALL_DURATION_SECONDS,
+    DEFAULT_TURN_START_STRATEGY,
+    MAX_CALL_DISPOSITION_CODE_LENGTH,
+    MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH,
+    MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH,
+    MAX_CALL_DISPOSITIONS,
     MAX_CALL_DURATION_SECONDS,
     MAX_EXTERNAL_PBX_LEAD_HEADERS,
     TextChatInactivityTimeoutConstraints,
     WorkflowConfigurationDefaults,
+    get_default_call_disposition_options,
 )
 
 
@@ -33,6 +40,31 @@ def test_max_call_duration_rejects_over_cap():
 def test_max_call_duration_rejects_non_positive():
     with pytest.raises(ValidationError):
         WorkflowConfigurationDefaults(max_call_duration=0)
+
+
+@pytest.mark.parametrize("min_words", [0, -1])
+def test_turn_start_min_words_rejects_non_positive(min_words):
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowConfigurationDefaults(turn_start_min_words=min_words)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("turn_start_min_words",)
+    assert error["type"] == "greater_than_equal"
+
+
+@pytest.mark.parametrize("min_words", [1, 2, 4])
+def test_turn_start_min_words_preserves_valid_threshold(min_words):
+    config = WorkflowConfigurationDefaults(turn_start_min_words=min_words)
+
+    assert config.model_dump(exclude_unset=True) == {"turn_start_min_words": min_words}
+
+
+def test_turn_start_min_words_lower_bound_is_exported_in_schema():
+    field_schema = WorkflowConfigurationDefaults.model_json_schema()["properties"][
+        "turn_start_min_words"
+    ]
+
+    assert field_schema["minimum"] == 1
 
 
 def test_text_chat_inactivity_timeout_defaults_to_deployment_value():
@@ -98,6 +130,156 @@ def test_null_values_treated_as_unset():
     assert config.max_call_duration == DEFAULT_MAX_CALL_DURATION_SECONDS
     # Nulls count as unset, so a sparse round-trip drops them entirely.
     assert config.model_dump(exclude_unset=True) == {}
+    assert config.turn_start_strategy == "min_words"
+    assert config.turn_start_min_words == 2
+
+
+def test_retired_turn_start_strategy_loads_as_default():
+    """A workflow saved before provisional_vad was retired must still load.
+
+    workflow_definitions rows are immutable versions, so one can outlive the
+    data migration (a fresh restore, a replica lagging a deploy). It has to
+    read back and re-save through the API rather than fail validation.
+    """
+    config = WorkflowConfigurationDefaults.model_validate(
+        {
+            "turn_start_strategy": "provisional_vad",
+            "provisional_vad_pause_secs": 0.4,
+        }
+    )
+
+    assert config.turn_start_strategy == DEFAULT_TURN_START_STRATEGY
+    # The retired companion key is not a field any more; extra="allow" keeps it
+    # rather than rejecting the row, and nothing reads it.
+    assert not hasattr(type(config), "provisional_vad_pause_secs")
+
+
+def test_unknown_turn_start_strategy_is_still_rejected():
+    """Coercion is scoped to the retired value, not a blanket fallback."""
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults.model_validate(
+            {"turn_start_strategy": "not_a_strategy"}
+        )
+
+
+def test_call_dispositions_are_trimmed():
+    configured = WorkflowConfigurationDefaults(
+        call_dispositions=[
+            {
+                "code": "  call_rescheduled  ",
+                "description": "  The caller booked another conversation.  ",
+            }
+        ]
+    )
+
+    assert configured.call_dispositions[0].code == "call_rescheduled"
+    assert configured.call_dispositions[0].description == (
+        "The caller booked another conversation."
+    )
+
+
+def test_default_call_dispositions_are_complete_and_returned_as_fresh_models():
+    first = get_default_call_disposition_options()
+    second = get_default_call_disposition_options()
+
+    assert [option.code for option in first] == [
+        "qualified",
+        "not_interested",
+        "wrong_number",
+        "voicemail_detected",
+        "do_not_call",
+        "callback_requested",
+    ]
+    assert all(option.description for option in first)
+    assert tuple(first) == DEFAULT_CALL_DISPOSITION_OPTIONS
+    assert all(left is not right for left, right in zip(first, second, strict=True))
+
+
+def test_call_dispositions_have_a_bounded_row_count():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {"code": f"outcome_{index}", "description": "Description."}
+                for index in range(MAX_CALL_DISPOSITIONS + 1)
+            ]
+        )
+
+
+def test_call_disposition_code_has_a_bounded_size():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {
+                    "code": "x" * (MAX_CALL_DISPOSITION_CODE_LENGTH + 1),
+                    "description": "A valid description.",
+                }
+            ]
+        )
+
+
+def test_call_disposition_description_has_a_bounded_size():
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {
+                    "code": "qualified",
+                    "description": "x" * (MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH + 1),
+                }
+            ]
+        )
+
+
+def test_call_disposition_descriptions_have_a_total_budget():
+    full_description = "x" * MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH
+    overflow = "x" * (
+        MAX_CALL_DISPOSITION_DESCRIPTIONS_TOTAL_LENGTH
+        - (4 * MAX_CALL_DISPOSITION_DESCRIPTION_LENGTH)
+        + 1
+    )
+    with pytest.raises(ValidationError, match="descriptions must total"):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {"code": f"outcome_{index}", "description": full_description}
+                for index in range(4)
+            ]
+            + [
+                {"code": "overflow", "description": overflow},
+            ]
+        )
+
+
+def test_call_disposition_codes_are_unique_case_insensitively():
+    with pytest.raises(ValidationError, match="codes must be unique"):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[
+                {"code": "qualified", "description": "Qualified."},
+                {"code": "QUALIFIED", "description": "Also qualified."},
+            ]
+        )
+
+
+@pytest.mark.parametrize("code", ["not interested", "123", "qualified!"])
+def test_call_disposition_codes_use_machine_safe_format(code):
+    with pytest.raises(ValidationError):
+        WorkflowConfigurationDefaults(
+            call_dispositions=[{"code": code, "description": "Description."}]
+        )
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_speech_cache_workflow_setting_round_trips(enabled):
+    config = WorkflowConfigurationDefaults.model_validate(
+        {"tts_cache_enabled": enabled}
+    )
+    assert config.model_dump(exclude_unset=True) == {"tts_cache_enabled": enabled}
+
+
+@pytest.mark.parametrize("settings", [{}, {"tts_cache_enabled": None}])
+def test_speech_cache_defaults_off_for_existing_workflows(settings):
+    assert (
+        WorkflowConfigurationDefaults.model_validate(settings).tts_cache_enabled
+        is False
+    )
 
 
 def test_exclude_unset_round_trip_stays_sparse():

@@ -26,6 +26,8 @@ Use the `s3_key` from the response as the `source_url` when [creating a campaign
 
 The CSV must include a `phone_number` column. Any additional columns are passed as `initial_context` to each call, making them available as template variables in the workflow.
 
+What counts as a valid `phone_number` depends on the telephony configuration the campaign dials with. Carriers require E.164 — a `+`, country code, then the number. An [Asterisk ARI](/integrations/telephony/asterisk-ari#campaign-contacts) configuration also accepts extensions, SIP URIs and dial strings, since those are what its PBX reaches. Either way, numbers must be unique within a campaign and cannot contain spaces, commas or ampersands.
+
 ```csv
 phone_number,customer_name,plan,greeting_override_type,greeting_override_text
 +14155550100,Jane Smith,premium,text,Hello {{customer_name}}

@@ -27,7 +27,7 @@ def _async_client(*, response=None, error=None):
 
 
 @pytest.mark.asyncio
-async def test_custom_tool_http_error_is_classified_without_changing_result():
+async def test_custom_tool_http_error_is_classified_and_reported_as_error():
     response = MagicMock(status_code=401, text="Unauthorized")
     response.json.return_value = {"error": "Unauthorized"}
     captured = []
@@ -55,7 +55,7 @@ async def test_custom_tool_http_error_is_classified_without_changing_result():
         result = await execute_http_tool(tool, {}, organization_id=42)
 
     assert result == {
-        "status": "success",
+        "status": "error",
         "status_code": 401,
         "data": {"error": "Unauthorized"},
     }

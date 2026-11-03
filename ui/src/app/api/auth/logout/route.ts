@@ -1,27 +1,14 @@
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-const OSS_TOKEN_COOKIE = 'dograh_auth_token';
-const OSS_USER_COOKIE = 'dograh_auth_user';
+import { OSS_TOKEN_COOKIE, OSS_USER_COOKIE, sessionCookieOptions } from '@/lib/auth/cookies';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const cookieStore = await cookies();
+  const options = sessionCookieOptions(request, 0);
 
-  cookieStore.set(OSS_TOKEN_COOKIE, '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 0,
-    path: '/',
-  });
-
-  cookieStore.set(OSS_USER_COOKIE, '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 0,
-    path: '/',
-  });
+  cookieStore.set(OSS_TOKEN_COOKIE, '', options);
+  cookieStore.set(OSS_USER_COOKIE, '', options);
 
   return NextResponse.json({ success: true });
 }

@@ -38,7 +38,59 @@ PLACEHOLDER_DESCRIPTION_PATTERN = re.compile(
 )
 
 
-def test_start_call_migrates_legacy_pre_call_fetch_toggle():
+@pytest.mark.parametrize("threshold", [0, -1, 1.5, True, "3"])
+def test_greeting_interruption_threshold_requires_a_positive_integer(threshold):
+    with pytest.raises(ValidationError):
+        StartCallNodeData(name="Start", greeting_interrupt_min_words=threshold)
+
+
+def test_greeting_policy_defaults_and_runtime_round_trip():
+    data = StartCallNodeData(name="Start")
+    node = Node("start", "startCall", data)
+    assert node.allow_greeting_interrupt is True
+    assert node.greeting_interrupt_min_words == 2
+    configured = StartCallNodeData.model_validate(
+        {
+            **data.model_dump(),
+            "allow_greeting_interrupt": False,
+            "greeting_interrupt_min_words": 4,
+        }
+    )
+    node = Node("start", "startCall", configured)
+    assert node.allow_greeting_interrupt is False
+    assert node.greeting_interrupt_min_words == 4
+
+
+def test_greeting_policy_spec_order_and_visibility():
+    spec = next(spec for spec in all_specs() if spec.name == "startCall")
+    names = [prop.name for prop in spec.properties]
+    assert names.index("greeting_recording_id") < names.index(
+        "allow_greeting_interrupt"
+    )
+    assert names.index("allow_greeting_interrupt") < names.index(
+        "greeting_interrupt_min_words"
+    )
+    assert names.index("greeting_interrupt_min_words") < names.index("prompt")
+    threshold = next(
+        prop for prop in spec.properties if prop.name == "greeting_interrupt_min_words"
+    )
+    assert threshold.default == 2
+    assert threshold.min_value == 1
+    assert threshold.renderer_options.number_input.fractional is False
+    assert threshold.display_options.show == {"allow_greeting_interrupt": [True]}
+
+
+def test_greeting_recording_is_not_globally_required_by_sdk_specs():
+    spec = next(spec for spec in all_specs() if spec.name == "startCall")
+    recording = next(
+        prop for prop in spec.properties if prop.name == "greeting_recording_id"
+    )
+    assert recording.required is False
+    assert recording.display_options.show == {"greeting_type": ["audio"]}
+
+
+def test_legacy_pre_call_fetch_toggle_is_accepted_on_input():
+    """Old clients still send the pre-#638 boolean; it must not be ignored."""
     enabled = StartCallNodeData.model_validate(
         {"name": "Start", "prompt": "Open", "pre_call_fetch_enabled": True}
     )
@@ -48,6 +100,21 @@ def test_start_call_migrates_legacy_pre_call_fetch_toggle():
 
     assert enabled.pre_call_fetch_mode == PreCallFetchMode.always
     assert disabled.pre_call_fetch_mode == PreCallFetchMode.disabled
+
+
+def test_legacy_pre_call_fetch_toggle_is_not_stored():
+    """The shim translates the flag; it never persists it back out."""
+    data = StartCallNodeData.model_validate(
+        {"name": "Start", "prompt": "Open", "pre_call_fetch_enabled": True}
+    )
+
+    assert "pre_call_fetch_enabled" not in data.model_dump()
+
+
+def test_pre_call_fetch_mode_defaults_to_disabled():
+    data = StartCallNodeData.model_validate({"name": "Start", "prompt": "Open"})
+
+    assert data.pre_call_fetch_mode == PreCallFetchMode.disabled
 
 
 @pytest.mark.parametrize("direction", ["inbound", "outbound", None])
@@ -287,6 +354,8 @@ def test_all_registered_node_models_inherit_base_node_data():
                 "greeting_type",
                 "greeting",
                 "greeting_recording_id",
+                "allow_greeting_interrupt",
+                "greeting_interrupt_min_words",
                 "prompt",
                 "allow_interrupt",
                 "add_global_prompt",
@@ -372,6 +441,8 @@ def test_all_registered_node_models_inherit_base_node_data():
                 "cost_tts_rate",
                 "cost_stt_rate",
                 "cost_telephony_rate",
+                "metadata_enabled",
+                "metadata_keys",
             ],
         ),
     ],
@@ -521,7 +592,8 @@ def test_to_mcp_dict_retains_authoring_signal_startcall():
     ]
 
     # Validation bounds survive (they constrain valid authored values).
-    assert props["delayed_start_duration"]["min_value"] == 0.1
+    assert props["delayed_start_duration"]["default"] == 1.2
+    assert props["delayed_start_duration"]["min_value"] == 0.0
     assert props["delayed_start_duration"]["max_value"] == 10.0
 
     # llm_hint survives where present (catalog-tool references).

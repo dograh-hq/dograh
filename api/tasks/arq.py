@@ -14,6 +14,11 @@ setup_logging()
 # Now import ARQ and task dependencies
 from arq import create_pool, cron
 from arq.connections import ArqRedis, RedisSettings
+from arq.worker import func
+from redis.asyncio.retry import Retry
+from redis.backoff import ExponentialBackoff
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 parsed_url = urlparse(REDIS_URL)
 
@@ -27,11 +32,25 @@ if use_ssl:
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
+# A Redis blip must not be fatal to the worker. arq's own loop has no
+# ConnectionError handling: a dropped connection propagates out of
+# ``Worker.main()``, ``Worker.run()`` then fails again inside its
+# ``finally: close()``, and the process exits for good. That is how every arq
+# worker in the cluster died on 2026-08-26 and stayed dead until restarted by
+# hand -- nothing supervises them. Retrying inside the Redis client keeps a
+# short outage (a service restart on the Redis host) from ever reaching arq.
+# The budget below is roughly a minute of exponential backoff, which covers a
+# restart while still surfacing a genuinely unreachable Redis.
+_REDIS_RETRY = Retry(ExponentialBackoff(cap=10, base=0.1), retries=12)
+
 REDIS_SETTINGS = RedisSettings(
     host=parsed_url.hostname or "localhost",
     port=parsed_url.port or 6379,
     password=parsed_url.password,
     conn_timeout=10,
+    retry=_REDIS_RETRY,
+    retry_on_timeout=True,
+    retry_on_error=[RedisConnectionError, RedisTimeoutError],
     ssl=use_ssl,
     ssl_ca_certs=None if not use_ssl else None,
     ssl_certfile=None,
@@ -45,25 +64,36 @@ from api.tasks.campaign_tasks import (
 )
 from api.tasks.knowledge_base_processing import process_knowledge_base_document
 from api.tasks.run_integrations import run_integrations_post_workflow_run
+from api.tasks.text_chat_completion import finalize_completed_text_chat
 from api.tasks.text_chat_inactivity import (
     complete_inactive_text_chat_session,
     sweep_inactive_text_chat_sessions,
 )
 from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
-from api.tasks.workflow_completion import process_workflow_completion
+from api.tasks.workflow_completion import (
+    process_workflow_completion,
+    sweep_workflow_completions,
+)
 
 
 class WorkerSettings:
     functions = [
         run_integrations_post_workflow_run,
-        process_workflow_completion,
+        func(process_workflow_completion, timeout=300),
         sync_campaign_source,
         process_campaign_batch,
         process_knowledge_base_document,
         deliver_webhook,
         complete_inactive_text_chat_session,
+        finalize_completed_text_chat,
     ]
     cron_jobs = [
+        cron(
+            sweep_workflow_completions,
+            minute=set(range(0, 60, 15)),
+            second=15,
+            run_at_startup=True,
+        ),
         # Safety net for webhook deliveries whose ARQ job was lost (worker
         # restart / Redis flush): re-enqueue any pending delivery that is overdue.
         cron(

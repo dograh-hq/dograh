@@ -3,9 +3,9 @@ import asyncio
 import pytest
 from loguru import logger
 from pipecat.frames.frames import (
-    EndTaskFrame,
+    EndWorkerFrame,
     Frame,
-    InterruptionTaskFrame,
+    InterruptionWorkerFrame,
     LLMRunFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -28,6 +28,7 @@ class BusyWaitProcessor(FrameProcessor):
     def __init__(self, wait_time=5.0, **kwargs):
         super().__init__(**kwargs)
         self._wait_time = wait_time
+        self.started = asyncio.Event()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -35,6 +36,7 @@ class BusyWaitProcessor(FrameProcessor):
             # Simulate a delay, which can happen sometimes due to slow LLM Inferencing or
             # other reasons
             try:
+                self.started.set()
                 logger.debug(
                     f"{self} sleeping with frame: {frame} for {self._wait_time} seconds"
                 )
@@ -60,15 +62,19 @@ async def test_interruption_with_blocked_end_frame():
     async def queue_frame():
         await task.queue_frames([LLMRunFrame()])
 
-        # Send EndTaskFrame to simulate EndFrame
-        await asyncio.sleep(0.1)
-        await transport.queue_frame(EndTaskFrame(), direction=FrameDirection.UPSTREAM)
+        # Do not race pipeline setup: the interruption must arrive while the
+        # simulated inference is actually blocked, with the ending frame queued
+        # behind it, for this to exercise the intended cancellation path.
+        await busy_wait_processor.started.wait()
+
+        # Send EndWorkerFrame to simulate EndFrame
+        await transport.queue_frame(EndWorkerFrame(), direction=FrameDirection.UPSTREAM)
 
         # Simulate an Interruption, which can happen if the user
         # has started to speak
         await asyncio.sleep(0.1)
         await transport.queue_frame(
-            InterruptionTaskFrame(), direction=FrameDirection.UPSTREAM
+            InterruptionWorkerFrame(), direction=FrameDirection.UPSTREAM
         )
 
     # Create tasks explicitly for better control

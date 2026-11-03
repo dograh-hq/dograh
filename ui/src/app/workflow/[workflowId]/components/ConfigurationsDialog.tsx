@@ -10,7 +10,6 @@ import { Switch } from "@/components/ui/switch";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 import {
     AmbientNoiseConfiguration,
-    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     ExternalPBXFieldMapping,
     resolveWorkflowConfigurations,
@@ -56,14 +55,14 @@ export const ConfigurationsDialog = ({
     const [turnStartMinWords, setTurnStartMinWords] = useState<number>(
         resolvedWorkflowConfigurations.turn_start_min_words
     );
-    const [provisionalVadPauseSecs, setProvisionalVadPauseSecs] = useState<number>(
-        resolvedWorkflowConfigurations.provisional_vad_pause_secs
-    );
     const [turnStopStrategy, setTurnStopStrategy] = useState<TurnStopStrategy>(
         resolvedWorkflowConfigurations.turn_stop_strategy
     );
     const [contextCompactionEnabled, setContextCompactionEnabled] = useState<boolean>(
         resolvedWorkflowConfigurations.context_compaction_enabled
+    );
+    const [ttsCacheEnabled, setTtsCacheEnabled] = useState<boolean>(
+        resolvedWorkflowConfigurations.tts_cache_enabled
     );
     const [externalPbxFieldMappings, setExternalPbxFieldMappings] = useState<ExternalPBXFieldMapping[]>(
         resolvedWorkflowConfigurations.external_pbx_field_mappings
@@ -89,10 +88,10 @@ export const ConfigurationsDialog = ({
                 smart_turn_stop_secs: smartTurnStopSecs,
                 turn_start_strategy: turnStartStrategy,
                 turn_start_min_words: turnStartMinWords,
-                provisional_vad_pause_secs: provisionalVadPauseSecs,
                 turn_stop_strategy: turnStopStrategy,
                 transcript_configuration: resolvedWorkflowConfigurations.transcript_configuration,
                 context_compaction_enabled: contextCompactionEnabled,
+                tts_cache_enabled: ttsCacheEnabled,
                 external_pbx_field_mappings: externalPbxFieldMappings,
             }, name);
             onOpenChange(false);
@@ -114,9 +113,9 @@ export const ConfigurationsDialog = ({
             setSmartTurnStopSecs(nextWorkflowConfigurations.smart_turn_stop_secs);
             setTurnStartStrategy(nextWorkflowConfigurations.turn_start_strategy);
             setTurnStartMinWords(nextWorkflowConfigurations.turn_start_min_words);
-            setProvisionalVadPauseSecs(nextWorkflowConfigurations.provisional_vad_pause_secs);
             setTurnStopStrategy(nextWorkflowConfigurations.turn_stop_strategy);
             setContextCompactionEnabled(nextWorkflowConfigurations.context_compaction_enabled);
+            setTtsCacheEnabled(nextWorkflowConfigurations.tts_cache_enabled);
             setExternalPbxFieldMappings(nextWorkflowConfigurations.external_pbx_field_mappings);
         }
     }, [open, workflowName, workflowConfigurations]);
@@ -317,31 +316,6 @@ export const ConfigurationsDialog = ({
                                 </p>
                             </div>
                         )}
-
-                        {turnStartStrategy === 'provisional_vad' && (
-                            <div className="space-y-2">
-                                <Label htmlFor="provisional_vad_pause_secs" className="text-xs">
-                                    Provisional Pause (seconds)
-                                </Label>
-                                <Input
-                                    id="provisional_vad_pause_secs"
-                                    type="number"
-                                    step="0.1"
-                                    min="0.1"
-                                    max="5"
-                                    value={provisionalVadPauseSecs}
-                                    onChange={(e) => {
-                                        const value = parseFloat(e.target.value);
-                                        if (!isNaN(value) && value >= 0.1) {
-                                            setProvisionalVadPauseSecs(value);
-                                        }
-                                    }}
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                    Seconds to pause bot audio while waiting for transcript confirmation. Default: {DEFAULT_PROVISIONAL_VAD_PAUSE_SECS}
-                                </p>
-                            </div>
-                        )}
                     </div>
 
                     {/* Context Management Section */}
@@ -361,6 +335,26 @@ export const ConfigurationsDialog = ({
                                 id="context-compaction-enabled"
                                 checked={contextCompactionEnabled}
                                 onCheckedChange={setContextCompactionEnabled}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-sm font-semibold mb-1">Speech Caching</h3>
+                            <p className="text-xs text-muted-foreground">
+                                Reuse generated audio for repeated phrases to reduce response time and speech generation costs.
+                                Cached audio expires after 24 hours. Currently available with MiniMax TTS.
+                            </p>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <Label htmlFor="tts-cache-enabled" className="text-sm">
+                                Enable Speech Caching
+                            </Label>
+                            <Switch
+                                id="tts-cache-enabled"
+                                checked={ttsCacheEnabled}
+                                onCheckedChange={setTtsCacheEnabled}
                             />
                         </div>
                     </div>

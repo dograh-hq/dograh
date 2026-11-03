@@ -1,8 +1,15 @@
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+from api.schemas.answer_supervisor import DEFAULT_LISTENING_WINDOW_SECONDS
 from api.services.integrations import (
     all_packages,
 )
@@ -15,7 +22,9 @@ from api.services.workflow.node_specs._base import (
     GraphConstraints,
     NodeCategory,
     NodeExample,
+    NumberInputOptions,
     PropertyOption,
+    PropertyRendererOptions,
     PropertyType,
 )
 from api.services.workflow.node_specs.constants import DEFAULT_QA_SYSTEM_PROMPT
@@ -153,7 +162,8 @@ class _ExtractionNodeDataMixin(BaseModel):
         display_name="Variables to Extract",
         description=(
             "Each entry declares one variable to capture, with its name, data "
-            "type, and extraction hint."
+            "type, and extraction hint. Call outcomes are configured separately "
+            "in workflow settings."
         ),
         display_options=DisplayOptions(show={"extraction_enabled": [True]}),
     )
@@ -214,6 +224,8 @@ class _ToolDocumentRefsMixin(BaseModel):
         "greeting_type",
         "greeting",
         "greeting_recording_id",
+        "allow_greeting_interrupt",
+        "greeting_interrupt_min_words",
         "prompt",
         "allow_interrupt",
         "add_global_prompt",
@@ -264,7 +276,7 @@ class _ToolDocumentRefsMixin(BaseModel):
         },
         "greeting_recording_id": {
             "display_name": "Greeting Recording",
-            "description": "Pre-recorded audio file played at the start of the call.",
+            "description": "Pre-recorded audio file played at the start of the call. Required when Greeting Type is Pre-recorded Audio.",
             "ui_type": PropertyType.recording_ref,
             "llm_hint": (
                 "Value is the `recording_id` string. Use the `list_recordings` "
@@ -273,7 +285,8 @@ class _ToolDocumentRefsMixin(BaseModel):
             "display_options": DisplayOptions(show={"greeting_type": ["audio"]}),
         },
         "allow_interrupt": {
-            "description": "When true, the user can interrupt the agent mid-utterance.",
+            "display_name": "Allow Interruptions After Greeting",
+            "description": "Allow the caller to interrupt responses after the opening greeting.",
         },
         "tool_uuids": {
             "description": "Tools the agent can invoke during the opening turn.",
@@ -284,15 +297,19 @@ class _ToolDocumentRefsMixin(BaseModel):
         "delayed_start": {
             "display_name": "Delayed Start",
             "description": (
-                "When true, the agent waits before speaking after pickup. Useful "
-                "for outbound calls where the called party needs a moment to settle."
+                "Listen before the opening in cascade and realtime calls. "
+                "If the caller speaks first, respond to them instead. Enabled "
+                "voicemail handling can resolve a human answer sooner."
             ),
         },
         "delayed_start_duration": {
             "display_name": "Delay Duration (seconds)",
-            "description": "Seconds to wait before the agent speaks. 0.1–10.",
-            "spec_default": 2.0,
-            "min_value": 0.1,
+            "description": (
+                "Seconds to listen for a silent answer before opening. 0–10. "
+                "With voicemail handling, replaces its default 1.2-second window."
+            ),
+            "spec_default": DEFAULT_LISTENING_WINDOW_SECONDS,
+            "min_value": 0.0,
             "max_value": 10.0,
             "display_options": DisplayOptions(show={"delayed_start": [True]}),
         },
@@ -345,17 +362,43 @@ class StartCallNodeData(
         default=None, ui_type=PropertyType.options
     )
     greeting_recording_id: Optional[str] = spec_field(
-        default=None, ui_type=PropertyType.recording_ref
+        default=None,
+        ui_type=PropertyType.recording_ref,
+    )
+    allow_greeting_interrupt: bool = spec_field(
+        default=True,
+        ui_type=PropertyType.boolean,
+        display_name="Allow Greeting Interruption",
+        description=(
+            "Let the caller interrupt the opening greeting. When off, caller speech "
+            "is retained until the greeting finishes. Applies to cascade and "
+            "realtime openings. Realtime uses provider or local speech detection "
+            "according to the adapter when interruptions are allowed."
+        ),
+    )
+    greeting_interrupt_min_words: int = spec_field(
+        default=2,
+        ge=1,
+        strict=True,
+        ui_type=PropertyType.number,
+        display_name="Minimum Words to Interrupt",
+        description=(
+            "Cascade only: interrupt when the caller's transcription contains at "
+            "least this many words. Realtime providers do not support this word "
+            "threshold; they use provider or local speech detection according "
+            "to the adapter."
+        ),
+        display_options=DisplayOptions(show={"allow_greeting_interrupt": [True]}),
+        renderer_options=PropertyRendererOptions(
+            number_input=NumberInputOptions(fractional=False)
+        ),
     )
     delayed_start: bool = spec_field(default=False, ui_type=PropertyType.boolean)
     delayed_start_duration: Optional[float] = spec_field(
         default=None, ui_type=PropertyType.number
     )
-    # Kept in the wire model so previously published workflows remain readable.
-    # New definitions use ``pre_call_fetch_mode`` exclusively.
-    pre_call_fetch_enabled: bool = spec_field(default=False, spec_exclude=True)
-    pre_call_fetch_mode: Optional[PreCallFetchMode] = spec_field(
-        default=None, ui_type=PropertyType.options
+    pre_call_fetch_mode: PreCallFetchMode = spec_field(
+        default=PreCallFetchMode.disabled, ui_type=PropertyType.options
     )
     pre_call_fetch_url: Optional[str] = spec_field(
         default=None, ui_type=PropertyType.url
@@ -364,15 +407,32 @@ class StartCallNodeData(
         default=None, ui_type=PropertyType.credential_ref
     )
 
-    @model_validator(mode="after")
-    def migrate_legacy_pre_call_fetch_toggle(self):
-        if self.pre_call_fetch_mode is None:
-            self.pre_call_fetch_mode = (
-                PreCallFetchMode.always
-                if self.pre_call_fetch_enabled
-                else PreCallFetchMode.disabled
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_pre_call_fetch_toggle(cls, data):
+        """Deprecated input shim for the pre-#638 ``pre_call_fetch_enabled``.
+
+        Stored definitions were migrated by alembic ``f3a1c47b9e02``, so this
+        only catches writes from clients still on the old field — old SDK pins
+        and hand-rolled API callers. Without it the key would be dropped
+        silently (node data models ignore extras) and the node would fall back
+        to ``disabled``, turning off a fetch the caller asked for.
+
+        Remove once those clients are gone; the field is no longer emitted by
+        the UI, the SDKs, or the node spec.
+        """
+        if not isinstance(data, dict) or "pre_call_fetch_enabled" not in data:
+            return data
+
+        data = dict(data)
+        legacy_enabled = data.pop("pre_call_fetch_enabled")
+        # An explicit mode always wins — a caller sending both means the new
+        # field, with the legacy key left over from whatever it round-tripped.
+        if data.get("pre_call_fetch_mode") is None:
+            data["pre_call_fetch_mode"] = (
+                PreCallFetchMode.always if legacy_enabled else PreCallFetchMode.disabled
             )
-        return self
+        return data
 
 
 @node_spec(
@@ -881,6 +941,7 @@ class WebhookNodeData(BaseNodeData):
                 PropertyOption(value="openai", label="OpenAI"),
                 PropertyOption(value="azure", label="Azure OpenAI"),
                 PropertyOption(value="openrouter", label="OpenRouter"),
+                PropertyOption(value="google", label="Google Gemini"),
                 PropertyOption(value="anthropic", label="Anthropic"),
             ],
             "display_options": DisplayOptions(show={"qa_use_workflow_llm": [False]}),

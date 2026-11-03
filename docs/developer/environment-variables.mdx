@@ -148,8 +148,10 @@ Presigned URLs point at `S3_ENDPOINT_URL`, so that host must be reachable from t
 | `LANGFUSE_HOST` | `null` | Langfuse server URL |
 | `LANGFUSE_PUBLIC_KEY` | `null` | Langfuse public key |
 | `LANGFUSE_SECRET_KEY` | `null` | Langfuse secret key |
+| `LANGFUSE_PROJECT_ID` | `null` | Langfuse project ID, required with environment credentials to generate trace URLs |
+| `LANGFUSE_TRACES_PUBLIC` | `false` | When `true`, traces exported to the project configured *here* are marked public — anyone holding a trace URL can read it without logging in. Organizations that connected their own Langfuse project in the UI are unaffected; their visibility follows the per-organization toggle in **Platform Settings**, which is off by default. |
 
-Tracing activates automatically as soon as credentials are available — either via these environment variables (applied to all organizations) or per-organization in the UI under **Platform Settings**. If neither is set, spans are dropped silently. See the [Tracing guide](/configurations/tracing) for setup instructions.
+Tracing activates automatically as soon as credentials are available — either via these environment variables (applied to all organizations) or per-organization in the UI under **Platform Settings**. Environment credentials require `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_PROJECT_ID`. If neither is set, spans are dropped silently. See the [Tracing guide](/configurations/tracing) for setup instructions.
 
 ---
 
@@ -161,7 +163,7 @@ The signature travels as a trailing path segment — `/api/v1/telephony/ws/{work
 
 | Variable | Default | Description |
 |---|---|---|
-| `TELEPHONY_WS_TOKEN_SECRET` | `null` | Secret used to sign the media WebSocket URL. Unset leaves URLs unchanged and the check disabled |
+| `TELEPHONY_WS_TOKEN_SECRET` | `null` | Secret used to sign the media WebSocket URL **and** the Telnyx call-events webhook URL. Unset leaves both URLs unchanged and both checks disabled |
 | `TELEPHONY_WS_TOKEN_ENFORCE` | `false` | Reject connections whose token is missing or invalid (WebSocket close `4401`) |
 
 Roll it out in two steps so no call is dropped:
@@ -170,6 +172,8 @@ Roll it out in two steps so no call is dropped:
 2. Once those warnings stop, set `TELEPHONY_WS_TOKEN_ENFORCE=true` to start rejecting them.
 
 Setting `TELEPHONY_WS_TOKEN_ENFORCE` without a secret does nothing at all — the check is skipped entirely rather than rejecting every connection.
+
+The same secret also signs the Telnyx call-events webhook URL (`/api/v1/telephony/telnyx/events/{workflow_run_id}?token=…`), which the events route verifies before any database lookup. Unlike the media socket, that token rides in a query string: Telnyx preserves query strings on webhook POSTs. It is a bearer credential with no expiry and appears in full in access logs — the same caveat below applies.
 
 <Note>
 The signed URL is a bearer credential, and it is not hidden: the token appears in full in the `api` and nginx access logs, and in carrier-side request logs (Twilio's debugger, Telnyx's request inspector). Anyone who can read those logs can open the media socket for a run that is still in `initialized`. Treat log access as socket access.

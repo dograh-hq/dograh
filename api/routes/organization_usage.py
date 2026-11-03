@@ -1,22 +1,78 @@
+import asyncio
 import json
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import UTC, date, datetime, time, timedelta
+from typing import Annotated, Any, Dict, List, Literal, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
+from redis.exceptions import RedisError
 
 from api.constants import DEPLOYMENT_MODE, UI_APP_URL
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_user, get_user_with_selected_organization
+from api.services.call_concurrency import call_concurrency
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.reports import generate_usage_runs_report_csv
 from api.utils.artifacts import artifact_url
 from api.utils.recording_artifacts import has_recording_track
 
 router = APIRouter(prefix="/organizations")
+
+
+class OrganizationConcurrentCallsResponse(BaseModel):
+    organization_id: int
+    active_calls: int = Field(
+        ge=0,
+        description=(
+            "Occupied concurrent call slots across all workers, including "
+            "dialing/ringing reservations. Excludes expired slots."
+        ),
+    )
+
+
+@router.get(
+    "/concurrent-calls",
+    response_model=OrganizationConcurrentCallsResponse,
+    responses={
+        401: {"description": "Missing or invalid credentials"},
+        503: {"description": "The current call count is unavailable"},
+    },
+)
+async def get_organization_concurrent_calls(
+    response: Response,
+    user: Annotated[UserModel, Depends(get_user_with_selected_organization)],
+) -> OrganizationConcurrentCallsResponse:
+    """Get your organization's current concurrent call count across all workers.
+
+    Authenticate with X-API-Key; the key determines the organization. Session
+    authentication also works for the user's selected organization. Counts
+    occupied call slots, including dialing/ringing calls before media starts,
+    using the concurrency limiter's stale-slot expiry. This is a snapshot,
+    not a reservation of capacity for a future call.
+    """
+    organization_id = user.selected_organization_id
+    try:
+        async with asyncio.timeout(5):
+            active_calls = await call_concurrency.get_org_active_calls(organization_id)
+    except (RedisError, OSError):
+        logger.exception(
+            "Organization call count unavailable for org {}", organization_id
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Concurrent call count unavailable",
+            headers={"Cache-Control": "no-store"},
+        ) from None
+
+    response.headers["Cache-Control"] = "no-store"
+    return OrganizationConcurrentCallsResponse(
+        organization_id=organization_id, active_calls=active_calls
+    )
 
 
 class CurrentUsageResponse(BaseModel):
@@ -173,6 +229,21 @@ async def get_billing_credits(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     user: UserModel = Depends(get_user),
+    entry_type: Annotated[
+        Literal["credit", "purchase", "debit", "grant", "additional_credit"] | None,
+        Query(
+            description="Entry type; credit includes purchases, grants, and additional credits"
+        ),
+    ] = None,
+    start_date: Annotated[
+        date | None, Query(description="Inclusive calendar date in timezone")
+    ] = None,
+    end_date: Annotated[
+        date | None, Query(description="Inclusive calendar date in timezone")
+    ] = None,
+    timezone: Annotated[
+        str, Query(description="IANA timezone for the selected calendar dates")
+    ] = "UTC",
 ):
     """Return per-key MPS credits (OSS) or the org's paginated billing ledger."""
     try:
@@ -182,12 +253,47 @@ async def get_billing_credits(
         if not user.selected_organization_id:
             raise HTTPException(status_code=400, detail="No organization selected")
 
+        if start_date is not None and end_date is not None and start_date > end_date:
+            raise HTTPException(
+                status_code=422, detail="start_date must not follow end_date"
+            )
+        try:
+            zone = ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            # Some browsers report deprecated IANA aliases (e.g. "Asia/Calcutta")
+            # or otherwise unresolvable names. Degrade to UTC instead of failing
+            # the whole billing page.
+            logger.warning(
+                f"Unresolvable billing timezone {timezone!r}; falling back to UTC"
+            )
+            zone = UTC
+        try:
+            start_at = (
+                datetime.combine(start_date, time.min, zone).astimezone(UTC)
+                if start_date is not None
+                else None
+            )
+            end_at = (
+                datetime.combine(
+                    end_date + timedelta(days=1), time.min, zone
+                ).astimezone(UTC)
+                if end_date is not None
+                else None
+            )
+        except (ValueError, OverflowError):
+            raise HTTPException(
+                status_code=422, detail="Invalid billing date range"
+            ) from None
+
         organization_id = user.selected_organization_id
         ledger = await mps_service_key_client.get_credit_ledger(
             organization_id=organization_id,
             page=page,
             limit=limit,
             created_by=str(user.provider_id),
+            entry_type=entry_type,
+            start_date=start_at,
+            end_date=end_at,
         )
         account = ledger.get("account") or {}
         ledger_entries = ledger.get("ledger_entries") or []
@@ -228,7 +334,7 @@ async def get_billing_credits(
             total_quota=balance + total_debits,
             account=MPSBillingAccountResponse(
                 id=int(account["id"]),
-                organization_id=int(account["organization_id"]),
+                organization_id=organization_id,
                 billing_mode=str(account["billing_mode"]),
                 cached_balance_credits=balance,
                 currency=str(account.get("currency") or "USD"),
@@ -321,6 +427,87 @@ async def create_mps_credit_purchase_url(
             detail="MPS checkout session response missing checkout_url",
         )
     return MPSCreditPurchaseUrlResponse(checkout_url=checkout_url)
+
+
+class BillingPaymentResponse(BaseModel):
+    payment_order_id: int
+    paid_at: str
+    amount_minor: int
+    currency: str
+    gateway_payment_id: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_status: Literal["issued", "pending", "unavailable"]
+
+
+class BillingPaymentsResponse(BaseModel):
+    payments: List[BillingPaymentResponse]
+
+
+@router.get("/billing/payments", response_model=BillingPaymentsResponse)
+async def get_billing_payments(user: UserModel = Depends(get_user)):
+    """Paid credit top-ups, newest first, each with its tax invoice if any."""
+    if DEPLOYMENT_MODE == "oss":
+        raise HTTPException(
+            status_code=404, detail="Payments are not available in OSS mode"
+        )
+    organization_id = user.selected_organization_id
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    try:
+        result = await mps_service_key_client.list_payments(
+            organization_id=organization_id, created_by=str(user.provider_id)
+        )
+        return BillingPaymentsResponse(**result)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Failed to list payments for org {organization_id}: {exc}")
+        raise HTTPException(status_code=502, detail="Could not load payments")
+
+
+@router.get(
+    "/billing/invoices/{payment_order_id}/pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+async def download_billing_invoice(
+    payment_order_id: int, user: UserModel = Depends(get_user)
+):
+    """Download a paid credit top-up's tax invoice as a PDF."""
+    if DEPLOYMENT_MODE == "oss":
+        raise HTTPException(
+            status_code=404, detail="Invoices are not available in OSS mode"
+        )
+    organization_id = user.selected_organization_id
+    if not organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    try:
+        mps_response = await mps_service_key_client.get_invoice_pdf(
+            organization_id=organization_id,
+            payment_order_id=payment_order_id,
+            created_by=str(user.provider_id),
+        )
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        logger.error(f"Failed to fetch invoice for order {payment_order_id}: {exc}")
+        raise HTTPException(status_code=502, detail="Could not download invoice")
+    except Exception as exc:
+        logger.error(f"Failed to fetch invoice for order {payment_order_id}: {exc}")
+        raise HTTPException(status_code=502, detail="Could not download invoice")
+    return Response(
+        content=mps_response.content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": mps_response.headers.get(
+                "content-disposition", 'attachment; filename="invoice.pdf"'
+            )
+        },
+    )
 
 
 FILTERS_DESCRIPTION = """\

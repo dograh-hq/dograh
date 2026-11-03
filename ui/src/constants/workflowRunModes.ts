@@ -7,12 +7,14 @@ export const WORKFLOW_RUN_MODES = {
     VONAGE: 'vonage',
     VOBIZ: 'vobiz',
     CLOUDONIX: 'cloudonix',
+    EXOTEL: 'exotel',
     WEBRTC: 'webrtc',
     SMALL_WEBRTC: 'smallwebrtc',
     TEXTCHAT: 'textchat',
     ARI: 'ari',
     TELNYX: 'telnyx',
-    PLIVO: 'plivo'
+    PLIVO: 'plivo',
+    WHATSAPP: 'whatsapp'
 } as const;
 
 export type WorkflowRunMode = typeof WORKFLOW_RUN_MODES[keyof typeof WORKFLOW_RUN_MODES];

@@ -4,7 +4,8 @@ The transcript text, speech timing, and logical turn lifecycle are produced by
 different parts of the pipeline and can arrive in either order. This module is
 the single place where those facts are joined. It emits a transcript event only
 after the owning logical turn has ended (or during a final flush), and never
-mutates an event after it has been appended to the logs buffer.
+mutates an event after it has been appended to the logs buffer. A turn can hold
+several bot utterances; each is logged with its own speech interval.
 """
 
 import asyncio
@@ -45,7 +46,11 @@ class _TurnTranscriptState:
     ended: bool = False
     interrupted: bool = False
     user: _TranscriptSide = field(default_factory=_TranscriptSide)
-    assistant: _TranscriptSide = field(default_factory=_TranscriptSide)
+    # One slot per bot utterance. A logical turn can carry several, each with
+    # its own timing: a handoff line, then the next agent's opening logged by
+    # its own playback path, with no silence between them long enough for the
+    # turn tracker to end the turn.
+    assistant: list[_TranscriptSide] = field(default_factory=list)
 
 
 class TranscriptLogCoordinator:
@@ -143,11 +148,30 @@ class TranscriptLogCoordinator:
             )
             side.speaking = False
 
+    @staticmethod
+    def _open_assistant_slot(state: _TurnTranscriptState) -> _TranscriptSide:
+        side = _TranscriptSide()
+        state.assistant.append(side)
+        return side
+
     async def record_bot_started_speaking(
         self, turn_id: int, timestamp: str | None = None
     ) -> None:
         async with self._lock:
-            side = self._state(turn_id).assistant
+            state = self._state(turn_id)
+            side = state.assistant[-1] if state.assistant else None
+            # Speech after a slot that has both its transcript and its own
+            # timing is a new utterance. It must not stretch the earlier one.
+            # A slot still waiting for its transcript keeps absorbing speech:
+            # from here, a pause inside one utterance looks the same as the
+            # next one starting, and context-bound speech has its transcript
+            # recorded by the time its audio stops, before the next line can.
+            if (
+                side is None
+                or side.emitted
+                or (side.text is not None and side.speech_start_timestamp is not None)
+            ):
+                side = self._open_assistant_slot(state)
             if side.speech_start_timestamp is None:
                 side.speech_start_timestamp = timestamp or _now_iso()
             side.speaking = True
@@ -157,7 +181,11 @@ class TranscriptLogCoordinator:
     ) -> None:
         async with self._lock:
             state = self._state(turn_id)
-            side = state.assistant
+            side = (
+                state.assistant[-1]
+                if state.assistant
+                else self._open_assistant_slot(state)
+            )
             side.speech_end_timestamp = timestamp or _now_iso()
             side.speaking = False
             await self._emit_ready_sides(state)
@@ -192,10 +220,17 @@ class TranscriptLogCoordinator:
         event_timestamp: str | None = None,
     ) -> None:
         async with self._lock:
-            state = self._select_assistant_turn()
-            side = state.assistant
-            first_text = side.text is None
-            side.text = text if first_text else f"{side.text}\n{text}"
+            selected = self._select_assistant_slot(text)
+            if selected is None:
+                # An empty transcript only closes a slot that waits for one.
+                return
+            state, side = selected
+            first_text = not side.text
+            # Empty is a resolved transcript, distinct from None (still waiting).
+            # It closes an interrupted speech's slot without emitting a log entry.
+            side.text = (
+                f"{side.text}\n{text}" if side.text and text else (side.text or text)
+            )
             if first_text:
                 side.transcript_timestamp = timestamp
                 self._capture_node(side)
@@ -220,26 +255,48 @@ class TranscriptLogCoordinator:
             return max(self._states.values(), key=lambda state: state.turn_id)
         return self._state(1)
 
-    def _select_assistant_turn(self) -> _TurnTranscriptState:
-        candidates = [
-            state
+    def _select_assistant_slot(
+        self, text: str
+    ) -> tuple[_TurnTranscriptState, _TranscriptSide] | None:
+        waiting = [
+            (state, side)
             for state in self._states.values()
-            if state.assistant.speech_start_timestamp and state.assistant.text is None
+            for side in state.assistant
+            if side.speech_start_timestamp and side.text is None
         ]
         interrupted = [
-            state for state in candidates if state.ended and state.interrupted
+            (state, side)
+            for state, side in waiting
+            if state.ended and state.interrupted
         ]
         if interrupted:
-            return min(interrupted, key=lambda state: state.turn_id)
+            return min(interrupted, key=lambda item: item[0].turn_id)
         if self._active_turn_id is not None:
             active = self._state(self._active_turn_id)
-            if active.assistant.text is None:
-                return active
-        if candidates:
-            return min(candidates, key=lambda state: state.turn_id)
-        if self._states:
-            return max(self._states.values(), key=lambda state: state.turn_id)
-        return self._state(1)
+            if not active.assistant:
+                return (active, self._open_assistant_slot(active)) if text else None
+            if active.assistant[-1].text is None:
+                return active, active.assistant[-1]
+        if waiting:
+            return min(waiting, key=lambda item: item[0].turn_id)
+        if not text:
+            return None
+        state = (
+            max(self._states.values(), key=lambda item: item.turn_id)
+            if self._states
+            else self._state(1)
+        )
+        side = state.assistant[-1] if state.assistant else None
+        # Text that arrives while the bot is still speaking, or before any
+        # speech, joins the current slot. After a completed utterance it starts
+        # a new one, and the next bot speech brings that one's timing.
+        if (
+            side is None
+            or side.emitted
+            or (side.speech_start_timestamp is not None and not side.speaking)
+        ):
+            side = self._open_assistant_slot(state)
+        return state, side
 
     def _capture_node(self, side: _TranscriptSide) -> None:
         side.node_id = self._logs_buffer.current_node_id
@@ -249,8 +306,9 @@ class TranscriptLogCoordinator:
         if not state.ended:
             return
         await self._emit_user(state)
-        if not state.assistant.speaking:
-            await self._emit_assistant(state)
+        for side in state.assistant:
+            if not side.speaking:
+                await self._emit_assistant(state, side)
 
     async def _emit_user(self, state: _TurnTranscriptState) -> None:
         side = state.user
@@ -264,8 +322,9 @@ class TranscriptLogCoordinator:
         )
         await self._append(state, side, event)
 
-    async def _emit_assistant(self, state: _TurnTranscriptState) -> None:
-        side = state.assistant
+    async def _emit_assistant(
+        self, state: _TurnTranscriptState, side: _TranscriptSide
+    ) -> None:
         if side.emitted or not side.text:
             return
         event = build_bot_text_event(
@@ -294,5 +353,6 @@ class TranscriptLogCoordinator:
             for state in sorted(self._states.values(), key=lambda item: item.turn_id):
                 state.ended = True
                 state.user.speaking = False
-                state.assistant.speaking = False
+                for side in state.assistant:
+                    side.speaking = False
                 await self._emit_ready_sides(state)

@@ -1,0 +1,14 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: dograh
+    metrics_path: /api/v1/metrics
+    http_headers:
+      X-Dograh-Devops-Secret:
+        files:
+          - /run/secrets/dograh_devops_secret
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets.json
+        refresh_interval: 10s

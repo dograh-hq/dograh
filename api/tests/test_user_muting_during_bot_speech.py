@@ -198,7 +198,7 @@ async def create_engine_for_mute_test(
     )
 
     task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
-    engine.set_task(task)
+    engine.call_worker = task
 
     return engine, tts, mock_transport, task, user_context_aggregator, observer
 
@@ -256,10 +256,12 @@ class TestUserMutingDuringBotSpeech:
             ):
 
                 async def run_test():
-                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
 
                     # Trigger first LLM completion
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for first bot started
                     await asyncio.wait_for(
@@ -337,10 +339,12 @@ class TestUserMutingDuringBotSpeech:
             ):
 
                 async def run_test():
-                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
 
                     # Trigger first LLM completion
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for first bot stopped (first response complete)
                     await asyncio.wait_for(
@@ -423,10 +427,12 @@ class TestUserMutingDuringBotSpeech:
             ):
 
                 async def run_test():
-                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.set_node(engine.active_agent.workflow.start_node_id)
 
                     # Trigger first LLM completion
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    await engine.active_agent.llm.queue_frame(
+                        LLMContextFrame(engine.context)
+                    )
 
                     # Wait for first bot stopped (first response complete)
                     await asyncio.wait_for(

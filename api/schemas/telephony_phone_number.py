@@ -118,3 +118,25 @@ class PhoneNumberResponse(BaseModel):
 
 class PhoneNumberListResponse(BaseModel):
     phone_numbers: list[PhoneNumberResponse]
+
+
+class PhoneNumberSyncSkipped(BaseModel):
+    """A provider number the sync could not import, and why."""
+
+    address: str
+    reason: str
+
+
+class PhoneNumberSyncResponse(BaseModel):
+    """Outcome of importing the provider account's numbers into a configuration.
+
+    Rows are only ever added or refreshed. A number the provider no longer
+    reports is listed under ``missing_at_provider`` for the operator to act
+    on; the sync never deactivates or deletes it, because a transient listing
+    gap must not silence a live number.
+    """
+
+    created: list[PhoneNumberResponse]
+    updated: list[PhoneNumberResponse]
+    skipped: list[PhoneNumberSyncSkipped]
+    missing_at_provider: list[PhoneNumberResponse]

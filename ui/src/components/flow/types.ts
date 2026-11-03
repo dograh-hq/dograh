@@ -26,10 +26,11 @@ export type FlowNodeData = {
     greeting?: string;
     greeting_type?: 'text' | 'audio';
     greeting_recording_id?: string;
+    allow_greeting_interrupt?: boolean;
+    greeting_interrupt_min_words?: number;
     delayed_start?: boolean;
     delayed_start_duration?: number;
     // Pre-call data fetch (StartCall only)
-    pre_call_fetch_enabled?: boolean; // Legacy published definitions only
     pre_call_fetch_mode?: 'disabled' | 'always' | 'inbound' | 'outbound';
     pre_call_fetch_url?: string;
     pre_call_fetch_credential_uuid?: string;

@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ContextDestinationRuleRow } from "../../config";
+import { type ContextDestinationRuleRow, DEFAULT_TRANSFER_INTRODUCTION_PROMPT } from "../../config";
 import { TransferCallToolConfig } from "./TransferCallToolConfig";
 
 const noop = vi.fn();
@@ -12,6 +12,8 @@ function inputValue(label: string): string {
 }
 
 function ContextMappingHarness({ rules: initialRules }: { rules?: ContextDestinationRuleRow[] }) {
+    const [introductionEnabled, setIntroductionEnabled] = useState(false);
+    const [introductionPrompt, setIntroductionPrompt] = useState(DEFAULT_TRANSFER_INTRODUCTION_PROMPT);
     const [rules, setRules] = useState<ContextDestinationRuleRow[]>(
         initialRules ?? [
             {
@@ -46,6 +48,12 @@ function ContextMappingHarness({ rules: initialRules }: { rules?: ContextDestina
             onAudioRecordingIdChange={noop}
             timeout={30}
             onTimeoutChange={noop}
+            callDisposition=""
+            onCallDispositionChange={noop}
+            introductionEnabled={introductionEnabled}
+            onIntroductionEnabledChange={setIntroductionEnabled}
+            introductionPrompt={introductionPrompt}
+            onIntroductionPromptChange={setIntroductionPrompt}
             resolverUrl=""
             onResolverUrlChange={noop}
             resolverCredentialUuid=""
@@ -69,6 +77,33 @@ function ContextMappingHarness({ rules: initialRules }: { rules?: ContextDestina
 }
 
 describe("TransferCallToolConfig context mappings", () => {
+    it("keeps introductions opt-in and preserves edited language instructions", () => {
+        render(<ContextMappingHarness />);
+        const toggle = screen.getByRole("switch", { name: "Play a transfer introduction to both parties" });
+        expect(toggle.getAttribute("aria-checked")).toBe("false");
+        expect(screen.queryByLabelText("Introduction instructions")).toBeNull();
+        fireEvent.click(toggle);
+        const prompt = screen.getByLabelText("Introduction instructions") as HTMLTextAreaElement;
+        expect(prompt.value).toBe(DEFAULT_TRANSFER_INTRODUCTION_PROMPT);
+        fireEvent.change(prompt, { target: { value: "Always use Brazilian Portuguese." } });
+        fireEvent.click(toggle);
+        fireEvent.click(toggle);
+        expect((screen.getByLabelText("Introduction instructions") as HTMLTextAreaElement).value)
+            .toBe("Always use Brazilian Portuguese.");
+    });
+
+    it("shows a bounded optional successful-transfer disposition", () => {
+        render(<ContextMappingHarness />);
+
+        const input = screen.getByLabelText(
+            "Call Disposition After Successful Transfer"
+        ) as HTMLInputElement;
+
+        expect(input.value).toBe("");
+        expect(input.maxLength).toBe(64);
+        expect(screen.getByText(/recorded only when the transfer succeeds/i)).toBeTruthy();
+    });
+
     it("makes context mapping generally available", () => {
         render(<ContextMappingHarness />);
 

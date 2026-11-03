@@ -23,6 +23,9 @@ class WidgetTexts(BaseModel):
 
     # Chat panel
     end_chat_text: str = "End chat"
+    end_chat_confirm_text: str = "End this chat?"
+    end_chat_cancel_text: str = "Cancel"
+    ending_chat_text: str = "Ending…"
     conversation_ended_text: str = "Conversation ended."
     start_new_chat_text: str = "Start new chat"
     chat_retry_text: str = "Retry"

@@ -25,6 +25,48 @@ def _build_recording_url(
     return workflow_run.recording_url
 
 
+def _apply_call_metadata(
+    payload: dict[str, Any],
+    tuner_data: TunerNodeData,
+    workflow_run: Any,
+) -> None:
+    """Add the user-listed call variables to ``general_meta_data_raw``.
+
+    Looks each key up in ``initial_context`` first, then in
+    ``gathered_context["extracted_variables"]``. Values pass through as-is and
+    keys already set by the SDK are never overwritten.
+    """
+    if not tuner_data.metadata_enabled or not tuner_data.metadata_keys:
+        return
+
+    initial_context = getattr(workflow_run, "initial_context", None) or {}
+    gathered_context = getattr(workflow_run, "gathered_context", None) or {}
+    extracted_variables = gathered_context.get("extracted_variables") or {}
+
+    metadata = payload.setdefault("general_meta_data_raw", {})
+    not_found: list[str] = []
+    for key in tuner_data.metadata_keys:
+        if key in initial_context:
+            value = initial_context[key]
+        elif key in extracted_variables:
+            value = extracted_variables[key]
+        else:
+            not_found.append(key)
+            continue
+
+        if key in metadata:
+            logger.warning(
+                f"Tuner metadata key '{key}' already exists in the payload, not overwriting"
+            )
+            continue
+        metadata[key] = value
+
+    if not_found:
+        logger.info(
+            f"Tuner metadata keys not found in call context: {', '.join(not_found)}"
+        )
+
+
 async def run_completion(
     nodes: list[dict[str, Any]],
     context: IntegrationCompletionContext,
@@ -63,6 +105,8 @@ async def run_completion(
         )
         if call_cost is not None:
             payload["call_cost"] = call_cost
+
+        _apply_call_metadata(payload, tuner_data, context.workflow_run)
 
         try:
             config = TunerDeliveryConfig(

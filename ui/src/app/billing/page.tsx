@@ -6,6 +6,7 @@ import {
     CircleDollarSign,
     CreditCard,
     ExternalLink,
+    FileText,
     Info,
     RefreshCw,
 } from "lucide-react";
@@ -16,6 +17,7 @@ import { toast } from "sonner";
 
 import { createMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPost, getBillingCreditsApiV1OrganizationsBillingCreditsGet } from "@/client/sdk.gen";
 import type { MpsBillingCreditsResponse, MpsCreditLedgerEntryResponse } from "@/client/types.gen";
+import { PageLayout } from "@/components/layout/PageLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,9 +32,15 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { useOrgConfig } from "@/context/OrgConfigContext";
 import { useOrganizationTimezone } from "@/hooks/useOrganizationTimezone";
+import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
+import { getBillingActivity, getBillingDateRange, getBillingPeriod } from "@/lib/billingFilters";
 import { formatDateTime } from "@/lib/dateTime";
+import { trackMetaInitiateCheckout } from "@/lib/metaPixel";
+
+import { BillingLedgerFilters } from "./BillingLedgerFilters";
 
 const LEDGER_PAGE_SIZE = 50;
 
@@ -42,17 +50,6 @@ const formatCredits = (value: number | null | undefined) => (
         minimumFractionDigits: 0,
     })
 );
-
-const formatAmount = (amountMinor?: number | null, currency?: string | null) => {
-    if (amountMinor == null) {
-        return "-";
-    }
-
-    return new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency: currency || "USD",
-    }).format(amountMinor / 100);
-};
 
 const metricLabels: Record<string, string> = {
     voice_minutes: "Voice usage",
@@ -109,13 +106,20 @@ export default function BillingPage() {
     const searchParams = useSearchParams();
     const auth = useAuth();
     const { config, loading: configLoading } = useAppConfig();
+    const { orgContext, loading: orgLoading } = useOrgConfig();
     const organizationTimezone = useOrganizationTimezone();
     const [credits, setCredits] = useState<MpsBillingCreditsResponse | null>(null);
     const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [fetchError, setFetchError] = useState<string | null>(null);
     const [purchasing, setPurchasing] = useState(false);
-    const [currentPage, setCurrentPage] = useState(
-        () => getPageFromSearchParams(searchParams),
+    const currentPage = getPageFromSearchParams(searchParams);
+    const activity = getBillingActivity(searchParams.get("activity"));
+    const period = getBillingPeriod(searchParams.get("period"));
+    const customStartDate = searchParams.get("start_date");
+    const customEndDate = searchParams.get("end_date");
+    const { start_date: startDate, end_date: endDate } = getBillingDateRange(
+        period, organizationTimezone, customStartDate, customEndDate,
     );
 
     const hasAppConfig = !configLoading && config !== null;
@@ -131,11 +135,8 @@ export default function BillingPage() {
     const ledgerTotalCount = credits?.total_count ?? ledgerEntries.length;
     const ledgerTotalPages = credits?.total_pages ?? 0;
 
-    const fetchCredits = useCallback(async (
-        page: number,
-        { silent = false }: { silent?: boolean } = {},
-    ) => {
-        if (auth.loading) {
+    useEffect(() => {
+        if (auth.loading || configLoading || orgLoading) {
             return;
         }
 
@@ -144,62 +145,64 @@ export default function BillingPage() {
             return;
         }
 
-        if (silent) {
-            setRefreshing(true);
-        } else {
+        const controller = new AbortController();
+        const fetchCredits = async () => {
             setLoading(true);
-        }
+            setFetchError(null);
+            try {
+                const response = await getBillingCreditsApiV1OrganizationsBillingCreditsGet({
+                    query: {
+                        page: currentPage, limit: LEDGER_PAGE_SIZE,
+                        ...(!isOssMode && {
+                            entry_type: activity === "all" ? undefined : activity,
+                            start_date: startDate,
+                            end_date: endDate,
+                            timezone: organizationTimezone,
+                        }),
+                    },
+                    signal: controller.signal,
+                });
 
-        try {
-            const response = await getBillingCreditsApiV1OrganizationsBillingCreditsGet({
-                query: { page, limit: LEDGER_PAGE_SIZE },
-            });
+                if (response.error) {
+                    throw new Error(detailFromError(response.error, "Failed to fetch billing credits"));
+                }
 
-            if (response.error) {
-                throw new Error("Failed to fetch billing credits");
+                if (!controller.signal.aborted) setCredits(response.data ?? null);
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.error("Failed to fetch billing credits:", error);
+                const message = error instanceof Error ? error.message : "Failed to fetch billing credits";
+                setFetchError(message);
+                toast.error(message);
+            } finally {
+                if (!controller.signal.aborted) setLoading(false);
             }
-
-            setCredits(response.data ?? null);
-        } catch (error) {
-            console.error("Failed to fetch billing credits:", error);
-            toast.error("Failed to fetch billing credits");
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
-    }, [auth.isAuthenticated, auth.loading]);
-
-    useEffect(() => {
-        const nextPage = getPageFromSearchParams(searchParams);
-        setCurrentPage((previousPage) => (
-            previousPage === nextPage ? previousPage : nextPage
-        ));
-    }, [searchParams]);
-
-    useEffect(() => {
-        fetchCredits(currentPage);
-    }, [currentPage, fetchCredits]);
+        };
+        void fetchCredits();
+        return () => controller.abort();
+    }, [auth.isAuthenticated, auth.loading, configLoading, orgLoading,
+        orgContext?.organization_id, isOssMode, currentPage, activity,
+        startDate, endDate, organizationTimezone, refreshKey]);
 
     const handleRefresh = () => {
-        fetchCredits(currentPage, { silent: true });
+        setRefreshKey(value => value + 1);
     };
 
-    const updateUrlPage = useCallback((page: number) => {
+    const updateUrlParams = useCallback((updates: Record<string, string | null>, resetPage = true) => {
         const newParams = new URLSearchParams(searchParams.toString());
-        if (page > 1) {
-            newParams.set("page", page.toString());
-        } else {
-            newParams.delete("page");
+        if (resetPage) newParams.delete("page");
+        for (const [key, value] of Object.entries(updates)) {
+            if (value === null) newParams.delete(key);
+            else newParams.set(key, value);
         }
 
         const queryString = newParams.toString();
-        router.push(queryString ? `/billing?${queryString}` : "/billing");
+        router.push(queryString ? `/billing?${queryString}` : "/billing", { scroll: false });
     }, [router, searchParams]);
 
     const handlePageChange = (page: number) => {
         const nextPage = Math.max(1, page);
-        setCurrentPage(nextPage);
-        updateUrlPage(nextPage);
+        updateUrlParams({ page: nextPage > 1 ? String(nextPage) : null }, false);
     };
 
     const handlePurchaseCredits = async () => {
@@ -207,6 +210,9 @@ export default function BillingPage() {
             return;
         }
 
+        // Fire on checkout intent (the click). The purchase-URL round-trip below
+        // gives the pixel beacon time to flush before the full-page redirect.
+        trackMetaInitiateCheckout();
         setPurchasing(true);
         try {
             const response = await createMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPost();
@@ -222,45 +228,38 @@ export default function BillingPage() {
         }
     };
 
-    if (loading || configLoading) {
+    if ((loading && !credits && !fetchError) || configLoading || orgLoading) {
         return (
-            <div className="container mx-auto p-6 space-y-6">
-                <div className="space-y-2">
-                    <Skeleton className="h-9 w-40" />
-                    <Skeleton className="h-5 w-96 max-w-full" />
-                </div>
+            <PageLayout title="Billing" description="Credits, balance, and account usage for your organization.">
                 <div className="grid gap-4 md:grid-cols-2">
                     <Skeleton className="h-36 rounded-lg" />
                     <Skeleton className="h-36 rounded-lg" />
                 </div>
                 <Skeleton className="h-80 rounded-lg" />
-            </div>
+            </PageLayout>
         );
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold mb-2">Billing</h1>
-                    <p className="text-muted-foreground">
-                        Credits, balance, and account usage for your organization.
-                    </p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={handleRefresh} disabled={refreshing}>
-                        <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
-                        Refresh
+        <PageLayout title="Billing" description="Credits, balance, and account usage for your organization."
+            actions={<><Button variant="outline" onClick={handleRefresh} disabled={loading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+                Refresh
+            </Button>
+                {canPurchaseCredits && (
+                    <Button variant="outline" asChild>
+                        <Link href="/billing/invoices">
+                            <FileText className="h-4 w-4 mr-2" />
+                            Invoices
+                        </Link>
                     </Button>
-                    {canPurchaseCredits && (
-                        <Button onClick={handlePurchaseCredits} disabled={purchasing}>
-                            <CreditCard className="h-4 w-4 mr-2" />
-                            {purchasing ? "Opening..." : "Add Credits"}
-                        </Button>
-                    )}
-                </div>
-            </div>
-
+                )}
+                {canPurchaseCredits && (
+                    <Button onClick={handlePurchaseCredits} disabled={purchasing}>
+                        <CreditCard className="h-4 w-4 mr-2" />
+                        {purchasing ? "Opening..." : "Add Credits"}
+                    </Button>
+                )}</>}>
             {isOssMode && (
                 <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
                     <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
@@ -307,7 +306,7 @@ export default function BillingPage() {
 
                 <Card>
                     <CardHeader className="pb-2">
-                        <CardDescription>Credits used</CardDescription>
+                        <CardDescription>{isOssMode ? "Credits used" : "All-time credits used"}</CardDescription>
                         <CardTitle className="text-3xl">{formatCredits(usedCredits)}</CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -322,10 +321,20 @@ export default function BillingPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle>Credit Ledger</CardTitle>
-                        <CardDescription>Recent grants, purchases, and usage debits.</CardDescription>
+                        <CardDescription>Filter credits and usage by date, or view all activity.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {ledgerEntries.length > 0 ? (
+                        <BillingLedgerFilters
+                            key={`${period}:${customStartDate}:${customEndDate}`}
+                            activity={activity} period={period}
+                            startDate={customStartDate} endDate={customEndDate}
+                            timezone={organizationTimezone} onChange={updateUrlParams}
+                        />
+                        {loading ? (
+                            <Skeleton className="h-64 w-full" />
+                        ) : fetchError ? (
+                            <p role="alert" className="py-8 text-center text-destructive">{fetchError}</p>
+                        ) : ledgerEntries.length > 0 ? (
                             <div className="bg-card border rounded-lg overflow-x-auto shadow-sm">
                                 <Table>
                                     <TableHeader>
@@ -334,9 +343,8 @@ export default function BillingPage() {
                                             <TableHead>Activity</TableHead>
                                             <TableHead>Origin</TableHead>
                                             <TableHead>Run</TableHead>
-                                            <TableHead className="text-right">Delta</TableHead>
+                                            <TableHead className="text-right">Credits added / used</TableHead>
                                             <TableHead className="text-right">Balance</TableHead>
-                                            <TableHead className="text-right">Amount</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -382,9 +390,6 @@ export default function BillingPage() {
                                                         {formatCredits(delta)}
                                                     </TableCell>
                                                     <TableCell className="text-right">{formatCredits(entry.balance_after)}</TableCell>
-                                                    <TableCell className="text-right">
-                                                        {formatAmount(entry.amount_minor, entry.amount_currency)}
-                                                    </TableCell>
                                                 </TableRow>
                                             );
                                         })}
@@ -393,20 +398,20 @@ export default function BillingPage() {
                             </div>
                         ) : (
                             <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-                                No ledger entries yet
+                                No entries match these filters.
                             </div>
                         )}
-                        {ledgerTotalPages > 1 && (
+                        {!loading && !fetchError && ledgerTotalPages > 1 && (
                             <div className="flex items-center justify-between mt-6">
                                 <p className="text-sm text-muted-foreground">
-                                    Page {ledgerPage} of {ledgerTotalPages} ({ledgerTotalCount} total entries)
+                                    Page {ledgerPage} of {ledgerTotalPages} ({ledgerTotalCount} matching entries)
                                 </p>
                                 <div className="flex gap-2">
                                     <Button
                                         variant="outline"
                                         size="sm"
                                         onClick={() => handlePageChange(ledgerPage - 1)}
-                                        disabled={ledgerPage <= 1 || loading || refreshing}
+                                        disabled={ledgerPage <= 1 || loading}
                                     >
                                         <ChevronLeft className="h-4 w-4" />
                                         Previous
@@ -415,7 +420,7 @@ export default function BillingPage() {
                                         variant="outline"
                                         size="sm"
                                         onClick={() => handlePageChange(ledgerPage + 1)}
-                                        disabled={ledgerPage >= ledgerTotalPages || loading || refreshing}
+                                        disabled={ledgerPage >= ledgerTotalPages || loading}
                                     >
                                         Next
                                         <ChevronRight className="h-4 w-4" />
@@ -439,6 +444,6 @@ export default function BillingPage() {
                     </CardContent>
                 </Card>
             )}
-        </div>
+        </PageLayout>
     );
 }

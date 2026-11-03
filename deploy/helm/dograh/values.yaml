@@ -161,6 +161,11 @@ secrets:
   langfusePublicKey: ""
   langfuseHost: ""
   langfuseProjectId: ""
+  # Traces are private by default. "true" makes traces in the project above
+  # readable by anyone holding the trace URL, with no Langfuse login.
+  # Organizations that connected their own Langfuse project in the UI carry
+  # their own visibility setting instead.
+  langfuseTracesPublic: ""
 
   # Signs the telephony media WebSocket URL the carrier dials back, so the ids
   # in that URL are no longer enough on their own to open the socket. Empty
@@ -192,12 +197,12 @@ web:
   # time to finish.
   # Ceiling on how long the kubelet waits for drain before SIGKILL. For truly
   # call-safe scale-down it must be >= the longest call. Calls are bounded by
-  # the 20-min stale timeout (rate_limiter.stale_call_timeout=1200s), so 1260s
-  # (21m) covers a max-length call plus SIGTERM handling. The drain exits the
-  # instant active_calls hits 0, so idle/short-call pods still terminate fast —
+  # the 20-min stale timeout (rate_limiter.stale_call_timeout=1200s), so 1275s
+  # covers a max-length call, initial delay, and 60s of shutdown headroom.
+  # The drain exits the instant active_calls hits 0, so idle/short-call pods still terminate fast —
   # this only stretches termination when a long call is genuinely still live.
   # Lower it if you know your calls are shorter.
-  terminationGracePeriodSeconds: 1260
+  terminationGracePeriodSeconds: 1275
   # preStop initial delay (DRAIN_INITIAL_DELAY): long enough for the gateway /
   # load balancer to observe the pod leave the Service endpoints and stop
   # sending new connections. 15s is conservative for most controllers.
@@ -205,8 +210,9 @@ web:
   # Max seconds scripts/drain_web.sh waits for in-flight calls to finish before
   # releasing SIGTERM. MUST stay below terminationGracePeriodSeconds (leave
   # headroom for the 15s initial delay + SIGTERM handling) or the kubelet
-  # SIGKILLs mid-drain. 1200s matches the 20-min max call; with 1260s grace and
-  # the 15s initial delay this leaves ~45s of headroom.
+  # SIGKILLs mid-drain. 1200s matches the 20-min max call; with 1275s grace and
+  # the 15s initial delay this leaves 60s for text-chat finalization and
+  # resource shutdown.
   drainMaxWaitSeconds: 1200
 
   resources:
@@ -280,6 +286,33 @@ workers:
     periodSeconds: 30
     timeoutSeconds: 5
     failureThreshold: 3
+
+  # Gates rolling updates. Without it a container is Ready as soon as it is
+  # Running, so a crashlooping pod still counts as Available and the Deployment
+  # scales down healthy pods despite maxUnavailable: 0.
+  #
+  # Both checks are per-pod. `arq --check` is not used: its health key is
+  # per-queue, so a healthy sibling would mask a broken pod. Importing
+  # api.tasks.arq is not used either - it pulls in pipecat and re-initialises
+  # S3 storage, ~13s per probe.
+  readinessProbe:
+    exec:
+      command:
+        - sh
+        - -c
+        - |
+          grep -qa api.tasks.arq.WorkerSettings /proc/1/cmdline || exit 1
+          python -c "import os, socket
+          from urllib.parse import urlparse
+          u = urlparse(os.environ['REDIS_URL'])
+          socket.create_connection((u.hostname, u.port or 6379), timeout=3).close()"
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Must hold Ready this long before counting as Available.
+  minReadySeconds: 15
 
   podAnnotations: {}
   nodeSelector: {}
@@ -614,12 +647,13 @@ redisinternal:
     limits: { cpu: 500m, memory: 256Mi }
 
 minio:
-  # Official upstream MinIO. Root creds are shared with the app (single source of
-  # truth) so they can't drift; the app creates its bucket on first use.
+  # MinIO built from the community fork by github.com/dograh-hq/minio (upstream
+  # MinIO no longer publishes images). Root creds are shared with the app (single
+  # source of truth) so they can't drift; the app creates its bucket on first use.
   image:
     registry: docker.io
-    repository: minio/minio
-    tag: RELEASE.2025-04-22T22-12-26Z
+    repository: dograhai/minio
+    tag: "2026.09.22"
     pullPolicy: IfNotPresent
   auth:
     rootUser: minioadmin

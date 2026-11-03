@@ -16,12 +16,9 @@ class ConcurrentSlotAcquisitionError(Exception):
         )
 
 
-class PhoneNumberPoolExhaustedError(Exception):
-    """Raised when no phone numbers are available in the pool for outbound calls."""
+class CampaignRateLimitTimeout(Exception):
+    """Temporary dial-rate contention; return the undispatched contact to the queue."""
 
-    def __init__(self, organization_id: int):
-        self.organization_id = organization_id
-        super().__init__(
-            f"All phone numbers are in use for org {organization_id}. "
-            f"No available from_number in pool."
-        )
+
+class CampaignDispatchPaused(Exception):
+    """Campaign stopped before dialing; keep the contact queued for resume."""

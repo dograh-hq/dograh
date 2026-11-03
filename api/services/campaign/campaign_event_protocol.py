@@ -15,6 +15,7 @@ class CampaignEventType(str, Enum):
     # Batch processing events
     BATCH_COMPLETED = "batch_completed"
     BATCH_FAILED = "batch_failed"
+    CALL_COMPLETED = "call_completed"
 
     # Sync events
     SYNC_STARTED = "sync_started"
@@ -83,6 +84,14 @@ class BatchCompletedEvent(BaseCampaignEvent):
         super().__post_init__()
         if self.metadata is None:
             self.metadata = {}
+
+
+@dataclass
+class CallCompletedEvent(BaseCampaignEvent):
+    """A call is terminal and its retry decision has been persisted."""
+
+    type: str = CampaignEventType.CALL_COMPLETED
+    workflow_run_id: int = 0
 
 
 @dataclass
@@ -243,6 +252,7 @@ def parse_campaign_event(data: str) -> Any:
         event_class_map = {
             CampaignEventType.BATCH_COMPLETED: BatchCompletedEvent,
             CampaignEventType.BATCH_FAILED: BatchFailedEvent,
+            CampaignEventType.CALL_COMPLETED: CallCompletedEvent,
             CampaignEventType.SYNC_STARTED: SyncStartedEvent,
             CampaignEventType.SYNC_COMPLETED: SyncCompletedEvent,
             CampaignEventType.SYNC_FAILED: SyncFailedEvent,

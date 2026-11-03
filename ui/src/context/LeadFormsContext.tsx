@@ -11,6 +11,7 @@ import { OnboardingModal } from "@/components/lead-forms/OnboardingModal";
 import { PostHogEvent } from "@/constants/posthog-events";
 import { useOnboarding } from "@/context/OnboardingContext";
 import { useAuth } from "@/lib/auth";
+import { trackMetaCompleteRegistration } from "@/lib/metaPixel";
 
 interface LeadFormsContextValue {
   openHireExpert: (source: LeadSource) => void;
@@ -71,6 +72,9 @@ export function LeadFormsProvider({ children }: { children: ReactNode }) {
         if (res.data?.total === 0 && !onboardingDoneRef.current) {
           setOnboardingOpen(true);
           posthog.capture(PostHogEvent.ONBOARDING_SHOWN);
+          // Brand-new user detected (0 workflows, onboarding not yet done) — the
+          // app's canonical "just registered" signal. Meta standard event.
+          trackMetaCompleteRegistration();
         }
       } catch {
         // If the count can't be fetched, do NOT show the modal — fail closed so

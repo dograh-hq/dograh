@@ -27,11 +27,13 @@ import hashlib
 import hmac
 import json
 import re
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
 from urllib.parse import parse_qs, urlsplit
 
 from fastapi import HTTPException, Response
 from loguru import logger
+from pipecat.utils.run_context import get_current_org_id
 from voicelink import VoiceLinkClient
 from voicelink.errors import VoiceLinkAPIError, VoiceLinkError
 from voicelink.integrations.pipecat.provisioning import PipecatProvisioner
@@ -40,6 +42,10 @@ from voicelink.webhooks import parse_webhook
 
 from api.db import db_client
 from api.enums import TelephonyCallStatus, WorkflowRunMode, WorkflowRunState
+from api.services.pipecat.realtime_feedback_events import (
+    build_pipeline_error_event,
+    stamp_realtime_feedback_event,
+)
 from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
@@ -112,6 +118,22 @@ def _canonical_client_id(value: Any) -> Optional[str]:
         # raises on numbers longer than Python's digit limit.
         return text.lstrip("0") or "0"
     return text or None
+
+
+def _current_organization_id() -> Optional[int]:
+    """The organization the factory scoped this provider to, if any.
+
+    ``get_telephony_provider_by_id`` records the organization in the run
+    context before constructing the provider; it is the tenant every
+    organization-owned read here must be filtered by.
+    """
+    value = get_current_org_id()
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _tokens_match(expected: str, presented: Optional[str]) -> bool:
@@ -490,13 +512,16 @@ class VoiceLinkProvider(TelephonyProvider):
         without it.
 
         The agent-stream route creates the run and marks it running before
-        calling this, so every rejection, and any error before the pipeline
-        starts, completes the run with an error disposition; otherwise it
-        would stay running forever.
+        calling this, so every rejection completes the run with an error
+        disposition. Any other error - a hang-up before ``start``, a lookup
+        failure, or a call-setup failure inside ``run_pipeline_telephony``
+        such as credentials that will not load - is handled by
+        :meth:`_close_run_if_unfinished`: it completes the run only if nothing
+        else already has, so a run never stays running forever and a result
+        the pipeline recorded is never overwritten.
         """
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
-        pipeline_started = False
         try:
             received = await self._receive_start(websocket, workflow_run_id)
             if received is None:
@@ -590,7 +615,6 @@ class VoiceLinkProvider(TelephonyProvider):
                 f"call_sid={start.call_sid} telephony_configuration_id={config.id}"
             )
 
-            pipeline_started = True
             await run_pipeline_telephony(
                 websocket,
                 provider_name=self.PROVIDER_NAME,
@@ -603,15 +627,32 @@ class VoiceLinkProvider(TelephonyProvider):
         except BaseException as e:  # noqa: BLE001 - re-raised; also cancellation
             if not isinstance(e, asyncio.CancelledError):
                 logger.error(f"Error in VoiceLink agent-stream handler: {e}")
-            if not pipeline_started:
-                # e.g. the caller hung up before ``start``, a lookup failed, or
-                # the worker shut down mid-handshake. Once the pipeline has
-                # started, the run's outcome is left to Dograh's pipeline
-                # handling, as for every other provider.
-                await self._close_rejected_run(
-                    workflow_run_id, "stream aborted before the pipeline started"
-                )
+            await self._close_run_if_unfinished(
+                workflow_run_id, f"stream aborted: {type(e).__name__}"
+            )
             raise
+
+    async def _close_run_if_unfinished(self, workflow_run_id: int, reason: str) -> None:
+        """Complete the run after an error, unless something already has.
+
+        ``run_pipeline_telephony`` performs setup - workflow and run lookups,
+        model configuration, credential loading, transport creation - before
+        the pipeline exists. A failure there propagates here with the run still
+        marked running and nothing else responsible for it. A failure once the
+        pipeline is up is finalised by Dograh's shared call handling, which
+        marks the run completed; that outcome is left untouched. The database
+        is the only reliable way to tell the two apart.
+        """
+        try:
+            run = await db_client.get_workflow_run_by_id(workflow_run_id)
+        except Exception as e:  # noqa: BLE001 - never mask the original error
+            logger.error(
+                f"Could not read VoiceLink run {workflow_run_id} to close it: {e}"
+            )
+            return
+        if run is None or run.is_completed:
+            return
+        await self._close_rejected_run(workflow_run_id, reason)
 
     async def _find_configs_for_account(
         self, organization_id: int, account_sid: Optional[str]
@@ -657,10 +698,20 @@ class VoiceLinkProvider(TelephonyProvider):
         running. This is a plain database write on purpose:
         ``mark_workflow_run_failed`` also enqueues the organization's post-run
         integrations, which an unauthenticated caller must not be able to
-        trigger. The fields written match that helper's, so the run reads the
-        same in the UI. Best-effort, so bookkeeping never masks the rejection.
+        trigger. The fields written match that helper's - including the fatal
+        ``realtime_feedback_events`` entry that explains the rejection in the
+        run's transcript - so the run reads the same in the UI. Best-effort,
+        so bookkeeping never masks the rejection.
         """
         error_disposition = TelephonyCallStatus.ERROR.value
+        error_message = f"VoiceLink stream rejected: {reason}"
+        failure_event = stamp_realtime_feedback_event(
+            build_pipeline_error_event(
+                error=error_message, fatal=True, processor="call_start"
+            ),
+            timestamp=datetime.now(UTC).isoformat(timespec="milliseconds"),
+            turn=0,
+        )
         try:
             # Read-only: resolves the org's disposition mapping.
             mapped_disposition = await map_disposition(
@@ -673,11 +724,12 @@ class VoiceLinkProvider(TelephonyProvider):
                 state=WorkflowRunState.COMPLETED.value,
                 usage_info={"call_duration_seconds": 0},
                 gathered_context={
-                    "error": f"VoiceLink stream rejected: {reason}",
+                    "error": error_message,
                     "call_status": error_disposition,
                     "call_disposition": error_disposition,
                     "mapped_call_disposition": mapped_disposition,
                 },
+                logs={"realtime_feedback_events": [failure_event]},
             )
         except Exception as e:  # noqa: BLE001 - never mask the rejection
             logger.error(
@@ -787,7 +839,16 @@ class VoiceLinkProvider(TelephonyProvider):
                         "add it to this configuration"
                     ),
                 )
-            route = await self._find_phone_route(address)
+            organization_id = _current_organization_id()
+            if organization_id is None:
+                return ProviderSyncResult(
+                    ok=False,
+                    message=(
+                        "Organization scope is missing; reload the configuration "
+                        "and save the number again"
+                    ),
+                )
+            route = await self._find_phone_route(address, organization_id)
             phone = route[1] if route else None
             if phone is None or phone.inbound_workflow_id is None:
                 return ProviderSyncResult(
@@ -813,22 +874,36 @@ class VoiceLinkProvider(TelephonyProvider):
             return ProviderSyncResult(ok=False, message=f"VoiceLink setup failed: {e}")
         return ProviderSyncResult(ok=True)
 
-    async def _find_phone_route(self, address: str):
+    async def _find_phone_route(self, address: str, organization_id: int):
         """This configuration's phone-number row for ``address``.
 
-        The factory does not hand the provider its organization, so the lookup
-        keys on ``client_id``. Without one there is no route: inbound streams
-        are matched by client id, so a number attached without one could never
-        receive a call.
+        Scoped to ``organization_id`` - the tenant the factory set when it
+        built this provider - so a number another organization owns can never
+        be matched, and the row's owner is checked again on the way out. The
+        lookup also keys on ``client_id``; without one there is no route:
+        inbound streams are matched by client id, so a number attached without
+        one could never receive a call.
         """
         if self.client_id is None:
             return None
-        return await db_client.find_inbound_route_by_account(
+        route = await db_client.find_inbound_route_by_account(
             provider=self.PROVIDER_NAME,
             account_id_field="client_id",
             account_id=str(self.client_id),
             to_number=address,
+            organization_id=organization_id,
         )
+        if route is None:
+            return None
+        config = route[0]
+        if getattr(config, "organization_id", None) != organization_id:
+            logger.error(
+                f"VoiceLink configure_inbound: route for {address} belongs to "
+                f"organization {getattr(config, 'organization_id', None)!r}, "
+                f"not {organization_id}; refusing"
+            )
+            return None
+        return route
 
     # ------------------------------------------------------------- inbound webhooks
     #

@@ -543,6 +543,14 @@ def _assert_closed_quietly(db: MagicMock, mark_failed: AsyncMock) -> None:
     # Same fields mark_workflow_run_failed writes, so the UI shows it alike.
     assert kwargs["gathered_context"]["mapped_call_disposition"] == "Mapped error"
     assert kwargs["usage_info"] == {"call_duration_seconds": 0}
+    # ...including the fatal event the transcript view shows, so a reviewer
+    # can see why the run ended.
+    events = kwargs["logs"]["realtime_feedback_events"]
+    assert len(events) == 1
+    assert events[0]["payload"]["fatal"] is True
+    assert events[0]["payload"]["processor"] == "call_start"
+    assert events[0]["payload"]["error"] == kwargs["gathered_context"]["error"]
+    assert events[0]["payload"]["error"].startswith("VoiceLink stream rejected: ")
 
 
 @pytest.fixture(autouse=True)
@@ -561,6 +569,11 @@ def _db_with_configs(*rows) -> MagicMock:
     db = MagicMock()
     db.list_telephony_configurations_by_provider = AsyncMock(return_value=list(rows))
     db.get_organization_id_by_workflow_run_id = AsyncMock(return_value=9)
+    # The run the agent-stream route created: still running, as it is until
+    # either the pipeline or this handler completes it.
+    db.get_workflow_run_by_id = AsyncMock(
+        return_value=SimpleNamespace(id=42, is_completed=False)
+    )
     db.update_workflow_run = AsyncMock()
     return db
 
@@ -775,13 +788,9 @@ async def test_error_before_pipeline_still_closes_run(failure):
     _assert_closed_quietly(db, mark_failed)
 
 
-@pytest.mark.asyncio
-async def test_error_after_pipeline_start_leaves_run_to_pipeline():
-    # Once the pipeline has started, the handler must not overwrite the run's
-    # outcome with a "rejected" disposition.
+async def _run_authenticated_with_pipeline_error(db) -> AsyncMock:
+    """A valid, signed stream whose ``run_pipeline_telephony`` call raises."""
     ws = _websocket(START_FRAME)
-    db = _db_with_configs(_config_row(2, 123))
-
     with (
         patch.object(provider_module, "db_client", db),
         patch(RUN_PIPELINE, new_callable=AsyncMock, side_effect=RuntimeError("boom")),
@@ -795,6 +804,43 @@ async def test_error_after_pipeline_start_leaves_run_to_pipeline():
             workflow_run_id=42,
             params=_stream_params(),
         )
+    return mark_failed
+
+
+@pytest.mark.asyncio
+async def test_setup_failure_after_authentication_still_closes_run():
+    # run_pipeline_telephony loads credentials and builds the transport before
+    # any pipeline exists. If that raises, nothing else completes the run, so
+    # the handler must - the run is still marked running in the database.
+    db = _db_with_configs(_config_row(2, 123))
+
+    mark_failed = await _run_authenticated_with_pipeline_error(db)
+
+    mark_failed.assert_not_called()
+    db.get_workflow_run_by_id.assert_awaited_once_with(42)
+    writes = [call.kwargs for call in db.update_workflow_run.await_args_list]
+    assert len(writes) == 2
+    assert "initial_context" in writes[0]  # the authenticated context write
+    closing = writes[1]
+    assert closing["run_id"] == 42
+    assert closing["is_completed"] is True
+    assert closing["state"] == "completed"
+    assert closing["gathered_context"]["call_disposition"] == "error"
+    assert "RuntimeError" in closing["gathered_context"]["error"]
+    events = closing["logs"]["realtime_feedback_events"]
+    assert len(events) == 1 and events[0]["payload"]["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_error_after_pipeline_completed_run_is_not_overwritten():
+    # Once the pipeline has run and recorded the call's outcome, an exception
+    # on the way out must not replace that outcome with a "rejected" one.
+    db = _db_with_configs(_config_row(2, 123))
+    db.get_workflow_run_by_id = AsyncMock(
+        return_value=SimpleNamespace(id=42, is_completed=True)
+    )
+
+    mark_failed = await _run_authenticated_with_pipeline_error(db)
 
     mark_failed.assert_not_called()
     # Only the authenticated context write, no closing write.
@@ -954,7 +1000,10 @@ async def test_configure_inbound_points_bot_at_attached_agent():
     prov = _provisioner_mock()
     db = MagicMock()
     db.find_inbound_route_by_account = AsyncMock(
-        return_value=(SimpleNamespace(id=2), SimpleNamespace(inbound_workflow_id=1))
+        return_value=(
+            SimpleNamespace(id=2, organization_id=9),
+            SimpleNamespace(inbound_workflow_id=1),
+        )
     )
     db.get_workflow_by_id = AsyncMock(
         return_value=SimpleNamespace(
@@ -965,6 +1014,9 @@ async def test_configure_inbound_points_bot_at_attached_agent():
         patch.object(provider_module, "VoiceLinkClient", client_cls),
         patch.object(provider_module, "PipecatProvisioner", return_value=prov),
         patch.object(provider_module, "db_client", db),
+        # The factory records the organization in the run context before it
+        # constructs the provider.
+        patch.object(provider_module, "get_current_org_id", return_value="9"),
         patch.object(
             provider_module,
             "get_backend_endpoints",
@@ -977,11 +1029,13 @@ async def test_configure_inbound_points_bot_at_attached_agent():
         )
 
     assert result.ok is True
+    # Organization-scoped, as every organization-owned read must be.
     db.find_inbound_route_by_account.assert_awaited_once_with(
         provider="voicelink",
         account_id_field="client_id",
         account_id="123",
         to_number=DID,
+        organization_id=9,
     )
     # Signed for the attached workflow (id 1) with this config's API token.
     token = VoiceLinkProvider._stream_token("token-123", 123, 1)
@@ -1026,6 +1080,7 @@ async def test_configure_inbound_without_attached_agent_reports_error():
         patch.object(provider_module, "VoiceLinkClient", client_cls),
         patch.object(provider_module, "PipecatProvisioner", return_value=prov),
         patch.object(provider_module, "db_client", db),
+        patch.object(provider_module, "get_current_org_id", return_value="9"),
     ):
         result = await _provider().configure_inbound(
             DID, "https://api.example.test/api/v1/telephony/inbound/run"
@@ -1033,6 +1088,62 @@ async def test_configure_inbound_without_attached_agent_reports_error():
 
     assert result.ok is False
     assert "attached agent" in (result.message or "")
+    prov.ensure_bot.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("org_in_context", [None, "not-a-number"])
+async def test_configure_inbound_refuses_without_organization_scope(org_in_context):
+    # No organization to scope the phone-number read by: refuse without
+    # touching the database rather than read across tenants.
+    client_cls, _ = _mock_sdk_client()
+    prov = _provisioner_mock()
+    db = MagicMock()
+    db.find_inbound_route_by_account = AsyncMock()
+    with (
+        patch.object(provider_module, "VoiceLinkClient", client_cls),
+        patch.object(provider_module, "PipecatProvisioner", return_value=prov),
+        patch.object(provider_module, "db_client", db),
+        patch.object(
+            provider_module, "get_current_org_id", return_value=org_in_context
+        ),
+    ):
+        result = await _provider().configure_inbound(
+            DID, "https://api.example.test/api/v1/telephony/inbound/run"
+        )
+
+    assert result.ok is False
+    assert "Organization scope" in (result.message or "")
+    db.find_inbound_route_by_account.assert_not_called()
+    prov.ensure_bot.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_configure_inbound_refuses_route_owned_by_another_organization():
+    # Belt and braces: even if a row came back, one owned by another
+    # organization must never drive the bot update.
+    client_cls, _ = _mock_sdk_client()
+    prov = _provisioner_mock()
+    db = MagicMock()
+    db.find_inbound_route_by_account = AsyncMock(
+        return_value=(
+            SimpleNamespace(id=2, organization_id=10),
+            SimpleNamespace(inbound_workflow_id=1),
+        )
+    )
+    db.get_workflow_by_id = AsyncMock()
+    with (
+        patch.object(provider_module, "VoiceLinkClient", client_cls),
+        patch.object(provider_module, "PipecatProvisioner", return_value=prov),
+        patch.object(provider_module, "db_client", db),
+        patch.object(provider_module, "get_current_org_id", return_value="9"),
+    ):
+        result = await _provider().configure_inbound(
+            DID, "https://api.example.test/api/v1/telephony/inbound/run"
+        )
+
+    assert result.ok is False
+    db.get_workflow_by_id.assert_not_called()
     prov.ensure_bot.assert_not_called()
 
 

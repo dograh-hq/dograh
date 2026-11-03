@@ -14,8 +14,8 @@ from google.genai.types import (
     GenerateContentResponse,
     Part,
 )
-from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.clocks.system_clock import SystemClock
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,

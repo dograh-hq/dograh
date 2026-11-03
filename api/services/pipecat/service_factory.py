@@ -1233,7 +1233,11 @@ def create_tts_service(
         except ValueError:
             pipecat_language = Language.EN
         speed = getattr(user_config.tts, "speed", None)
-        model = user_config.tts.model.replace("lightning-v", "lightning_v")
+        # Normalize hyphenated model ids (e.g. "lightning-v3.1-pro") to the
+        # underscored form Smallest's SDK expects ("lightning_v3.1_pro").
+        # Model ids never contain a legitimate hyphen, so a blanket
+        # replace is safe and also covers the "-pro" suffix.
+        model = user_config.tts.model.replace("-", "_")
         settings_kwargs = SmallestTTSSettings(
             model=model,
             voice=user_config.tts.voice,

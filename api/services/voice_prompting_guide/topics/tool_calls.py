@@ -26,9 +26,10 @@ TOPIC = VoicePromptingTopic(
         Stage.create: StageLens(
             relevant=True,
             lens=(
-                "State the exact condition for each tool call in the prompt ('call "
+                "State the exact condition for each tool call in the prompt with right tool name ( Ex: 'call "
                 "schedule_appointment only after all three screening questions "
-                "pass'). Also tell the agent a turn is either speech OR a tool call, "
+                "pass'). Edge with label Schedule Appointment becomes schedule_appointment. "
+                "Also tell the agent a turn is either speech OR a tool call, "
                 "never both, and how to recover when a tool errors."
             ),
         ),
@@ -45,6 +46,8 @@ TOPIC = VoicePromptingTopic(
 Each tool should do one thing. A tool that "schedules an appointment and sends a
 confirmation email and updates the CRM" fails unpredictably — split it into
 three. (This is mostly a plan-time decision about tool design.)
+
+An Edge with label Schedule Appointment is sent to llm with tool name schedule_appointment.
 
 Be specific about when to call each tool and when not to. Conditions matter:
 "Call schedule_appointment only after the user has passed all three screening

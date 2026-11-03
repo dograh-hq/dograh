@@ -32,7 +32,9 @@ async def preview_workflow_code(
     name = (parsed.get("workflowName") or "").strip()
     if not name or len(name) > 200:
         return {"valid": False, "error": "Provide a workflow name of 1–200 characters."}
-    payload = parsed["workflow"] if tidy else reconcile_positions(parsed["workflow"], None)
+    payload = (
+        parsed["workflow"] if tidy else reconcile_positions(parsed["workflow"], None)
+    )
     try:
         dto = ReactFlowDTO.model_validate(payload)
         WorkflowGraph(dto)

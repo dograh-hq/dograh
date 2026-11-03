@@ -79,9 +79,7 @@ async def update_tool(tool_uuid: str, request: UpdateToolRequest) -> dict[str, A
         return {"updated": False, "error_code": "validation_error", "error": str(e)}
 
     try:
-        tool = await update_tool_for_user(
-            tool_uuid, parsed_request, user, source="mcp"
-        )
+        tool = await update_tool_for_user(tool_uuid, parsed_request, user, source="mcp")
     except ToolManagementError as e:
         return {"updated": False, "error_code": e.error_code, "error": e.message}
     except Exception as e:  # noqa: BLE001

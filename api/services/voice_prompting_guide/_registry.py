@@ -56,7 +56,7 @@ _STAGE_INTROS: dict[Stage, str] = {
         "writing to the conversation plan stage after requirements approval."
     ),
     Stage.create: (
-        "Prompt-writing guidance, used by the workflow builder's plan stage. "
+        "Prompt-writing guidance, used by the workflow builder's create stage. "
         "Turn approved requirements into conversation flow and complete prompts. "
         "Group related information into one step when that keeps the "
         "conversation natural. Make "

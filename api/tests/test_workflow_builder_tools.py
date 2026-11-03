@@ -74,7 +74,10 @@ async def test_propose_tool_commits_only_after_approval():
     graph = build_agent_memory(model, TOOL_SPECS)
 
     first = await run_step(
-        graph, config, session_id, BuilderStep(request_id=uuid4(), message="Build it", current_workflow=CURRENT)
+        graph,
+        config,
+        session_id,
+        BuilderStep(request_id=uuid4(), message="Build it", current_workflow=CURRENT),
     )
     gated = await approve_plan(graph, config, session_id, first)
 
@@ -89,7 +92,10 @@ async def test_propose_tool_commits_only_after_approval():
     # Approving replays the handoff past the gate and fires the create relay --
     # the mutation is this second, post-approval interrupt, never before.
     committed = await _step(
-        graph, config, session_id, gated["checkpoint"],
+        graph,
+        config,
+        session_id,
+        gated["checkpoint"],
         {approval["id"]: {"decision": "approve"}},
     )
     relayed = committed["pending"][0]
@@ -103,16 +109,20 @@ async def test_propose_tool_commits_only_after_approval():
 
     # The relay (simulated here) returns the new uuid; it reaches the agent.
     proceeded = await _step(
-        graph, config, session_id, committed["checkpoint"],
+        graph,
+        config,
+        session_id,
+        committed["checkpoint"],
         {relayed["id"]: {"created": True, "tool_uuid": "tool-123"}},
     )
     assert proceeded["pending"][0]["tool_name"] == "preview_workflow"
-    assert any(
-        "tool-123" in str(m.content) for m in _tool_messages(model.seen[-1])
-    )
+    assert any("tool-123" in str(m.content) for m in _tool_messages(model.seen[-1]))
 
     final = await _step(
-        graph, config, session_id, proceeded["checkpoint"],
+        graph,
+        config,
+        session_id,
+        proceeded["checkpoint"],
         {proceeded["pending"][0]["id"]: PREVIEW_OK},
     )
     assert final["proposal"]["name"] == "Receptionist"
@@ -150,14 +160,20 @@ async def test_denied_tool_is_not_created():
     graph = build_agent_memory(model, TOOL_SPECS)
 
     first = await run_step(
-        graph, config, session_id, BuilderStep(request_id=uuid4(), message="Build it", current_workflow=CURRENT)
+        graph,
+        config,
+        session_id,
+        BuilderStep(request_id=uuid4(), message="Build it", current_workflow=CURRENT),
     )
     gated = await approve_plan(graph, config, session_id, first)
     approval = gated["pending"][0]
     assert approval["kind"] == "tool_approval"
 
     after_deny = await _step(
-        graph, config, session_id, gated["checkpoint"],
+        graph,
+        config,
+        session_id,
+        gated["checkpoint"],
         {approval["id"]: {"decision": "deny", "feedback": "Use a separate tool."}},
     )
     # No create relay fired -- the next pause is the workflow preview, not a
@@ -165,8 +181,7 @@ async def test_denied_tool_is_not_created():
     assert after_deny["pending"][0]["tool_name"] == "preview_workflow"
     denied = _tool_messages(model.seen[-1])
     assert any(
-        '"approved": false' in m.content.lower()
-        and "separate tool" in m.content
+        '"approved": false' in m.content.lower() and "separate tool" in m.content
         for m in denied
     )
 
@@ -201,7 +216,10 @@ async def test_propose_tool_edit_gates_update():
     graph = build_agent_memory(model, TOOL_SPECS)
 
     first = await run_step(
-        graph, config, session_id, BuilderStep(request_id=uuid4(), message="Edit it", current_workflow=CURRENT)
+        graph,
+        config,
+        session_id,
+        BuilderStep(request_id=uuid4(), message="Edit it", current_workflow=CURRENT),
     )
     gated = await approve_plan(graph, config, session_id, first)
     approval = gated["pending"][0]
@@ -210,7 +228,10 @@ async def test_propose_tool_edit_gates_update():
     assert approval["tool_uuid"] == "tool-existing"
 
     committed = await _step(
-        graph, config, session_id, gated["checkpoint"],
+        graph,
+        config,
+        session_id,
+        gated["checkpoint"],
         {approval["id"]: {"decision": "approve"}},
     )
     relayed = committed["pending"][0]
@@ -240,13 +261,19 @@ async def test_tool_decision_validation_rejects_feedback_on_approve():
     config = {"configurable": {"thread_id": str(session_id)}}
     graph = build_agent_memory(model, TOOL_SPECS)
     first = await run_step(
-        graph, config, session_id, BuilderStep(request_id=uuid4(), message="Build it", current_workflow=CURRENT)
+        graph,
+        config,
+        session_id,
+        BuilderStep(request_id=uuid4(), message="Build it", current_workflow=CURRENT),
     )
     gated = await approve_plan(graph, config, session_id, first)
     approval = gated["pending"][0]
     with pytest.raises(HTTPException) as invalid:
         await _step(
-            graph, config, session_id, gated["checkpoint"],
+            graph,
+            config,
+            session_id,
+            gated["checkpoint"],
             {approval["id"]: {"decision": "approve", "feedback": "contradiction"}},
         )
     assert invalid.value.status_code == 422

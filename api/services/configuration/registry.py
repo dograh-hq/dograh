@@ -1892,15 +1892,15 @@ SMALLEST_PROVIDER = Provider(
 class SmallestAITTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
     model: str = Field(
-        default="lightning_v3.1",
-        description="Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents); lightning_v3.1 is the standard pool with 217 voices across 12 languages.",
+        default="lightning_v3.1_pro",
+        description="Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents). lightning_v3.1 retires on 2026-11-30 and is served by lightning_v3.1_pro after that.",
         json_schema_extra={"examples": SMALLEST_TTS_MODELS},
     )
     voice: str = Field(
-        default="sophia",
-        description="Smallest AI voice ID. Available voices differ by model: lightning_v3.1 has a broad multilingual pool; lightning_v3.1_pro has premium American, British, and Indian accent voices (English + Hindi only).",
+        default="kaitlyn",
+        description="Smallest AI voice ID. lightning_v3.1_pro has premium American, British, and Indian accent voices; the standard lightning_v3.1 pool is retired on 2026-11-30.",
         json_schema_extra={
-            "examples": list(SMALLEST_TTS_VOICES),
+            "examples": list(SMALLEST_TTS_PRO_VOICES),
             "allow_custom_input": True,
             "model_options": {
                 "lightning_v3.1": list(SMALLEST_TTS_VOICES),

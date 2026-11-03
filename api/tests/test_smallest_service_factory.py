@@ -16,8 +16,8 @@ def test_smallest_tts_configuration_defaults_and_registry():
     config = SmallestAITTSConfiguration(api_key="test-key")
 
     assert config.provider == ServiceProviders.SMALLEST
-    assert config.model == "lightning_v3.1"
-    assert config.voice == "sophia"
+    assert config.model == "lightning_v3.1_pro"
+    assert config.voice == "kaitlyn"
     assert config.language == "en"
     assert config.speed == 1.0
     assert (
@@ -62,8 +62,8 @@ def test_create_smallest_tts_service_normalizes_hyphenated_model_values():
         tts=SimpleNamespace(
             provider=ServiceProviders.SMALLEST.value,
             api_key="test-key",
-            model="lightning-v3.1",
-            voice="sophia",
+            model="lightning-v3.1-pro",
+            voice="kaitlyn",
             language="en",
             speed=1.0,
         )
@@ -77,4 +77,4 @@ def test_create_smallest_tts_service_normalizes_hyphenated_model_values():
 
     assert mock_service.call_count == 1
     kwargs = mock_service.call_args.kwargs
-    assert kwargs["settings"].model == "lightning_v3.1"
+    assert kwargs["settings"].model == "lightning_v3.1_pro"

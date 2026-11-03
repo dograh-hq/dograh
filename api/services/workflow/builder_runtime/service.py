@@ -10,7 +10,12 @@ from api.db import db_client
 
 from .agent import build_agent
 from .model import BUILDER_USAGE_CONTEXT, BuilderChatModel
-from .schemas import BuilderStep, validate_answers, validate_plan_decision
+from .schemas import (
+    BuilderStep,
+    validate_answers,
+    validate_plan_decision,
+    validate_tool_decision,
+)
 
 
 def present(snapshot, session_id: UUID) -> dict:
@@ -119,7 +124,9 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                     plan_messages=[
                         HumanMessage(
                             content="Current saved workflow, including canvas edits. "
-                            "Use this as the starting point for the requested changes:\n"
+                            "Use this as the starting point for the requested changes. "
+                            "Answer your own questions about current behavior from it; "
+                            "ask the user only about the change they want:\n"
                             + workflow["code"],
                             id=f"{request.request_id}:workflow",
                         ),
@@ -138,6 +145,8 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                         validate_answers(pending[key]["questions"], answer)
                     elif pending[key]["kind"] == "plan_approval":
                         validate_plan_decision(pending[key]["brief_revision"], answer)
+                    elif pending[key]["kind"] == "tool_approval":
+                        validate_tool_decision(answer)
                 except ValueError as exc:
                     raise HTTPException(422, str(exc)) from exc
             value = Command(resume=request.resume, update=updates)

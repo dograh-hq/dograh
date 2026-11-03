@@ -123,6 +123,7 @@ class ServiceProviders(str, Enum):
     SMALLEST = "smallest"
     XAI = "xai"
     LMNT = "lmnt"
+    MURF = "murf"
     SPEECHIFY = "speechify"
     SONIOX = "soniox"
 
@@ -184,6 +185,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.SMALLEST,
         ServiceProviders.XAI,
         ServiceProviders.LMNT,
+        ServiceProviders.MURF,
         ServiceProviders.SPEECHIFY,
         ServiceProviders.SONIOX,
     ]
@@ -434,6 +436,7 @@ CARTESIA_PROVIDER = Provider("cartesia", "Cartesia")
 XAI_PROVIDER = Provider("xai", "xAI")
 LMNT_PROVIDER = Provider("lmnt", "LMNT")
 MINIMAX_PROVIDER = Provider("minimax", "MiniMax")
+MURF_PROVIDER = Provider("murf", "Murf")
 SPEECHIFY_PROVIDER = Provider(
     "speechify",
     "Speechify",
@@ -1381,6 +1384,52 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
         )
 
 
+MURF_TTS_MODELS = ["falcon-2"]
+
+
+@register_tts(provider=MURF_PROVIDER)
+class MurfTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.MURF] = ServiceProviders.MURF
+    model: str = Field(
+        default="falcon-2",
+        json_schema_extra={"examples": MURF_TTS_MODELS, "allow_custom_input": True},
+    )
+    voice: str = Field(
+        default="Will",
+        description=(
+            "Paste a Murf Voice ID from the Voice Library (ex- Will). Explore Voices"
+        ),
+        json_schema_extra={
+            "allow_custom_input": True,
+            "docs_url": "https://murf.ai/api/dashboard?utm_source=dograh",
+            "docs_label": "here",
+        },
+    )
+    locale: str = Field(
+        default="en-US",
+        description=(
+            "Must be a locale your chosen voice supports, see the "
+        ),
+        json_schema_extra={
+            "allow_custom_input": True,
+            "docs_url": "https://murf.ai/api/dashboard?utm_source=dograh",
+            "docs_label": "Voice Library",
+        },
+    )
+    base_url: str = Field(
+        default="https://global.api.murf.ai",
+        description=(
+            "Uses the nearest server by default. Use regional endpoint for data residency. "
+        ),
+        json_schema_extra={
+            "docs_url": (
+                "https://murf.ai/api/docs/api-reference/text-to-speech/stream"
+            ),
+            "docs_label": "API Reference",
+        },
+    )
+
+
 ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN = r"^eleven_v[34]"
 ELEVENLABS_DIALOGUE_TTS_MODELS = [
     "eleven_v3",
@@ -2002,6 +2051,7 @@ class SpeechifyTTSConfiguration(BaseTTSConfiguration):
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
+        MurfTTSConfiguration,
         GoogleTTSConfiguration,
         OpenAITTSService,
         ElevenlabsTTSConfiguration,

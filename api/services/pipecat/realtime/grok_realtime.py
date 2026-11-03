@@ -110,7 +110,11 @@ class DograhGrokRealtimeLLMService(
             await self._send_manual_response_create()
 
     @opening_request
-    async def _handle_context(self, context: LLMContext | None):
+    async def _handle_context(
+        self,
+        context: LLMContext | None,
+        direction: FrameDirection = FrameDirection.DOWNSTREAM,
+    ):
         if context is None:
             logger.warning(f"{self}: received context trigger before context was set")
             return
@@ -121,6 +125,8 @@ class DograhGrokRealtimeLLMService(
         else:
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
+            if direction == FrameDirection.UPSTREAM and self._results_awaiting_response:
+                await self._create_response()
 
     async def _handle_initial_greeting(
         self, context: LLMContext | None, greeting_text: str
@@ -201,7 +207,7 @@ class DograhGrokRealtimeLLMService(
             return
 
         adapter = self.get_llm_adapter()
-        llm_invocation_params = adapter.get_llm_invocation_params(self._context)
+        llm_invocation_params = await adapter.get_llm_invocation_params(self._context)
         for item in llm_invocation_params["messages"]:
             evt = events.ConversationItemCreateEvent(item=item)
             self._messages_added_manually[evt.item.id] = True
@@ -314,6 +320,7 @@ class DograhGrokRealtimeLLMService(
             function_call_item = self._pending_function_calls.get(evt.call_id)
             if function_call_item:
                 del self._pending_function_calls[evt.call_id]
+                self._open_function_calls.add(evt.call_id)
 
                 function_name = getattr(evt, "name", None) or function_call_item.name
                 function_calls = [

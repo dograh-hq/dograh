@@ -10,7 +10,6 @@ from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMServiceMetadataFrame,
-    UserTurnInferenceCompletedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -48,7 +47,6 @@ class TestUnregisteredFunctionCall:
                 LLMServiceMetadataFrame,
                 LLMFullResponseStartFrame,
                 FunctionCallsFromLLMInfoFrame,
-                UserTurnInferenceCompletedFrame,
                 FunctionCallsStartedFrame,
                 LLMFullResponseEndFrame,
                 FunctionCallInProgressFrame,

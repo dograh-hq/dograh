@@ -18,6 +18,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams
+from pipecat.processors.filters.spoken_text_processor import SpokenTextProcessor
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.tts_service import TTSService
 from pipecat.workers.runner import WorkerRunner
@@ -102,7 +103,7 @@ async def synthesize_speech(
         raise ValueError("Synthesis requires a fresh, unlinked TTS processor")
     collector = _WavCollector(max_duration)
     worker = DograhPipelineWorker(
-        Pipeline([tts, collector]),
+        Pipeline([SpokenTextProcessor(), tts, collector]),
         params=PipelineParams(audio_out_sample_rate=sample_rate),
         enable_rtvi=False,
         enable_turn_tracking=False,

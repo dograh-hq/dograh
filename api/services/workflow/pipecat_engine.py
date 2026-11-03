@@ -13,7 +13,7 @@ from typing import (
     Union,
 )
 
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -231,6 +231,11 @@ class PipecatEngine:
             on_response_timeout=self._on_response_timeout,
             on_user_idle=self._on_user_idle,
             conversation_enabled=self._conversation_enabled,
+            greeting_finished=lambda: (
+                self.speech_playback.greeting is not None
+                and self.speech_playback.greeting.outcome
+                in (PlaybackOutcome.PLAYED, PlaybackOutcome.INTERRUPTED)
+            ),
             max_duration_end_task_callback=self.create_max_duration_callback(),
         )
         self.speech_playback.add_observer(self.call_monitor)
@@ -2440,9 +2445,8 @@ class PipecatEngine:
                 agent.mcp_sessions[tool.tool_uuid] = session
                 await session.start_managed()
         except Exception as e:
-            logger.warning(
+            logger.opt(exception=True).warning(
                 f"Failed to open MCP sessions; call proceeds without MCP tools: {e}",
-                exc_info=True,
             )
 
     def record_tool_result(self, result: dict) -> None:

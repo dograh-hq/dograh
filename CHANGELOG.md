@@ -1,5 +1,57 @@
 # Changelog
 
+## 1.50.0 (2026-10-31)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add shared tool messages with start and delayed variants by @a6kme in https://github.com/dograh-hq/dograh/pull/890
+* feat(telephony): add WhatsApp inbound calling integration by @amitbhakt in https://github.com/dograh-hq/dograh/pull/732
+* feat(ui): event banner for the TTS verbalization benchmark by @sandeepvemu-dograh in https://github.com/dograh-hq/dograh/pull/895
+* feat(tts): Deepgram Flux voices, explicit model setting, clearer handshake errors by @a6kme in https://github.com/dograh-hq/dograh/pull/896
+* feat(telephony): key WhatsApp on the Business Account and sync its numbers from Meta by @a6kme in https://github.com/dograh-hq/dograh/pull/901
+* feat(transfer): replace play_greeting with greeting_mode and a spoken introduction by @a6kme in https://github.com/dograh-hq/dograh/pull/917
+* feat(tts): support Sarvam AI Bulbul v4 Flash model and client-side voice selection by @amitbhakt in https://github.com/dograh-hq/dograh/pull/909
+* feat(tuner): send selected call variables as metadata by @nihalfares23 in https://github.com/dograh-hq/dograh/pull/928
+* feat(mps): use Stack-team billing and verified service keys by @a6kme in https://github.com/dograh-hq/dograh/pull/934
+* feat(billing): invoices page for hosted credit purchases by @a6kme in https://github.com/dograh-hq/dograh/pull/957
+### Bug Fixes
+* fix(greeting): consistent playback accounting and interruption controls by @a6kme in https://github.com/dograh-hq/dograh/pull/911
+* fix: unify call opening and remove avoidable startup delays by @a6kme in https://github.com/dograh-hq/dograh/pull/913
+* fix(voice): run final extraction after hangup by @a6kme in https://github.com/dograh-hq/dograh/pull/915
+* fix(voice): recover tool calls emitted as spoken text by @a6kme in https://github.com/dograh-hq/dograh/pull/920
+* fix(tts): stop offering Assamese for Sarvam TTS by @ANDROIDHASSAN in https://github.com/dograh-hq/dograh/pull/902
+* fix(voice): keep model control text out of spoken replies by @a6kme in https://github.com/dograh-hq/dograh/pull/926
+* fix(billing): claim the signup grant once per person on concurrent requests by @a6kme in https://github.com/dograh-hq/dograh/pull/939
+* fix(bootstrap): read the default configuration uuid before commit by @a6kme in https://github.com/dograh-hq/dograh/pull/940
+* fix(posthog): send no deployment-local ids; group every account by @a6kme in https://github.com/dograh-hq/dograh/pull/942
+* fix(realtime): complete protected greetings and avoid repeated Grok transcripts by @a6kme in https://github.com/dograh-hq/dograh/pull/944
+* fix(voice): filter internal model output from speech, transcripts, and context by @a6kme in https://github.com/dograh-hq/dograh/pull/945
+* fix(telephony): preserve caller ID on Twilio SIP transfers by @a6kme in https://github.com/dograh-hq/dograh/pull/948
+* fix: preserve early speech and unify delayed call openings by @a6kme in https://github.com/dograh-hq/dograh/pull/950
+* fix: cap post-greeting idle waits at three seconds by @a6kme in https://github.com/dograh-hq/dograh/pull/951
+* fix(telephony): give unanswered Telnyx calls a call status and webhooks by @a6kme in https://github.com/dograh-hq/dograh/pull/954
+* fix(stt): pin Pipecat with Flux handshake fix for MPS's repeated Set-Cookie by @a6kme in https://github.com/dograh-hq/dograh/pull/959
+* fix(logging): log tracebacks via logger.opt(exception=True), not exc_info by @a6kme in https://github.com/dograh-hq/dograh/pull/960
+* fix(config): drop retired OpenAI models from the model suggestions by @pcbeingused333 in https://github.com/dograh-hq/dograh/pull/961
+* fix(errors): classify text-chat pipeline errors like voice calls by @a6kme in https://github.com/dograh-hq/dograh/pull/962
+* fix(realtime): pin Pipecat that keeps user transcripts arriving while muted by @a6kme in https://github.com/dograh-hq/dograh/pull/963
+### Documentation
+* docs(whatsapp): add setup screenshots and Graph API calling settings curl by @amitbhakt in https://github.com/dograh-hq/dograh/pull/892
+### Other Changes
+* Expose MiniMax volume and save clean assistant recordings by @a6kme in https://github.com/dograh-hq/dograh/pull/916
+* Update supported STT settings on agent transfer by @a6kme in https://github.com/dograh-hq/dograh/pull/918
+* Key PostHog tenants by Stack team in an account group by @a6kme in https://github.com/dograh-hq/dograh/pull/941
+* Upgrade Pipecat to v1.15.0 and adapt realtime wrappers by @a6kme in https://github.com/dograh-hq/dograh/pull/958
+
+## New Contributors
+* @ANDROIDHASSAN made their first contribution in https://github.com/dograh-hq/dograh/pull/902
+* @nihalfares23 made their first contribution in https://github.com/dograh-hq/dograh/pull/928
+* @pcbeingused333 made their first contribution in https://github.com/dograh-hq/dograh/pull/961
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.49.0...dograh-v1.50.0
+
 ## 1.49.0 (2026-10-12)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

@@ -34,18 +34,22 @@ class AnswerMessage(BaseModel):
 
 
 class AnswerSupervisorConfig(BaseModel):
-    """Outbound answer policy: times in ms; recordings take precedence over text."""
+    """Shared opening policy with optional machine detection; times are in ms."""
 
     # The containing object also holds the existing classifier credentials.
     model_config = ConfigDict(extra="ignore")
 
+    enabled: bool = Field(
+        default=True,
+        description="Classify opening speech for voicemail and screening.",
+    )
     listening_window_ms: int = Field(
         default=round(DEFAULT_LISTENING_WINDOW_SECONDS * 1000),
         ge=0,
         le=10000,
         description=(
             "Initial wait for speech after arming; silence releases opening. "
-            "Enabled Delayed Start overrides."
+            "Resolved from the Start node's Delayed Start setting."
         ),
     )
     human_utterance_max_ms: int = Field(
@@ -115,15 +119,18 @@ def resolve_answer_supervisor_config(
     is_realtime: bool,
     start_node,
 ) -> AnswerSupervisorConfig | None:
-    """Use answer handling for enabled inbound and outbound cascade workflows.
+    """Use the same opening flow for every inbound and outbound cascade call.
 
-    External PBX calls can arrive as inbound, so direction is not a gate.
-    The Start node's enabled Delayed Start sets the listening window;
-    otherwise, use the saved window or 1200 ms.
+    The voicemail toggle only enables classification. Delayed Start owns timing
+    in both modes, including zero wait when disabled. Ignore legacy detector
+    listening windows and inactive classification settings.
     """
-    if is_realtime or not voicemail_config.get("enabled", False):
+    if is_realtime:
         return None
-    values = dict(voicemail_config)
-    if start_node and start_node.delayed_start:
-        values["listening_window_ms"] = resolve_listening_window_ms(start_node)
+    values = (
+        dict(voicemail_config)
+        if voicemail_config.get("enabled", False)
+        else {"enabled": False}
+    )
+    values["listening_window_ms"] = resolve_listening_window_ms(start_node)
     return AnswerSupervisorConfig.model_validate(values)

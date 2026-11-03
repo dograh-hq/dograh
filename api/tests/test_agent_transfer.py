@@ -244,6 +244,7 @@ class TransferHarness:
         source_workflow: WorkflowGraph,
         destination_workflow: WorkflowGraph,
         destination_build_error: AgentBuildError | None = None,
+        destination_audio_duration_ms: int = 20,
     ) -> None:
         call_worker_name = "call-test"
         self.destination_llm = destination_llm
@@ -368,7 +369,7 @@ class TransferHarness:
             if destination_build_error is not None:
                 raise destination_build_error
             self.destination_tts = MockTTSService(
-                mock_audio_duration_ms=20, frame_delay=0
+                mock_audio_duration_ms=destination_audio_duration_ms, frame_delay=0
             )
             runtime = AgentRuntime(
                 workflow_id=workflow_id,
@@ -1451,6 +1452,9 @@ async def test_a_destination_set_to_introduce_speaks_its_line_and_then_continues
         destination_workflow=build_agent_workflow(
             name="Billing", greeting="Billing here, how can I help?"
         ),
+        # Playback starts after the first transport write. Use multiple writes
+        # so start and finish cannot fall within the same millisecond.
+        destination_audio_duration_ms=60,
     )
     await harness.start()
 

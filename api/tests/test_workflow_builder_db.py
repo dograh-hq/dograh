@@ -6,7 +6,7 @@ from api.db.models import OrganizationModel, UserModel
 
 
 @pytest.mark.asyncio
-async def test_builder_creates_one_unpublished_draft_and_preserves_later_edits(
+async def test_builder_creates_one_published_v1_and_rejects_a_different_retry(
     db_session, async_session
 ):
     org = OrganizationModel(provider_id=f"builder-org-{uuid4()}")
@@ -24,16 +24,22 @@ async def test_builder_creates_one_unpublished_draft_and_preserves_later_edits(
         user_id=user.id,
         organization_id=org.id,
     )
-    first = await db_session.create_builder_draft(**arguments)
-    second = await db_session.create_builder_draft(**arguments)
+    first = await db_session.create_builder_workflow(**arguments)
+    second = await db_session.create_builder_workflow(**arguments)
     assert first.id == second.id
-    assert first.released_definition_id is None
-    draft = await db_session.get_draft_version(first.id)
-    assert draft.status == "draft"
-    assert draft.version_number == 1
-    assert not draft.is_current
-    assert draft.published_at is None
-    with pytest.raises(ValueError, match="already saved"):
-        await db_session.create_builder_draft(
+    # V1 must be released so entry points that run the published version
+    # (embed, inbound numbers, API triggers) can bind a run to it.
+    assert first.released_definition_id is not None
+    assert await db_session.get_draft_version(first.id) is None
+    released = await db_session.get_workflow_definition(
+        first.id, first.released_definition_id, org.id
+    )
+    assert released.status == "published"
+    assert released.version_number == 1
+    assert released.is_current
+    assert released.published_at is not None
+    assert released.workflow_json == arguments["workflow_definition"]
+    with pytest.raises(ValueError, match="already created"):
+        await db_session.create_builder_workflow(
             **{**arguments, "workflow_definition": {"nodes": ["different"]}}
         )

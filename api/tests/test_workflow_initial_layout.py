@@ -37,7 +37,7 @@ async def test_backend_tidy_on_creation_preserves_positions_on_later_edits(
     )
     create = AsyncMock(return_value=workflow)
     monkeypatch.setattr("api.db.db_client.create_workflow", create)
-    monkeypatch.setattr("api.db.db_client.create_builder_draft", create)
+    monkeypatch.setattr("api.db.db_client.create_builder_workflow", create)
     monkeypatch.setattr(
         "api.mcp_server.tools.create_workflow.capture_tenant_event", AsyncMock()
     )

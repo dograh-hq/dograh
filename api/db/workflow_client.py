@@ -22,7 +22,7 @@ from api.utils.workflow_revision import workflow_revision
 
 
 class WorkflowClient(BaseDBClient):
-    async def create_builder_draft(
+    async def create_builder_workflow(
         self,
         *,
         workflow_uuid: str,
@@ -32,7 +32,13 @@ class WorkflowClient(BaseDBClient):
         organization_id: int,
         builder_session_id: str | None = None,
     ) -> WorkflowModel:
-        """Atomically create an unpublished V1; workflow_uuid is the retry key."""
+        """Atomically create a workflow with V1 published; workflow_uuid is the retry key.
+
+        V1 is published like ``create_workflow`` so the agent is callable from
+        every entry point that runs the released version (embed, inbound
+        numbers, API triggers), not only from editor test calls. Later builder
+        saves go to a draft via ``save_workflow_draft``.
+        """
         async with self.async_session() as session:
 
             async def existing():
@@ -47,7 +53,7 @@ class WorkflowClient(BaseDBClient):
             if workflow := await existing():
                 if workflow.workflow_definition != workflow_definition:
                     raise ValueError(
-                        "This conversation already saved a different draft. Continue in the workflow editor or start a new conversation."
+                        "This conversation already created a different agent. Continue in the agent editor or start a new conversation."
                     )
                 return workflow
             workflow = WorkflowModel(
@@ -60,22 +66,24 @@ class WorkflowClient(BaseDBClient):
             try:
                 session.add(workflow)
                 await session.flush()
-                session.add(
-                    WorkflowDefinitionModel(
-                        workflow_id=workflow.id,
-                        workflow_json=workflow_definition,
-                        status="draft",
-                        version_number=1,
-                        is_current=False,
-                        workflow_configurations={},
-                        template_context_variables={},
-                        extra_metadata={
-                            "builder_sessions": {str(user_id): builder_session_id}
-                        }
-                        if builder_session_id
-                        else {},
-                    )
+                definition = WorkflowDefinitionModel(
+                    workflow_id=workflow.id,
+                    workflow_json=workflow_definition,
+                    status="published",
+                    version_number=1,
+                    is_current=True,
+                    published_at=datetime.now(UTC),
+                    workflow_configurations={},
+                    template_context_variables={},
+                    extra_metadata={
+                        "builder_sessions": {str(user_id): builder_session_id}
+                    }
+                    if builder_session_id
+                    else {},
                 )
+                session.add(definition)
+                await session.flush()
+                workflow.released_definition_id = definition.id
                 await session.commit()
                 await session.refresh(workflow)
                 return workflow
@@ -84,7 +92,7 @@ class WorkflowClient(BaseDBClient):
                 if workflow := await existing():
                     if workflow.workflow_definition != workflow_definition:
                         raise ValueError(
-                            "This conversation already saved a different draft. Continue in the workflow editor or start a new conversation."
+                            "This conversation already created a different agent. Continue in the agent editor or start a new conversation."
                         )
                     return workflow
                 raise

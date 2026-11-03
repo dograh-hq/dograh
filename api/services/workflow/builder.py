@@ -347,7 +347,7 @@ async def _save_builder_draft(
         return workflow_id
     # One workflow per conversation. Existing UUID uniqueness makes retries atomic.
     try:
-        workflow = await db_client.create_builder_draft(
+        workflow = await db_client.create_builder_workflow(
             workflow_uuid=str(
                 uuid5(
                     NAMESPACE_URL,

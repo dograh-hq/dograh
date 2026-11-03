@@ -77,14 +77,19 @@ async def test_save_continued_session_updates_its_existing_draft():
         patch(
             "api.services.workflow.builder.preview_workflow_code",
             AsyncMock(
-                return_value={"valid": True, "name": "Renamed agent", "workflow": previous}
+                return_value={
+                    "valid": True,
+                    "name": "Renamed agent",
+                    "workflow": previous,
+                }
             ),
         ) as preview,
         patch(
             "api.services.workflow.builder.db_client.save_workflow_draft", AsyncMock()
         ) as save,
         patch(
-            "api.services.workflow.builder.db_client.create_builder_draft", AsyncMock()
+            "api.services.workflow.builder.db_client.create_builder_workflow",
+            AsyncMock(),
         ) as create,
     ):
         assert await save_builder_draft(user, session, "new", 41) == 41
@@ -165,7 +170,7 @@ async def test_builder_updates_preserve_settings_and_release_and_reject_stale_pr
     await async_session.flush()
     session = str(uuid4())
     original = {"nodes": [], "edges": []}
-    workflow = await db_session.create_builder_draft(
+    workflow = await db_session.create_builder_workflow(
         workflow_uuid=str(uuid4()),
         name="Agent",
         workflow_definition=original,
@@ -173,9 +178,11 @@ async def test_builder_updates_preserve_settings_and_release_and_reject_stale_pr
         organization_id=org.id,
         builder_session_id=session,
     )
-    assert (await db_session.get_draft_version(workflow.id)).extra_metadata == {
-        "builder_sessions": {str(user.id): session}
-    }
+    assert (
+        await db_session.get_workflow_definition(
+            workflow.id, workflow.released_definition_id, org.id
+        )
+    ).extra_metadata == {"builder_sessions": {str(user.id): session}}
     assert (
         await db_session.get_workflow_builder_session_id(
             workflow.id, organization_id=org.id, user_id=user.id
@@ -194,7 +201,7 @@ async def test_builder_updates_preserve_settings_and_release_and_reject_stale_pr
         workflow_name="Renamed agent",
     )
     assert draft.status == "draft"
-    assert draft.version_number == 2
+    assert draft.version_number == 3
     assert draft.template_context_variables == {"name": "Ada"}
     stored = await db_session.get_workflow(workflow.id, organization_id=org.id)
     assert stored.name == "Renamed agent"
@@ -250,14 +257,16 @@ async def test_open_existing_workflow_retains_session_in_json_and_preserves_meta
         if legacy_builder
         else str(uuid4())
     )
-    workflow = await db_session.create_builder_draft(
+    workflow = await db_session.create_builder_workflow(
         workflow_uuid=workflow_uuid,
         name="Existing agent",
         workflow_definition={"nodes": [], "edges": []},
         user_id=user.id,
         organization_id=org.id,
     )
-    draft = await db_session.get_draft_version(workflow.id)
+    draft = await db_session.get_workflow_definition(
+        workflow.id, workflow.released_definition_id, org.id
+    )
     draft.extra_metadata = {"version_name": "Keep this release note"}
     if legacy_builder:
         async_session.add(

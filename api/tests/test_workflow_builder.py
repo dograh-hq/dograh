@@ -271,7 +271,7 @@ async def test_save_revalidates_and_uses_stable_org_scoped_retry_key():
             ),
         ) as preview,
         patch(
-            "api.services.workflow.builder.db_client.create_builder_draft",
+            "api.services.workflow.builder.db_client.create_builder_workflow",
             AsyncMock(return_value=SimpleNamespace(id=41)),
         ) as create,
     ):
@@ -441,7 +441,7 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     )
     create = AsyncMock(return_value=SimpleNamespace(id=92))
     monkeypatch.setattr(
-        "api.services.workflow.builder.db_client.create_builder_draft", create
+        "api.services.workflow.builder.db_client.create_builder_workflow", create
     )
     question = {
         "id": "direction",

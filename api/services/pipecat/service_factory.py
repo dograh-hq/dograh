@@ -1339,7 +1339,8 @@ def create_tts_service(
                 min_buffer_size=2,
                 max_buffer_delay_in_ms=0,
             ),
-            skip_text_types=["recording_router", "recording"],
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     else:

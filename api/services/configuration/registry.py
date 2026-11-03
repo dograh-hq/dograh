@@ -1407,9 +1407,7 @@ class MurfTTSConfiguration(BaseTTSConfiguration):
     )
     locale: str = Field(
         default="en-US",
-        description=(
-            "Must be a locale your chosen voice supports, see the "
-        ),
+        description=("Must be a locale your chosen voice supports, see the "),
         json_schema_extra={
             "allow_custom_input": True,
             "docs_url": "https://murf.ai/api/dashboard?utm_source=dograh",

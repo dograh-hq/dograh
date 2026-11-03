@@ -161,8 +161,8 @@ def _drain_queue(queue: asyncio.Queue) -> list:
 async def test_murf_provider_error_closes_audio_context():
     service = MurfTTSService(api_key="test-key")
     context_id = "ctx-1"
-    queue = asyncio.Queue()
-    service._audio_contexts[context_id] = queue
+    await service.create_audio_context(context_id)
+    queue = service._audio_context_manager._contexts[context_id]
     service.push_error = AsyncMock()
     service.stop_all_metrics = AsyncMock()
     service.push_frame = AsyncMock()

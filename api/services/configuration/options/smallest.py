@@ -25,7 +25,6 @@ SMALLEST_TTS_LANGUAGES = (
     "ar",
     "bn",
     "gu",
-    "he",
     "kn",
     "mr",
     "ta",

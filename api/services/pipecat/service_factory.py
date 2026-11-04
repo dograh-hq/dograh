@@ -756,12 +756,16 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SARVAM.value:
+        sarvam_keyterms = (
+            keyterms if (keyterms and user_config.stt.model == "saaras:v4") else None
+        )
         return SarvamSTTService(
             api_key=user_config.stt.api_key,
             settings=SarvamSTTSettings(
                 model=user_config.stt.model,
                 **configurable_settings,
             ),
+            keyterms=sarvam_keyterms,
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEACHES.value:

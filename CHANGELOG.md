@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.51.0 (2026-11-04)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat(tts): add Murf as a BYOK voice provider by @gaurav-murf in https://github.com/dograh-hq/dograh/pull/681
+### Bug Fixes
+* fix: bump tuner-pipecat-sdk to 0.3.0 to keep all spoken agent lines by @HamzaFouad in https://github.com/dograh-hq/dograh/pull/968
+
+## New Contributors
+* @gaurav-murf made their first contribution in https://github.com/dograh-hq/dograh/pull/681
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.50.0...dograh-v1.51.0
+
 ## 1.50.0 (2026-10-31)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

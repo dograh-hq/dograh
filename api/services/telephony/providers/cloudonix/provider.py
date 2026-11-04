@@ -3,6 +3,8 @@ Cloudonix implementation of the TelephonyProvider interface.
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -37,6 +39,59 @@ if TYPE_CHECKING:
     from fastapi import WebSocket
 
 CLOUDONIX_API_BASE_URL = "https://api.cloudonix.io"
+
+# Session statuses from the Cloudonix Session data model. A session reports
+# one of the terminal ones when it ends; "answer" means it ended after being
+# answered.
+CLOUDONIX_TERMINAL_SESSION_STATUSES = frozenset(
+    {"answer", "noanswer", "busy", "nocredit", "cancel", "external", "error"}
+)
+_SESSION_STATUS_MAP = {
+    "new": TelephonyCallStatus.INITIATED,
+    "processing": TelephonyCallStatus.INITIATED,
+    "ringing": TelephonyCallStatus.RINGING,
+    "connected": TelephonyCallStatus.IN_PROGRESS,
+    "answer": TelephonyCallStatus.COMPLETED,
+    "noanswer": TelephonyCallStatus.NO_ANSWER,
+    "busy": TelephonyCallStatus.BUSY,
+    "nocredit": TelephonyCallStatus.FAILED,
+    "cancel": TelephonyCallStatus.CANCELED,
+    # Disconnected by an API call without a reason, e.g. a hangup we issued
+    # while the call was still ringing.
+    "external": TelephonyCallStatus.CANCELED,
+    "error": TelephonyCallStatus.ERROR,
+}
+
+
+def transfer_callback_url(
+    backend_endpoint: str, transfer_id: str, leg: str | None = None
+) -> str:
+    """Where a transfer leg reports its session and conference events.
+
+    The destination leg uses the bare URL, which also drives transfer
+    completion. The caller leg's conference events go to ``/{leg}`` so they
+    are recorded without ever being mistaken for the destination answering.
+    """
+    url = f"{backend_endpoint}/api/v1/telephony/cloudonix/transfer-result/{transfer_id}"
+    return f"{url}/{leg}" if leg else url
+
+
+def session_diagnostics(data: Dict[str, Any]) -> Dict[str, Any]:
+    """The diagnostic subset of a Cloudonix session or conference payload.
+
+    Callbacks carry the whole session object, including the CXML with the
+    media-stream URL and its capability token, so the payload is never stored
+    or logged as-is.
+    """
+    fields = {
+        "session": data.get("token") or data.get("Session"),
+        "start_time": data.get("startTime"),
+        "answer_time": data.get("answerTime"),
+        "end_time": data.get("endTime"),
+        "last_error": data.get("lastError"),
+    }
+    return {key: value for key, value in fields.items() if value}
+
 
 # Cloudonix sends the connected/start handshake immediately after the media
 # stream opens. The agent-stream route holds an org concurrency slot while we
@@ -117,6 +172,42 @@ class CloudonixProvider(TelephonyProvider):
             self.from_numbers = [self.from_numbers]
 
         self.base_url = CLOUDONIX_API_BASE_URL
+
+    def _status_callback_token(self, workflow_run_id: int | str) -> str:
+        """HMAC binding a status-callback URL to this domain and run.
+
+        Keyed on the domain's API key, so it needs no deployment-wide secret
+        and a URL minted for one run cannot be replayed onto another.
+        """
+        msg = f"cloudonix-status:{self.domain_id}:{workflow_run_id}".encode()
+        secret = (self.bearer_token or "").encode()
+        return hmac.new(secret, msg, hashlib.sha256).hexdigest()
+
+    def build_status_callback_url(
+        self, backend_endpoint: str, workflow_run_id: int
+    ) -> str:
+        """Session-callback URL for an outbound call.
+
+        The token is a path segment rather than a query parameter: Cloudonix
+        does not document whether callbacks keep a query string.
+        """
+        token = self._status_callback_token(workflow_run_id)
+        return (
+            f"{backend_endpoint}/api/v1/telephony/cloudonix/status-callback/"
+            f"{workflow_run_id}/{token}"
+        )
+
+    def verify_status_callback_token(
+        self, workflow_run_id: int, token: str | None
+    ) -> bool:
+        if not self.bearer_token or not token:
+            return False
+        expected = self._status_callback_token(workflow_run_id)
+        try:
+            # Bytes compare: a non-ASCII token must fail auth, not raise.
+            return hmac.compare_digest(expected.encode("utf-8"), token.encode("utf-8"))
+        except (TypeError, UnicodeError):
+            return False
 
     def _pin_trunk(self, data: Dict[str, Any], from_number: Optional[str]) -> None:
         """Route the call over the trunk that authorised its caller ID.
@@ -221,12 +312,13 @@ class CloudonixProvider(TelephonyProvider):
 </Response>""",
             "caller-id": from_number,  # Required field
         }
-        # TODO: Cloudonix status callbacks are spammy, so commenting it out. Can send it to
-        # some persistent logging system instead of transcational database.
-        # Add status callback if workflow_run_id provided
-        # if workflow_run_id:
-        #     callback_url = f"{backend_endpoint}/api/v1/telephony/cloudonix/status-callback/{workflow_run_id}"
-        #     data["callback"] = callback_url
+        if workflow_run_id:
+            # The session's terminal status (busy, noanswer, ...) is the only
+            # signal that an unanswered call failed. Cloudonix posts on every
+            # session update; the route keeps status changes only.
+            data["callback"] = self.build_status_callback_url(
+                backend_endpoint, workflow_run_id
+            )
 
         # Merge any additional kwargs
         data.update(kwargs)
@@ -413,39 +505,36 @@ class CloudonixProvider(TelephonyProvider):
         }
 
     def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Parse Cloudonix status callback data into generic format.
+        """Parse a Cloudonix session callback into the generic format.
 
-        Note: The exact format of Cloudonix status callbacks needs to be confirmed.
-        This implementation assumes a similar structure to Twilio.
+        The payload is the Session data model. A session that ended after
+        being answered always maps to completed, whatever its terminal status:
+        once a call connects, the pipeline owns its outcome, and a
+        not-connected status would overwrite the run's disposition.
         """
-        # Map Cloudonix status values to common format
-        # These mappings may need adjustment based on actual Cloudonix callback format
-        status_map = {
-            "initiated": TelephonyCallStatus.INITIATED,
-            "ringing": TelephonyCallStatus.RINGING,
-            "answered": TelephonyCallStatus.ANSWERED,
-            "completed": TelephonyCallStatus.COMPLETED,
-            "failed": TelephonyCallStatus.FAILED,
-            "busy": TelephonyCallStatus.BUSY,
-            "no-answer": TelephonyCallStatus.NO_ANSWER,
-            "canceled": TelephonyCallStatus.CANCELED,
-            "error": TelephonyCallStatus.ERROR,
-        }
+        raw_status = str(data.get("status") or "").lower()
+        status = _SESSION_STATUS_MAP.get(raw_status, raw_status)
 
-        call_status = data.get("status", "")
-        mapped_status = status_map.get(call_status.lower(), call_status)
+        answer_ms = data.get("callAnswerTime")
+        end_ms = data.get("callEndTime")
+        if raw_status in CLOUDONIX_TERMINAL_SESSION_STATUSES and answer_ms:
+            status = TelephonyCallStatus.COMPLETED
+
+        duration = "0"
+        if answer_ms and end_ms:
+            try:
+                duration = str(max(0, round((int(end_ms) - int(answer_ms)) / 1000)))
+            except (TypeError, ValueError):
+                pass
 
         return {
-            "call_id": data.get("token")
-            or data.get("session_id")
-            or data.get("CallSid", ""),
-            "status": mapped_status,
-            "from_number": data.get("caller_id") or data.get("From"),
-            "to_number": data.get("destination") or data.get("To"),
+            "call_id": data.get("token") or "",
+            "status": status,
+            "from_number": data.get("callerId"),
+            "to_number": data.get("destination"),
             "direction": data.get("direction"),
-            "duration": data.get("duration") or data.get("CallDuration"),
-            "extra": data,  # Include all original data
+            "duration": duration,
+            "extra": {"cloudonix_status": raw_status, **session_diagnostics(data)},
         }
 
     @staticmethod
@@ -1391,7 +1480,7 @@ class CloudonixProvider(TelephonyProvider):
             "<Response>"
             "<Say>You have answered a transfer call. Connecting you now.</Say>"
             "<Dial>"
-            f'<Conference endConferenceOnExit="true" statusCallback="{callback_url}" statusCallbackEvent="join" holdMusic="false">{conference_name}</Conference>'
+            f'<Conference endConferenceOnExit="true" statusCallback="{callback_url}" statusCallbackEvent="join leave" holdMusic="false">{conference_name}</Conference>'
             "</Dial>"
             "</Response>"
         )
@@ -1428,7 +1517,7 @@ class CloudonixProvider(TelephonyProvider):
             )
 
         backend_endpoint, _ = await get_backend_endpoints()
-        callback_url = f"{backend_endpoint}/api/v1/telephony/cloudonix/transfer-result/{transfer_id}"
+        callback_url = transfer_callback_url(backend_endpoint, transfer_id)
 
         endpoint = f"{self.base_url}/calls/{self.domain_id}/application"
         data: Dict[str, Any] = {

@@ -5,7 +5,11 @@ from typing import Any, Dict
 from loguru import logger
 from pipecat.serializers.call_strategies import HangupStrategy, TransferStrategy
 
-from api.services.telephony.providers.cloudonix.provider import CLOUDONIX_API_BASE_URL
+from api.services.telephony.providers.cloudonix.provider import (
+    CLOUDONIX_API_BASE_URL,
+    transfer_callback_url,
+)
+from api.utils.common import get_backend_endpoints
 
 
 class CloudonixConferenceStrategy(TransferStrategy):
@@ -50,15 +54,23 @@ class CloudonixConferenceStrategy(TransferStrategy):
             # Always fork the session token, never the media callSid.
             session_token = transfer_context.original_call_sid
             conference_name = transfer_context.conference_name
+            transfer_id = transfer_context.transfer_id
 
             endpoint = (
                 f"{CLOUDONIX_API_BASE_URL}/calls/{domain_id}/sessions/"
                 f"{session_token}/application"
             )
+            # The switch request returning 200 does not mean the caller is in
+            # the conference; the caller's own join/leave events are the only
+            # evidence of that, so they are reported back and recorded.
+            backend_endpoint, _ = await get_backend_endpoints()
+            status_callback = transfer_callback_url(
+                backend_endpoint, transfer_id, leg="caller"
+            )
             caller_cxml = (
                 '<?xml version="1.0" encoding="UTF-8"?>'
                 "<Response><Dial>"
-                f'<Conference endConferenceOnExit="true" beep="false" holdMusic="false">{conference_name}</Conference>'
+                f'<Conference endConferenceOnExit="true" beep="false" holdMusic="false" statusCallback="{status_callback}" statusCallbackEvent="join leave">{conference_name}</Conference>'
                 "</Dial><Hangup/></Response>"
             )
             payload = {"cxml": caller_cxml}
@@ -77,20 +89,23 @@ class CloudonixConferenceStrategy(TransferStrategy):
                     endpoint, json=payload, headers=headers
                 ) as response:
                     body = await response.text()
-                    if response.status in (200, 202):
+                    switched = response.status in (200, 202)
+                    await self._record_switch(
+                        transfer_id, session_token, response.status, switched, body
+                    )
+                    if switched:
                         logger.info(
-                            f"[Cloudonix Transfer] Session {session_token} joined "
-                            f"conference {conference_name} (HTTP {response.status})"
+                            f"[Cloudonix Transfer] Switch of session {session_token} "
+                            f"into conference {conference_name} accepted "
+                            f"(HTTP {response.status})"
                         )
-                        await self._cleanup_transfer_context(
-                            transfer_context.transfer_id
-                        )
+                        await self._cleanup_transfer_context(transfer_id)
                         return True
                     logger.error(
                         f"[Cloudonix Transfer] Switch Voice Application failed for session "
                         f"{session_token}: HTTP {response.status}, body: {body}"
                     )
-                    await self._cleanup_transfer_context(transfer_context.transfer_id)
+                    await self._cleanup_transfer_context(transfer_id)
                     return False
 
         except Exception as e:
@@ -98,6 +113,28 @@ class CloudonixConferenceStrategy(TransferStrategy):
             if transfer_context:
                 await self._cleanup_transfer_context(transfer_context.transfer_id)
             return False
+
+    async def _record_switch(
+        self,
+        transfer_id: str,
+        session_token: str,
+        http_status: int,
+        switched: bool,
+        body: str,
+    ) -> None:
+        from api.services.telephony.providers.cloudonix.transfer_log import (
+            record_transfer_event,
+        )
+
+        await record_transfer_event(
+            transfer_id,
+            "caller",
+            "dograh",
+            "switch-requested",
+            session=session_token,
+            http_status=http_status,
+            error=None if switched else body[:500],
+        )
 
     async def _find_transfer_context_for_call(self, call_sid: str):
         try:

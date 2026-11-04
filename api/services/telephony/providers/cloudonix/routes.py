@@ -4,17 +4,22 @@ Mounted under ``/api/v1/telephony`` by ``api.routes.telephony`` via the
 provider registry — see ProviderSpec.router.
 """
 
-import json
+from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
 
 from api.db import db_client
+from api.enums import TelephonyCallStatus
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.providers.cloudonix.provider import CloudonixProvider
+from api.services.telephony.providers.cloudonix.transfer_log import (
+    record_transfer_callback,
+)
 from api.services.telephony.status_processor import (
+    TERMINAL_NOT_CONNECTED_STATUSES,
     StatusCallbackRequest,
     _process_status_update,
 )
@@ -37,42 +42,80 @@ _CLOUDONIX_TRANSFER_FAILURE_STATUSES = {
 }
 
 
-@router.post("/cloudonix/transfer-result/{transfer_id}")
-async def handle_cloudonix_transfer_result(transfer_id: str, request: Request):
-    """Drive transfer completion from the destination leg's session status.
-
-    ``CloudonixProvider.transfer_call`` sets this URL as the outbound call
-    object's ``callback``. Cloudonix POSTs session-status notifications here;
-    a ``connected`` status means the destination answered (publish
-    DESTINATION_ANSWERED so the shared handler forks the caller into the
-    conference), while terminal non-answer statuses publish TRANSFER_FAILED.
-    Intermediate statuses (ringing/processing) are acked without publishing.
-    """
-    content_type = request.headers.get("content-type", "")
-    if "application/json" in content_type:
-        data = await request.json()
-    else:
-        data = dict(await request.form())
-
+async def _read_callback_body(request: Request) -> dict[str, Any]:
+    """The callback body as a dict, or ``{}`` when it cannot be parsed."""
+    try:
+        if "application/json" in request.headers.get("content-type", ""):
+            data = await request.json()
+        else:
+            data = dict(await request.form())
+    except Exception as e:
+        logger.warning(f"[Cloudonix] Unparseable callback body: {e}")
+        return {}
     # Cloudonix session notifications may arrive as a single object or a
     # one-element list (see session-update webhook payloads).
     if isinstance(data, list):
         data = data[0] if data else {}
+    return data if isinstance(data, dict) else {}
 
+
+@router.post("/cloudonix/transfer-result/{transfer_id}")
+async def handle_cloudonix_transfer_result(transfer_id: str, request: Request):
+    """Drive transfer completion from the destination leg's callbacks.
+
+    ``CloudonixProvider.transfer_call`` sets this URL as the destination
+    call's session ``callback`` and as its conference ``statusCallback``. The
+    destination joining the conference publishes DESTINATION_ANSWERED so the
+    shared handler forks the caller in; a terminal non-answer session status
+    publishes TRANSFER_FAILED. Everything else is acked without publishing.
+
+    Significant events are also recorded on the run, including those that
+    arrive after the transfer context is gone (the destination leaving the
+    conference, its session ending).
+    """
+    data = await _read_callback_body(request)
+    result = await _drive_transfer(transfer_id, data)
+    await record_transfer_callback(transfer_id, "destination", data)
+    return result
+
+
+@router.post("/cloudonix/transfer-result/{transfer_id}/caller")
+async def handle_cloudonix_transfer_caller_event(transfer_id: str, request: Request):
+    """Record the caller leg's conference join/leave events.
+
+    A 200 on the caller's application switch only means Cloudonix accepted
+    it; the caller's own participant-join is the evidence that it reached the
+    conference. These arrive on their own URL so a caller join can never be
+    read as the destination answering.
+    """
+    data = await _read_callback_body(request)
+    logger.info(
+        f"[Cloudonix Transfer] transfer_id={transfer_id} leg=caller "
+        f"conferenceStatus={str(data.get('StatusCallbackEvent', '')).lower()} "
+        f"token={data.get('Session', '')}"
+    )
+    await record_transfer_callback(transfer_id, "caller", data)
+    return {"status": "recorded"}
+
+
+async def _drive_transfer(transfer_id: str, data: dict[str, Any]) -> dict[str, str]:
     conferenceStatus = str(data.get("StatusCallbackEvent", "")).lower()
     outboundCallStatus = str(data.get("status", "")).lower()
     destination_token = data.get("Session", "")
 
     logger.info(
-        f"[Cloudonix Transfer] transfer_id={transfer_id} status={outboundCallStatus} conferenceStatus={conferenceStatus}"
-        f"token={destination_token}"
+        f"[Cloudonix Transfer] transfer_id={transfer_id} status={outboundCallStatus} "
+        f"conferenceStatus={conferenceStatus} token={destination_token}"
     )
 
     call_transfer_manager = await get_call_transfer_manager()
     transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
     if not transfer_context:
-        logger.warning(
-            f"[Cloudonix Transfer] No transfer context for {transfer_id}; ignoring"
+        # Normal once the caller has been switched: the context is cleaned up
+        # then, and later callbacks are only recorded.
+        logger.info(
+            f"[Cloudonix Transfer] No transfer context for {transfer_id}; "
+            "not driving the transfer"
         )
         return {"status": "ignored", "reason": "unknown_transfer"}
 
@@ -113,63 +156,104 @@ async def handle_cloudonix_transfer_result(transfer_id: str, request: Request):
     return {"status": "completed"}
 
 
-@router.post("/cloudonix/status-callback/{workflow_run_id}")
-async def handle_cloudonix_status_callback(
-    workflow_run_id: int,
-    request: Request,
-):
-    """Handle Cloudonix-specific status callbacks.
+# Once one of these is recorded the run's callback log is closed: a late,
+# out-of-order "connected" must not become the last entry, which campaign
+# failure counting reads.
+_FINAL_STATUS_VALUES = frozenset(
+    status.value
+    for status in TERMINAL_NOT_CONNECTED_STATUSES | {TelephonyCallStatus.COMPLETED}
+)
 
-    Cloudonix sends call status updates to the callback URL specified during call initiation.
+
+def _is_status_change(recorded: list[dict], status: TelephonyCallStatus | str) -> bool:
+    """Whether a session callback carries news for the run's callback log.
+
+    Cloudonix posts on every session update (QoS stats, profile writes, ...),
+    most of them repeating the previous status, and delivers them out of order.
     """
-    set_current_run_id(workflow_run_id)
-    # Parse callback data - determine if JSON or form data
-    content_type = request.headers.get("content-type", "")
+    known = TelephonyCallStatus.from_raw(status)
+    value = known.value if known else str(status).lower()
+    if any(entry.get("status") in _FINAL_STATUS_VALUES for entry in recorded):
+        return False
+    return not recorded or recorded[-1].get("status") != value
 
-    if "application/json" in content_type:
-        callback_data = await request.json()
-    else:
-        # Assume form data (like Twilio)
-        form_data = await request.form()
-        callback_data = dict(form_data)
 
-    logger.info(
-        f"[run {workflow_run_id}] Received Cloudonix status callback: {json.dumps(callback_data)}"
-    )
-
-    # Get workflow run to find organization
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+async def _cloudonix_provider_for_run(workflow_run) -> CloudonixProvider | None:
     if not workflow_run:
-        logger.warning(f"Workflow run {workflow_run_id} not found for status callback")
-        return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-    # Get workflow and provider
+        return None
     workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
     if not workflow:
-        logger.warning(f"Workflow {workflow_run.workflow_id} not found")
-        return {"status": "ignored", "reason": "workflow_not_found"}
+        return None
+    try:
+        provider = await get_telephony_provider_for_run(
+            workflow_run, workflow.organization_id
+        )
+    except Exception as e:
+        logger.warning(f"[run {workflow_run.id}] No telephony provider: {e}")
+        return None
+    return provider if isinstance(provider, CloudonixProvider) else None
 
-    provider = await get_telephony_provider_for_run(
-        workflow_run, workflow.organization_id
+
+@router.post("/cloudonix/status-callback/{workflow_run_id}/{token}")
+async def handle_cloudonix_status_callback(
+    workflow_run_id: int,
+    token: str,
+    request: Request,
+):
+    """Session callbacks for outbound calls placed by ``initiate_call``.
+
+    ``token`` is an HMAC over the run id keyed on the domain's API key, so
+    only URLs Dograh minted are accepted. An unknown run and a bad token get
+    the same 404, so run ids cannot be probed. Status changes go to the shared
+    status processor, which ends a busy / noanswer / failed call exactly as it
+    does for every other provider.
+    """
+    set_current_run_id(workflow_run_id)
+
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    provider = await _cloudonix_provider_for_run(workflow_run)
+    if not provider or not provider.verify_status_callback_token(
+        workflow_run_id, token
+    ):
+        logger.warning(
+            f"[run {workflow_run_id}] Cloudonix status callback rejected: "
+            "unknown run, non-Cloudonix run or invalid token"
+        )
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+
+    parsed = provider.parse_status_callback(await _read_callback_body(request))
+    raw_status = parsed["extra"]["cloudonix_status"]
+    logger.info(
+        f"[run {workflow_run_id}] Cloudonix status callback: "
+        f"session={parsed['call_id']} status={raw_status}"
     )
+    if not raw_status:
+        return {"status": "ignored", "reason": "no_status"}
 
-    # Parse the callback data into generic format
-    parsed_data = provider.parse_status_callback(callback_data)
+    expected_call_id = (workflow_run.gathered_context or {}).get("call_id")
+    if expected_call_id and parsed["call_id"] != expected_call_id:
+        logger.warning(
+            f"[run {workflow_run_id}] Cloudonix status callback for session "
+            f"{parsed['call_id']!r}, run is on {expected_call_id!r}; ignoring"
+        )
+        return {"status": "ignored", "reason": "session_mismatch"}
 
-    # Create StatusCallbackRequest from parsed data
-    status_update = StatusCallbackRequest(
-        call_id=parsed_data["call_id"],
-        status=parsed_data["status"],
-        from_number=parsed_data.get("from_number"),
-        to_number=parsed_data.get("to_number"),
-        direction=parsed_data.get("direction"),
-        duration=parsed_data.get("duration"),
-        extra=parsed_data.get("extra", {}),
+    recorded = (workflow_run.logs or {}).get("telephony_status_callbacks") or []
+    if not _is_status_change(recorded, parsed["status"]):
+        return {"status": "ignored", "reason": "unchanged"}
+
+    await _process_status_update(
+        workflow_run_id,
+        StatusCallbackRequest(
+            call_id=parsed["call_id"],
+            status=parsed["status"],
+            from_number=parsed.get("from_number"),
+            to_number=parsed.get("to_number"),
+            direction=parsed.get("direction"),
+            duration=parsed.get("duration"),
+            extra=parsed.get("extra", {}),
+        ),
     )
-
-    # Process the status update
-    await _process_status_update(workflow_run_id, status_update)
-
     return {"status": "success"}
 
 

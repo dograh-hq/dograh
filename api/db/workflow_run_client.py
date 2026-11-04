@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from sqlalchemy import Float, cast, func
 from sqlalchemy.future import select
@@ -515,6 +515,38 @@ class WorkflowRunClient(BaseDBClient):
                 raise e
             await session.refresh(run)
         return run
+
+    async def append_workflow_run_log_entry(
+        self,
+        run_id: int,
+        key: str,
+        entry: dict,
+        should_append: Callable[[list[dict]], bool] | None = None,
+    ) -> bool:
+        """Append ``entry`` to the list at ``logs[key]`` under a row lock.
+
+        For webhook callbacks that arrive concurrently. Reading the list and
+        writing it back through :meth:`update_workflow_run` drops an entry
+        whenever two deliveries interleave. ``should_append`` sees the stored
+        list inside the lock, so a dedupe decision cannot race either.
+
+        Returns whether the entry was stored; ``False`` for an unknown run.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel)
+                .where(WorkflowRunModel.id == run_id)
+                .with_for_update()
+            )
+            run = result.scalars().first()
+            if not run:
+                return False
+            existing = list((run.logs or {}).get(key) or [])
+            if should_append is not None and not should_append(existing):
+                return False
+            run.logs = {**(run.logs or {}), key: [*existing, entry]}
+            await session.commit()
+        return True
 
     async def get_workflow_run_with_context(
         self, workflow_run_id: int

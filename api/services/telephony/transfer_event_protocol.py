@@ -111,6 +111,15 @@ class TransferRedisChannels:
         return f"transfer:by_call_sid:{original_call_sid}"
 
     @staticmethod
+    def transfer_run_key(transfer_id: str) -> str:
+        """Redis key for the transfer_id -> workflow_run_id index.
+
+        Outlives the transfer context so provider callbacks that arrive after
+        the transfer completes can still be attributed to their run.
+        """
+        return f"transfer:run:{transfer_id}"
+
+    @staticmethod
     def transfer_step_key(transfer_id: str, step: str) -> str:
         """Key used to make provider webhook side effects idempotent."""
         return f"transfer:step:{transfer_id}:{step}"

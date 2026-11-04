@@ -20,6 +20,11 @@ from api.services.telephony.transfer_event_protocol import (
 )
 
 
+# A conference can run long after the transfer context's few-minute TTL, and
+# the callbacks reporting how it ended are the ones worth keeping.
+TRANSFER_RUN_INDEX_TTL_S = 24 * 60 * 60
+
+
 class CallTransferManager:
     """Manages call transfer events and context storage using Redis."""
 
@@ -53,9 +58,31 @@ class CallTransferManager:
                     context.original_call_sid
                 )
                 await redis.setex(index_key, ttl, context.transfer_id)
+            if context.workflow_run_id is not None:
+                await redis.setex(
+                    TransferRedisChannels.transfer_run_key(context.transfer_id),
+                    TRANSFER_RUN_INDEX_TTL_S,
+                    str(context.workflow_run_id),
+                )
             logger.debug(f"Stored transfer context for {context.transfer_id}")
         except Exception as e:
             logger.error(f"Failed to store transfer context: {e}")
+
+    async def get_transfer_run_id(self, transfer_id: str) -> int | None:
+        """Return the workflow run a transfer belongs to.
+
+        Unlike :meth:`get_transfer_context`, this still resolves after the
+        context has been removed, for callbacks that describe what happened
+        once the call left the pipeline (a leg joining or leaving the
+        conference, the destination hanging up).
+        """
+        try:
+            redis = await self._get_redis()
+            value = await redis.get(TransferRedisChannels.transfer_run_key(transfer_id))
+            return int(value) if value else None
+        except Exception as e:
+            logger.error(f"Failed to get transfer run id for {transfer_id}: {e}")
+            return None
 
     async def get_transfer_context(self, transfer_id: str) -> Optional[TransferContext]:
         """Retrieve transfer context from Redis.

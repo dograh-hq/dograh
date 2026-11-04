@@ -6,6 +6,7 @@ import {
     CircleDollarSign,
     CreditCard,
     ExternalLink,
+    FileText,
     Info,
     RefreshCw,
 } from "lucide-react";
@@ -49,17 +50,6 @@ const formatCredits = (value: number | null | undefined) => (
         minimumFractionDigits: 0,
     })
 );
-
-const formatAmount = (amountMinor?: number | null, currency?: string | null) => {
-    if (amountMinor == null) {
-        return "-";
-    }
-
-    return new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency: currency || "USD",
-    }).format(amountMinor / 100);
-};
 
 const metricLabels: Record<string, string> = {
     voice_minutes: "Voice usage",
@@ -257,6 +247,14 @@ export default function BillingPage() {
                 Refresh
             </Button>
                 {canPurchaseCredits && (
+                    <Button variant="outline" asChild>
+                        <Link href="/billing/invoices">
+                            <FileText className="h-4 w-4 mr-2" />
+                            Invoices
+                        </Link>
+                    </Button>
+                )}
+                {canPurchaseCredits && (
                     <Button onClick={handlePurchaseCredits} disabled={purchasing}>
                         <CreditCard className="h-4 w-4 mr-2" />
                         {purchasing ? "Opening..." : "Add Credits"}
@@ -347,7 +345,6 @@ export default function BillingPage() {
                                             <TableHead>Run</TableHead>
                                             <TableHead className="text-right">Credits added / used</TableHead>
                                             <TableHead className="text-right">Balance</TableHead>
-                                            <TableHead className="text-right">Amount paid</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -393,9 +390,6 @@ export default function BillingPage() {
                                                         {formatCredits(delta)}
                                                     </TableCell>
                                                     <TableCell className="text-right">{formatCredits(entry.balance_after)}</TableCell>
-                                                    <TableCell className="text-right">
-                                                        {formatAmount(entry.amount_minor, entry.amount_currency)}
-                                                    </TableCell>
                                                 </TableRow>
                                             );
                                         })}

@@ -9,13 +9,27 @@ from pipecat.audio.vad.vad_analyzer import VADState
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
+    Frame,
     InputAudioRawFrame,
+    InterimTranscriptionFrame,
+    InterruptionFrame,
+    LLMContextFrame,
     ProposedUserStartedSpeakingFrame,
     ProposedUserStoppedSpeakingFrame,
     StopFrame,
     TranscriptionFrame,
 )
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMUserAggregator,
+    LLMUserAggregatorParams,
+)
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.tests.utils import SleepFrame, run_test
+from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
+from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from api.services.pipecat.call_opening import OpeningInputGate
 from api.services.pipecat.run_pipeline import _create_opening_input_gate
@@ -78,44 +92,36 @@ async def test_delayed_start_waits_and_closing_prevents_opening(monkeypatch, rea
         await asyncio.gather(started, return_exceptions=True)
 
 
-@pytest.mark.parametrize("realtime", [False, True])
 @pytest.mark.asyncio
-async def test_caller_first_releases_retained_input_without_second_greeting(
-    monkeypatch, realtime
+async def test_realtime_caller_first_hands_retained_audio_to_the_provider(
+    monkeypatch,
 ):
-    call = Call(monkeypatch, fetch_task=None, is_child=not realtime)
+    call = Call(monkeypatch, fetch_task=None, is_child=False)
     engine = call.engine
-    engine._is_realtime = realtime
+    engine._is_realtime = True
     engine.active_agent.workflow.nodes["start"] = SimpleNamespace(
         delayed_start=True,
         delayed_start_duration=0.01,
     )
     engine.opening.input_gate = retained = gate()
-    if realtime:
-        retained._vad = SimpleNamespace(
-            analyze_audio=AsyncMock(return_value=VADState.SPEAKING)
-        )
+    retained._vad = SimpleNamespace(
+        analyze_audio=AsyncMock(return_value=VADState.SPEAKING)
+    )
     audio = InputAudioRawFrame(b"\x01\x02" * 320, 16000, 1)
     await retained.process_frame(audio, D)
-    if not realtime:
-        await retained.process_frame(TranscriptionFrame("Hello?", "caller", ""), D)
     service = SimpleNamespace(
         handle_prerecorded_greeting=AsyncMock(),
         wait_for_input_ready=AsyncMock(),
     )
-    if realtime:
-        engine.active_agent.llm = service
+    engine.active_agent.llm = service
     await asyncio.wait_for(await call.ready(), 1)
     async with asyncio.timeout(1):
-        while retained.push_frame.await_count != (1 if realtime else 2):
+        while retained.push_frame.await_count != 1:
             await asyncio.sleep(0)
     engine.queue_node_opening.assert_not_awaited()
     assert retained.push_frame.await_args_list[0].args[0] is audio
-    if realtime:
-        service.handle_prerecorded_greeting.assert_awaited_once_with(
-            engine.context, None
-        )
-        service.wait_for_input_ready.assert_awaited_once()
+    service.handle_prerecorded_greeting.assert_awaited_once_with(engine.context, None)
+    service.wait_for_input_ready.assert_awaited_once()
     await engine.opening.close()
 
 
@@ -138,15 +144,14 @@ async def test_provider_readiness_timeout_ends_call_and_retains_input_until_clea
     await engine.opening.close()
 
 
-@pytest.mark.parametrize("realtime", [False, True])
 @pytest.mark.parametrize("speaking", [False, True])
 @pytest.mark.asyncio
-async def test_opening_detects_caller_audio_before_delayed_transcription(
-    monkeypatch, realtime, speaking
+async def test_realtime_opening_detects_caller_audio_before_delayed_transcription(
+    monkeypatch, speaking
 ):
-    call = Call(monkeypatch, fetch_task=None, is_child=not realtime)
+    call = Call(monkeypatch, fetch_task=None, is_child=False)
     engine = call.engine
-    engine._is_realtime = realtime
+    engine._is_realtime = True
     node = SimpleNamespace(
         delayed_start=True,
         delayed_start_duration=0.4,
@@ -165,10 +170,9 @@ async def test_opening_detects_caller_audio_before_delayed_transcription(
         AsyncMock(return_value=VADState.SPEAKING if speaking else VADState.QUIET),
     )
     retained.push_frame = AsyncMock()
-    if realtime:
-        engine.active_agent.llm = SimpleNamespace(
-            handle_prerecorded_greeting=AsyncMock(), wait_for_input_ready=AsyncMock()
-        )
+    engine.active_agent.llm = SimpleNamespace(
+        handle_prerecorded_greeting=AsyncMock(), wait_for_input_ready=AsyncMock()
+    )
     try:
         await call.transport.handlers["on_client_connected"](call.transport, None)
         audio = InputAudioRawFrame(bytes(640), 16000, 1)
@@ -273,6 +277,60 @@ async def test_cascade_retains_turn_boundaries_with_their_transcript():
     retained.push_frame.assert_not_awaited()
     await retained.release()
     assert [call.args[0] for call in retained.push_frame.await_args_list] == frames
+
+
+@pytest.mark.parametrize("finalized", [False, True])
+@pytest.mark.asyncio
+async def test_buffered_transcript_survives_turn_start_interruption(finalized):
+    class Release(Frame):
+        pass
+
+    class Gate(OpeningInputGate):
+        async def process_frame(self, frame, direction):
+            if isinstance(frame, Release):
+                await self.release()
+                return
+            await super().process_frame(frame, direction)
+
+    context = LLMContext()
+    user = LLMUserAggregator(
+        context,
+        params=LLMUserAggregatorParams(
+            user_turn_strategies=UserTurnStrategies(
+                start=[MinWordsUserTurnStartStrategy(min_words=1)],
+                stop=[ExternalUserTurnStopStrategy(timeout=30)],
+            ),
+            user_turn_stop_timeout=30,
+        ),
+    )
+    interim = InterimTranscriptionFrame("Hello", "caller", "")
+    buffered = TranscriptionFrame("Hello.", "caller", "", finalized=finalized)
+    live = TranscriptionFrame("Can you help?", "caller", "", finalized=True)
+
+    downstream, _ = await run_test(
+        Pipeline([Gate(), user]),
+        frames_to_send=[
+            ProposedUserStartedSpeakingFrame(),
+            interim,
+            buffered,
+            ProposedUserStoppedSpeakingFrame(),
+            Release(),
+            SleepFrame(0.1),
+            ProposedUserStartedSpeakingFrame(),
+            live,
+            ProposedUserStoppedSpeakingFrame(),
+            SleepFrame(0.1),
+        ],
+    )
+
+    assert context.messages == [
+        {"role": "user", "content": "Hello."},
+        {"role": "user", "content": "Can you help?"},
+    ]
+    assert sum(isinstance(frame, LLMContextFrame) for frame in downstream) == 2
+    assert sum(isinstance(frame, InterruptionFrame) for frame in downstream) == 2
+    assert interim.interruptible
+    assert live.interruptible
 
 
 @pytest.mark.parametrize("terminal", [CancelFrame, EndFrame, StopFrame])

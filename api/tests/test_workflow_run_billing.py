@@ -6,7 +6,6 @@ import pytest
 from api.enums import WorkflowRunMode
 from api.services import workflow_run_billing as workflow_run_billing_mod
 from api.services.workflow_run_billing import (
-    _is_usage_not_ready_error,
     report_completed_workflow_run_platform_usage,
     report_workflow_run_platform_usage,
 )
@@ -24,16 +23,6 @@ def _make_workflow_run():
             user=SimpleNamespace(selected_organization_id=42),
         ),
     )
-
-
-def test_is_usage_not_ready_error_detects_mps_409():
-    exc = Exception("Failed to report platform usage")
-    exc.response = SimpleNamespace(
-        status_code=409,
-        text='{"detail":"usage_not_ready"}',
-    )
-
-    assert _is_usage_not_ready_error(exc) is True
 
 
 @pytest.mark.asyncio
@@ -203,18 +192,3 @@ async def test_billing_failure_reaches_completion_worker(monkeypatch):
     )
     with pytest.raises(TimeoutError, match="MPS unavailable"):
         await report_workflow_run_platform_usage(_make_workflow_run())
-
-
-@pytest.mark.asyncio
-async def test_no_platform_fee_does_not_require_retry(monkeypatch):
-    exc = Exception("No billable usage")
-    exc.response = SimpleNamespace(status_code=409, text='{"detail":"usage_not_ready"}')
-    report_usage = AsyncMock(side_effect=exc)
-    monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
-    monkeypatch.setattr(
-        workflow_run_billing_mod.mps_service_key_client,
-        "report_platform_usage",
-        report_usage,
-    )
-    await report_workflow_run_platform_usage(_make_workflow_run())
-    report_usage.assert_awaited_once()

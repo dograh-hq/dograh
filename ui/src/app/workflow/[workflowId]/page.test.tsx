@@ -1,5 +1,8 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
+import posthog from 'posthog-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { PostHogEvent } from '@/constants/posthog-events';
 
 import WorkflowDetailPage from './page';
 
@@ -126,5 +129,18 @@ describe('workflow version links', () => {
         await screen.findByTestId('workflow');
         await act(async () => { resolveOld({ data: [version(3)] }); });
         expect(editorProps().initialSelectedVersion.id).toBe(101);
+    });
+});
+
+describe('analytics', () => {
+    it('names the opened workflow by its UUID, not its per-region id', async () => {
+        mocks.workflow.mockResolvedValue({ data: { id: 12, name: 'Agent', workflow_uuid: 'wf-uuid' } });
+        render(<WorkflowDetailPage />);
+        await screen.findByTestId('workflow');
+
+        expect(posthog.capture).toHaveBeenCalledWith(PostHogEvent.WORKFLOW_EDITOR_OPENED, {
+            workflow_uuid: 'wf-uuid',
+            workflow_name: 'Agent',
+        });
     });
 });

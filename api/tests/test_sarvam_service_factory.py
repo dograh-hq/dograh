@@ -227,7 +227,7 @@ class TestSarvamSTTServiceFactory:
             )
 
         kwargs = mock_service.call_args.kwargs
-        assert kwargs["settings"].keyterms == ["Sarvam", "Dograh"]
+        assert kwargs["keyterms"] == ["Sarvam", "Dograh"]
 
     def test_create_sarvam_stt_service_omits_keyterms_for_v3(self):
         user_config = SimpleNamespace(
@@ -252,13 +252,7 @@ class TestSarvamSTTServiceFactory:
             )
 
         kwargs = mock_service.call_args.kwargs
-        # For v3, keyterms are not passed to SarvamSTTSettings
-        from pipecat.utils.types import is_given
-
-        assert (
-            not is_given(kwargs["settings"].keyterms)
-            or kwargs["settings"].keyterms is None
-        )
+        assert kwargs["keyterms"] is None
 
 
 class TestSarvamTTSServiceFactory:

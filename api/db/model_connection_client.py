@@ -303,11 +303,15 @@ class ModelConnectionClient(BaseDBClient):
             )
             session.add(configuration)
             await session.flush()
+            # Read before commit: sessions expire their objects on commit, and
+            # reloading an expired attribute outside an await raises
+            # MissingGreenlet.
+            configuration_uuid = configuration.uuid
             await self._write_default_pointer(
-                session, organization_id, configuration.uuid
+                session, organization_id, configuration_uuid
             )
             await session.commit()
-            return configuration.uuid
+            return configuration_uuid
 
     async def set_default_named_model_configuration(
         self, organization_id, configuration_uuid, *, expected_revision=None

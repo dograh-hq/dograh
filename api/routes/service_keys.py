@@ -10,7 +10,7 @@ from api.schemas.service_key import (
     CreateServiceKeyResponse,
     ServiceKeyResponse,
 )
-from api.services.auth.depends import get_user
+from api.services.auth.depends import get_service_key_user, get_user
 from api.services.mps_service_key_client import mps_service_key_client
 
 router = APIRouter()
@@ -40,6 +40,8 @@ async def get_service_keys(
             )
 
         return [ServiceKeyResponse.model_validate(key) for key in service_keys]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get service keys: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve service keys")
@@ -48,38 +50,32 @@ async def get_service_keys(
 @router.post("/user/service-keys", response_model=CreateServiceKeyResponse)
 async def create_service_key(
     request: CreateServiceKeyRequest,
-    user: UserModel = Depends(get_user),
+    user: UserModel = Depends(get_service_key_user),
 ):
-    """Create a new service key for the user's organization."""
+    """Create a legacy OSS trial key or a verified hosted account key."""
+    if DEPLOYMENT_MODE != "oss" and not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
     try:
-        # For OSS mode, don't pass organization_id
-        # For authenticated mode, pass organization_id
-        if DEPLOYMENT_MODE == "oss":
-            result = await mps_service_key_client.create_service_key(
-                name=request.name,
-                created_by=str(user.provider_id),
-                expires_in_days=request.expires_in_days or 90,
-                description=f"Service key: {request.name}",
-            )
-        else:
-            if not user.selected_organization_id:
-                raise HTTPException(status_code=400, detail="No organization selected")
-
-            result = await mps_service_key_client.create_service_key(
-                name=request.name,
-                organization_id=user.selected_organization_id,
-                created_by=str(user.provider_id),
-                expires_in_days=request.expires_in_days or 90,
-                description=f"Service key for organization {user.selected_organization_id}",
-            )
-
+        result = await mps_service_key_client.create_service_key(
+            name=request.name,
+            organization_id=(
+                None if DEPLOYMENT_MODE == "oss" else user.selected_organization_id
+            ),
+            created_by=str(user.provider_id),
+            expires_in_days=request.expires_in_days or 90,
+            description=(
+                f"Service key: {request.name}"
+                if DEPLOYMENT_MODE == "oss"
+                else f"Service key for organization {user.selected_organization_id}"
+            ),
+        )
         return CreateServiceKeyResponse.model_validate(result)
-
-    except Exception as e:
-        logger.error(f"Failed to create service key: {e}")
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to create service key")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create service key: {str(e)}",
+            status_code=503, detail="Key service is unavailable. Please try again."
         )
 
 
@@ -114,6 +110,8 @@ async def archive_service_key(
 
         return {"message": "Service key archived successfully"}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to archive service key: {e}")
         raise HTTPException(

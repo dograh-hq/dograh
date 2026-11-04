@@ -1,4 +1,4 @@
-"""Observe answer turns while suppressing their workflow inference triggers.
+"""Share opening timing and inference gating, with optional answer classification.
 
 The gate runs synchronously in the aggregator's push: committing text and
 dropping its trigger complete before on_user_turn_stopped grants permission.
@@ -141,6 +141,15 @@ class AnswerSupervisor(FrameProcessor):
             and not self._logical_turn
             and not aggregator.aggregation_string()
         ):
+            if (
+                self._onset is not None
+                and not self._opening_started
+                and not self._screening
+            ):
+                # An empty/discarded first transcript has not resolved the
+                # answer. Speech already disabled the silence fallback, so keep
+                # its bounded utterance timer until we have usable text.
+                return
             # A start strategy discarded this transcript. It must not leave
             # the answer timer waiting for a user turn that will never end.
             self._onset = None
@@ -176,6 +185,7 @@ class AnswerSupervisor(FrameProcessor):
         self._log(
             "armed",
             strategy="config",
+            detection_enabled=self.config.enabled,
             listening_window_ms=self.config.listening_window_ms,
             human_utterance_max_ms=self.config.human_utterance_max_ms,
             machine_utterance_cap_ms=self.config.machine_utterance_cap_ms,
@@ -232,11 +242,21 @@ class AnswerSupervisor(FrameProcessor):
         or at arm() if the user turn started before readiness. A resolved turn with
         nonempty text cancels it; LLM classification has a separate budget.
         If it expires for the same speech epoch before a decision is committed,
-        drop the call with machine_timeout, including during screening.
+        detection drops the call with machine_timeout (including screening);
+        ordinary opening supervision proceeds with the greeting.
         The epoch check prevents an older timer from deciding a newer turn.
         """
         await asyncio.sleep(self.config.machine_utterance_cap_ms / 1000)
         if epoch != self._epoch or self._closed or self._committed:
+            return
+        if not self.config.enabled:
+            # Missing STT must not leave an ordinary call silent forever or
+            # apply a machine hangup policy when detection is disabled.
+            self._publish(
+                AnswerVerdict(AnswerAction.RELEASE, "unresolved_turn"),
+                strategy="utterance_timeout",
+                machine_utterance_cap_ms=self.config.machine_utterance_cap_ms,
+            )
             return
         self._publish(
             AnswerVerdict(AnswerAction.DROP, "machine_timeout"),
@@ -333,6 +353,15 @@ class AnswerSupervisor(FrameProcessor):
         self._onset = None
         if self._utterance_task:
             self._utterance_task.cancel()
+        if not self.config.enabled:
+            # Keep the completed turn in context and the transcript, but consume
+            # its inference trigger. Any utterance can release the one opening.
+            self._publish(
+                AnswerVerdict(AnswerAction.RELEASE, "caller_turn"),
+                strategy="turn_complete",
+                **signals,
+            )
+            return
         subtype = classify_machine_utterance(text)
         # What the patterns alone concluded, kept beside the final subtype so the
         # two can be compared in gathered_context. UNKNOWN here next to a machine
@@ -481,7 +510,11 @@ class AnswerSupervisor(FrameProcessor):
             elapsed,
             subtype,
             strategy,
-            " ".join(f"{key}={value!r}" for key, value in signals.items()),
+            " ".join(
+                f"{key}={value!r}"
+                for key, value in signals.items()
+                if key != "transcript"
+            ),
         )
 
     async def wait_for_verdict(self) -> AnswerVerdict:

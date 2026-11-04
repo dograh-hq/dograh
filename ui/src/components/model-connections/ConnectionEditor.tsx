@@ -94,6 +94,9 @@ export function ConnectionEditor({ catalog, connection, onSaved, providerKeys, r
         </div>
         <div className="space-y-1.5"><Label htmlFor="connection-name">Connection name</Label>
             <Input id="connection-name" required maxLength={128} placeholder="Production account" value={name} onChange={event => setName(event.target.value)} /></div>
+        {provider === "dograh" && <p className="text-sm text-muted-foreground">
+            Get a service key using your email at <a className="underline" href="https://app.dograh.com/get-service-key" target="_blank" rel="noopener noreferrer">Dograh</a>, then paste it below.
+        </p>}
         {entry && <>
             {Object.keys(entry.connection_fields).length > 0 && <fieldset className="space-y-3">
                 <legend className="mb-2 text-sm font-semibold">Connection settings</legend>

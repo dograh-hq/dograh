@@ -136,15 +136,28 @@ async def test_discards_partial_audio_on_provider_error(background):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("pcm,rate", [(b"x", 16000), (PCM, 0)])
-async def test_rejects_invalid_pcm(pcm, rate):
+async def test_rejects_invalid_sample_rate():
     class InvalidTTS(TrackingTTS):
         async def run_tts(self, text, context_id):
-            yield TTSAudioRawFrame(pcm, rate, 1, context_id=context_id)
+            yield TTSAudioRawFrame(PCM, 0, 1, context_id=context_id)
 
     tts = InvalidTTS()
     with pytest.raises(ValueError):
         await synthesize_speech(tts, "Hello.", timeout=2)
+    assert tts.cleaned
+
+
+@pytest.mark.asyncio
+async def test_preserves_upstream_padding_of_a_trailing_partial_sample():
+    class PartialSampleTTS(TrackingTTS):
+        async def run_tts(self, text, context_id):
+            yield TTSAudioRawFrame(b"x", 16000, 1, context_id=context_id)
+
+    tts = PartialSampleTTS()
+    audio = await synthesize_speech(tts, "Hello.", timeout=2)
+    with wave.open(io.BytesIO(audio)) as wav:
+        assert wav.getframerate() == 16000
+        assert wav.readframes(wav.getnframes()) == b"x\x00"
     assert tts.cleaned
 
 

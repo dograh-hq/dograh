@@ -14,7 +14,7 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
-from api.enums import CallType, StorageBackend, WorkflowRunMode
+from api.enums import CallType, StorageBackend, WorkflowRunMode, WorkflowRunState
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.workflow.run_usage_response import format_public_cost_info
 from api.utils.recording_artifacts import get_recording_storage_key
@@ -145,6 +145,31 @@ class WorkflowRunClient(BaseDBClient):
             run.model_configuration_snapshot = snapshot
             await session.commit()
             return snapshot
+
+    async def mark_workflow_run_running(
+        self, run_id: int, organization_id: int
+    ) -> bool:
+        """Move a run from initialized to running; return whether it moved.
+
+        Only an initialized run moves, so a terminal status that landed first
+        is never reopened.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.id == run_id,
+                    WorkflowModel.organization_id == organization_id,
+                )
+                .with_for_update(of=WorkflowRunModel)
+            )
+            run = result.scalar_one_or_none()
+            if run is None or run.state != WorkflowRunState.INITIALIZED.value:
+                return False
+            run.state = WorkflowRunState.RUNNING.value
+            await session.commit()
+            return True
 
     async def get_all_workflow_runs(self) -> list[WorkflowRunModel]:
         async with self.async_session() as session:

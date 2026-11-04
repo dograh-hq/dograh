@@ -471,7 +471,7 @@ async def test_azure_shared_wrapper_retains_native_authentication(auth, monkeypa
     )
     connect = AsyncMock(return_value=SimpleNamespace())
     monkeypatch.setattr(
-        "pipecat.services.azure.realtime.llm.websocket_connect", connect
+        "pipecat.services.openai.realtime.llm.websocket_connect", connect
     )
     service._receive_task_handler = MagicMock(return_value=object())
     service.create_task = MagicMock()

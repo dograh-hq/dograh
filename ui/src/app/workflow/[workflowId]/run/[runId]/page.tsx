@@ -786,9 +786,8 @@ export default function WorkflowRunPage() {
                 };
                 setWorkflowRun(runData);
                 posthog.capture(PostHogEvent.WORKFLOW_RUN_DETAILS_VIEWED, {
-                    workflow_id: workflowId,
+                    workflow_uuid: workflowResponse.data?.workflow_uuid ?? null,
                     workflow_name: workflowResponse.data?.name ?? null,
-                    run_id: runId,
                     is_completed: runData.is_completed,
                     has_recording: !!runData.recording_url,
                     has_split_recordings: !!runData.user_recording_url && !!runData.bot_recording_url,

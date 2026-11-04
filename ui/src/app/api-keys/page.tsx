@@ -23,6 +23,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppConfig } from '@/context/AppConfigContext';
 import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
+import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { formatDateTime } from '@/lib/dateTime';
@@ -56,6 +57,7 @@ export default function APIKeysPage() {
     const [showCreatedKeyDialog, setShowCreatedKeyDialog] = useState(false);
     const [showCreatedServiceKeyDialog, setShowCreatedServiceKeyDialog] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [createServiceKeyError, setCreateServiceKeyError] = useState<string | null>(null);
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -188,14 +190,19 @@ export default function APIKeysPage() {
         }
     };
 
+    const handleCreateServiceDialogOpenChange = (open: boolean) => {
+        setCreateServiceKeyError(null);
+        setIsCreateServiceDialogOpen(open);
+    };
+
     const handleCreateServiceKey = async () => {
         if (!newServiceKeyName.trim()) {
-            setError('Please enter a name for the service key');
+            setCreateServiceKeyError('Please enter a name for the service key');
             return;
         }
 
         try {
-            setError(null);
+            setCreateServiceKeyError(null);
             const accessToken = await getAccessToken();
 
             const response = await createServiceKeyApiV1UserServiceKeysPost({
@@ -208,15 +215,20 @@ export default function APIKeysPage() {
                 }
             });
 
+            if (response.error) {
+                setCreateServiceKeyError(detailFromError(response.error, 'Failed to create service key'));
+                return;
+            }
+
             if (response.data) {
                 setCreatedServiceKey(response.data);
-                setIsCreateServiceDialogOpen(false);
+                handleCreateServiceDialogOpenChange(false);
                 setShowCreatedServiceKeyDialog(true);
                 setNewServiceKeyName('');
                 fetchServiceKeys();
             }
         } catch (err) {
-            setError('Failed to create service key');
+            setCreateServiceKeyError('Failed to create service key');
             console.error('Error creating service key:', err);
         }
     };
@@ -438,7 +450,7 @@ export default function APIKeysPage() {
                     )}
                         {canCreateServiceKey ? (
                             <Button
-                                onClick={() => setIsCreateServiceDialogOpen(true)}
+                                onClick={() => handleCreateServiceDialogOpenChange(true)}
                                 size="sm"
                             >
                                 <Plus className="w-4 h-4 mr-2" />
@@ -466,7 +478,7 @@ export default function APIKeysPage() {
                             <Key className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                             <p className="text-muted-foreground mb-4">No service keys found</p>
                             {canCreateServiceKey && (
-                                <Button onClick={() => setIsCreateServiceDialogOpen(true)}>
+                                <Button onClick={() => handleCreateServiceDialogOpenChange(true)}>
                                     Create Your First Service Key
                                 </Button>
                             )}
@@ -608,7 +620,7 @@ export default function APIKeysPage() {
             </Dialog>
 
             {/* Create Service Key Dialog */}
-            <Dialog open={isCreateServiceDialogOpen} onOpenChange={setIsCreateServiceDialogOpen}>
+            <Dialog open={isCreateServiceDialogOpen} onOpenChange={handleCreateServiceDialogOpenChange}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Create New Service Key</DialogTitle>
@@ -627,8 +639,13 @@ export default function APIKeysPage() {
                             />
                         </div>
                     </div>
+                    {createServiceKeyError && (
+                        <div role="alert" className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
+                            {createServiceKeyError}
+                        </div>
+                    )}
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsCreateServiceDialogOpen(false)}>
+                        <Button variant="outline" onClick={() => handleCreateServiceDialogOpenChange(false)}>
                             Cancel
                         </Button>
                         <Button onClick={handleCreateServiceKey}>

@@ -29,7 +29,7 @@ from api.services.pipecat.termination_funnel_processor import (
 )
 from api.services.pipecat.tracing_config import get_trace_url
 from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordinator
-from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import capture_tenant_event
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow_run_artifacts import upload_workflow_run_artifacts
@@ -54,9 +54,11 @@ async def _capture_call_event(
     Meant to be run via asyncio.create_task() so it never blocks the pipeline."""
     try:
         workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+        workflow = workflow_run.workflow if workflow_run else None
+        # The run id is only unique within this deployment and the run has no
+        # UUID, so the event names the workflow by its UUID and not the run.
         properties = {
-            "workflow_run_id": workflow_run_id,
-            "workflow_id": workflow_run.workflow_id if workflow_run else None,
+            "workflow_uuid": workflow.workflow_uuid if workflow else None,
             "call_type": workflow_run.mode if workflow_run else None,
             "call_direction": (
                 (workflow_run.initial_context or {}).get("direction", "outbound")
@@ -66,9 +68,10 @@ async def _capture_call_event(
         }
         if extra_properties:
             properties.update(extra_properties)
-        capture_event(
+        await capture_tenant_event(
             distinct_id=user_provider_id,
             event=event,
+            organization_id=workflow.organization_id if workflow else None,
             properties=properties,
         )
     except Exception:
@@ -235,6 +238,9 @@ def register_event_handlers(
             if answer_supervisor is not None:
                 await engine.handle_answer_supervision()
                 return
+            # Cascade calls always use the shared opening supervisor, even when
+            # machine detection is off. Realtime adapters own response generation
+            # and still need their audio-retention handoff below.
             start_node = engine.active_agent.workflow.nodes.get(
                 engine.active_agent.workflow.start_node_id
             )
@@ -242,7 +248,9 @@ def register_event_handlers(
             if not await engine.opening.deadline.wait(window_ms):
                 return
             gate = engine.opening.input_gate
-            caller_first = bool(window_ms and gate and gate.heard_speech)
+            caller_first = bool(
+                engine._is_realtime and window_ms and gate and gate.heard_speech
+            )
             logger.info(
                 "Opening window released: window_ms={} elapsed_ms={} path={}",
                 window_ms,
@@ -363,7 +371,9 @@ def register_event_handlers(
                         )
                     )
         except Exception as e:
-            logger.error(f"Error recording circuit breaker outcome: {e}", exc_info=True)
+            logger.opt(exception=True).error(
+                f"Error recording circuit breaker outcome: {e}"
+            )
 
     async def dispose_call(reason: str, error: ErrorFrame | None = None) -> None:
         """Dispose of a call whose pipeline asked to stop.
@@ -451,9 +461,8 @@ def register_event_handlers(
                     workflow_run.workflow_id, disposition_code
                 )
             except Exception as e:
-                logger.error(
+                logger.opt(exception=True).error(
                     f"Error storing disposition code in workflow: {e}",
-                    exc_info=True,
                 )
 
         # Clean up engine resources (including voicemail detector)
@@ -466,9 +475,8 @@ def register_event_handlers(
                 if session_logs:
                     integration_logs.update(session_logs)
             except Exception as e:
-                logger.error(
+                logger.opt(exception=True).error(
                     f"Error finalizing integration runtime session '{runtime_session.name}': {e}",
-                    exc_info=True,
                 )
 
         if call_events_session is not None:
@@ -529,7 +537,9 @@ def register_event_handlers(
                     f"Saved {len(feedback_events)} feedback events to workflow run logs"
                 )
             except Exception as e:
-                logger.error(f"Error saving realtime feedback logs: {e}", exc_info=True)
+                logger.opt(exception=True).error(
+                    f"Error saving realtime feedback logs: {e}"
+                )
         else:
             logger.info("Logs buffer is empty, skipping save")
 
@@ -604,7 +614,7 @@ def register_event_handlers(
                 transcript_text=transcript_text,
             )
         except Exception as e:
-            logger.error(f"Error uploading call artifacts: {e}", exc_info=True)
+            logger.opt(exception=True).error(f"Error uploading call artifacts: {e}")
 
         # Combined task: runs integrations (including QA), then calculates
         # cost (so QA token usage is captured in usage_info)

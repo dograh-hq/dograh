@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Optional, Union
 from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
+from jinja2.exceptions import SecurityError, TemplateError
 from loguru import logger
 
 from api.utils.jinja_engine import render_jinja_string
@@ -235,10 +236,13 @@ def _render_string(
                 replace_escaped_newlines=replace_escaped_newlines,
                 raise_on_error=True,
             )
-        except Exception:
-            logger.debug(
-                "Jinja render failed or raised error; falling back to legacy regex renderer"
+        except (TemplateError, OverflowError) as e:
+            logger.warning(
+                f"Jinja render failed with template error ({e}); falling back to legacy regex renderer"
             )
+        except SecurityError as e:
+            logger.error(f"Blocked security violation during template rendering: {e}")
+            return ""
 
     # Pre-scan for a current_time_<TZ> variable so that {{current_weekday}}
     # can inherit the same timezone instead of defaulting to UTC.

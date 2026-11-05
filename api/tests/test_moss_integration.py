@@ -156,7 +156,10 @@ def _graph_without_moss() -> types.SimpleNamespace:
 
 def _params(query="What is the refund policy?"):
     return types.SimpleNamespace(
-        arguments={"query": query}, result_callback=AsyncMock()
+        function_name=TOOL_NAME,
+        tool_call_id="call-1",
+        arguments={"query": query},
+        result_callback=AsyncMock(),
     )
 
 

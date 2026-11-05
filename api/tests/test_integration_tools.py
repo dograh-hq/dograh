@@ -107,9 +107,15 @@ async def test_engine_registers_integration_tools_on_conversational_nodes(
         }
         assert transitions <= call.kwargs["reserved_names"]
 
-        params = types.SimpleNamespace(arguments={"order_number": "42"})
+        params = types.SimpleNamespace(
+            function_name="lookup_order",
+            tool_call_id="call-1",
+            arguments={"order_number": "42"},
+            result_callback=AsyncMock(),
+        )
         await bound(params)
-        handler.assert_awaited_once_with(params)
+        handler.assert_awaited_once()
+        assert handler.await_args.args[0].arguments == {"order_number": "42"}
 
         create_tools.reset_mock()
         await engine._prepare_node(agent, three_node_workflow.nodes["end"])
@@ -136,4 +142,3 @@ async def test_engine_sets_context_providers_on_conversational_nodes(
 
         await engine._prepare_node(agent, three_node_workflow.nodes["end"])
         assert agent.context_providers == []
-

@@ -61,3 +61,18 @@ def test_clock_variables_still_render():
 
     assert rendered != "It is "
     assert "{{" not in rendered
+
+
+def test_template_renderer_runtime_error_falls_back_gracefully():
+    """Verify that runtime errors (like TypeError on arithmetic with None) do not crash live calls."""
+    context = {"amount": None, "greeting": "Hello"}
+    template = "Greeting: {{ greeting }}. Math: {{ amount + 1 }}"
+    rendered = render_template(template, context)
+    assert "Greeting: Hello" in rendered
+
+
+def test_template_renderer_security_error_blocks_exploit():
+    """Verify that SecurityError does not fall back to legacy regex and returns empty string."""
+    template = "{{ [].__class__.__mro__ }}"
+    rendered = render_template(template, {})
+    assert rendered == ""

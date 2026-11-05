@@ -169,6 +169,23 @@ describe("parsePromptToPreviewBlocks", () => {
             expect(blocks[0].items).toBe("data.items");
         }
     });
+
+    it("handles single-line if blocks inside loops without swallowing following text", () => {
+        const prompt = [
+            "{% for item in items %}",
+            "Item: {{ item.name }} {% if item.is_new %}(NEW!){% endif %}",
+            "{% endfor %}",
+            "After loop content",
+        ].join("\n");
+
+        const blocks = parsePromptToPreviewBlocks(prompt);
+        expect(blocks).toHaveLength(2);
+        expect(blocks[0].type).toBe("loop");
+        expect(blocks[1].type).toBe("markdown");
+        if (blocks[1].type === "markdown") {
+            expect(blocks[1].content).toBe("After loop content");
+        }
+    });
 });
 
 describe("PromptPreview Component", () => {

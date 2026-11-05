@@ -131,6 +131,19 @@ describe("editor setup", () => {
             },
         ] as FlowNode[];
         expect(referencedVariables(loopFilterNodes)).toEqual(["inventory"]);
+
+        // Direct input references like {{ range }} and {{ length }} are preserved as variables
+        const directRangeNodes = [
+            {
+                id: "step5",
+                type: "agent",
+                position: { x: 0, y: 0 },
+                data: {
+                    prompt: "Budget: {{ range }} for {{ customer }}",
+                },
+            },
+        ] as FlowNode[];
+        expect(referencedVariables(directRangeNodes)).toEqual(["customer", "range"]);
     });
 
     it("offers all five views for every workflow and switches on click", () => {

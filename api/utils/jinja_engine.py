@@ -180,6 +180,23 @@ class DograhSandboxedEnvironment(ImmutableSandboxedEnvironment):
                     raise OverflowError(
                         "String method 'expandtabs' exceeds allowable limit."
                     )
+            elif method_name == "replace":
+                old = args[0] if len(args) > 0 else kwargs.get("old", "")
+                new = args[1] if len(args) > 1 else kwargs.get("new", "")
+                count = args[2] if len(args) > 2 else kwargs.get("count", None)
+                if isinstance(old, (str, bytes)) and isinstance(new, (str, bytes)):
+                    occurrences = (
+                        len(bound_self) + 1 if not old else bound_self.count(old)
+                    )
+                    if isinstance(count, int):
+                        occurrences = min(occurrences, max(0, count))
+                    projected_len = len(bound_self) + occurrences * (
+                        len(new) - len(old)
+                    )
+                    if projected_len > MAX_RENDERED_PROMPT_CHARS:
+                        raise OverflowError(
+                            "String method 'replace' result exceeds allowable size."
+                        )
 
         return super().call(__context, __obj, *args, **kwargs)
 
@@ -271,6 +288,20 @@ class SafeTelephonyUndefined(jinja2.Undefined):
         return not self.__eq__(other)
 
 
+def _safe_replace_filter(s: Any, old: Any, new: Any, count: int | None = None) -> str:
+    """Safe replace filter bounded by MAX_RENDERED_PROMPT_CHARS to prevent memory exhaustion."""
+    s_str = str(s)
+    old_str = str(old)
+    new_str = str(new)
+    occurrences = len(s_str) + 1 if not old_str else s_str.count(old_str)
+    if count is not None and isinstance(count, int):
+        occurrences = min(occurrences, max(0, count))
+    projected_len = len(s_str) + occurrences * (len(new_str) - len(old_str))
+    if projected_len > MAX_RENDERED_PROMPT_CHARS:
+        raise OverflowError("String 'replace' filter result exceeds allowable size.")
+    return s_str.replace(old_str, new_str, -1 if count is None else count)
+
+
 def create_jinja_environment() -> DograhSandboxedEnvironment:
     """Instantiate and configure the Dograh Jinja2 sandboxed environment."""
     env = DograhSandboxedEnvironment(
@@ -284,6 +315,7 @@ def create_jinja_environment() -> DograhSandboxedEnvironment:
 
     env.filters["fallback"] = _custom_fallback_filter
     env.filters["default"] = _custom_default_filter
+    env.filters["replace"] = _safe_replace_filter
     env.filters["tojson"] = lambda v: json.dumps(v)
     return env
 
@@ -507,6 +539,18 @@ def validate_jinja_syntax(template_str: str) -> tuple[bool, str | None]:
                         return (
                             False,
                             f"String method '{method_name}' argument exceeds maximum allowable limit of {MAX_RENDERED_PROMPT_CHARS}.",
+                        )
+                elif method_name == "replace" and len(call_node.args) >= 2:
+                    old_arg, new_arg = call_node.args[0], call_node.args[1]
+                    if (
+                        isinstance(old_arg, jinja2.nodes.Const)
+                        and isinstance(new_arg, jinja2.nodes.Const)
+                        and isinstance(new_arg.value, str)
+                        and len(new_arg.value) > 1000
+                    ):
+                        return (
+                            False,
+                            "String replacement argument exceeds safe maximum limit of 1000 characters.",
                         )
 
         # 6. Block private or dangerous attribute access (_*, format, mro, subclasses)

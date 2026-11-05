@@ -1,5 +1,6 @@
 """Dograh's agent model adapter; MPS owns inference and provider routing."""
 
+import asyncio
 import json
 
 import httpx
@@ -28,9 +29,30 @@ from .tracing import builder_trace_metadata
 BUILDER_USAGE_CONTEXT = "workflow_builder"
 
 
+async def _completion_with_retry(**kwargs):
+    # Only inference is retried here; tool mutations have separate durable receipts.
+    for attempt in range(3):
+        try:
+            return await mps_service_key_client.create_chat_completion(**kwargs)
+        except (httpx.HTTPError, MPSUnavailableError) as exc:
+            status = extract_http_status(exc)
+            transient = isinstance(exc, httpx.TransportError) or status in {
+                408,
+                429,
+                500,
+                502,
+                503,
+                504,
+            }
+            if not transient or attempt == 2:
+                raise
+            await asyncio.sleep(0.5 * (2**attempt))
+
+
 class BuilderChatModel(BaseChatModel):
     # A tier, never a concrete provider/model. MPS resolves metadata.usage_context.
     model_name: str = BUILDER_USAGE_CONTEXT
+    max_output_tokens: int = 32000
     organization_id: int
     user_id: str
 
@@ -68,7 +90,7 @@ class BuilderChatModel(BaseChatModel):
                 # Preserve provider reasoning/tool metadata across tool turns.
                 converted.update(original.additional_kwargs.get("mps_message", {}))
         try:
-            response = await mps_service_key_client.create_chat_completion(
+            response = await _completion_with_retry(
                 service_key=api_key,
                 model=self.model_name,
                 messages=wire,
@@ -78,7 +100,7 @@ class BuilderChatModel(BaseChatModel):
                 # mid-string. Give enough headroom for reasoning + the full
                 # tool call (e.g. a complete @dograh/sdk workflow in
                 # propose_workflow's args).
-                max_tokens=32000,
+                max_tokens=self.max_output_tokens,
                 tools=kwargs.get("tools"),
                 tool_choice=kwargs.get("tool_choice"),
                 metadata={
@@ -113,14 +135,47 @@ class BuilderChatModel(BaseChatModel):
             raise BuilderModelError(
                 failure, upstream_status_code=extract_http_status(exc)
             ) from exc
-        raw = response["choices"][0]["message"]
+        choice = response["choices"][0]
+        raw = choice["message"]
+        if choice.get("finish_reason") == "length":
+            return ChatResult(
+                generations=[
+                    ChatGeneration(
+                        message=AIMessage(
+                            content="",
+                            additional_kwargs={
+                                "builder_repair": "The response reached its output limit. No tools from that response executed. Use smaller exact edits instead of resending full source, and reissue complete tool arguments."
+                            },
+                        )
+                    )
+                ],
+                llm_output={"usage": response.get("usage", {})},
+            )
         calls = []
         for call in raw.get("tool_calls") or []:
+            try:
+                arguments = json.loads(call["function"]["arguments"])
+                if not isinstance(arguments, dict):
+                    raise TypeError("Tool arguments must be an object")
+            except (ValueError, TypeError):
+                return ChatResult(
+                    generations=[
+                        ChatGeneration(
+                            message=AIMessage(
+                                content="",
+                                additional_kwargs={
+                                    "builder_repair": "The previous tool arguments were not a valid JSON object. No tools from that response executed. Reissue the call with complete JSON arguments."
+                                },
+                            )
+                        )
+                    ],
+                    llm_output={"usage": response.get("usage", {})},
+                )
             calls.append(
                 {
                     "id": call["id"],
                     "name": call["function"]["name"],
-                    "args": json.loads(call["function"]["arguments"]),
+                    "args": arguments,
                     "type": "tool_call",
                 }
             )

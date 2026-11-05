@@ -16,6 +16,8 @@ retrieval for changes that do not affect prompts or tool-calling behavior.
 Use the SDK reference for syntax and retrieve additional node schemas only when
 the requested change needs them.
 
-Return a BuildResult with the complete updated source, a short summary of what
-changed, and any remaining configuration_gaps. Never claim an unconnected action
+Return the updated source, a short summary of what changed, and any remaining
+configuration_gaps through the submission tools provided by your host. An MCP
+client uses a complete BuildResult; the in-app editor can submit its validated
+working-copy revision. Never claim an unconnected action
 works. Validate and correct source errors before submission.

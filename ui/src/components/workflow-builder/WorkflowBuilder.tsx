@@ -1,17 +1,18 @@
 'use client';
 
-import { ArrowUp, Loader2, Play, Plus } from 'lucide-react';
+import { ArrowUp, Loader2, Play, Plus, Square } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
-import { getBuilderSessionApiV1WorkflowBuilderSessionIdGet, openWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPost, saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost, sendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPost } from '@/client/sdk.gen';
+import { getBuilderSessionApiV1WorkflowBuilderSessionIdGet, openWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPost, saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost } from '@/client/sdk.gen';
 import type { BuilderSession, BuilderTurnRequest } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { PlanApprovalCard } from '@/components/workflow-builder/PlanApprovalCard';
 import { QuestionCards } from '@/components/workflow-builder/QuestionCards';
 import { ToolApprovalCard } from '@/components/workflow-builder/ToolApprovalCard';
+import { useBuilderExecution } from '@/components/workflow-builder/useBuilderExecution';
 import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 
@@ -29,15 +30,20 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     const [session, setSession] = useState<BuilderSession | null>(null);
     const [sessionId, setSessionId] = useState('');
     const [input, setInput] = useState('');
-    const [busy, setBusy] = useState(false);
     const [restoring, setRestoring] = useState(true);
     const [saving, setSaving] = useState(false);
     const [status, setStatus] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [optimisticMessage, setOptimisticMessage] = useState('');
-    const abort = useRef<AbortController | null>(null);
     const bottom = useRef<HTMLDivElement>(null);
     const composer = useRef<HTMLTextAreaElement>(null);
+
+    const execution = useBuilderExecution({
+        getAccessToken, onSaved,
+        onSession: value => { setSession(value); setOptimisticMessage(''); setInput(''); },
+        onStatus: setStatus, onError: setError,
+    });
+    const { busy } = execution;
 
     useEffect(() => {
         onBusyChange?.(busy || saving);
@@ -47,7 +53,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     useEffect(() => {
         if (authLoading || !user) return;
         const controller = new AbortController();
-        setSession(null); setSessionId(''); setError(null); setRestoring(true);
+        execution.detach(); setSession(null); setSessionId(''); setError(null); setRestoring(true);
         const id = new URL(window.location.href).searchParams.get('session');
         if (!workflowId && !id) { setSessionId(crypto.randomUUID()); setRestoring(false); }
         else {
@@ -60,12 +66,15 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
                         : await getBuilderSessionApiV1WorkflowBuilderSessionIdGet({ path: { session_id: id! }, ...options });
                     if (result.error) throw new Error(detailFromError(result.error, 'Could not restore this conversation.'));
                     if (!result.data) throw new Error('Could not restore this conversation.');
-                    if (!controller.signal.aborted) { setSession(result.data); setSessionId(result.data.id); }
+                    if (!controller.signal.aborted) {
+                        setSession(result.data); setSessionId(result.data.id);
+                        if (result.data.active_run_id) void execution.restore(result.data.id, result.data.active_run_id);
+                    }
                 } catch (err) { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Could not restore this conversation.'); }
                 finally { if (!controller.signal.aborted) setRestoring(false); }
             })();
         }
-        return () => { controller.abort(); abort.current?.abort(); };
+        return () => { controller.abort(); execution.detach(); };
     // The authenticated user and organization identify this conversation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [authLoading, user?.id, organization, workflowId]);
@@ -82,7 +91,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     const isStarting = !restoring && !session?.messages?.length && !awaitingUser && !session?.proposal && !busy && !optimisticMessage && !session?.can_continue;
     useEffect(() => { if (isStarting) composer.current?.focus(); }, [isStarting]);
     const newConversation = () => {
-        abort.current?.abort(); setSession(null); setInput(''); setError(null); setOptimisticMessage(''); setStatus('');
+        execution.detach(); setSession(null); setInput(''); setError(null); setOptimisticMessage(''); setStatus('');
         setSessionId(crypto.randomUUID());
         const url = new URL(window.location.href); url.searchParams.delete('session');
         window.history.replaceState(window.history.state, '', url);
@@ -100,36 +109,13 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     };
     const send = async (content: Pick<BuilderTurnRequest, 'message' | 'answers' | 'approval' | 'tool_approval'> = {}) => {
         if (!user || !sessionId || busy || saving || restoring || disabled) return;
-        const controller = new AbortController(); abort.current = controller;
-        setBusy(true); setError(null); setStatus('Thinking about your agent…'); setOptimisticMessage(content.message ?? '');
+        setError(null); setStatus('Thinking about your agent…'); setOptimisticMessage(content.message ?? '');
         if (!workflowId) {
             const url = new URL(window.location.href); url.searchParams.set('session', sessionId);
             window.history.replaceState(window.history.state, '', url);
         }
-        let completed = false;
-        let builtSession: BuilderSession | undefined;
-        try {
-            const token = await getAccessToken();
-            const result = await sendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPost({ path: { session_id: sessionId },
-                body: { request_id: crypto.randomUUID(), checkpoint: session?.checkpoint ?? null, workflow_id: workflowId, ...content },
-                sseMaxRetryAttempts: 1, signal: controller.signal, headers: { Authorization: `Bearer ${token}` },
-            });
-            for await (const raw of result.stream) {
-                if (!raw || typeof raw !== 'object') continue;
-                const event = raw as { type: string; message?: string; session?: BuilderSession };
-                if (event.type === 'session' && event.session) { builtSession = event.session; setSession(event.session); setOptimisticMessage(''); setInput(''); }
-                if (event.type === 'status') setStatus(event.message ?? 'Working…');
-                if (event.type === 'error') throw new Error(event.message ?? 'Builder failed.');
-                if (event.type === 'done') completed = true;
-            }
-            if (!completed) throw new Error('Connection interrupted. Reload to restore your conversation.');
-            if (workflowId && builtSession?.workflow_id === workflowId && builtSession.checkpoint && builtSession.proposal && !builtSession.can_continue && !builtSession.pending?.length && !controller.signal.aborted) {
-                setStatus('Updating your agent…');
-                await persistProposal(builtSession, controller.signal);
-                if (!controller.signal.aborted) await onSaved?.();
-            }
-        } catch (err) { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Could not complete the request.'); }
-        finally { if (abort.current === controller) { setBusy(false); setStatus(''); setOptimisticMessage(''); } }
+        await execution.start(sessionId, { request_id: crypto.randomUUID(), checkpoint: session?.checkpoint ?? null, workflow_id: workflowId, ...content });
+        setOptimisticMessage('');
     };
     const testAgent = async () => {
         if (!session?.checkpoint || session.can_continue || awaitingUser || busy || saving || restoring || disabled) return;
@@ -155,7 +141,11 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
                     {!!pendingQuestions.length && <QuestionCards key={pendingQuestions.map(item => item.id).join(':')} pending={pendingQuestions} disabled={busy || saving || disabled} onSubmit={answers => void send({ answers })} />}
                     {pendingApproval?.brief && pendingApproval.brief_revision != null && <PlanApprovalCard key={pendingApproval.id} interruptId={pendingApproval.id} revision={pendingApproval.brief_revision} brief={pendingApproval.brief} disabled={busy || saving || restoring || disabled} onSubmit={approval => void send({ approval })} />}
                     {pendingToolApproval?.operation && <ToolApprovalCard key={pendingToolApproval.id} interruptId={pendingToolApproval.id} operation={pendingToolApproval.operation} tool={pendingToolApproval.tool} toolUuid={pendingToolApproval.tool_uuid} plainLanguage={pendingToolApproval.plain_language} usedByCount={pendingToolApproval.used_by_count} disabled={busy || saving || restoring || disabled} onSubmit={tool_approval => void send({ tool_approval })} />}
-                    {busy && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{status}</div>}
+                    {busy && !execution.disconnected && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{status}</div>}
+                    {busy && <div className="flex gap-2">
+                        {execution.disconnected && <Button variant="outline" size="sm" onClick={execution.reconnect}>Reconnect</Button>}
+                        <Button variant="outline" size="sm" disabled={execution.stopping} onClick={() => void execution.stop()}><Square className="mr-2 h-3 w-3" />{execution.stopping ? 'Stopping…' : 'Stop'}</Button>
+                    </div>}
                     {error && <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}
                         {error.includes('/model-configurations') && <Link href="/model-configurations" className="mt-2 block font-medium underline">Open Model Configurations</Link>}
                     </div>}

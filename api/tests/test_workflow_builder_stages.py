@@ -177,7 +177,8 @@ async def test_request_changes_returns_feedback_to_requirements_and_requires_new
     assert second["pending"][0]["brief"]["direction"] == "outbound"
     assert "Make it outbound" in str(conversation.model.seen[-1])
     assert all(
-        {t["function"]["name"] for t in tools} == {"ask_questions", "submit_brief"}
+        {t["function"]["name"] for t in tools}
+        == {"ask_questions", "submit_brief", "read_conversation"}
         for tools in conversation.model.seen_tools
     )
     assert not (await conversation.state())["approved_brief_revision"]
@@ -239,6 +240,7 @@ async def test_requirements_cannot_use_build_tools():
         assert {t["function"]["name"] for t in tools} == {
             "ask_questions",
             "submit_brief",
+            "read_conversation",
         }
 
 
@@ -1000,4 +1002,5 @@ async def test_removed_planner_checkpoints_resume_from_the_approved_brief(
         assert {t["function"]["name"] for t in conversation.model.seen_tools[0]} == {
             "ask_questions",
             "submit_brief",
+            "read_conversation",
         }

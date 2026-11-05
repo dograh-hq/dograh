@@ -41,7 +41,7 @@ class BuilderBusy(Exception):
 
 class WorkflowBuilderClient(BaseDBClient):
     @asynccontextmanager
-    async def builder_checkpointer(self, thread_id: str):
+    async def builder_checkpointer(self, thread_id: str, *, readonly: bool = False):
         """Lease one pooled connection and exclude other writers to this thread.
 
         A session lock spans the turn, while each saver operation commits its own
@@ -49,6 +49,9 @@ class WorkflowBuilderClient(BaseDBClient):
         Never return a connection with a held advisory lock to the pool.
         """
         async with self.engine.connect() as connection:
+            if readonly:
+                yield SQLAlchemyCheckpointSaver(connection, thread_id)
+                return
             try:
                 async with connection.begin():
                     acquired = await connection.scalar(

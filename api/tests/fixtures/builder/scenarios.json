@@ -1,0 +1,7 @@
+[
+  {"name":"calculator_success","scenario":{"caller_messages":["What is two plus two?"],"mock_tool_results":{"safe_calculator":[{"result":4}]},"expected_tool_calls":{"safe_calculator":1},"required_phrases":["four"]},"replies":[{"tool":"safe_calculator","args":{"expression":"2+2"}},{"text":"The answer is four."}]},
+  {"name":"tool_failure","scenario":{"caller_messages":["What is two plus two?"],"mock_tool_results":{"safe_calculator":[{"error":"Service unavailable"}]},"expected_tool_calls":{"safe_calculator":1},"required_phrases":["unavailable"],"forbidden_phrases":["successfully calculated"]},"replies":[{"tool":"safe_calculator","args":{"expression":"2+2"}},{"text":"The calculation service is unavailable. Please try again later."}]},
+  {"name":"no_unrequested_tool","scenario":{"caller_messages":["Hello, my name is Ada."],"expected_tool_calls":{"safe_calculator":0},"required_phrases":["Ada"]},"replies":[{"text":"Hello Ada, how can I help?"}]},
+  {"name":"caller_correction","scenario":{"caller_messages":["My name is Adam.","Actually, it is Ada."],"expected_tool_calls":{"safe_calculator":0},"required_phrases":["Ada"]},"replies":[{"text":"Hello Adam."},{"text":"Thank you for correcting me, Ada."}]},
+  {"name":"unavailable_tool_fails","scenario":{"caller_messages":["Calculate two plus two."],"expected_tool_calls":{"safe_calculator":1}},"replies":[{"tool":"safe_calculator","args":{"expression":"2+2"}}],"expect_passed":false}
+]

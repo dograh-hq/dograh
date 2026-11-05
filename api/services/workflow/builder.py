@@ -13,7 +13,7 @@ from pipecat.utils.run_context import set_current_org_id
 from api.db import db_client
 from api.db.models import UserModel
 from api.db.workflow_builder import BuilderBusy
-from api.mcp_server.auth import builder_mcp_user
+from api.mcp_server.auth import builder_mcp_operation, builder_mcp_user
 from api.mcp_server.server import mcp
 from api.mcp_server.tools._workflow_projection import project_workflow_to_sdk_view
 from api.schemas.workflow_builder import BuilderSession, BuilderTurnRequest
@@ -32,6 +32,7 @@ from api.utils.workflow_revision import workflow_revision
 
 TOOL_PROGRESS = {
     "preview_workflow": "Validating your workflow…",
+    "test_workflow_scenario": "Rehearsing a caller scenario…",
     "list_node_types": "Looking at available conversation steps…",
     "get_node_type": "Checking how this conversation step works…",
     "list_tools": "Looking at your integrations…",
@@ -108,9 +109,23 @@ async def load_builder_workflow(user, session_id: UUID, workflow_id: int):
     return workflow
 
 
-async def call_builder_tool(client, name: str, arguments: dict) -> dict:
+async def call_builder_tool(
+    client, name: str, arguments: dict, *, operation_id: str | None = None
+) -> dict:
     if name not in BUILDER_TOOLS:
         return {"error": "This tool is not available to the builder"}
+    if name == "test_workflow_scenario":
+        from .builder_runtime.scenarios import WorkflowScenario, run_workflow_scenario
+
+        user = builder_mcp_user.get()
+        if user is None or not user.selected_organization_id:
+            return {"error": "An authenticated organization is required."}
+        return await run_workflow_scenario(
+            arguments["code"],
+            WorkflowScenario.model_validate(arguments["scenario"]),
+            user.selected_organization_id,
+            str(user.id),
+        )
     if name == "get_voice_prompting_guide":
         # Saved checkpoints may still contain arguments from the staged guide.
         arguments = {
@@ -118,6 +133,7 @@ async def call_builder_tool(client, name: str, arguments: dict) -> dict:
             for key, value in arguments.items()
             if key not in {"stage", "node_type"}
         }
+    token = builder_mcp_operation.set(operation_id)
     try:
         result = await client.call_tool(name, arguments)
         if result.is_error:
@@ -132,6 +148,8 @@ async def call_builder_tool(client, name: str, arguments: dict) -> dict:
     except Exception:
         logger.exception("Builder MCP tool failed: {}", name)
         return {"error": "Dograh tool failed. Check the arguments or try again."}
+    finally:
+        builder_mcp_operation.reset(token)
 
 
 async def builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
@@ -195,7 +213,10 @@ async def _builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
                 for key, item in pending.items():
                     if item["kind"] == "mcp":
                         resume[key] = await call_builder_tool(
-                            client, item["tool_name"], item["arguments"]
+                            client,
+                            item["tool_name"],
+                            item["arguments"],
+                            operation_id=f"{user.selected_organization_id}:{user.id}:{session_id}:{key}",
                         )
             elif request.approval is not None:
                 previous = await local_step(user, session_id)
@@ -259,7 +280,12 @@ async def _builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
                     }
                 outputs = await asyncio.gather(
                     *[
-                        call_builder_tool(client, item["tool_name"], item["arguments"])
+                        call_builder_tool(
+                            client,
+                            item["tool_name"],
+                            item["arguments"],
+                            operation_id=f"{user.selected_organization_id}:{user.id}:{session_id}:{item['id']}",
+                        )
                         for item in pending
                     ]
                 )

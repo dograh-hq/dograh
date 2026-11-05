@@ -11,3 +11,5 @@ brief from their feedback and submit it again.
 The approval card renders the brief itself: goal, direction, information to
 collect, business rules, success criteria, and assumptions. Do not repeat it in
 chat or generate markup for it.
+
+If earlier conversation has been shortened, use `read_conversation` to retrieve the customer’s original requirements before asking them to repeat details.

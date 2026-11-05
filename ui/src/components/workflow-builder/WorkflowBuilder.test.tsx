@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 import { WorkflowBuilder } from './WorkflowBuilder';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), open: vi.fn(), send: vi.fn(), save: vi.fn(), push: vi.fn(), token: vi.fn(async () => 'token') }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), open: vi.fn(), events: vi.fn(), cancel: vi.fn(), send: vi.fn(), save: vi.fn(), push: vi.fn(), token: vi.fn(async () => 'token') }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: '1', organizationId: '7' }, loading: false, getAccessToken: mocks.token }) }));
 vi.mock('@/client/sdk.gen', () => ({
@@ -11,6 +11,8 @@ vi.mock('@/client/sdk.gen', () => ({
     openWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPost: mocks.open,
     saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost: mocks.save,
     sendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPost: mocks.send,
+    getBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGet: mocks.events,
+    cancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPost: mocks.cancel,
 }));
 
 const session = {
@@ -26,6 +28,7 @@ beforeEach(() => {
     mocks.open.mockResolvedValue({ data: session });
     mocks.send.mockImplementation(async () => ({ stream: (async function* () {
         yield { type: 'session', session: { ...session, workflow_id: 41, checkpoint: 'new', messages: [...session.messages, { id: 'reply', role: 'assistant', content: 'Updated greeting' }] } };
+        yield { type: 'saved', workflow_id: 41 };
         yield { type: 'done' };
     })() }));
     mocks.save.mockResolvedValue({ data: { workflow_id: 41 } });
@@ -96,7 +99,7 @@ it('applies completed changes automatically to the same workflow and refreshes t
     await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
     await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
     expect(onBusyChange).toHaveBeenCalledWith(true);
-    expect(mocks.save.mock.calls[0][0]).toMatchObject({ path: { session_id: 'retained-session' }, body: { checkpoint: 'new', workflow_id: 41 } });
+    expect(mocks.save).not.toHaveBeenCalled();
     expect(mocks.push).not.toHaveBeenCalled();
 });
 
@@ -112,7 +115,9 @@ it('blocks builder writes while the canvas has unsaved edits', async () => {
 
 it('shows automatic update errors without navigating or refreshing the editor', async () => {
     mocks.open.mockResolvedValue({ data: { ...session, workflow_id: 41 } });
-    mocks.save.mockResolvedValue({ error: { detail: 'The workflow changed since this proposal was built.' } });
+    mocks.send.mockImplementation(async () => ({ stream: (async function* () {
+        yield { type: 'error', message: 'The workflow changed since this proposal was built.' };
+    })() }));
     const onSaved = vi.fn(async () => undefined);
     render(<WorkflowBuilder workflowId={41} onSaved={onSaved} />);
     await screen.findByText('Build a receptionist');
@@ -122,9 +127,15 @@ it('shows automatic update errors without navigating or refreshing the editor', 
     expect(onSaved).not.toHaveBeenCalled();
 });
 
-it('keeps testing blocked until the completed changes have been applied', async () => {
-    let finishSave!: (value: { data: { workflow_id: number } }) => void;
-    mocks.save.mockReturnValue(new Promise(resolve => { finishSave = resolve; }));
+it('keeps testing blocked until the worker has saved the changes', async () => {
+    let finish!: () => void;
+    const saved = new Promise<void>(resolve => { finish = resolve; });
+    mocks.send.mockImplementation(async () => ({ stream: (async function* () {
+        yield { type: 'status', message: 'Updating your agent…' };
+        await saved;
+        yield { type: 'saved', workflow_id: 41 };
+        yield { type: 'done' };
+    })() }));
     const onBusyChange = vi.fn();
     const onSaved = vi.fn(async () => undefined);
     render(<WorkflowBuilder workflowId={41} onSaved={onSaved} onBusyChange={onBusyChange} />);
@@ -134,9 +145,10 @@ it('keeps testing blocked until the completed changes have been applied', async 
     await screen.findByText('Updating your agent…');
     expect(onBusyChange).toHaveBeenLastCalledWith(true);
     expect(onSaved).not.toHaveBeenCalled();
-    finishSave({ data: { workflow_id: 41 } });
+    finish();
     await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
     expect(onSaved).toHaveBeenCalledOnce();
+    expect(mocks.save).not.toHaveBeenCalled();
 });
 
 it.each(['unfinished', 'interrupted'])('does not apply an %s build', async state => {
@@ -149,7 +161,10 @@ it.each(['unfinished', 'interrupted'])('does not apply an %s build', async state
     await screen.findByText('Build a receptionist');
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Change the greeting' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-    await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
+    if (state === 'interrupted') {
+        await screen.findByRole('button', { name: 'Reconnect' });
+        expect(onBusyChange).toHaveBeenLastCalledWith(true);
+    } else await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
     expect(mocks.save).not.toHaveBeenCalled();
 });
 
@@ -167,4 +182,63 @@ it('opens a new persistent conversation for a workflow that has never used the b
     render(<WorkflowBuilder workflowId={41} />);
     await screen.findByText('Build a receptionist');
     expect(mocks.open).toHaveBeenCalledTimes(2);
+});
+
+it('reconnects to a restored run and stops work through the server', async () => {
+    mocks.open.mockResolvedValue({ data: { ...session, active_run_id: 'running', run_status: 'running' } });
+    let finish!: () => void;
+    const stopped = new Promise<void>(resolve => { finish = resolve; });
+    mocks.events.mockImplementation(async () => ({ stream: (async function* () {
+        yield { type: 'run', run_id: 'running' };
+        await stopped;
+        yield { type: 'cancelled', seq: 1 };
+    })() }));
+    mocks.cancel.mockImplementation(async () => { finish(); return { data: { cancel_requested: true } }; });
+    render(<WorkflowBuilder workflowId={41} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(mocks.cancel).toHaveBeenCalledOnce());
+    expect(mocks.cancel.mock.calls[0][0].path).toEqual({ session_id: session.id, run_id: 'running' });
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull());
+    expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it('resumes progress from the last event without resending the user message', async () => {
+    mocks.send.mockImplementation(async () => ({ stream: (async function* () {
+        yield { type: 'run', run_id: 'running' };
+        yield { type: 'status', message: 'Editing', seq: 2 };
+    })() }));
+    mocks.events.mockImplementation(async () => ({ stream: (async function* () { yield { type: 'done', seq: 3 }; })() }));
+    render(<WorkflowBuilder workflowId={41} />);
+    await screen.findByText('Build a receptionist');
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Change the greeting' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconnect' }));
+    await waitFor(() => expect(mocks.events).toHaveBeenCalledOnce());
+    expect(mocks.events.mock.calls[0][0].query).toEqual({ after: 2 });
+    expect(mocks.send).toHaveBeenCalledOnce();
+});
+
+it('retries an uncertain admission with the same request ID', async () => {
+    mocks.send.mockImplementationOnce(async () => ({ stream: (async function* () {})() }));
+    render(<WorkflowBuilder workflowId={41} />);
+    await screen.findByText('Build a receptionist');
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Change the greeting' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconnect' }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(2));
+    expect(mocks.send.mock.calls[1][0].body).toEqual(mocks.send.mock.calls[0][0].body);
+});
+
+it('shows rejected admissions and releases the composer instead of waiting for a nonexistent run', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ detail: 'Conversation changed; reload and try again' }), { status: 409 }));
+    mocks.send.mockImplementation(async options => ({ stream: (async function* () { await options.fetch('/test'); })() }));
+    try {
+        render(<WorkflowBuilder workflowId={41} />);
+        await screen.findByText('Build a receptionist');
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Change the greeting' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+        expect((await screen.findByRole('alert')).textContent).toContain('Conversation changed');
+        expect((screen.getByRole('textbox') as HTMLTextAreaElement).disabled).toBe(false);
+        expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+    } finally { fetch.mockRestore(); }
 });

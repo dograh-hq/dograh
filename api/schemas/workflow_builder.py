@@ -93,6 +93,14 @@ class BuilderSession(BaseModel):
     proposal: BuilderProposal | None = None
     can_continue: bool = False
     model: str | None = None
+    active_run_id: UUID | None = None
+    run_status: (
+        Literal["queued", "running", "completed", "failed", "cancelled"] | None
+    ) = None
+
+
+class BuilderCancelResponse(BaseModel):
+    cancel_requested: bool
 
 
 class BuilderTurnRequest(BaseModel):

@@ -114,6 +114,7 @@ async def test_unavailable_tools_are_rejected_even_if_the_model_calls_them():
         assert {item["function"]["name"] for item in tools} == {
             "ask_questions",
             "submit_brief",
+            "read_conversation",
         }
     responses = {
         message.tool_call_id: message
@@ -176,8 +177,15 @@ async def test_large_tool_results_remain_readable_without_file_tools():
         for message in model.seen[-2]
         if isinstance(message, ToolMessage) and message.tool_call_id == "guide"
     )
-    assert content in response.content
-    assert not (await graph.aget_state(config)).values.get("files")
+    preview = json.loads(response.content)
+    assert preview["truncated"]
+    assert len(response.content) < 9000
+    state = (await graph.aget_state(config)).values
+    assert (
+        json.loads(state["tool_results"][preview["result_id"]]["content"])["content"]
+        == content
+    )
+    assert not state.get("files")
 
 
 @pytest.mark.asyncio
@@ -487,15 +495,18 @@ async def test_model_adapter_sanitizes_upstream_errors(
     log = Mock()
     monkeypatch.setattr(adapter, "log_failure", log)
     model = BuilderChatModel(organization_id=2, user_id="3")
-    client = httpx.AsyncClient(
-        transport=httpx.MockTransport(
-            lambda request: httpx.Response(
-                upstream_status, json={"detail": "sensitive provider error"}
-            )
+    client_type = httpx.AsyncClient
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            upstream_status, json={"detail": "sensitive provider error"}
         )
     )
     with (
-        patch.object(mps_client_module.httpx, "AsyncClient", return_value=client),
+        patch.object(
+            mps_client_module.httpx,
+            "AsyncClient",
+            side_effect=lambda **kwargs: client_type(transport=transport),
+        ),
         pytest.raises(HTTPException) as error,
     ):
         await model.ainvoke([HumanMessage(content="Hello")])

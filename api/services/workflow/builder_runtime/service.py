@@ -9,6 +9,7 @@ from langgraph.types import Command
 from api.db import db_client
 
 from .agent import _fresh_messages, build_agent
+from .context import recent_conversation
 from .model import BUILDER_USAGE_CONTEXT, BuilderChatModel
 from .schemas import (
     BuilderStep,
@@ -16,6 +17,7 @@ from .schemas import (
     validate_plan_decision,
     validate_tool_decision,
 )
+from .working_copy import source_revision
 
 
 def present(snapshot, session_id: UUID) -> dict:
@@ -104,7 +106,11 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                 or snapshot.values.get("proposal")
                 or {}
             )
-            previous_code = previous.get("code") or snapshot.values.get("previous_code")
+            previous_code = (
+                snapshot.values.get("working_code")
+                or previous.get("code")
+                or snapshot.values.get("previous_code")
+            )
             value = {
                 **updates,
                 "phase": "build_requirements",
@@ -113,6 +119,8 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                 "review": None,
                 "candidate": None,
                 "validation_attempts": 0,
+                "model_repair_attempts": 0,
+                "validated_working_copy": None,
                 "idle_turns": 0,
                 "messages": [message],
                 "plan_messages": [message],
@@ -127,18 +135,30 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                 value.update(
                     workflow_id=workflow["id"],
                     workflow_revision=workflow["revision"],
+                    edit_history=[],
                 )
             if previous_code:
                 value.update(
                     phase="build",
                     previous_code=previous_code,
+                    working_code=previous_code,
                     build_messages=_fresh_messages(
                         {
-                            "previous_code": previous_code,
+                            "previous_code": previous_code
+                            if len(previous_code) <= 20_000
+                            else "Source is stored in the working copy. Use read_workflow to retrieve it.",
+                            "working_revision": source_revision(previous_code),
                             "user_request": request.message,
-                            "conversation": [
-                                {"role": m["role"], "content": m["content"]}
-                                for m in current["messages"]
+                            "conversation": recent_conversation(current["messages"]),
+                            "decision_notes": snapshot.values.get("decision_notes", ""),
+                            "configuration_gaps": snapshot.values.get(
+                                "configuration_gaps", []
+                            ),
+                            "recent_tool_results": [
+                                {"result_id": key, "tool": result["tool"]}
+                                for key, result in list(
+                                    snapshot.values.get("tool_results", {}).items()
+                                )[-20:]
                             ],
                         }
                     ),
@@ -181,7 +201,9 @@ async def builder_step(
         organization_id=organization_id,
         user_id=user_id,
     )
-    async with db_client.builder_checkpointer(thread_id) as saver:
+    async with db_client.builder_checkpointer(
+        thread_id, **({"readonly": True} if request is None else {})
+    ) as saver:
         graph = build_agent(model, saver, request.tools if request else [])
         return await run_step(
             graph, {"configurable": {"thread_id": thread_id}}, session_id, request

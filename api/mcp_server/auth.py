@@ -12,6 +12,9 @@ from api.services.auth.depends import _handle_api_key_auth
 builder_mcp_user: ContextVar[UserModel | None] = ContextVar(
     "builder_mcp_user", default=None
 )
+builder_mcp_operation: ContextVar[str | None] = ContextVar(
+    "builder_mcp_operation", default=None
+)
 
 
 async def authenticate_mcp_request() -> UserModel:

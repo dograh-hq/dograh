@@ -12,7 +12,7 @@ from httpx import ASGITransport, AsyncClient, ConnectError
 
 from api.errors.failure import ErrorSource, classify_exception
 from api.errors.mps import MPS_UNAVAILABLE_PUBLIC_MESSAGE
-from api.mcp_server.auth import builder_mcp_user
+from api.mcp_server.auth import builder_mcp_operation, builder_mcp_user
 from api.mcp_server.server import mcp
 from api.schemas.workflow_builder import BuilderTurnRequest
 from api.services.workflow.builder import (
@@ -22,8 +22,11 @@ from api.services.workflow.builder import (
 )
 from api.services.workflow.builder_runtime.errors import BuilderModelError
 from api.services.workflow.builder_validation import preview_workflow_code
+from api.tests.support.builder_execution import builder_execution  # noqa: F401
 from api.tests.support.workflow_authoring import BRIEF
 from api.tests.test_workflow_builder_tracing import _captured_traces  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("builder_execution")
 
 VALID_CODE = """import { Workflow } from "@dograh/sdk";
 import { startCall, agentNode, endCall } from "@dograh/sdk/typed";
@@ -80,6 +83,7 @@ async def test_preview_rejects_executable_code_and_foreign_references():
 async def test_mcp_relay_keeps_concurrent_organizations_separate():
     async def catalog(organization_id, **kwargs):
         await asyncio.sleep(0)
+        assert builder_mcp_operation.get() == f"op-{organization_id}"
         return [
             SimpleNamespace(
                 tool_uuid=f"org-{organization_id}",
@@ -95,7 +99,9 @@ async def test_mcp_relay_keeps_concurrent_organizations_separate():
         )
         try:
             async with Client(mcp) as client:
-                return await call_builder_tool(client, "list_tools", {})
+                return await call_builder_tool(
+                    client, "list_tools", {}, operation_id=f"op-{org}"
+                )
         finally:
             builder_mcp_user.reset(token)
 
@@ -107,6 +113,7 @@ async def test_mcp_relay_keeps_concurrent_organizations_separate():
     assert first[0]["tool_uuid"] == "org-1"
     assert second[0]["tool_uuid"] == "org-2"
     assert builder_mcp_user.get() is None
+    assert builder_mcp_operation.get() is None
 
 
 @pytest.mark.asyncio
@@ -126,7 +133,7 @@ async def test_turn_relays_reads_concurrently_and_keeps_results_matched():
     both_started = asyncio.Event()
     second_finished = asyncio.Event()
 
-    async def read(client, name, arguments):
+    async def read(client, name, arguments, **kwargs):
         assert builder_mcp_user.get() is user
         topic = arguments["topic"]
         started.add(topic)
@@ -323,7 +330,7 @@ async def test_stream_preserves_mps_error_code_status_and_trace(
         for line in response.text.splitlines()
         if line.startswith("data: ")
     ]
-    assert events[-1] == {
+    assert {key: value for key, value in events[-1].items() if key != "seq"} == {
         "type": "error",
         "message": MPS_UNAVAILABLE_PUBLIC_MESSAGE,
         "status_code": 503,
@@ -448,10 +455,11 @@ async def test_in_app_editor_loads_saved_source_and_attaches_an_org_tool_without
     )
 
     @asynccontextmanager
-    async def checkpoints(thread_id):
+    async def checkpoints(thread_id, **kwargs):
         yield saver
 
     monkeypatch.setattr(runtime.db_client, "builder_checkpointer", checkpoints)
+    monkeypatch.setattr(runtime.db_client, "save_workflow_draft", AsyncMock())
     edited = VALID_CODE.replace(
         'name: "Qualify",', 'name: "Qualify", tool_uuids: ["org-calculator"],'
     ).replace(
@@ -520,9 +528,13 @@ async def test_in_app_editor_loads_saved_source_and_attaches_an_org_tool_without
     assert "Greet the caller." in context["previous_code"]
     assert "brief" not in context
     assert "org-calculator" in model.seen[-1][-1].content
-    get_workflow.assert_awaited_once_with(41, organization_id=27)
+    assert all(
+        call.args == (41,) and call.kwargs == {"organization_id": 27}
+        for call in get_workflow.await_args_list
+    )
     assert [call.kwargs for call in catalog.await_args_list] == [
         {"organization_id": 27, "status": "active"},
+        {"organization_id": 27},
         {"organization_id": 27},
     ]
 
@@ -547,7 +559,7 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     saver = InMemorySaver()
 
     @asynccontextmanager
-    async def checkpoints(thread_id):
+    async def checkpoints(thread_id, **kwargs):
         yield saver
 
     monkeypatch.setattr(runtime.db_client, "builder_checkpointer", checkpoints)
@@ -774,7 +786,7 @@ async def test_builder_stream_directs_unconfigured_org_to_model_configurations(
     from api.services.workflow.builder_runtime import service as runtime
 
     @asynccontextmanager
-    async def checkpoints(thread_id):
+    async def checkpoints(thread_id, **kwargs):
         yield InMemorySaver()
 
     config = AsyncMock(return_value=None)
@@ -800,7 +812,7 @@ async def test_builder_stream_directs_unconfigured_org_to_model_configurations(
         if line.startswith("data: ")
     ]
     assert response.status_code == 200
-    assert events[-1] == {
+    assert {key: value for key, value in events[-1].items() if key != "seq"} == {
         "type": "error",
         "message": "Agent builder is currently only supported with a Dograh Service Key. Set it in /model-configurations.",
         "status_code": 400,

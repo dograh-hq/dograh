@@ -184,7 +184,9 @@ async def populate_discovered_tools(
                 timeout_secs=cfg["timeout_secs"],
                 sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
             )
-        except BaseException as e:  # noqa: BLE001
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
             logger.warning(f"MCP discovery failed; caching empty list: {e}")
             return []
 
@@ -198,6 +200,7 @@ async def create_tool_for_user(
     user: UserModel,
     *,
     source: str = "api",
+    operation_id: str | None = None,
 ) -> ToolResponse:
     """Create a reusable tool for the authenticated user's selected org."""
     if not user.selected_organization_id:
@@ -206,6 +209,13 @@ async def create_tool_for_user(
             "No organization selected for the user",
             status_code=400,
         )
+
+    if operation_id is not None:
+        previous = await db_client.get_tool_mutation_receipt(
+            operation_id, user.selected_organization_id
+        )
+        if previous is not None:
+            return build_tool_response(previous)
 
     definition = request.definition.model_dump()
     await validate_tool_references(
@@ -225,6 +235,7 @@ async def create_tool_for_user(
         description=request.description,
         icon=request.icon,
         icon_color=request.icon_color,
+        **({"operation_id": operation_id} if operation_id is not None else {}),
     )
 
     await capture_tenant_event(
@@ -270,6 +281,7 @@ async def update_tool_for_user(
     user: UserModel,
     *,
     source: str = "api",
+    operation_id: str | None = None,
 ) -> ToolResponse:
     """Apply a partial update to a tool in the user's selected org.
 
@@ -285,6 +297,13 @@ async def update_tool_for_user(
             "No organization selected for the user",
             status_code=400,
         )
+
+    if operation_id is not None:
+        previous = await db_client.get_tool_mutation_receipt(
+            operation_id, user.selected_organization_id
+        )
+        if previous is not None:
+            return build_tool_response(previous)
 
     existing = await db_client.get_tool_by_uuid(
         tool_uuid, user.selected_organization_id, include_archived=True
@@ -330,6 +349,7 @@ async def update_tool_for_user(
         icon=request.icon,
         icon_color=request.icon_color,
         status=request.status,
+        **({"operation_id": operation_id} if operation_id is not None else {}),
     )
     if not tool:
         raise ToolManagementError("tool_not_found", "Tool not found", status_code=404)

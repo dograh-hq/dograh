@@ -165,7 +165,7 @@ async def test_guide_only_references_registered_tools():
 @pytest.mark.asyncio
 async def test_builder_guide_only_references_available_tools():
     registered = {tool.name for tool in await mcp.list_tools()}
-    relayed = ALLOWED_TOOLS - {"preview_workflow"}
+    relayed = ALLOWED_TOOLS - {"preview_workflow", "test_workflow_scenario"}
     assert relayed <= registered & BUILDER_TOOLS
     for stage, stage_tools in STAGE_MCP_TOOLS.items():
         for iteration in (False, True):

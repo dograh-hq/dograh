@@ -347,6 +347,16 @@ export type BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost = {
 };
 
 /**
+ * BuilderCancelResponse
+ */
+export type BuilderCancelResponse = {
+    /**
+     * Cancel Requested
+     */
+    cancel_requested: boolean;
+};
+
+/**
  * BuilderInterrupt
  */
 export type BuilderInterrupt = {
@@ -552,6 +562,14 @@ export type BuilderSession = {
      * Model
      */
     model?: string | null;
+    /**
+     * Active Run Id
+     */
+    active_run_id?: string | null;
+    /**
+     * Run Status
+     */
+    run_status?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | null;
 };
 
 /**
@@ -655,7 +673,7 @@ export type CallBrief = {
     /**
      * Business Rules
      *
-     * Policies only the customer can supply: eligibility, hours, what to do on refusal, wrong person, or out-of-scope requests, and when to hand off to a human. State any required data lookup or update here as what happens and when.
+     * Policies only the customer can supply: eligibility, hours, what to do on refusal, wrong person, or out-of-scope requests. State any required data lookup or update here as what happens and when.
      */
     business_rules?: Array<string>;
     /**
@@ -8608,6 +8626,111 @@ export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponses = {
 };
 
 export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponse = SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponses[keyof SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponses];
+
+export type GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Last-Event-Id
+         */
+        'last-event-id'?: string | null;
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: {
+        /**
+         * After
+         */
+        after?: number;
+    };
+    url: '/api/v1/workflow/builder/{session_id}/runs/{run_id}/events';
+};
+
+export type GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetError = GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetErrors[keyof GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetErrors];
+
+export type GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: string;
+};
+
+export type GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetResponse = GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetResponses[keyof GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetResponses];
+
+export type CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/{session_id}/runs/{run_id}/cancel';
+};
+
+export type CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostError = CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostErrors[keyof CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostErrors];
+
+export type CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuilderCancelResponse;
+};
+
+export type CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostResponse = CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostResponses[keyof CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostResponses];
 
 export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostData = {
     body: BuilderSaveRequest;

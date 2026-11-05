@@ -8,6 +8,7 @@ tools listed in its `tool_uuids`.
   If one already does the job, reference its `tool_uuid`; do not create a
   duplicate.
 - Creating a tool: when the requested change needs one that does not exist, call
+  `get_tool_definition_schema` for its category, then
   `propose_tool` with the full definition and a one-paragraph `plain_language`
   summary of what it does, when it runs, and what it sends. It is created only
   after the user approves; put the returned `tool_uuid` in the node's
@@ -15,7 +16,9 @@ tools listed in its `tool_uuids`.
   prompt tells the agent when to call it — add both in the same candidate.
 - Editing a tool: read it with `get_tool`, then call `propose_tool_edit` with
   only the fields that change. A `definition` is the full replacement, not a
-  patch, and its type cannot differ from the tool's category. The edit changes
+  patch. Read `get_tool_definition_schema` with operation="update" before changing
+  a definition; reuse schemas already read. Its type cannot differ from the
+  tool's category. The edit changes
   the shared tool for every workflow that uses it — say so in `plain_language`;
   if the change should not affect other workflows, create a separate tool.
 - Leave an unknown endpoint URL as a clear placeholder and list it as a

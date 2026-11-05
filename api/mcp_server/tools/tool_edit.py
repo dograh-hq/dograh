@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
 
-from api.mcp_server.auth import authenticate_mcp_request
+from api.mcp_server.auth import authenticate_mcp_request, builder_mcp_operation
 from api.mcp_server.tracing import traced_tool
 from api.schemas.tool import UpdateToolRequest
 from api.services.tool_management import (
@@ -79,7 +79,14 @@ async def update_tool(tool_uuid: str, request: UpdateToolRequest) -> dict[str, A
         return {"updated": False, "error_code": "validation_error", "error": str(e)}
 
     try:
-        tool = await update_tool_for_user(tool_uuid, parsed_request, user, source="mcp")
+        operation = builder_mcp_operation.get()
+        tool = await update_tool_for_user(
+            tool_uuid,
+            parsed_request,
+            user,
+            source="mcp",
+            **({"operation_id": operation} if operation else {}),
+        )
     except ToolManagementError as e:
         return {"updated": False, "error_code": e.error_code, "error": e.message}
     except Exception as e:  # noqa: BLE001

@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
+from api.utils.jinja_engine import render_jinja_string
+
 # Regex for matching {{ variable }} template placeholders.
 # Captures: group(1) = variable path, group(2) = filter name, group(3) = filter value.
 TEMPLATE_VAR_PATTERN = r"\{\{\s*([^|\s}]+)(?:\s*\|\s*([^:}]+)(?::([^}]+))?)?\s*\}\}"
@@ -224,6 +226,19 @@ def _render_string(
     """
     if not template_str:
         return template_str
+
+    if value_formatter is None:
+        try:
+            return render_jinja_string(
+                template_str,
+                context,
+                replace_escaped_newlines=replace_escaped_newlines,
+                raise_on_error=True,
+            )
+        except Exception:
+            logger.debug(
+                "Jinja render failed or raised error; falling back to legacy regex renderer"
+            )
 
     # Pre-scan for a current_time_<TZ> variable so that {{current_weekday}}
     # can inherit the same timezone instead of defaulting to UTC.

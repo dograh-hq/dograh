@@ -20,16 +20,117 @@ export function isEditorView(value: string | null | undefined): value is EditorV
     return (EDITOR_VIEWS as readonly string[]).includes(value ?? "");
 }
 
-// `{{name}}` references in prompts and other node text. Filters and dotted
-// paths are left alone: an undercount is better than a false warning.
-const VARIABLE_PATTERN = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
+// Keywords and built-in identifiers that should not be treated as user template variables
+const JINJA_KEYWORDS = new Set([
+    "and", "or", "not", "in", "is", "defined", "undefined",
+    "none", "null", "true", "false", "loop", "int", "float",
+    "str", "string", "lower", "upper", "default", "fallback",
+    "initial_context", "gathered_context", "call",
+]);
 
-/** Template variable names referenced anywhere in the node definitions. */
+// `{{name}}` references in prompts and other node text.
+const VARIABLE_PATTERN = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)(?:\s*\||\s*\}\}|\s*\.)/g;
+const IDENT_PATTERN = /\b([A-Za-z_][A-Za-z0-9_]*)\b/g;
+
+function isCandidateVariable(name: string, localVars: Set<string>): boolean {
+    return (
+        !name.startsWith("current_time") &&
+        !name.startsWith("current_weekday") &&
+        !JINJA_KEYWORDS.has(name) &&
+        !localVars.has(name)
+    );
+}
+
+function extractTemplateStrings(node: FlowNode): string[] {
+    const list: string[] = [];
+    const data = node.data;
+    if (!data || typeof data !== "object") return list;
+
+    for (const key of ["prompt", "greeting", "extraction_prompt"]) {
+        const val = (data as Record<string, unknown>)[key];
+        if (typeof val === "string" && (val.includes("{{") || val.includes("{%"))) {
+            list.push(val);
+        }
+    }
+    const evs = (data as Record<string, unknown>).extraction_variables;
+    if (Array.isArray(evs)) {
+        for (const ev of evs) {
+            if (ev && typeof ev === "object" && typeof (ev as Record<string, unknown>).prompt === "string") {
+                const prompt = (ev as Record<string, unknown>).prompt as string;
+                if (prompt.includes("{{") || prompt.includes("{%")) {
+                    list.push(prompt);
+                }
+            }
+        }
+    }
+    return list;
+}
+
+/** Template variable names referenced anywhere in the node definitions (both {{ var }} and Jinja blocks). */
 export function referencedVariables(nodes: FlowNode[]): string[] {
     const names = new Set<string>();
+
     for (const node of nodes) {
-        const text = JSON.stringify(node.data ?? {});
-        for (const match of text.matchAll(VARIABLE_PATTERN)) names.add(match[1]);
+        const templates = extractTemplateStrings(node);
+
+        for (const text of templates) {
+            const localVars = new Set<string>();
+
+            // 1. Register loop iteration variables first: {% for (k, v) in items %}
+            for (const match of text.matchAll(/\{%-?\s*for\s+([^%]+?)\s+in\s+([^%]+?)-?%\}/g)) {
+                const rawTargets = match[1].replace(/[()]/g, "");
+                for (const t of rawTargets.split(",")) {
+                    const cleaned = t.trim();
+                    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(cleaned)) {
+                        localVars.add(cleaned);
+                    }
+                }
+                const iterExpr = match[2]
+                    .replace(/"(?:[^"\\]|\\.)*"/g, "")
+                    .replace(/'(?:[^'\\]|\\.)*'/g, "")
+                    .replace(/\.\s*[A-Za-z_][A-Za-z0-9_]*/g, "")
+                    .replace(/\|\s*[A-Za-z_][A-Za-z0-9_]*/g, "");
+                for (const idMatch of iterExpr.matchAll(IDENT_PATTERN)) {
+                    if (isCandidateVariable(idMatch[1], localVars)) names.add(idMatch[1]);
+                }
+            }
+
+            // 2. Locally defined variables in {% set var = expr %}
+            for (const match of text.matchAll(/\{%-?\s*set\s+([^%=]+?)(?:\s*=\s*([\s\S]+?))?-?%\}/g)) {
+                const varTarget = match[1].trim().split(".")[0];
+                const expr = match[2];
+                if (expr) {
+                    const strippedExpr = expr
+                        .replace(/"(?:[^"\\]|\\.)*"/g, "")
+                        .replace(/'(?:[^'\\]|\\.)*'/g, "")
+                        .replace(/\.\s*[A-Za-z_][A-Za-z0-9_]*/g, "")
+                        .replace(/\|\s*[A-Za-z_][A-Za-z0-9_]*/g, "");
+                    for (const idMatch of strippedExpr.matchAll(IDENT_PATTERN)) {
+                        if (isCandidateVariable(idMatch[1], localVars)) names.add(idMatch[1]);
+                    }
+                }
+                if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(varTarget)) {
+                    localVars.add(varTarget);
+                }
+            }
+
+            // 3. {{ var }} references
+            for (const match of text.matchAll(VARIABLE_PATTERN)) {
+                if (isCandidateVariable(match[1], localVars)) names.add(match[1]);
+            }
+
+            // 4. Jinja condition references {% if expr %} and {% elif expr %}
+            for (const match of text.matchAll(/\{%-?\s*(?:if|elif)\s+([\s\S]+?)-?%\}/g)) {
+                const strippedCond = match[1]
+                    .replace(/"(?:[^"\\]|\\.)*"/g, "")
+                    .replace(/'(?:[^'\\]|\\.)*'/g, "")
+                    .replace(/\.\s*[A-Za-z_][A-Za-z0-9_]*/g, "")
+                    .replace(/\|\s*[A-Za-z_][A-Za-z0-9_]*/g, "");
+                for (const idMatch of strippedCond.matchAll(IDENT_PATTERN)) {
+                    if (isCandidateVariable(idMatch[1], localVars)) names.add(idMatch[1]);
+                }
+            }
+        }
     }
     return [...names].sort();
 }

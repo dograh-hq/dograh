@@ -83,7 +83,7 @@
 
   async function initializeWidget() {
     // Get token from script URL
-    const script = document.currentScript || document.querySelector('script[src*="donna-engine-widget.js"]');
+    const script = document.currentScript || document.querySelector('script[src*="donna-engine-widget.js"], script[src*="dograh-widget.js"]');
     if (!script) {
       console.error('Donna Engine Widget: Script not found');
       return;
@@ -2478,6 +2478,7 @@
       }
     }
   };
+  window.DograhWidget = window.DonnaEngineWidget;
 
   // Auto-initialize on DOM ready
   if (document.readyState === 'loading') {

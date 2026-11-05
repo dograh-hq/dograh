@@ -29,6 +29,7 @@ export function useBuilderExecution(callbacks: Callbacks) {
         const controller = new AbortController(); connection.current = controller;
         current.current = run; setBusy(true); setDisconnected(false); setStopping(false);
         latest.current.onError(null);
+        latest.current.onStatus(run.request ? 'Submitting your request…' : 'Reconnecting to your agent…');
         let terminal = false;
         let httpFailure: { status: number; message: string } | undefined;
         try {

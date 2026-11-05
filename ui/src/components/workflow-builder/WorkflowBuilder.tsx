@@ -109,7 +109,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     };
     const send = async (content: Pick<BuilderTurnRequest, 'message' | 'answers' | 'approval' | 'tool_approval'> = {}) => {
         if (!user || !sessionId || busy || saving || restoring || disabled) return;
-        setError(null); setStatus('Thinking about your agent…'); setOptimisticMessage(content.message ?? '');
+        setError(null); setOptimisticMessage(content.message ?? '');
         if (!workflowId) {
             const url = new URL(window.location.href); url.searchParams.set('session', sessionId);
             window.history.replaceState(window.history.state, '', url);

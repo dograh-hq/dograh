@@ -206,3 +206,37 @@ async def test_migration_matches_models_and_downgrades_cleanly(run_client):
 
     async with run_client.engine.begin() as connection:
         await connection.run_sync(check)
+
+
+@pytest.mark.asyncio
+async def test_stop_queued_run_finishes_without_worker_and_cannot_be_claimed(
+    run_client,
+):
+    owner = scope()
+    run_id = str(uuid4())
+    await run_client.admit_builder_run(**owner, request={"request_id": run_id})
+    assert not await run_client.cancel_builder_run(
+        run_id, **{**owner, "organization_id": 2}
+    )
+    assert await run_client.cancel_builder_run(run_id, **owner)
+    run = await run_client.get_builder_run(run_id, **owner)
+    assert run["status"] == "cancelled"
+    assert run["attempts"] == 0
+    async with run_client.claim_builder_run(run_id) as claimed:
+        assert claimed is None
+    events = await run_client.builder_run_events(run_id, **owner)
+    assert events == [
+        {
+            "seq": 1,
+            "event": {
+                "type": "cancelled",
+                "message": "Stopped before the builder started.",
+            },
+        }
+    ]
+    assert not await run_client.cancel_builder_run(run_id, **owner)
+    # The conversation immediately accepts another request.
+    next_run = await run_client.admit_builder_run(
+        **owner, request={"request_id": str(uuid4())}
+    )
+    assert next_run["status"] == "queued"

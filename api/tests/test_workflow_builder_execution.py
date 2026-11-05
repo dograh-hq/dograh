@@ -191,3 +191,34 @@ async def test_revoked_membership_prevents_background_mutation(
     await asyncio.gather(*builder_execution.tasks)
     assert run["status"] == "failed"
     turn.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_queued_run_reports_waiting_without_a_worker(
+    builder_execution, monkeypatch
+):
+    import json
+
+    monkeypatch.setattr(execution, "enqueue_builder_run", AsyncMock())
+    monkeypatch.setattr(execution.asyncio, "sleep", AsyncMock())
+    session_id = uuid4()
+    run = await execution.admit_builder_turn(
+        USER, session_id, BuilderTurnRequest(request_id=uuid4(), message="Build")
+    )
+    stream = execution.stream_builder_run(USER, session_id, run["id"])
+    try:
+        assert json.loads((await anext(stream))[6:])["type"] == "run"
+        queued = json.loads((await anext(stream))[6:])
+        assert queued["type"] == "status"
+        assert "queued" in queued["message"]
+        waiting = json.loads((await anext(stream))[6:])
+        assert "still waiting" in waiting["message"]
+        assert "Thinking" not in waiting["message"]
+        assert run["attempts"] == 0
+        run["status"] = "running"
+        await execution.db_client.append_builder_event(
+            run["id"], {"type": "status", "message": "Thinking about your agent…"}
+        )
+        assert "Thinking about your agent" in await anext(stream)
+    finally:
+        await stream.aclose()

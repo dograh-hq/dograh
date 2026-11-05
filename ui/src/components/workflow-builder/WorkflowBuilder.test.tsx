@@ -242,3 +242,23 @@ it('shows rejected admissions and releases the composer instead of waiting for a
         expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
     } finally { fetch.mockRestore(); }
 });
+
+it('shows a queued request as waiting instead of thinking', async () => {
+    let finish!: () => void;
+    const release = new Promise<void>(resolve => { finish = resolve; });
+    mocks.send.mockImplementation(async () => ({ stream: (async function* () {
+        yield { type: 'run' };
+        yield { type: 'status', message: 'Your request is queued. Waiting for the builder to start…' };
+        await release;
+        yield { type: 'done' };
+    })() }));
+    render(<WorkflowBuilder workflowId={41} />);
+    await screen.findByText('Build a receptionist');
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Change the greeting' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await screen.findByText('Your request is queued. Waiting for the builder to start…');
+    expect(screen.queryByText('Thinking about your agent…')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
+    finish();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull());
+});

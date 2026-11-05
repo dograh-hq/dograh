@@ -16,6 +16,25 @@ def _run(row: BuilderRunModel) -> dict:
     return {column.name: getattr(row, column.name) for column in row.__table__.columns}
 
 
+async def _append_event(
+    session, row: BuilderRunModel, event: dict, status: str | None = None
+) -> int:
+    """The caller holds the run row lock; commit progress and state together."""
+    seq = (
+        await session.scalar(
+            select(func.max(BuilderRunEventModel.seq)).where(
+                BuilderRunEventModel.run_id == row.id
+            )
+        )
+        or 0
+    ) + 1
+    session.add(BuilderRunEventModel(run_id=row.id, seq=seq, payload=event))
+    row.updated_at = datetime.now(UTC)
+    if status is not None:
+        row.status = status
+    return seq
+
+
 class BuilderRunClient(BaseDBClient):
     async def admit_builder_run(
         self, *, organization_id: int, user_id: int, session_id: str, request: dict
@@ -116,7 +135,9 @@ class BuilderRunClient(BaseDBClient):
                     yield None
                     return
                 async with self.async_session() as session:
-                    row = await session.get(BuilderRunModel, run_id)
+                    row = await session.get(
+                        BuilderRunModel, run_id, with_for_update=True
+                    )
                     if not row or row.status not in ACTIVE:
                         selected = None
                     else:
@@ -153,18 +174,7 @@ class BuilderRunClient(BaseDBClient):
             )
             if row is None:
                 raise ValueError("Builder run not found")
-            seq = (
-                await session.scalar(
-                    select(func.max(BuilderRunEventModel.seq)).where(
-                        BuilderRunEventModel.run_id == run_id
-                    )
-                )
-                or 0
-            ) + 1
-            session.add(BuilderRunEventModel(run_id=run_id, seq=seq, payload=event))
-            row.updated_at = datetime.now(UTC)
-            if status is not None:
-                row.status = status
+            seq = await _append_event(session, row, event, status)
             await session.commit()
             return seq
 
@@ -202,8 +212,8 @@ class BuilderRunClient(BaseDBClient):
         self, run_id: str, *, organization_id: int, user_id: int, session_id: str
     ) -> bool:
         async with self.async_session() as session:
-            result = await session.execute(
-                update(BuilderRunModel)
+            row = await session.scalar(
+                select(BuilderRunModel)
                 .where(
                     BuilderRunModel.id == run_id,
                     BuilderRunModel.organization_id == organization_id,
@@ -211,10 +221,25 @@ class BuilderRunClient(BaseDBClient):
                     BuilderRunModel.session_id == session_id,
                     BuilderRunModel.status.in_(ACTIVE),
                 )
-                .values(cancel_requested=True)
+                .with_for_update()
             )
+            if row is None:
+                return False
+            row.cancel_requested = True
+            if row.status == "queued":
+                # Stop must work even when no worker is available. Claiming uses
+                # the same row lock, so cancellation cannot race a queued start.
+                await _append_event(
+                    session,
+                    row,
+                    {
+                        "type": "cancelled",
+                        "message": "Stopped before the builder started.",
+                    },
+                    "cancelled",
+                )
             await session.commit()
-            return bool(result.rowcount)
+            return True
 
     async def recoverable_builder_runs(self) -> list[str]:
         """System sweep: re-wake queued jobs and executions abandoned by a worker."""

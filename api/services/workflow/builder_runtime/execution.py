@@ -72,8 +72,15 @@ async def get_run(user, session_id: UUID, run_id: UUID | str) -> dict:
 async def stream_builder_run(user, session_id: UUID, run_id: str, after: int = 0):
     from api.services.workflow.builder import encode_event
 
-    await get_run(user, session_id, run_id)
+    run = await get_run(user, session_id, run_id)
     yield encode_event({"type": "run", "run_id": run_id})
+    if run["status"] == "queued":
+        yield encode_event(
+            {
+                "type": "status",
+                "message": "Your request is queued. Waiting for the builder to start…",
+            }
+        )
     quiet = 0
     while True:
         rows = await db_client.builder_run_events(
@@ -101,7 +108,15 @@ async def stream_builder_run(user, session_id: UUID, run_id: str, after: int = 0
         await asyncio.sleep(0.5)
         quiet += 1
         if quiet % 30 == 0:
-            yield ": heartbeat\n\n"
+            if run["status"] == "queued":
+                yield encode_event(
+                    {
+                        "type": "status",
+                        "message": "Your request is saved and still waiting for the builder to start. You can wait or stop it.",
+                    }
+                )
+            else:
+                yield ": heartbeat\n\n"
 
 
 async def session_with_execution(

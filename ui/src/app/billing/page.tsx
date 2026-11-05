@@ -46,12 +46,13 @@ const LEDGER_PAGE_SIZE = 50;
 
 const formatCredits = (value: number | null | undefined) => (
     (value ?? 0).toLocaleString(undefined, {
-        maximumFractionDigits: 2,
+        maximumFractionDigits: 4,
         minimumFractionDigits: 0,
     })
 );
 
 const metricLabels: Record<string, string> = {
+    agent_builder: "Agent Builder",
     voice_minutes: "Voice usage",
     platform_usage: "Platform usage",
 };

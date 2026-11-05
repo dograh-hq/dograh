@@ -7,12 +7,23 @@ from api.constants import AUTH_PROVIDER, DEPLOYMENT_MODE, DOGRAH_DEPLOYMENT_ID
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent
+from api.services.auth import trusted_gateway
 from api.services.auth.stack_auth import stackauth
 from api.services.mps_billing import ensure_signup_grant
 from api.services.organization_bootstrap import ensure_organization_bootstrapped
 from api.services.posthog_client import capture_event, set_person_properties
 from api.services.posthog_tenant import identify_account, tenant_groups
 from api.utils.auth import decode_jwt_token
+
+# None unless AUTH_PROVIDER=local and TRUSTED_GATEWAY_AUTH=true. When enabled with a missing or unsafe
+# configuration this raises at import, so the API refuses to start.
+_GATEWAY = trusted_gateway.load_config(auth_provider=AUTH_PROVIDER)
+GATEWAY_ASSERTION_HEADER = (
+    _GATEWAY.header_name if _GATEWAY else trusted_gateway.DEFAULT_HEADER
+)
+if _GATEWAY is not None:
+    # Every caller of db_client.validate_api_key (public agent routes included) accepts only the service key.
+    trusted_gateway.install_api_key_guard(db_client, _GATEWAY)
 
 
 async def require_local_auth() -> None:
@@ -25,12 +36,27 @@ async def require_local_auth() -> None:
     """
     if AUTH_PROVIDER != "local":
         raise HTTPException(status_code=404, detail="Not found")
+    # With a trusted gateway, signup and local login do not exist.
+    if _GATEWAY is not None:
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 async def get_user(
     authorization: Annotated[str | None, Header()] = None,
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+    x_gateway_assertion: Annotated[
+        str | None, Header(alias=GATEWAY_ASSERTION_HEADER)
+    ] = None,
 ) -> UserModel:
+    # ------------------------------------------------------------------
+    # Trusted gateway: the signed assertion is the identity, on every request. The API key path is only
+    # open to the one configured service key (see _handle_api_key_auth).
+    # ------------------------------------------------------------------
+    if _GATEWAY is not None:
+        if x_api_key:
+            return await _handle_api_key_auth(x_api_key)
+        return await _handle_gateway_auth(authorization, x_gateway_assertion)
+
     # ------------------------------------------------------------------
     # Check if API key is provided (takes precedence)
     # ------------------------------------------------------------------
@@ -326,11 +352,42 @@ async def _handle_oss_auth(authorization: str | None) -> UserModel:
     return user
 
 
+async def _handle_gateway_auth(
+    authorization: str | None, assertion: str | None
+) -> UserModel:
+    """Authenticate through the gateway assertion, cross-checking the UI's own JWT if one is sent."""
+    oss_user_id: int | None = None
+    if authorization:
+        token = (
+            authorization[len("Bearer ") :]
+            if authorization.startswith("Bearer ")
+            else authorization
+        )
+        try:
+            oss_user_id = int(decode_jwt_token(token)["sub"])
+        except Exception:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+    return await trusted_gateway.authenticate(
+        _GATEWAY,
+        assertion=assertion,
+        oss_user_id=oss_user_id,
+        db=db_client,
+        bootstrap=ensure_organization_bootstrapped,
+    )
+
+
 async def _handle_api_key_auth(api_key: str) -> UserModel:
     """
     Handle authentication via X-API-Key header.
     Returns the user who created the API key with the correct organization context.
     """
+    # With a trusted gateway only the configured service key is accepted. This function is also called by
+    # mcp_server/auth.py, so it covers that entry point too.
+    if _GATEWAY is not None and not trusted_gateway.service_key_matches(
+        api_key, _GATEWAY
+    ):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     # Validate the API key
     api_key_model = await db_client.validate_api_key(api_key)
 
@@ -348,6 +405,8 @@ async def _handle_api_key_auth(api_key: str) -> UserModel:
 
     # Set the organization context to the API key's organization
     user.selected_organization_id = api_key_model.organization_id
+    if _GATEWAY is not None:
+        user.is_superuser = False  # the service key never carries superuser (not persisted)
 
     logger.debug(
         f"Authenticated via API key: {api_key_model.key_prefix}... "
@@ -360,12 +419,15 @@ async def _handle_api_key_auth(api_key: str) -> UserModel:
 async def get_superuser(
     authorization: Annotated[str | None, Header()] = None,
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+    x_gateway_assertion: Annotated[
+        str | None, Header(alias=GATEWAY_ASSERTION_HEADER)
+    ] = None,
 ) -> UserModel:
     """
     Dependency to check if the authenticated user is a superuser.
     Raises HTTPException if user is not authenticated or not a superuser.
     """
-    user = await get_user(authorization, x_api_key)
+    user = await get_user(authorization, x_api_key, x_gateway_assertion)
 
     if not user.is_superuser:
         raise HTTPException(
@@ -384,6 +446,20 @@ async def get_user_ws(
     WebSocket authentication dependency.
     Uses token or api_key from query parameters for authentication.
     """
+    # With a trusted gateway the assertion header on the upgrade request is the identity; ?token= (the UI's own
+    # JWT) is only cross-checked against it and ?api_key= only accepts the service key.
+    if _GATEWAY is not None:
+        try:
+            assertion = websocket.headers.get(GATEWAY_ASSERTION_HEADER)
+            if api_key:
+                return await get_user(None, api_key, None)
+            return await get_user(
+                f"Bearer {token}" if token else None, None, assertion
+            )
+        except HTTPException as e:
+            await websocket.close(code=1008, reason=e.detail)
+            raise
+
     if not token and not api_key:
         await websocket.close(code=1008, reason="Missing authentication token")
         raise HTTPException(status_code=401, detail="Missing authentication token")

@@ -150,11 +150,14 @@ def test_murf_key_validation_rejects_bad_key():
             validator._check_murf_api_key("falcon-2", "bad-key")
 
 
-def _drain_queue(queue: asyncio.Queue) -> list:
+async def _read_audio_context(service: MurfTTSService, context_id: str) -> list:
+    # Reads up to the end marker (None), which remove_audio_context appends.
     items = []
-    while not queue.empty():
-        items.append(queue.get_nowait())
-    return items
+    while True:
+        item = await service._audio_context_manager.get(context_id, timeout=1)
+        items.append(item)
+        if item is None:
+            return items
 
 
 @pytest.mark.asyncio
@@ -162,7 +165,6 @@ async def test_murf_provider_error_closes_audio_context():
     service = MurfTTSService(api_key="test-key")
     context_id = "ctx-1"
     await service.create_audio_context(context_id)
-    queue = service._audio_context_manager._contexts[context_id]
     service.push_error = AsyncMock()
     service.stop_all_metrics = AsyncMock()
     service.push_frame = AsyncMock()
@@ -171,7 +173,7 @@ async def test_murf_provider_error_closes_audio_context():
         {"context_id": context_id, "error": "voice not found"}
     )
 
-    items = _drain_queue(queue)
+    items = await _read_audio_context(service, context_id)
     assert any(isinstance(item, TTSStoppedFrame) for item in items)
     assert items[-1] is None
     service.stop_all_metrics.assert_awaited_once()

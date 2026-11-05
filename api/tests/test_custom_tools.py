@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
@@ -25,7 +25,6 @@ from pipecat.frames.frames import (
     LLMFullResponseStartFrame,
     LLMServiceMetadataFrame,
     TTSSpeakFrame,
-    UserTurnInferenceCompletedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -1611,7 +1610,6 @@ class TestCustomToolManagerIntegration:
                 LLMServiceMetadataFrame,
                 LLMFullResponseStartFrame,
                 FunctionCallsFromLLMInfoFrame,
-                UserTurnInferenceCompletedFrame,
                 FunctionCallsStartedFrame,
                 LLMFullResponseEndFrame,
                 FunctionCallInProgressFrame,
@@ -1681,7 +1679,7 @@ class TestCustomToolManagerUnit:
     async def test_get_tool_schemas_returns_correct_format(self):
         """Test that get_tool_schemas returns FunctionSchema objects."""
         # Create a mock engine
-        from pipecat.adapters.schemas.function_schema import FunctionSchema
+        from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
 
         from api.services.workflow.pipecat_engine import PipecatEngine
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager

@@ -2,9 +2,9 @@
 
 from typing import Any
 
-from pipecat.adapters.schemas.tools_schema import AdapterType, ToolsSchema
-from pipecat.adapters.services.gemini_adapter import GeminiLLMAdapter
-from pipecat.adapters.services.gemini_live_adapter import GeminiLiveLLMAdapter
+from pipecat.adapters.llm.schemas.tools_schema import AdapterType, ToolsSchema
+from pipecat.adapters.llm.services.gemini_adapter import GeminiLLMAdapter
+from pipecat.adapters.llm.services.gemini_live_adapter import GeminiLiveLLMAdapter
 from pipecat.services.settings import LLMSettings
 
 

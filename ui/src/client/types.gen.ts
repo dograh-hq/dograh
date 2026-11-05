@@ -289,6 +289,50 @@ export type BatchRecordingUploadResponseSchema = {
 };
 
 /**
+ * BillingPaymentResponse
+ */
+export type BillingPaymentResponse = {
+    /**
+     * Payment Order Id
+     */
+    payment_order_id: number;
+    /**
+     * Paid At
+     */
+    paid_at: string;
+    /**
+     * Amount Minor
+     */
+    amount_minor: number;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Gateway Payment Id
+     */
+    gateway_payment_id?: string | null;
+    /**
+     * Invoice Number
+     */
+    invoice_number?: string | null;
+    /**
+     * Invoice Status
+     */
+    invoice_status: 'issued' | 'pending' | 'unavailable';
+};
+
+/**
+ * BillingPaymentsResponse
+ */
+export type BillingPaymentsResponse = {
+    /**
+     * Payments
+     */
+    payments: Array<BillingPaymentResponse>;
+};
+
+/**
  * Body_transcribe_audio_api_v1_workflow_recordings_transcribe_post
  */
 export type BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost = {
@@ -13556,6 +13600,89 @@ export type CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseU
 };
 
 export type CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponse = CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponses[keyof CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponses];
+
+export type GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/billing/payments';
+};
+
+export type GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetError = GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetErrors[keyof GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetErrors];
+
+export type GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: BillingPaymentsResponse;
+};
+
+export type GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetResponse = GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetResponses[keyof GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetResponses];
+
+export type DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Payment Order Id
+         */
+        payment_order_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/billing/invoices/{payment_order_id}/pdf';
+};
+
+export type DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetError = DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetErrors[keyof DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetErrors];
+
+export type DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: Blob | File;
+};
+
+export type DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetResponse = DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetResponses[keyof DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetResponses];
 
 export type GetUsageHistoryApiV1OrganizationsUsageRunsGetData = {
     body?: never;

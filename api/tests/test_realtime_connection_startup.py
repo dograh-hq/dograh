@@ -61,7 +61,7 @@ def connecting(request, monkeypatch):
         "openai": (DograhOpenAIRealtimeLLMService, "openai.realtime", {}),
         "azure": (
             DograhAzureRealtimeLLMService,
-            "azure.realtime",
+            "openai.realtime",
             {"base_url": "wss://example.test/openai/v1/realtime"},
         ),
         "grok": (DograhGrokRealtimeLLMService, "xai.realtime", {}),

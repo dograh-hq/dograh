@@ -14,7 +14,7 @@ export default function OverviewPage() {
 
     return (
         <PageLayout
-            title={isOSSMode ? "Welcome to Donna Engine" : `Welcome${user?.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}!`}
+            title={isOSSMode ? "Welcome to Dograh" : `Welcome${user?.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}!`}
             description={isOSSMode ? "Open source alternative to Vapi. Help us support the project by giving us a star on GitHub." : "Get started with building voice AI workflows"}
             actions={isOSSMode && <GitHubStarBadge label="Star us on GitHub" showCount source="overview_page" />}>
             {/* Quick Actions */}
@@ -57,7 +57,7 @@ export default function OverviewPage() {
                 <CardHeader>
                     <CardTitle>Resources</CardTitle>
                     <CardDescription>
-                        Get help and learn more about Donna Engine
+                        Get help and learn more about Dograh
                     </CardDescription>
                 </CardHeader>
                 <CardContent>

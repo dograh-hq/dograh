@@ -1,0 +1,81 @@
+{
+  "name": "Donna",
+  "product_name": "Donna Engine",
+  "company": "Semicolon One Technologies",
+  "assets": {
+    "logo.png": "ui/public/dograh-logo.png",
+    "logo-inverse.png": "ui/public/dograh-logo-inverse.png",
+    "mark.png": "ui/public/dograh-mark.png",
+    "favicon.ico": "ui/src/app/favicon.ico"
+  },
+  "text_globs": [
+    "ui/src/**/*.ts",
+    "ui/src/**/*.tsx",
+    "ui/public/embed/*.js",
+    "api/**/*.py",
+    "docs/**/*.mdx",
+    "docs/**/*.md",
+    "docs/docs.json",
+    "sdk/**/README.md",
+    "ui/Dockerfile"
+  ],
+  "text_exclude": [
+    "**/node_modules/**",
+    "**/.next/**",
+    "ui/src/client/**",
+    "**/tests/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "api/alembic/**",
+    "docs/api-reference/**"
+  ],
+  "text_replacements": [
+    [
+      "\\bDograh\\b",
+      "Donna"
+    ],
+    [
+      "\\bDOGRAH\\b",
+      "DONNA"
+    ]
+  ],
+  "url_replacements": {
+    "https://docs.dograh.com": "",
+    "https://www.dograh.com/privacy-policy": "",
+    "https://www.dograh.com/terms-of-service": "",
+    "https://github.com/dograh-hq/dograh/issues": "",
+    "https://github.com/dograh-hq/dograh": "",
+    "https://app.dograh.com/get-service-key": "",
+    "https://api-leads.dograh.com": "",
+    "https://app.dograh.com": ""
+  },
+  "url_fallback": "#",
+  "regex_rules": [
+    {
+      "file": "ui/src/components/layout/AppLayout.tsx",
+      "pattern": "<Button variant=\"ghost\" size=\"sm\" asChild>\\s*<a\\s+href=\"https://join\\.slack\\.com.*?</Button>",
+      "replacement": ""
+    },
+    {
+      "file": "ui/Dockerfile",
+      "pattern": "NEXT_PUBLIC_CHATWOOT_URL=\"https://chat\\.dograh\\.com\"",
+      "replacement": "NEXT_PUBLIC_CHATWOOT_URL=\"\""
+    },
+    {
+      "file": "ui/src/app/billing/invoices/page.tsx",
+      "pattern": "founders@dograh\\.com",
+      "replacement": "billing@invalid.example"
+    },
+    {
+      "file": "api/services/quota_service.py",
+      "pattern": "app\\.dograh\\.com",
+      "replacement": "your Donna admin"
+    }
+  ],
+  "check_patterns": [
+    "dograh\\.com",
+    "dograh-hq",
+    "dograh-community",
+    "join\\.slack\\.com"
+  ]
+}

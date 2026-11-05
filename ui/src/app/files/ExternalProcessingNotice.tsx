@@ -14,8 +14,8 @@ export default function ExternalProcessingNotice() {
       <div className="text-xs text-amber-900 dark:text-amber-200">
         <p className="font-medium">Processed by an external service</p>
         <p className="mt-1">
-          Documents are sent to Donna Engine&apos;s managed Model Proxy Service for parsing and
-          chunking when they are uploaded or edited. Donna Engine Model Proxy Service does not
+          Documents are sent to Dograh&apos;s managed Model Proxy Service for parsing and
+          chunking when they are uploaded or edited. Dograh Model Proxy Service does not
           store or read your documents - the extracted text and embeddings are returned
           and stored locally in your self-hosted database.
         </p>

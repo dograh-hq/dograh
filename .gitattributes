@@ -1,0 +1,10 @@
+# Fork-owned files: on upstream merge keep OUR version (driver set by scripts/sync_upstream.sh)
+README.md merge=ours
+README.zh-CN.md merge=ours
+README.ja-JP.md merge=ours
+LICENSE merge=ours
+SECURITY.md merge=ours
+CONTRIBUTING.md merge=ours
+CHANGELOG.md merge=ours
+.github/workflows/build.yml merge=ours
+.github/workflows/deploy-ec2-production.yml merge=ours

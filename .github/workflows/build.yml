@@ -17,6 +17,9 @@ jobs:
         with:
           submodules: true
 
+      - name: Apply Donna branding overlay
+        run: python3 branding/apply.py
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:

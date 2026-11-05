@@ -100,6 +100,9 @@ jobs:
           echo "ui_image_tag=$image_tag" >> "$GITHUB_OUTPUT"
           echo "api_image_tag=$api_image_tag" >> "$GITHUB_OUTPUT"
 
+      - name: Apply Donna branding overlay
+        run: python3 branding/apply.py
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 

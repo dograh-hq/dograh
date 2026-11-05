@@ -68,6 +68,12 @@ jobs:
           gh pr create --base main --head "${{ steps.merge.outputs.branch }}" \
             --title "chore: sync upstream dograh-hq/dograh" --body "$(printf "$note")"
 
+          # Auto-merge only when the branding overlay is healthy; otherwise leave for review.
+          if [ "${{ steps.brand.outputs.rc }}" = "0" ]; then
+            gh pr merge "${{ steps.merge.outputs.branch }}" --auto --merge \
+              || gh pr merge "${{ steps.merge.outputs.branch }}" --merge
+          fi
+
       - name: Open issue on conflict
         if: steps.merge.outputs.status == 'conflict'
         run: |

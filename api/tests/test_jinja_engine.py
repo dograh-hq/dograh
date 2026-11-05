@@ -338,7 +338,7 @@ def test_invalid_timezone_fails_silently():
 
 
 def test_validate_and_runtime_block_allocating_string_methods():
-    """Verify that string methods with huge width/tabsize or replace expansion are rejected at both save and runtime."""
+    """Verify that string methods with huge width/tabsize are rejected at save and runtime, and replace expansion is blocked at runtime."""
     # 1. ljust width check
     huge_template = "{{ 'x'.ljust(1000000000) }}"
     is_valid, err = validate_jinja_syntax(huge_template)

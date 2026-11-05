@@ -74,13 +74,15 @@ export const NodeEditDialog = ({
             if ((e.metaKey || e.ctrlKey) && e.key === 's') {
                 e.preventDefault();
                 e.stopImmediatePropagation();
-                handleSave();
+                if (!error) {
+                    handleSave();
+                }
             }
         };
 
         window.addEventListener('keydown', handleKeyDown, true);
         return () => window.removeEventListener('keydown', handleKeyDown, true);
-    }, [open, readOnly, handleSave]);
+    }, [open, readOnly, handleSave, error]);
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -130,7 +132,7 @@ export const NodeEditDialog = ({
                         >
                             Cancel
                         </Button>
-                        <Button onClick={handleSave} disabled={readOnly}>
+                        <Button onClick={handleSave} disabled={readOnly || Boolean(error)}>
                             {readOnly ? "Read Only" : "Save"}
                         </Button>
                     </div>

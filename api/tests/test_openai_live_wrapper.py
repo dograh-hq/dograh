@@ -373,14 +373,20 @@ async def test_only_workflow_control_waits_for_playback_and_disconnect_discards_
         await service.run_function_calls([transition])
         run.assert_not_awaited()
         await service.run_function_calls([lookup])
-        run.assert_awaited_once_with([lookup])
+        run.assert_awaited_once_with([transition, lookup])
         await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
-        assert run.await_args_list[-1].args == ([transition],)
+        assert run.await_count == 1
+        await service._handle_evt_response(
+            SimpleNamespace(
+                inner_type="response.created",
+                delegation_id="new-response",
+            )
+        )
         await service.process_frame(BotStartedSpeakingFrame(), FrameDirection.UPSTREAM)
         await service.run_function_calls([transition])
         await service._disconnect()
         await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
-        assert run.await_count == 2
+        assert run.await_count == 1
 
 
 @pytest.mark.asyncio

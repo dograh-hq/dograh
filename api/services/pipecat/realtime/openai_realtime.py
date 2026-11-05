@@ -8,6 +8,8 @@ reconnect.
 
 Adds:
 
+- **One playback scope per response**, including duplicate item events and
+  late output after cancellation.
 - **Silent audio while muted** via ``UserMuteStarted/StoppedFrame``.
 - **TTSSpeakFrame as initial-response trigger** so the engine's greeting
   flow kicks off the bot's first response.
@@ -15,9 +17,8 @@ Adds:
   straight to the transport instead of routing through the model.
 - **One-off LLMMessagesAppendFrame handling** for ephemeral realtime prompts
   like user-idle checks, without mutating Dograh's local ``LLMContext``.
-- **Workflow-control deferral** so node transitions, call termination, and
-  transfers wait for any current bot audio to finish while ordinary tools run
-  immediately.
+- **Workflow-control deferral** so a lone transition waits for playback while
+  ordinary tools and mixed batches run immediately.
 - **finalized=True on TranscriptionFrame** because every OpenAI
   transcription via the ``completed`` event is final by construction.
 """
@@ -27,11 +28,17 @@ from typing import Any
 
 from loguru import logger
 
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.connection import BackgroundConnectionMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
+from api.services.pipecat.realtime.response_lifecycle import (
+    RealtimeResponseLifecycleMixin,
+    response_event,
+)
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
-    BotStartedSpeakingFrame,
-    BotStoppedSpeakingFrame,
     Frame,
     LLMFullResponseStartFrame,
     LLMMessagesAppendFrame,
@@ -50,16 +57,28 @@ from pipecat.utils.time import time_now_iso8601
 
 
 class DograhOpenAIRealtimeLLMService(
-    RealtimeConversationMixin, OpenAIRealtimeLLMService
+    BackgroundConnectionMixin,
+    RealtimeConversationMixin,
+    RealtimeResponseLifecycleMixin,
+    OpenAIRealtimeLLMService,
 ):
     """OpenAI Realtime with Dograh engine integration quirks. See module docstring."""
+
+    # Tool responses can span several assistant items and playback gaps.
+    _workflow_tools_follow_voice_response = False
+
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(
+            self._api_session_ready
+            and self._pending_prerecorded_greeting is None
+            and self._pending_initial_greeting_text is None
+        )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Track bot speech locally so workflow-control calls can wait until the
         # bot has finished speaking without delaying ordinary tools.
-        self._bot_is_speaking: bool = False
-        self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._pending_initial_greeting_text: str | None = None
         # A recorded greeting can open the conversation before the API session
         # is ready; its seed then waits for session.updated. Kept separate from
@@ -75,12 +94,53 @@ class DograhOpenAIRealtimeLLMService(
         if isinstance(frame, LLMMessagesAppendFrame):
             await self._handle_messages_append(frame)
             return
-        if isinstance(frame, BotStartedSpeakingFrame):
-            self._bot_is_speaking = True
-        elif isinstance(frame, BotStoppedSpeakingFrame):
-            self._bot_is_speaking = False
-            await self._run_pending_node_transition_function_calls()
         await super().process_frame(frame, direction)
+
+    async def _receive_task_handler(self):
+        """Dispatch response.created as well as the pinned upstream events.
+
+        The pinned OpenAI receive loop parses but ignores response.created.
+        Keep its dispatch/error behavior, adding the lifecycle callback needed
+        to pair speech by response ID instead of assistant item announcements.
+        """
+        assert self._websocket is not None
+        handlers = {
+            "session.created": self._handle_evt_session_created,
+            "session.updated": self._handle_evt_session_updated,
+            "response.created": self._handle_evt_response_created,
+            "response.output_item.added": self._handle_evt_conversation_item_added,
+            "response.output_audio.delta": self._handle_evt_audio_delta,
+            "conversation.item.added": self._handle_evt_conversation_item_added,
+            "conversation.item.done": self._handle_evt_conversation_item_done,
+            "conversation.item.input_audio_transcription.delta": self._handle_evt_input_audio_transcription_delta,
+            "conversation.item.input_audio_transcription.completed": self.handle_evt_input_audio_transcription_completed,
+            "conversation.item.retrieved": self._handle_conversation_item_retrieved,
+            "response.done": self._handle_evt_response_done,
+            "input_audio_buffer.speech_started": self._handle_evt_speech_started,
+            "input_audio_buffer.speech_stopped": self._handle_evt_speech_stopped,
+            "response.output_text.delta": self._handle_evt_text_delta,
+            "response.output_audio_transcript.delta": self._handle_evt_audio_transcript_delta,
+            "response.function_call_arguments.done": self._handle_evt_function_call_arguments_done,
+        }
+        async for message in self._websocket:
+            evt = events.parse_server_event(message)
+            if handler := handlers.get(evt.type):
+                await handler(evt)
+            elif evt.type == "error":
+                if not await self._maybe_handle_evt_retrieve_conversation_item_error(
+                    evt
+                ):
+                    if evt.error.code in (
+                        "response_cancel_not_active",
+                        "conversation_already_has_active_response",
+                    ):
+                        logger.debug(f"{self} {evt.error.message}")
+                    else:
+                        await self._handle_evt_error(evt)
+                        return
+
+    async def _cancel_realtime_response(self):
+        await self.send_client_event(events.ResponseCancelEvent())
 
     async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
         """Consume a one-off append frame without mutating the local LLMContext."""
@@ -109,6 +169,7 @@ class DograhOpenAIRealtimeLLMService(
         if frame.run_llm and appended_any:
             await self._send_manual_response_create()
 
+    @opening_request
     async def _handle_context(self, context: LLMContext):
         if not self._handled_initial_context:
             if context is None:
@@ -134,6 +195,7 @@ class DograhOpenAIRealtimeLLMService(
         self._context = context
         await self._create_initial_greeting_response(greeting_text)
 
+    @opening_request
     async def _create_initial_greeting_response(self, greeting_text: str):
         if self._disconnecting:
             return
@@ -195,6 +257,7 @@ class DograhOpenAIRealtimeLLMService(
         await self._send_session_update()
         self._llm_needs_conversation_setup = False
 
+    @opening_request
     async def _handle_evt_session_updated(self, evt):
         self._api_session_ready = True
         if self._pending_initial_greeting_text is not None:
@@ -291,19 +354,9 @@ class DograhOpenAIRealtimeLLMService(
             )
         )
 
-    async def _run_pending_node_transition_function_calls(self):
-        if not self._deferred_node_transition_function_calls:
-            return
-        function_calls = self._deferred_node_transition_function_calls
-        self._deferred_node_transition_function_calls = []
-        logger.debug(
-            f"{self}: executing {len(function_calls)} deferred workflow-control "
-            "call(s) after bot turn ended"
-        )
-        await self.run_function_calls(function_calls)
-
+    @response_event
     async def _handle_evt_function_call_arguments_done(self, evt):
-        """Run ordinary tools immediately and defer workflow-control calls."""
+        """Only a response's sole workflow-control call may wait for playback."""
         try:
             args = json.loads(evt.arguments)
 
@@ -320,19 +373,14 @@ class DograhOpenAIRealtimeLLMService(
                     )
                 ]
 
-                is_node_transition = self._function_is_node_transition(
-                    function_call_item.name
+                self._workflow_tool_deferral.select_response(
+                    getattr(evt, "response_id", None), collecting=True
                 )
-                if self._bot_is_speaking and is_node_transition:
-                    self._deferred_node_transition_function_calls.extend(function_calls)
-                    logger.debug(
-                        f"{self}: deferring workflow-control call "
-                        f"{function_call_item.name} "
-                        "until bot stops speaking"
-                    )
-                else:
-                    await self.run_function_calls(function_calls)
-                    logger.debug(f"Processed function call: {function_call_item.name}")
+                await self._workflow_tool_deferral.submit(
+                    function_calls,
+                    speaking=self._workflow_bot_is_speaking,
+                    dispatch=self.run_function_calls,
+                )
             else:
                 logger.warning(
                     f"No tracked function call found for call_id: {evt.call_id}"
@@ -343,6 +391,17 @@ class DograhOpenAIRealtimeLLMService(
 
         except Exception as e:
             logger.error(f"Failed to process function call arguments: {e}")
+
+    async def _handle_evt_response_done(self, evt):
+        already_finished = self._is_stale_response(evt.response.id)
+        await super()._handle_evt_response_done(evt)
+        if already_finished:
+            return
+        await self._workflow_tool_deferral.complete_response(
+            evt.response.id,
+            speaking=self._workflow_bot_is_speaking,
+            succeeded=evt.response.status == "completed",
+        )
 
     # ------------------------------------------------------------------
     # Transcription: broadcast with finalized=True for every

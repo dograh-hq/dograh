@@ -20,3 +20,27 @@ The `time_slots` field controls when Dograh is allowed to place calls. If omitte
 ```
 
 Once created, the campaign is in `draft` status. Call [Start](/api-reference/campaigns/start) to begin dialing.
+
+To split calls between agents or versions, send `traffic_split` instead of `workflow_id`:
+
+```json
+{
+  "name": "Version comparison",
+  "source_type": "csv",
+  "source_id": "your-uploaded-csv-key",
+  "traffic_split": {
+    "variants": [
+      { "workflow_id": 12, "workflow_definition_id": null, "weight": 50 },
+      { "workflow_id": 12, "workflow_definition_id": 341, "weight": 50 }
+    ]
+  }
+}
+```
+
+You can specify one to five unique agent/version pairs. Weights must be whole percentages from 1 to 100 and total 100. All agents must belong to your organization, and your CSV must supply the template variables required by every selected version.
+
+Omit `workflow_definition_id` or set it to `null` to use the latest published version at dial time. A definition ID pins a published or archived version; drafts cannot be selected. Calls already in progress keep their version.
+
+You can change the split with `PATCH /api/v1/campaign/{campaign_id}` while a campaign is running or paused. Changes apply to the next batch, including retries. A contact stays on the same variant while the split is unchanged; changing weights or removing variants can move contacts. Reordering existing variants alone does not change allocation. Redial campaigns inherit the current split and its allocation seed.
+
+The campaign detail page shows current target percentages and actual shares across all attempts, including retries and earlier splits. Shares are approximate, especially with small contact lists. `GET /api/v1/campaign/{campaign_id}/traffic-stats` returns the same counts, outcomes, and versions used, including variants removed from the current split.

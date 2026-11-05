@@ -114,17 +114,14 @@ class ARIBridgeSwapStrategy(TransferStrategy):
 
             # 3. Set transfer state to prevent StasisEnd auto-teardown and
             # persist the transferred pair for post-handoff participant cleanup.
-            workflow_run.gathered_context.update(
-                {
+            await db_client.update_workflow_run(
+                run_id=int(workflow_run_id),
+                gathered_context={
                     "transfer_state": "in-progress",
                     "transfer_bridge_id": bridge_id,
                     "transfer_caller_channel_id": channel_id,
                     "transfer_destination_channel_id": destination_channel_id,
-                }
-            )
-            await db_client.update_workflow_run(
-                run_id=int(workflow_run_id),
-                gathered_context=workflow_run.gathered_context,
+                },
             )
             logger.debug(
                 f"[ARI Transfer] Set transfer_state=in-progress for workflow {workflow_run_id}"

@@ -1,10 +1,27 @@
+import json
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import httpx
 import pytest
+from fastapi import HTTPException
 
 from api.errors.failure import ErrorType
 from api.errors.mps import MPSUnavailableError
 from api.services import mps_service_key_client as mps_client_module
 from api.services.mps_service_key_client import MPSServiceKeyClient
+
+# MPS keys accounts by Stack team id; organization 42 is that team locally.
+TEAM_ID = "0f7e6977-e728-4368-9e5f-72c97b293cfc"
+DEPLOYMENT_ID = mps_client_module.DOGRAH_DEPLOYMENT_ID
+
+
+@pytest.fixture(autouse=True)
+def organization_team(monkeypatch):
+    lookup = AsyncMock(return_value=SimpleNamespace(id=42, provider_id=TEAM_ID))
+    monkeypatch.setattr(mps_client_module.db_client, "get_organization_by_id", lookup)
+    return lookup
 
 
 class _Response:
@@ -16,6 +33,52 @@ class _Response:
 
     def json(self):
         return self._payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry_type", [None, "purchase", "credit"])
+async def test_credit_ledger_forwards_filters_with_organization_auth(
+    monkeypatch, entry_type
+):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(200, json={"ledger_entries": []})
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        mps_client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: async_client(
+            transport=httpx.MockTransport(handle),
+            **kwargs,
+        ),
+    )
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(mps_client_module, "DOGRAH_MPS_SECRET_KEY", "mps-secret")
+    filters = (
+        dict(
+            entry_type=entry_type,
+            start_date=datetime(2026, 6, 1, tzinfo=UTC),
+            end_date=datetime(2026, 7, 1, tzinfo=UTC),
+        )
+        if entry_type
+        else {}
+    )
+    client = MPSServiceKeyClient()
+    await client.get_credit_ledger(organization_id=42, page=2, limit=25, **filters)
+    assert requests[0].headers["X-Stack-Team-Id"] == TEAM_ID
+    assert "X-Organization-Id" not in requests[0].headers
+    assert requests[0].headers["X-Secret-Key"] == "mps-secret"
+    expected = {"page": "2", "limit": "25"}
+    if entry_type:
+        expected.update(
+            entry_type=entry_type,
+            start_date="2026-06-01T00:00:00+00:00",
+            end_date="2026-07-01T00:00:00+00:00",
+        )
+    assert dict(requests[0].url.params) == expected
 
 
 @pytest.mark.asyncio
@@ -46,7 +109,8 @@ class _Response:
             {
                 "Content-Type": "application/json",
                 "X-Secret-Key": "dograh-mps-secret",
-                "X-Organization-Id": "42",
+                "X-Stack-Team-Id": TEAM_ID,
+                "X-Created-By": "11111111-1111-4111-8111-111111111111",
             },
         ),
     ],
@@ -377,7 +441,7 @@ async def test_create_correlation_id_uses_bearer_auth(monkeypatch):
         (
             "POST",
             f"{client.base_url}/api/v1/service-keys/correlation-id/self",
-            {"workflow_run_id": 42},
+            {"deployment_id": DEPLOYMENT_ID, "workflow_run_id": 42},
             {
                 "Authorization": "Bearer mps_sk_paid",
                 "Content-Type": "application/json",
@@ -439,9 +503,10 @@ async def test_authorize_workflow_run_start_uses_hosted_org_auth(monkeypatch):
     assert calls == [
         (
             "POST",
-            f"{client.base_url}/api/v1/billing/accounts/42/run-authorization",
+            f"{client.base_url}/api/v1/billing/teams/{TEAM_ID}/run-authorization",
             {
                 "workflow_run_id": 88,
+                "deployment_id": DEPLOYMENT_ID,
                 "service_key": "mps_sk_paid",
                 "require_correlation_id": True,
                 "minimum_credits": 0.1,
@@ -450,10 +515,99 @@ async def test_authorize_workflow_run_start_uses_hosted_org_auth(monkeypatch):
             {
                 "Content-Type": "application/json",
                 "X-Secret-Key": "mps-secret",
-                "X-Organization-Id": "42",
+                "X-Stack-Team-Id": TEAM_ID,
+                "X-Created-By": "provider-123",
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_id", [None, "org_oss_old", "invalid-team"])
+@pytest.mark.parametrize("operation", ["balance", "create", "list", "get", "archive"])
+async def test_hosted_calls_reject_missing_stack_team_before_sending(
+    monkeypatch, organization_team, provider_id, operation
+):
+    organization_team.return_value = SimpleNamespace(id=42, provider_id=provider_id)
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", "saas")
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(200, json={})
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        mps_client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    client = MPSServiceKeyClient()
+    operations = {
+        "balance": lambda: client.ensure_billing_account_v2(organization_id=42),
+        "create": lambda: client.create_service_key(
+            "test", organization_id=42, created_by="actor"
+        ),
+        "list": lambda: client.get_service_keys(organization_id=42),
+        "get": lambda: client.get_service_key_by_id(1, organization_id=42),
+        "archive": lambda: client.archive_service_key(1, organization_id=42),
+    }
+    with pytest.raises(HTTPException) as error:
+        await operations[operation]()
+    assert error.value.status_code == 400
+    assert "Stack team" in error.value.detail
+    assert requests == []
+
+
+@pytest.mark.asyncio
+async def test_missing_organization_can_be_resolved_on_retry(
+    monkeypatch, organization_team
+):
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", "saas")
+    organization_team.side_effect = [None, SimpleNamespace(id=42, provider_id=TEAM_ID)]
+    client = MPSServiceKeyClient()
+    with pytest.raises(HTTPException) as error:
+        await client._stack_team_id(42)
+    assert error.value.status_code == 404
+    assert await client._stack_team_id(42) == TEAM_ID
+    assert await client._stack_team_id(42) == TEAM_ID
+    assert organization_team.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_hosted_management_requires_selected_organization(monkeypatch):
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", "saas")
+    with pytest.raises(HTTPException) as error:
+        await MPSServiceKeyClient().get_service_keys()
+    assert error.value.status_code == 400
+    assert error.value.detail == "No organization selected"
+
+
+@pytest.mark.asyncio
+async def test_hosted_key_requests_only_send_stack_team_identity(monkeypatch):
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(mps_client_module, "DOGRAH_MPS_SECRET_KEY", "test-secret")
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(200, json=[] if request.method == "GET" else {"id": 1})
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        mps_client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    client = MPSServiceKeyClient()
+    await client.create_service_key("test", organization_id=42, created_by="actor")
+    await client.get_service_keys(organization_id=42)
+    payload = json.loads(requests[0].content)
+    assert payload["stack_team_id"] == TEAM_ID
+    assert "organization_id" not in payload
+    assert dict(requests[1].url.params) == {"stack_team_id": TEAM_ID}
+    assert all(request.headers["X-Stack-Team-Id"] == TEAM_ID for request in requests)
+    assert all("X-Organization-Id" not in request.headers for request in requests)
 
 
 @pytest.mark.asyncio
@@ -504,6 +658,7 @@ async def test_authorize_service_key_run_start_uses_bearer_auth(monkeypatch):
             f"{client.base_url}/api/v1/service-keys/run-authorization/self",
             {
                 "workflow_run_id": 88,
+                "deployment_id": DEPLOYMENT_ID,
                 "require_correlation_id": True,
                 "minimum_credits": 0.1,
                 "metadata": {"workflow_id": 7},
@@ -566,11 +721,12 @@ async def test_ensure_billing_account_v2_uses_balance_endpoint(monkeypatch):
     assert calls == [
         (
             "GET",
-            f"{client.base_url}/api/v1/billing/accounts/42/balance",
+            f"{client.base_url}/api/v1/billing/teams/{TEAM_ID}/balance",
             {
                 "Content-Type": "application/json",
                 "X-Secret-Key": "mps-secret",
-                "X-Organization-Id": "42",
+                "X-Stack-Team-Id": TEAM_ID,
+                "X-Created-By": "provider-123",
             },
         )
     ]
@@ -619,11 +775,11 @@ async def test_get_billing_pricing_uses_hosted_organization_auth(monkeypatch):
     assert calls == [
         (
             "GET",
-            f"{client.base_url}/api/v1/billing/accounts/42/pricing",
+            f"{client.base_url}/api/v1/billing/teams/{TEAM_ID}/pricing",
             {
                 "Content-Type": "application/json",
                 "X-Secret-Key": "mps-secret",
-                "X-Organization-Id": "42",
+                "X-Stack-Team-Id": TEAM_ID,
             },
         )
     ]
@@ -682,12 +838,12 @@ async def test_get_credit_ledger_sends_page_and_limit(monkeypatch):
     assert calls == [
         (
             "GET",
-            f"{client.base_url}/api/v1/billing/accounts/42/ledger",
+            f"{client.base_url}/api/v1/billing/teams/{TEAM_ID}/ledger",
             {"page": 3, "limit": 25},
             {
                 "Content-Type": "application/json",
                 "X-Secret-Key": "mps-secret",
-                "X-Organization-Id": "42",
+                "X-Stack-Team-Id": TEAM_ID,
             },
         )
     ]
@@ -730,8 +886,9 @@ async def test_report_platform_usage_uses_hosted_secret_auth(monkeypatch):
     assert calls == [
         (
             "POST",
-            f"{client.base_url}/api/v1/billing/accounts/42/platform-usage",
+            f"{client.base_url}/api/v1/billing/teams/{TEAM_ID}/platform-usage",
             {
+                "deployment_id": DEPLOYMENT_ID,
                 "correlation_id": "mps-corr-123",
                 "workflow_run_id": 123,
                 "metadata": {"source": "workflow_run_completion"},
@@ -739,7 +896,7 @@ async def test_report_platform_usage_uses_hosted_secret_auth(monkeypatch):
             {
                 "Content-Type": "application/json",
                 "X-Secret-Key": "mps-secret",
-                "X-Organization-Id": "42",
+                "X-Stack-Team-Id": TEAM_ID,
             },
         )
     ]
@@ -782,8 +939,9 @@ async def test_report_platform_usage_sends_duration_without_correlation(monkeypa
     assert calls == [
         (
             "POST",
-            f"{client.base_url}/api/v1/billing/accounts/42/platform-usage",
+            f"{client.base_url}/api/v1/billing/teams/{TEAM_ID}/platform-usage",
             {
+                "deployment_id": DEPLOYMENT_ID,
                 "duration_seconds": 87.0,
                 "workflow_run_id": 123,
                 "metadata": {"source": "workflow_run_completion"},
@@ -791,7 +949,7 @@ async def test_report_platform_usage_sends_duration_without_correlation(monkeypa
             {
                 "Content-Type": "application/json",
                 "X-Secret-Key": "mps-secret",
-                "X-Organization-Id": "42",
+                "X-Stack-Team-Id": TEAM_ID,
             },
         )
     ]

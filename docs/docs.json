@@ -57,7 +57,8 @@
               "configurations/api-keys",
               "configurations/agent-uuid",
               "configurations/interruption",
-              "configurations/tracing"
+              "configurations/tracing",
+              "configurations/call-events"
             ]
           },
           {
@@ -118,6 +119,7 @@
               "integrations/telephony/cloudonix",
               "integrations/telephony/exotel",
               "integrations/telephony/vobiz",
+              "integrations/telephony/whatsapp",
               "integrations/telephony/asterisk-ari",
               "integrations/telephony/vicidial",
               "integrations/telephony/webhooks",

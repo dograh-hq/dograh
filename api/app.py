@@ -36,6 +36,7 @@ from api.constants import REDIS_URL
 from api.errors.mps import MPS_UNAVAILABLE_PUBLIC_MESSAGE, MPSUnavailableError
 from api.mcp_server import mcp
 from api.routes.main import router as main_router
+from api.services.pipecat.recording_audio_cache import handle_recording_cache_sync
 from api.services.pipecat.tracing_config import (
     handle_langfuse_sync,
     load_all_org_langfuse_credentials,
@@ -68,10 +69,18 @@ async def lifespan(app: FastAPI):
         sync_manager.register(
             WorkerSyncEventType.LANGFUSE_CREDENTIALS, handle_langfuse_sync
         )
+        sync_manager.register(
+            WorkerSyncEventType.RECORDINGS, handle_recording_cache_sync
+        )
         await sync_manager.start()
         set_worker_sync_manager(sync_manager)
 
         from api.services.observability import loop_exceptions, loop_lag, metrics
+        from api.services.observability.call_events import (
+            delivery as call_event_delivery,
+        )
+
+        call_event_delivery.start()
 
         # Event-loop lag gauge — per-pod saturation signal read off
         # /health/active-calls during autoscaling load tests.
@@ -85,6 +94,12 @@ async def lifespan(app: FastAPI):
             yield  # Run app
         finally:
             logger.info("Starting graceful shutdown...")
+            from api.services.workflow.text_chat_stream import (
+                finish_streaming_text_chat_turns,
+            )
+
+            await finish_streaming_text_chat_turns()
+            await call_event_delivery.shutdown()
             try:
                 await sync_manager.stop()
             finally:
@@ -148,6 +163,7 @@ app.add_middleware(
     allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Workflow-Run-Id"],
 )
 
 

@@ -224,19 +224,23 @@ export const DEFAULT_END_CALL_REASON_DESCRIPTION =
     "The reason for ending the call (e.g., 'voicemail_detected', 'issue_resolved', 'customer_requested')";
 
 export const DEFAULT_END_CALL_CONFIG: EndCallConfig = {
-    messageType: "none",
-    customMessage: "",
     endCallReason: false,
 };
 
 export const DEFAULT_TRANSFER_AGENT_MESSAGE =
     "Let me connect you with the right person. One moment please.";
 
+export const DEFAULT_TRANSFER_INTRODUCTION_PROMPT =
+    "Briefly introduce this caller to the person receiving the transfer. " +
+    "Include their reason for calling, essential details, and any explicit " +
+    "language preference. Use the caller's preferred language. Keep it to one " +
+    "sentence, at most 25 words. Do not invent details.";
+
 export const DEFAULT_TRANSFER_CALL_CONFIG: TransferCallConfig = {
     destination: "",
-    messageType: "none",
-    customMessage: "",
     timeout: 30,
+    introduction_enabled: false,
+    introduction_prompt: DEFAULT_TRANSFER_INTRODUCTION_PROMPT,
 };
 
 export type ToolDefinition =
@@ -251,6 +255,7 @@ export function createEndCallDefinition(config: EndCallConfig): EndCallToolDefin
     return {
         schema_version: 1,
         type: "end_call",
+        messages: [],
         config,
     };
 }
@@ -259,6 +264,7 @@ export function createTransferCallDefinition(config: TransferCallConfig): Transf
     return {
         schema_version: 1,
         type: "transfer_call",
+        messages: [],
         config,
     };
 }
@@ -270,10 +276,14 @@ export function createTransferCallDefinition(config: TransferCallConfig): Transf
  */
 export function createTransferAgentDefinition(
     config: TransferAgentConfig,
+    messages: NonNullable<TransferAgentToolDefinition["messages"]> = [
+        { event: "start", type: "text", text: DEFAULT_TRANSFER_AGENT_MESSAGE },
+    ],
 ): TransferAgentToolDefinition {
     return {
         schema_version: 1,
         type: "transfer_agent",
+        messages,
         config,
     };
 }
@@ -282,6 +292,7 @@ export function createHttpApiDefinition(): HttpApiToolDefinition {
     return {
         schema_version: 1,
         type: "http_api",
+        messages: [],
         config: {
             method: "POST",
             url: "",
@@ -293,6 +304,7 @@ export function createCalculatorDefinition(): CalculatorToolDefinition {
     return {
         schema_version: 1,
         type: "calculator",
+        messages: [],
     };
 }
 
@@ -306,6 +318,7 @@ export function createMcpDefinition(
     return {
         schema_version: 1,
         type: "mcp" as const,
+        messages: [],
         config: {
             transport: "streamable_http" as const,
             url: url.trim(),

@@ -34,11 +34,11 @@ export function HireExpertNudge({ workflowId }: HireExpertNudgeProps) {
       if (hasOpenedHireRef.current) return; // they engaged elsewhere; don't nag
       if (localStorage.getItem(nudgeDoneKey(workflowId))) return;
       setVisible(true);
-      posthog.capture(PostHogEvent.HIRE_NUDGE_SHOWN, { workflowId });
+      posthog.capture(PostHogEvent.HIRE_NUDGE_SHOWN);
       // Auto-fade after 30s. Auto-expiry does NOT mark done (per spec).
       fadeTimer.current = setTimeout(() => {
         setVisible(false);
-        posthog.capture(PostHogEvent.HIRE_NUDGE_EXPIRED, { workflowId });
+        posthog.capture(PostHogEvent.HIRE_NUDGE_EXPIRED);
       }, AUTO_FADE_MS);
     }, SHOW_DELAY_MS);
 
@@ -57,13 +57,13 @@ export function HireExpertNudge({ workflowId }: HireExpertNudgeProps) {
   };
 
   const handleClick = () => {
-    posthog.capture(PostHogEvent.HIRE_NUDGE_CLICKED, { workflowId });
+    posthog.capture(PostHogEvent.HIRE_NUDGE_CLICKED);
     markDone();
     openHireExpert("builder_nudge");
   };
 
   const handleDismiss = () => {
-    posthog.capture(PostHogEvent.HIRE_NUDGE_DISMISSED, { workflowId });
+    posthog.capture(PostHogEvent.HIRE_NUDGE_DISMISSED);
     markDone();
   };
 

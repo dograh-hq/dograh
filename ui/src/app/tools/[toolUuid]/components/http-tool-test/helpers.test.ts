@@ -89,10 +89,9 @@ describe("buildHttpToolTestSnapshot", () => {
         presetParameters: [],
         bodyTemplateEnabled: false,
         bodyTemplate: null,
+        bodyFormat: "json",
         timeoutMs: 5000,
-        customMessage: "",
-        customMessageType: "text",
-        customMessageRecordingId: "",
+        messages: [],
     };
 
     it("produces identical output for identical fields", () => {
@@ -116,13 +115,16 @@ describe("buildHttpToolTestSnapshot", () => {
             buildHttpToolTestSnapshot({ ...base, description: "Updated description" })
         );
         expect(buildHttpToolTestSnapshot(base)).not.toBe(
-            buildHttpToolTestSnapshot({ ...base, customMessage: "Done" })
+            buildHttpToolTestSnapshot({ ...base, messages: [{ event: "start", type: "text", text: "One moment." }] })
         );
         expect(buildHttpToolTestSnapshot(base)).not.toBe(
             buildHttpToolTestSnapshot({ ...base, bodyTemplate: { id: "{{id}}" } })
         );
         expect(buildHttpToolTestSnapshot(base)).not.toBe(
             buildHttpToolTestSnapshot({ ...base, bodyTemplateEnabled: true })
+        );
+        expect(buildHttpToolTestSnapshot(base)).not.toBe(
+            buildHttpToolTestSnapshot({ ...base, bodyFormat: "form" })
         );
     });
 });

@@ -25,6 +25,7 @@ from api.services.telephony.base import (
     SIPTransportDetails,
     TelephonyProvider,
 )
+from api.services.telephony.sip import first_sip_string, normalize_sip_headers
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
@@ -867,8 +868,11 @@ class CloudonixProvider(TelephonyProvider):
         - SessionData: Contains additional call info including underlying provider details
         """
 
-        session_data = webhook_data.get("SessionData", {})
-        token = session_data.get("token", "") if isinstance(session_data, dict) else ""
+        session_data = webhook_data.get("SessionData")
+        session_data = session_data if isinstance(session_data, dict) else {}
+        profile = session_data.get("profile")
+        profile = profile if isinstance(profile, dict) else {}
+        token = session_data.get("token", "")
 
         call_id = webhook_data.get("Session") or webhook_data.get("CallSid") or token
 
@@ -885,13 +889,32 @@ class CloudonixProvider(TelephonyProvider):
         )
 
         # Extract underlying provider information from SessionData if available
-        session_data = webhook_data.get("SessionData", {})
         underlying_provider = None
-        if isinstance(session_data, dict):
-            profile = session_data.get("profile", {})
-            trunk_headers = profile.get("trunk-sip-headers", {})
-            if "Twilio-AccountSid" in trunk_headers:
-                underlying_provider = "twilio"
+        trunk_headers = profile.get("trunk-sip-headers")
+        if isinstance(trunk_headers, dict) and "Twilio-AccountSid" in trunk_headers:
+            underlying_provider = "twilio"
+
+        # Cloudonix's CallSid/Session identify its session, not the caller's
+        # SIP dialog. The latter is repeated in callIds, profile.callId and CID.
+        sip_headers = normalize_sip_headers(
+            (name, value)
+            for field in ("trunk-sip-headers", "subscriber-sip-headers")
+            if isinstance(forwarded := profile.get(field), dict)
+            for name, value in forwarded.items()
+        )
+        lowered = {name.lower(): value for name, value in sip_headers.items()}
+        sip_call_id = (
+            first_sip_string(session_data.get("callIds"))
+            or first_sip_string(profile.get("callId"))
+            or next(
+                (
+                    lowered[name]
+                    for name in ("cid", "call-id", "correlation-id", "x-correlation-id")
+                    if lowered.get(name)
+                ),
+                None,
+            )
+        )
 
         direction = webhook_data.get("Direction", "inbound").lower()
         if direction in {"inbound", "subscriber"}:
@@ -911,6 +934,8 @@ class CloudonixProvider(TelephonyProvider):
                 **webhook_data,
                 "underlying_provider": underlying_provider,
             },
+            sip_call_id=sip_call_id,
+            sip_headers=sip_headers,
         )
 
     @staticmethod

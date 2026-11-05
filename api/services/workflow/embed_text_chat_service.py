@@ -5,6 +5,7 @@ their authenticated session loading, per-session limits, quota authorization,
 turn execution, and allowlist projection.
 """
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 from loguru import logger
@@ -15,7 +16,10 @@ from api.db.models import EmbedTokenModel, WorkflowRunTextSessionModel
 from api.enums import WorkflowRunMode
 from api.schemas.embed_chat import (
     PublicEmbedChatMessage,
+    PublicEmbedChatMessageStreamEvent,
     PublicEmbedChatSessionResponse,
+    PublicEmbedChatSessionStreamEvent,
+    PublicEmbedChatStreamError,
     PublicEmbedChatTurn,
 )
 from api.services.workflow.embed_chat_limiter import allow_embed_chat_message
@@ -34,6 +38,7 @@ from api.services.workflow.text_chat_session_service import (
     initialize_text_chat_session,
     normalize_text_chat_session_data,
 )
+from api.services.workflow.text_chat_stream import TextChatTurnStream
 
 EMBED_CHAT_MAX_TURNS = 50
 
@@ -91,6 +96,7 @@ async def process_embed_text_chat_message(
     origin: str,
     text: str,
     expected_revision: int | None,
+    defer_execution: bool = False,
 ) -> WorkflowRunTextSessionModel:
     """Authorize and execute one visitor message for an embed chat session."""
     embed_token, text_session = await load_embed_text_chat_session(
@@ -123,6 +129,7 @@ async def process_embed_text_chat_message(
             text_session=text_session,
             text=text,
             expected_revision=expected_revision,
+            defer_execution=defer_execution,
         )
     except (TextChatPendingTurnLostError, TextChatSessionExecutionError) as e:
         logger.error(f"Embed chat turn failed for run {workflow_run.id}: {e}")
@@ -147,7 +154,7 @@ async def end_embed_text_chat_session(
 
 
 async def start_embed_text_chat(
-    *, workflow_id: int, run_id: int
+    *, workflow_id: int, run_id: int, defer_execution: bool = False
 ) -> WorkflowRunTextSessionModel:
     """Seed the text session for an embed run and execute the greeting turn."""
     text_session = await db_client.ensure_workflow_run_text_session(
@@ -158,6 +165,8 @@ async def start_embed_text_chat(
     text_session = await initialize_text_chat_session(
         run_id=run_id, text_session=text_session
     )
+    if defer_execution:
+        return text_session
     return await execute_pending_text_chat_turn(
         workflow_id=workflow_id, run_id=run_id, text_session=text_session
     )
@@ -170,6 +179,7 @@ async def append_embed_text_chat_message(
     text_session: WorkflowRunTextSessionModel,
     text: str,
     expected_revision: int | None,
+    defer_execution: bool = False,
 ) -> WorkflowRunTextSessionModel:
     turns = normalize_text_chat_session_data(text_session.session_data)["turns"]
     if len(turns) >= EMBED_CHAT_MAX_TURNS:
@@ -183,6 +193,8 @@ async def append_embed_text_chat_message(
         user_text=text,
         expected_revision=expected_revision,
     )
+    if defer_execution:
+        return text_session
     return await execute_pending_text_chat_turn(
         workflow_id=workflow_id, run_id=run_id, text_session=text_session
     )
@@ -211,6 +223,15 @@ def build_public_chat_session_response(
                 status=turn.get("status", ""),
                 user_message=_public_message(turn.get("user_message")),
                 assistant_message=_public_message(turn.get("assistant_message")),
+                assistant_messages=(
+                    [
+                        message
+                        for event in turn.get("events", [])
+                        if (message := _public_speech(event)) is not None
+                    ]
+                    if turn.get("message_events_version") == 1
+                    else None
+                ),
             )
             for turn in session_data["turns"]
         ],
@@ -223,3 +244,61 @@ def _public_message(message: dict[str, Any] | None) -> PublicEmbedChatMessage | 
     return PublicEmbedChatMessage(
         text=message["text"], created_at=message.get("created_at")
     )
+
+
+def _public_speech(event: dict[str, Any]) -> PublicEmbedChatMessage | None:
+    if event.get("type") != "bot_speech":
+        return None
+    text = event.get("payload", {}).get("text")
+    if not isinstance(text, str) or not text:
+        return None
+    return PublicEmbedChatMessage(text=text, created_at=event.get("created_at"))
+
+
+def stream_embed_text_chat_turn(
+    text_session: WorkflowRunTextSessionModel,
+    *,
+    session_token: str | None = None,
+) -> AsyncIterator[str]:
+    """Stream only visitor-visible speech; keep tools and errors private."""
+    initial = build_public_chat_session_response(text_session).model_copy(deep=True)
+    run = text_session.workflow_run
+    turn_id = initial.turns[-1].id
+    # Own execution before returning, including disconnects before the first byte.
+    stream = TextChatTurnStream(
+        workflow_id=run.workflow_id, run_id=run.id, text_session=text_session
+    )
+
+    async def body() -> AsyncIterator[str]:
+        index = 0
+        try:
+            initial_event = PublicEmbedChatSessionStreamEvent(
+                type="session",
+                session=initial,
+                session_token=session_token,
+                workflow_run_id=run.id if session_token else None,
+            )
+            yield f"data: {initial_event.model_dump_json()}\n\n"
+            async for update in stream:
+                if update.kind == "ping":
+                    yield ": keep-alive\n\n"
+                elif update.kind == "event":
+                    message = _public_speech(update.event or {})
+                    if message is not None:
+                        event = PublicEmbedChatMessageStreamEvent(
+                            turn_id=turn_id, index=index, message=message
+                        )
+                        index += 1
+                        yield f"data: {event.model_dump_json()}\n\n"
+                elif update.kind == "complete":
+                    event = PublicEmbedChatSessionStreamEvent(
+                        type="complete",
+                        session=build_public_chat_session_response(update.session),
+                    )
+                    yield f"data: {event.model_dump_json()}\n\n"
+                else:
+                    yield f"data: {PublicEmbedChatStreamError().model_dump_json()}\n\n"
+        finally:
+            stream.disconnect()
+
+    return body()

@@ -2,7 +2,9 @@
 Twilio implementation of the TelephonyProvider interface.
 """
 
+import asyncio
 import json
+import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
@@ -11,6 +13,7 @@ from loguru import logger
 from twilio.request_validator import RequestValidator
 
 from api.enums import TelephonyCallStatus, WorkflowRunMode
+from api.errors.failure import redact_failure_message
 from api.services.telephony import ws_auth
 from api.services.telephony.base import (
     CallInitiationResult,
@@ -19,6 +22,8 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
+from api.services.telephony.providers.twilio.introduction import introduction_urls
+from api.services.telephony.sip import first_sip_string, normalize_sip_headers
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
@@ -362,9 +367,9 @@ class TwilioProvider(TelephonyProvider):
         return NormalizedInboundData(
             provider=TwilioProvider.PROVIDER_NAME,
             call_id=webhook_data.get("CallSid", ""),
-            from_number=normalize_telephony_address(from_raw).canonical
-            if from_raw
-            else "",
+            from_number=(
+                normalize_telephony_address(from_raw).canonical if from_raw else ""
+            ),
             to_number=normalize_telephony_address(to_raw).canonical if to_raw else "",
             direction=webhook_data.get("Direction", ""),
             call_status=webhook_data.get("CallStatus", ""),
@@ -374,6 +379,12 @@ class TwilioProvider(TelephonyProvider):
             to_country=webhook_data.get("ToCountry")
             or webhook_data.get("CalledCountry"),
             raw_data=webhook_data,
+            sip_call_id=first_sip_string(webhook_data.get("SipCallId")),
+            sip_headers=normalize_sip_headers(
+                (key.removeprefix("SipHeader_"), value)
+                for key, value in webhook_data.items()
+                if isinstance(key, str) and key.startswith("SipHeader_")
+            ),
         )
 
     @staticmethod
@@ -601,12 +612,54 @@ class TwilioProvider(TelephonyProvider):
 
     # ======== CALL TRANSFER METHODS ========
 
+    async def _get_transfer_caller_number(self, transfer_id: str) -> str | None:
+        """Look up the inbound caller using this call's Twilio account credentials."""
+        from api.services.telephony.call_transfer_manager import (
+            get_call_transfer_manager,
+        )
+
+        try:
+            # Bound the entire lookup, including Redis, so caller ID cannot leave
+            # a transfer waiting indefinitely before the destination is dialled.
+            async with asyncio.timeout(5):
+                manager = await get_call_transfer_manager()
+                transfer = await manager.get_transfer_context(transfer_id)
+                if not transfer or not transfer.original_call_sid:
+                    return None
+
+                async with (
+                    aiohttp.ClientSession() as session,
+                    session.get(
+                        f"{self.base_url}/Calls/{transfer.original_call_sid}.json",
+                        auth=aiohttp.BasicAuth(self.account_sid, self.auth_token),
+                    ) as response,
+                ):
+                    if response.status != 200:
+                        return None
+                    call = await response.json()
+
+                # An outbound call's From is our own number, not the customer.
+                if not isinstance(call, dict) or call.get("direction") != "inbound":
+                    return None
+                number = call.get("from")
+                # Preserve anonymous/withheld caller IDs by using our number.
+                if isinstance(number, str) and re.fullmatch(
+                    r"\+[1-9][0-9]{7,14}", number
+                ):
+                    return number
+        except (aiohttp.ClientError, TimeoutError, ValueError) as error:
+            logger.warning(
+                "Twilio transfer caller lookup failed error={}", type(error).__name__
+            )
+        return None
+
     async def transfer_call(
         self,
         destination: str,
         transfer_id: str,
         conference_name: str,
         timeout: int = 30,
+        introduction_audio_url: str | None = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """
@@ -616,7 +669,7 @@ class TwilioProvider(TelephonyProvider):
         and a status callback to track the transfer outcome.
 
         Args:
-            destination: The destination phone number (E.164 format)
+            destination: The destination phone number (E.164 format) or SIP URI
             transfer_id: Unique identifier for tracking this transfer
             conference_name: Name of the conference to join the destination into
             timeout: Transfer timeout in seconds
@@ -632,8 +685,7 @@ class TwilioProvider(TelephonyProvider):
         if not self.validate_config():
             raise ValueError("Twilio provider not properly configured")
 
-        from_number = self.select_from_number()
-        logger.info(f"Selected phone number {from_number} for transfer call")
+        account_number = self.select_from_number()
 
         backend_endpoint, _ = await get_backend_endpoints()
 
@@ -654,7 +706,7 @@ class TwilioProvider(TelephonyProvider):
         endpoint = f"{self.base_url}/Calls.json"
         data = {
             "To": destination,
-            "From": from_number,
+            "From": account_number,
             "Timeout": timeout,
             "Twiml": twiml,
             "StatusCallback": status_callback_url,
@@ -668,14 +720,30 @@ class TwilioProvider(TelephonyProvider):
             "StatusCallbackMethod": "POST",
         }
 
+        if introduction_audio_url:
+            # URL-based TwiML permits a fallback that skips a failed download.
+            data.pop("Twiml")
+            data.update(introduction_urls(backend_endpoint, transfer_id))
+            data["StatusCallback"] = (
+                f"{backend_endpoint}/api/v1/telephony/twilio/transfer-status/{transfer_id}"
+            )
+            data["StatusCallbackEvent"] = ["answered", "completed"]
+
         # Add any additional kwargs
         data.update(kwargs)
 
-        try:
-            logger.debug(f"Transfer call data: {data}")
+        caller_number = None
+        # SIP From is the username presented to the receiving PBX:
+        # https://www.twilio.com/docs/voice/api/sip-making-calls#post-parameters
+        if "From" not in kwargs and str(data["To"]).lower().startswith("sip:"):
+            caller_number = await self._get_transfer_caller_number(transfer_id)
+            if caller_number:
+                data["From"] = caller_number
 
-            async with aiohttp.ClientSession() as session:
-                auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
+        logger.debug("Dialing Twilio transfer {}", transfer_id)
+        async with aiohttp.ClientSession() as session:
+            auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
+            for attempt in range(2):
                 async with session.post(endpoint, data=data, auth=auth) as response:
                     response_status = response.status
                     response_text = await response.text()
@@ -683,37 +751,108 @@ class TwilioProvider(TelephonyProvider):
                     logger.info(
                         f"Twilio transfer API response status: {response_status}"
                     )
-                    logger.debug(f"Twilio transfer API response body: {response_text}")
-
                     if response_status in [200, 201]:
-                        try:
-                            response_data = await response.json()
-                            call_sid = response_data.get("sid")
-                            logger.info(
-                                f"Transfer call initiated successfully: {call_sid}"
-                            )
+                        response_data = await response.json()
+                        return {
+                            "call_sid": response_data.get("sid"),
+                            "status": response_data.get("status", "queued"),
+                            "provider": self.PROVIDER_NAME,
+                            "from_number": data["From"],
+                            "to_number": data["To"],
+                            "raw_response": response_data,
+                        }
 
-                            return {
-                                "call_sid": call_sid,
-                                "status": response_data.get("status", "queued"),
-                                "provider": self.PROVIDER_NAME,
-                                "from_number": from_number,
-                                "to_number": destination,
-                                "raw_response": response_data,
-                            }
-                        except Exception as e:
-                            logger.error(
-                                f"Failed to parse Twilio transfer response JSON: {e}"
-                            )
-                            raise Exception(f"Failed to parse transfer response: {e}")
-                    else:
-                        error_msg = f"Twilio API call failed with status {response_status}: {response_text}"
-                        logger.error(error_msg)
-                        raise Exception(error_msg)
+                error_detail = response_text
+                try:
+                    error_data = json.loads(response_text)
+                except ValueError:
+                    error_data = {}
+                else:
+                    error_detail = (
+                        error_data.get("message")
+                        if isinstance(error_data, dict)
+                        else None
+                    )
+                error_code = (
+                    error_data.get("code") if isinstance(error_data, dict) else None
+                )
+                # Twilio codes are JSON integers. Reject other types before
+                # retry classification, logging, or exposing the exception to
+                # the voice agent; bool is not a valid code either.
+                if not isinstance(error_code, int) or isinstance(error_code, bool):
+                    error_code = None
+                # 21210: unverified From; 21212: invalid From. Retry only an
+                # explicit caller-ID rejection, never an ambiguous create failure
+                # (e.g. a timeout or 5xx that might already have placed the call).
+                # https://www.twilio.com/docs/api/errors/21210
+                # https://www.twilio.com/docs/api/errors/21212
+                if (
+                    attempt == 0
+                    and caller_number
+                    and data["From"] != account_number
+                    and response_status in (400, 403)
+                    and error_code in (21210, 21212)
+                ):
+                    logger.warning(
+                        "Twilio rejected transfer caller ID code={}; retrying with account number",
+                        error_code,
+                    )
+                    data["From"] = account_number
+                    continue
+                # The workflow exposes exception text to the voice agent. Keep
+                # the provider's explanation in server logs only, redacting
+                # credentials and call addresses before truncating the message.
+                if isinstance(error_detail, str):
+                    for value in (
+                        self.auth_token,
+                        self.account_sid,
+                        account_number,
+                        caller_number,
+                        data["From"],
+                        data["To"],
+                    ):
+                        if isinstance(value, str) and value:
+                            error_detail = error_detail.replace(value, "[REDACTED]")
+                    error_detail = redact_failure_message(error_detail)
+                    error_detail = re.sub(r"[\x00-\x1f\x7f]", " ", error_detail)
+                    error_detail = " ".join(error_detail.split())[:500]
+                else:
+                    error_detail = None
+                logger.error(
+                    "Twilio transfer {} failed status={} code={} detail={}",
+                    transfer_id,
+                    response_status,
+                    error_code,
+                    error_detail or "No provider error explanation",
+                )
+                raise RuntimeError(
+                    f"Twilio API call failed with status {response_status}: code={error_code}"
+                )
 
-        except Exception as e:
-            logger.error(f"Exception during Twilio transfer call: {e}")
-            raise
+    async def end_transfer_leg(self, call_sid: str) -> None:
+        """Best-effort cleanup when the other party hangs up during introduction."""
+        try:
+            async with (
+                aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as session,
+                session.post(
+                    f"{self.base_url}/Calls/{call_sid}.json",
+                    data={"Status": "completed"},
+                    auth=aiohttp.BasicAuth(self.account_sid, self.auth_token),
+                ) as response,
+            ):
+                if response.status not in (200, 404):
+                    logger.warning(
+                        "Twilio transfer cleanup returned {}", response.status
+                    )
+        except (aiohttp.ClientError, TimeoutError) as error:
+            logger.warning(
+                "Twilio transfer cleanup failed error={}", type(error).__name__
+            )
+
+    def supports_transfer_introduction(self) -> bool:
+        return True
 
     def supports_transfers(self) -> bool:
         """

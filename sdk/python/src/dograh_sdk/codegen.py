@@ -82,6 +82,10 @@ def _py_type_for(prop: dict[str, Any], owner_class_name: str) -> tuple[str, str]
     elif t == "fixed_collection":
         row_class = f"{owner_class_name}_{_spec_class_name(prop['name'])}Row"
         annotation = f"list[{row_class}]"
+    elif t == "number":
+        renderer_options = prop.get("renderer_options") or {}
+        number_input = renderer_options.get("number_input") or {}
+        annotation = "int" if number_input.get("fractional") is False else "float"
     else:
         annotation = _SCALAR_PY_TYPES.get(t, "Any")
 

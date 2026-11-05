@@ -165,7 +165,9 @@ class ResponseHarness:
             bus=self.runner.bus,
             worker_name="watchdog-call",
             selected_visit=lambda: self.engine.selected_visit_id,
-            allow_inference=lambda: not self.engine.transfer_in_progress,
+            allow_inference=lambda: self.engine.agent_can_generate(
+                self.engine.active_agent
+            ),
         )
         self.monitor = self.engine.call_monitor
         self.monitor.bind_user(self.user, idle_timeout=0.1)
@@ -516,15 +518,27 @@ async def test_deactivation_cancels_watch_and_ignores_retired_inference(response
     assert not response.engine.call_monitor.pending_response
 
 
-@pytest.mark.parametrize("phase", [TransferPhase.PREPARING, TransferPhase.OPENING])
-async def test_transfer_gated_request_does_not_arm_response_deadline(response, phase):
+@pytest.mark.parametrize(
+    "phase",
+    [
+        TransferPhase.ANNOUNCING,
+        TransferPhase.PREPARING,
+        TransferPhase.COMMITTING,
+        TransferPhase.OPENING,
+    ],
+)
+async def test_transfer_request_is_gated_until_opening(response, phase):
     response.engine._transfer_coordinator = SimpleNamespace(
         in_progress=True, phase=phase
     )
     try:
         await response.worker.queue_frame(LLMContextFrame(response.context))
-        await asyncio.sleep(0.2)
-        assert not response.llm.requested.is_set()
+        if phase is TransferPhase.OPENING:
+            await asyncio.wait_for(response.llm.requested.wait(), 1)
+            await asyncio.wait_for(response.output.stopped.wait(), 2)
+        else:
+            await asyncio.sleep(0.2)
+            assert not response.llm.requested.is_set()
         assert not response.engine.call_monitor.pending_response
         assert not response.engine.is_call_disposed()
     finally:
@@ -745,6 +759,135 @@ async def test_recorded_greeting_starts_idle_after_playback(response):
     assert not response.idle.is_set()
     await asyncio.wait_for(response.idle.wait(), 1)
     assert not response.llm.requested.is_set()
+
+
+async def assert_idle_window(response, seconds):
+    async with asyncio.timeout(1):
+        while response.monitor._deadline_kind != "idle":
+            await asyncio.sleep(0)
+    remaining = response.monitor._deadline.when() - asyncio.get_running_loop().time()
+    assert remaining == pytest.approx(seconds, abs=0.05)
+
+
+@pytest.mark.parametrize(
+    "greeting_type,response",
+    [
+        ("recording", True),
+        ("recording", False),
+        ("text", True),
+        ("generated", True),
+        ("generated", False),
+    ],
+    indirect=["response"],
+)
+async def test_greeting_caps_idle_until_the_first_user_reply(response, greeting_type):
+    response.monitor.user_idle_timeout = 10
+    if greeting_type == "generated":
+        speech = response.engine.speech_playback.expect_response(
+            source=response.llm, greeting=True
+        )
+        await response.request()
+    elif greeting_type == "text":
+        speech = await response.engine.queue_speech("Hello.", greeting=True)
+    else:
+        speech = await response.engine.queue_speech(
+            audio=b"\x01\x00" * 6400, greeting=True
+        )
+    await asyncio.wait_for(response.output.writing.wait(), 1)
+    assert not speech.done
+    assert response.monitor._deadline_kind != "idle"
+    assert await asyncio.wait_for(speech.wait(), 1)
+    await assert_idle_window(response, 3)
+    assert response.monitor.user_idle_timeout == 10
+
+    await response.worker.queue_frame(UserStartedSpeakingFrame())
+    assert await response.worker.flush_pipeline(timeout=1)
+    assert response.monitor._deadline_kind is None
+    assert not response.idle.is_set()
+    await response.worker.queue_frame(UserStoppedSpeakingFrame())
+    await response.request()
+    await assert_idle_window(response, 10)
+
+    # A later agent opening must not reapply the initial-call timeout.
+    next_greeting = await response.engine.queue_speech(
+        audio=b"\x01\x00" * 1600, greeting=True
+    )
+    assert await asyncio.wait_for(next_greeting.wait(), 1)
+    await assert_idle_window(response, 10)
+
+
+async def test_silent_caller_keeps_short_idle_window_after_reminder(response):
+    response.monitor.user_idle_timeout = 10
+    speech = await response.engine.queue_speech(audio=b"\x01\x00" * 1600, greeting=True)
+    assert await asyncio.wait_for(speech.wait(), 1)
+    await assert_idle_window(response, 3)
+    await asyncio.wait_for(response.idle.wait(), 3.3)
+    assert response.monitor._retry_count == 1
+    response.idle.clear()
+
+    # The reminder does not count as the caller's first reply.
+    await response.request()
+    await assert_idle_window(response, 3)
+
+
+@pytest.mark.parametrize("response", [True, False], indirect=True)
+@pytest.mark.parametrize("still_speaking", [False, True])
+async def test_only_speech_continuing_past_greeting_restores_idle(
+    response, still_speaking
+):
+    response.monitor.user_idle_timeout = 10
+    speech = await response.engine.queue_speech(audio=b"\x01\x00" * 6400, greeting=True)
+    await asyncio.wait_for(response.output.writing.wait(), 1)
+    # Accepted turn events also cover providers with speaking frames disabled.
+    await response.user._call_event_handler("on_user_turn_started", None)
+    if not still_speaking:
+        await response.user._call_event_handler("on_user_turn_stopped", None)
+    assert await asyncio.wait_for(speech.wait(), 1)
+
+    if still_speaking:
+        assert response.monitor._deadline_kind != "idle"
+        await response.user._call_event_handler("on_user_turn_stopped", None)
+        await response.request()
+        await assert_idle_window(response, 10)
+    else:
+        await assert_idle_window(response, 3)
+        # A duplicate stop after playback must not count as new user speech.
+        await response.user._call_event_handler("on_user_turn_stopped", None)
+        await response.request()
+        await assert_idle_window(response, 3)
+
+
+@pytest.mark.parametrize("response", [(True, False), (False, False)], indirect=True)
+async def test_supervised_greeting_uses_short_idle_after_activation(response):
+    response.monitor.user_idle_timeout = 10
+    speech = await response.engine.queue_speech(audio=b"\x01\x00" * 1600, greeting=True)
+    assert await asyncio.wait_for(speech.wait(), 1)
+    assert response.monitor._deadline is None
+    response.monitor.activate(waiting_for_user=True)
+    await assert_idle_window(response, 3)
+
+
+@pytest.mark.parametrize("response", [True, False], indirect=True)
+async def test_interrupted_greeting_restores_configured_idle_after_reply(response):
+    response.monitor.user_idle_timeout = 10
+    speech = await response.engine.queue_speech(audio=b"\x01\x00" * 6400, greeting=True)
+    await asyncio.wait_for(response.output.writing.wait(), 1)
+    await response.worker.queue_frame(UserStartedSpeakingFrame())
+    await response.worker.queue_frame(InterruptionFrame())
+    assert await response.worker.flush_pipeline(timeout=1)
+    assert not await speech.wait()
+    await response.worker.queue_frame(UserStoppedSpeakingFrame())
+    await response.request()
+    await assert_idle_window(response, 10)
+
+
+async def test_greeting_does_not_enable_disabled_idle_detection(response):
+    response.monitor.user_idle_timeout = 0
+    speech = await response.engine.queue_speech(audio=b"\x01\x00" * 1600, greeting=True)
+    assert await asyncio.wait_for(speech.wait(), 1)
+    assert await response.worker.flush_pipeline(timeout=1)
+    assert response.monitor._deadline is None
+    assert not response.idle.is_set()
 
 
 async def test_user_speaking_cancels_idle_and_resets_reminders(response):

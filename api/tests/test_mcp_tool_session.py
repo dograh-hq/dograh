@@ -1,4 +1,3 @@
-from datetime import timedelta
 from unittest.mock import MagicMock
 
 import httpx
@@ -32,8 +31,8 @@ def test_build_streamable_http_params_with_credential():
     )
     assert params.url == "https://acme.example.com/mcp"
     assert params.headers == {"Authorization": "Bearer abc"}
-    assert params.timeout == timedelta(seconds=30)
-    assert params.sse_read_timeout == timedelta(seconds=300)
+    assert params.timeout == 30.0
+    assert params.sse_read_timeout == 300.0
 
 
 def test_build_streamable_http_params_no_credential():

@@ -13,6 +13,9 @@ RESERVED_INITIAL_CONTEXT_KEYS = frozenset(
         "call_id",
         "provider",
         "runtime_configuration",
+        "model_overrides",
+        "model_configuration_snapshot",
+        "model_configuration_overrides",
         MPS_CORRELATION_ID_CONTEXT_KEY,
     }
 )

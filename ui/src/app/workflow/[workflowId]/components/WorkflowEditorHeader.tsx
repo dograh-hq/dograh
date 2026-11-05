@@ -1,14 +1,13 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { AlertCircle, ArrowLeft, Bot, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Pencil, Phone, Rocket } from "lucide-react";
+import { AlertCircle, ArrowLeft, Bot, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Pencil, Phone } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
     duplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePost,
-    publishWorkflowApiV1WorkflowWorkflowIdPublishPost,
 } from "@/client/sdk.gen";
 import { WorkflowError } from "@/client/types.gen";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
@@ -27,7 +26,10 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { useSidebar } from "@/components/ui/sidebar";
+import { useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
 import { copyTextToClipboard } from "@/lib/clipboard";
+
+import { PublishWorkflowPopover } from "./PublishWorkflowPopover";
 
 interface WorkflowEditorHeaderProps {
     workflowName: string;
@@ -45,6 +47,8 @@ interface WorkflowEditorHeaderProps {
     isViewingHistoricalVersion: boolean;
     onBackToDraft: () => void;
     hasDraft: boolean;
+    /** A settings edit is still saving; publishing or calling now would use the previous settings. */
+    savingSettings?: boolean;
     onPublished: () => void;
     renameWorkflow: (newName: string) => Promise<void>;
 }
@@ -62,16 +66,18 @@ export const WorkflowEditorHeader = ({
     isViewingHistoricalVersion,
     onBackToDraft,
     hasDraft,
+    savingSettings = false,
     onPublished,
     workflowId,
     workflowUuid,
     renameWorkflow,
 }: WorkflowEditorHeaderProps) => {
     const router = useRouter();
+    // Leaving the editor with unsaved settings asks first.
+    const { confirmNavigate } = useUnsavedChangesContext();
     const { toggleSidebar } = useSidebar();
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [duplicating, setDuplicating] = useState(false);
-    const [publishing, setPublishing] = useState(false);
     // One discriminated-union state instead of (isEditingName, nameDraft,
     // nameError, isRenaming): they're not independent — error and saving are
     // mutually exclusive, and both are meaningless in the display state. The
@@ -86,7 +92,7 @@ export const WorkflowEditorHeader = ({
     const renameButtonRef = useRef<HTMLButtonElement>(null);
 
     const hasValidationErrors = workflowValidationErrors.length > 0;
-    const isCallDisabled = isDirty || hasValidationErrors;
+    const isCallDisabled = isDirty || hasValidationErrors || savingSettings;
 
     const handleSave = async () => {
         setSavingWorkflow(true);
@@ -94,27 +100,8 @@ export const WorkflowEditorHeader = ({
         setSavingWorkflow(false);
     };
 
-    const handlePublish = async () => {
-        if (publishing) return;
-        setPublishing(true);
-        const promise = publishWorkflowApiV1WorkflowWorkflowIdPublishPost({
-            path: { workflow_id: workflowId },
-        });
-        toast.promise(promise, {
-            loading: "Publishing...",
-            success: "Workflow published successfully",
-            error: "Failed to publish workflow",
-        });
-        try {
-            await promise;
-            onPublished();
-        } finally {
-            setPublishing(false);
-        }
-    };
-
     const handleBack = () => {
-        router.push("/workflow");
+        confirmNavigate(() => router.push("/workflow"));
     };
 
     const handleDuplicate = async () => {
@@ -131,7 +118,7 @@ export const WorkflowEditorHeader = ({
         try {
             const { data } = await promise;
             if (data?.id) {
-                router.push(`/workflow/${data.id}`);
+                confirmNavigate(() => router.push(`/workflow/${data.id}`));
             }
         } finally {
             setDuplicating(false);
@@ -388,24 +375,12 @@ export const WorkflowEditorHeader = ({
 
                 {/* Publish button (only when on draft with no unsaved changes) */}
                 {!isViewingHistoricalVersion && hasDraft && (
-                    <Button
-                        onClick={handlePublish}
-                        disabled={isDirty || publishing || hasValidationErrors}
-                        variant="outline"
-                        className="border-[#3a3a3a] bg-transparent hover:bg-[#2a2a2a] text-white px-4"
-                    >
-                        {publishing ? (
-                            <>
-                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
-                                Publishing...
-                            </>
-                        ) : (
-                            <>
-                                <Rocket className="w-4 h-4 mr-2" />
-                                Publish
-                            </>
-                        )}
-                    </Button>
+                    <PublishWorkflowPopover
+                        key={workflowId}
+                        workflowId={workflowId}
+                        canPublish={!isDirty && !hasValidationErrors && !savingSettings}
+                        onPublished={onPublished}
+                    />
                 )}
 
                 {!isViewingHistoricalVersion && (
@@ -460,7 +435,7 @@ export const WorkflowEditorHeader = ({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="bg-[#1a1a1a] border-[#3a3a3a]">
                         <DropdownMenuItem
-                            onClick={() => router.push(`/workflow/${workflowId}/runs`)}
+                            onClick={() => confirmNavigate(() => router.push(`/workflow/${workflowId}/runs`))}
                             className="text-white hover:bg-[#2a2a2a] cursor-pointer"
                         >
                             <History className="w-4 h-4 mr-2" />

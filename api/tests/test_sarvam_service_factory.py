@@ -23,7 +23,8 @@ class TestSarvamLLMConfiguration:
     def test_default_values(self):
         config = SarvamLLMConfiguration(api_key="test-key")
         assert config.provider == ServiceProviders.SARVAM
-        assert config.model == "sarvam-105b"
+        assert config.model == "sarvam-105b-conversations"
+        assert config.base_url == "https://api.sarvam.ai/v1"
         assert config.temperature == 0.5
 
     def test_custom_model(self):
@@ -41,17 +42,40 @@ class TestSarvamLLMServiceFactory:
             mock_service.Settings = RealSarvamLLMService.Settings
             create_llm_service_from_provider(
                 provider=ServiceProviders.SARVAM.value,
-                model="sarvam-105b",
+                model="sarvam-105b-conversations",
                 api_key="test-key",
             )
 
         assert mock_service.call_count == 1
         kwargs = mock_service.call_args.kwargs
         assert kwargs["api_key"] == "test-key"
-        assert kwargs["settings"].model == "sarvam-105b"
+        assert kwargs["settings"].model == "sarvam-105b-conversations"
         assert kwargs["settings"].temperature == 0.5
+        assert kwargs["base_url"] == "https://api.sarvam.ai/v1"
 
-    def test_create_sarvam_llm_service_passes_user_temperature(self):
+    def test_real_sarvam_llm_service_instantiation(self):
+        service = create_llm_service_from_provider(
+            provider=ServiceProviders.SARVAM.value,
+            model="sarvam-105b-conversations",
+            api_key="test-key",
+        )
+        assert isinstance(service, RealSarvamLLMService)
+        assert service._settings.model == "sarvam-105b-conversations"
+        assert str(service._client.base_url).rstrip("/") == "https://api.sarvam.ai/v1"
+
+    def test_real_sarvam_llm_service_instantiation_with_custom_base_url(self):
+        service = create_llm_service_from_provider(
+            provider=ServiceProviders.SARVAM.value,
+            model="sarvam-105b-conversations",
+            api_key="test-key",
+            base_url="https://custom.sarvam.ai/v1",
+        )
+        assert isinstance(service, RealSarvamLLMService)
+        assert (
+            str(service._client.base_url).rstrip("/") == "https://custom.sarvam.ai/v1"
+        )
+
+    def test_create_sarvam_llm_service_passes_base_url(self):
         with patch(
             "api.services.pipecat.service_factory.SarvamLLMService"
         ) as mock_service:
@@ -60,18 +84,34 @@ class TestSarvamLLMServiceFactory:
                 provider=ServiceProviders.SARVAM.value,
                 model="sarvam-105b",
                 api_key="test-key",
+                base_url="https://api.sarvam.ai/v1",
+            )
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["base_url"] == "https://api.sarvam.ai/v1"
+
+    def test_create_sarvam_llm_service_passes_user_temperature(self):
+        with patch(
+            "api.services.pipecat.service_factory.SarvamLLMService"
+        ) as mock_service:
+            mock_service.Settings = RealSarvamLLMService.Settings
+            create_llm_service_from_provider(
+                provider=ServiceProviders.SARVAM.value,
+                model="sarvam-105b-conversations",
+                api_key="test-key",
                 temperature=0.8,
             )
 
         kwargs = mock_service.call_args.kwargs
         assert kwargs["settings"].temperature == 0.8
 
-    def test_create_llm_service_extracts_sarvam_temperature(self):
+    def test_create_llm_service_extracts_sarvam_config(self):
         user_config = SimpleNamespace(
             llm=SimpleNamespace(
                 provider=ServiceProviders.SARVAM.value,
-                model="sarvam-105b",
+                model="sarvam-105b-conversations",
                 api_key="test-key",
+                base_url="https://api.sarvam.ai/v1",
                 temperature=0.7,
             )
         )
@@ -83,6 +123,7 @@ class TestSarvamLLMServiceFactory:
             create_llm_service(user_config)
 
         kwargs = mock_service.call_args.kwargs
+        assert kwargs["base_url"] == "https://api.sarvam.ai/v1"
         assert kwargs["settings"].temperature == 0.7
 
 
@@ -123,25 +164,45 @@ class TestSarvamTTSServiceFactory:
         config = SarvamTTSConfiguration(api_key="test-key")
 
         assert config.provider == ServiceProviders.SARVAM
-        assert config.model == "bulbul:v2"
-        assert config.voice == "anushka"
+        assert config.model == "bulbul:v3"
+        assert config.voice == "shubh"
         assert config.language == "hi-IN"
         assert config.speed == 1.0
+
+    def test_sarvam_tts_configuration_defaults_for_v3(self):
+        config = SarvamTTSConfiguration(api_key="test-key", model="bulbul:v3")
+        assert config.model == "bulbul:v3"
+        assert config.voice == "shubh"
+
+        config_empty = SarvamTTSConfiguration(
+            api_key="test-key", model="bulbul:v3", voice=""
+        )
+        assert config_empty.model == "bulbul:v3"
+        assert config_empty.voice == "shubh"
+
+        validated = SarvamTTSConfiguration.model_validate(
+            {"api_key": "test-key", "model": "bulbul:v3"}
+        )
+        assert validated.model == "bulbul:v3"
+        assert validated.voice == "shubh"
 
     def test_sarvam_tts_voice_schema_allows_custom_model_specific_options(self):
         voice_schema = SarvamTTSConfiguration.model_json_schema()["properties"]["voice"]
 
         assert voice_schema["allow_custom_input"] is True
-        assert "bulbul:v2" in voice_schema["model_options"]
+        assert voice_schema["voice_catalog"] == "dropdown"
+        assert voice_schema["reset_on_change"] == ["model"]
+        assert "bulbul:v4-flash" in voice_schema["model_options"]
         assert "bulbul:v3" in voice_schema["model_options"]
+        assert "bulbul:v2" not in voice_schema["model_options"]
 
     def test_create_sarvam_tts_service_maps_speed_to_pace(self):
         user_config = SimpleNamespace(
             tts=SimpleNamespace(
                 provider=ServiceProviders.SARVAM.value,
                 api_key="test-key",
-                model="bulbul:v2",
-                voice="anushka",
+                model="bulbul:v4-flash",
+                voice="shubh_enhi_ads",
                 language="hi-IN",
                 speed=1.25,
             )
@@ -157,8 +218,8 @@ class TestSarvamTTSServiceFactory:
 
         kwargs = mock_service.call_args.kwargs
         assert kwargs["api_key"] == "test-key"
-        assert kwargs["settings"].model == "bulbul:v2"
-        assert kwargs["settings"].voice == "anushka"
+        assert kwargs["settings"].model == "bulbul:v4-flash"
+        assert kwargs["settings"].voice == "shubh_enhi_ads"
         assert kwargs["settings"].language == Language.HI
         assert kwargs["settings"].pace == 1.25
 
@@ -167,7 +228,7 @@ class TestSarvamTTSServiceFactory:
             tts=SimpleNamespace(
                 provider=ServiceProviders.SARVAM.value,
                 api_key="test-key",
-                model="bulbul:v2",
+                model="bulbul:v3",
                 voice=" Rehan ",
                 language="hi-IN",
                 speed=1.0,
@@ -190,7 +251,7 @@ class TestSarvamTTSServiceFactory:
             tts=SimpleNamespace(
                 provider=ServiceProviders.SARVAM.value,
                 api_key="test-key",
-                model="bulbul:v2",
+                model=None,
                 voice="   ",
                 language="hi-IN",
                 speed=1.0,
@@ -206,4 +267,53 @@ class TestSarvamTTSServiceFactory:
             create_tts_service(user_config, audio_config)
 
         kwargs = mock_service.call_args.kwargs
-        assert kwargs["settings"].voice == "anushka"
+        assert kwargs["settings"].model == "bulbul:v3"
+        assert kwargs["settings"].voice == "shubh"
+
+    def test_create_sarvam_tts_service_defaults_blank_voice_id_for_v4_flash(self):
+        user_config = SimpleNamespace(
+            tts=SimpleNamespace(
+                provider=ServiceProviders.SARVAM.value,
+                api_key="test-key",
+                model="bulbul:v4-flash",
+                voice="   ",
+                language="hi-IN",
+                speed=1.0,
+            )
+        )
+        audio_config = AudioConfig(
+            transport_in_sample_rate=16000, transport_out_sample_rate=16000
+        )
+
+        with patch(
+            "api.services.pipecat.service_factory.SarvamTTSService"
+        ) as mock_service:
+            create_tts_service(user_config, audio_config)
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["settings"].model == "bulbul:v4-flash"
+        assert kwargs["settings"].voice == "shubh_enhi_ads"
+
+    def test_create_sarvam_tts_service_defaults_blank_voice_id_for_v3(self):
+        user_config = SimpleNamespace(
+            tts=SimpleNamespace(
+                provider=ServiceProviders.SARVAM.value,
+                api_key="test-key",
+                model="bulbul:v3",
+                voice="",
+                language="hi-IN",
+                speed=1.0,
+            )
+        )
+        audio_config = AudioConfig(
+            transport_in_sample_rate=16000, transport_out_sample_rate=16000
+        )
+
+        with patch(
+            "api.services.pipecat.service_factory.SarvamTTSService"
+        ) as mock_service:
+            create_tts_service(user_config, audio_config)
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["settings"].model == "bulbul:v3"
+        assert kwargs["settings"].voice == "shubh"

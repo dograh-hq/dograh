@@ -3,17 +3,15 @@ title: "Pre-Call Data Fetch"
 description: "Fetch customer data from your CRM or ERP before the call starts, so your voice agent can greet callers by name and reference their account details."
 ---
 
-Pre-Call Data Fetch allows you to enrich the call context with external data before the voice agent starts speaking. Configure it on the [**Start Call**](/voice-agent/start-call) node for every call, inbound calls only, or outbound calls only. While the response is loading, the caller hears a ring-back tone. Once the data arrives, it is merged into the call's [initial context](/core-concepts/context-and-variables#initial_context) and becomes available as template variables in your prompts and greetings.
-
+Pre-Call Data Fetch lets you enrich the call context and select model settings before the voice agent starts. Configure it on the [**Start Call**](/voice-agent/start-call) node for every call, inbound calls only, or outbound calls only. Returned variables are merged into the call's [initial context](/core-concepts/context-and-variables#initial_context) and become available in prompts and greetings.
 
 ## How It Works
 
-1. A call arrives (inbound) or is initiated (outbound).
-2. Dograh sends a **POST** request to your configured endpoint with a standardized payload.
-3. The caller hears a ring-back tone while waiting for the response.
-4. Your API responds with a JSON object containing an `initial_context` object.
-5. The variables are merged into the call's initial context.
-6. The voice agent starts with full access to the fetched data via `{{variable_name}}` syntax.
+1. Dograh resolves and saves the call's model setup from the organization default, the workflow override, and the API-trigger override, checks billing and quota, and connects the call.
+2. As soon as the call is connected, Dograh sends a **POST** request to your endpoint. The caller hears a ringer while the request is in flight. For outbound calls this happens after the callee answers.
+3. Your API returns context variables, model overrides, or both.
+4. Dograh merges the context, applies any model overrides to the agent's LLM, LLM fallback, and TTS, and validates the result.
+5. The agent starts and plays its greeting.
 
 ## Configuration
 
@@ -34,6 +32,7 @@ Dograh sends a `POST` request with the following JSON payload:
   "event": "call_inbound",
   "call_inbound": {
     "agent_id": 123,
+    "workflow_run_id": 456,
     "from_number": "+12137771234",
     "to_number": "+12137771235"
   }
@@ -44,10 +43,13 @@ Dograh sends a `POST` request with the following JSON payload:
 | --- | --- |
 | `event` | Always `"call_inbound"`. |
 | `call_inbound.agent_id` | The workflow (agent) ID. |
+| `call_inbound.workflow_run_id` | The run ID of this call. |
 | `call_inbound.from_number` | The caller's phone number (`caller_number` from initial context). |
 | `call_inbound.to_number` | The called phone number (`called_number` from initial context). |
 
-The `Content-Type` header is set to `application/json`. If you configured a credential, the corresponding authentication header is included.
+The `Content-Type` header is `application/json`. If you configured a credential, its authentication header is included. Caller and callee numbers are supplied when known at the time the call connects.
+
+The request includes an `Idempotency-Key` header such as `dograh-pre-call-456`. Dograh sends the request once per call. Make your endpoint idempotent using this key if it performs writes or other side effects.
 
 ## Expected Response Format
 
@@ -87,8 +89,42 @@ After the response is received, you can reference these values anywhere template
 - **Prompt**: `The customer is a {{loyalty_tier}} member with {{open_tickets}} open support tickets.`
 
 <Note>
-If the response is not a valid JSON object, does not contain `initial_context` (or the legacy `dynamic_variables`), or the request fails or times out, the call proceeds normally without the additional context. The pre-call fetch never blocks or fails a call.
+If the response is not a valid JSON object, or the request fails or times out, the call continues using its earlier context and model settings. A response without context fields leaves context unchanged. Invalid or unsupported `model_overrides` are logged and ignored; the call continues on its already-selected models.
 </Note>
+
+## Override models for this call
+
+Return `model_overrides` beside `initial_context`, either at the top level or inside `call_inbound`:
+
+```json
+{
+  "call_inbound": {
+    "initial_context": {
+      "customer_name": "Jane Doe"
+    },
+    "model_overrides": {
+      "llm": {
+        "settings": {
+          "temperature": 0.2
+        }
+      },
+      "tts": {
+        "settings": {
+          "voice": "default"
+        }
+      }
+    }
+  }
+}
+```
+
+Use a voice supported by the selected TTS provider. You may return only `model_overrides` when no context enrichment is needed. If you use the `call_inbound` envelope, put both fields inside it.
+
+Fetched model settings take precedence over workflow and API-trigger settings for the services the agent owns: `llm`, `llm_fallback`, and `tts`. A service may also select a `provider_connection_uuid`, following the same-provider and different-provider rules of [API trigger overrides](/voice-agent/api-trigger#choosing-models-for-one-call), as long as it keeps the Dograh service key the call was authorized with.
+
+The call is already connected when your endpoint answers, so the hook cannot change what the call pipeline was built with: it cannot select a named configuration (`model_configuration_uuid`) or change `mode`, `stt`, `realtime`, or `embeddings`. Set those on the workflow or the API trigger instead. Realtime (speech-to-speech) agents ignore `model_overrides` entirely.
+
+Overrides cannot change credentials, connection endpoints, organization identity, or billing metadata. Unknown or unsupported fields, missing or unrelated UUIDs, incompatible indexed-document embeddings, and incompatible service selections are rejected: the rejection is logged against the run and the call continues on its already-selected models. Settings are validated locally without testing credentials against model providers. The resolved settings are saved for this run and do not modify your named configurations.
 
 ## Nested Variables
 
@@ -113,7 +149,7 @@ Access in prompts as `{{customer.name}}` and `{{customer.address.city}}`.
 
 ## Timeout
 
-The request has a **10-second timeout**. If your API does not respond within this window, the call proceeds without the fetched data. Design your endpoint to respond as quickly as possible to minimize the ring-back tone duration.
+The request has a **10-second timeout**. If your API does not respond within this window, the call proceeds without the fetched data. Respond quickly to minimize the delay before dialing or starting the agent.
 
 ## Testing with Test Calls
 
@@ -124,7 +160,7 @@ The request has a **10-second timeout**. If your API does not respond within thi
   style={{ width: "100%", aspectRatio: "16/9", border: "none", borderRadius: "12px" }}
 />
 
-When a real phone call comes in, the `caller_number` and `called_number` context variables are automatically set by the telephony provider and included in the pre-call data fetch request as `from_number` and `to_number`. However, when you make a test call — either a **web call** (WebRTC) or a **phone test call** from the workflow editor — these variables are not available by default.
+When a real phone call comes in, the `caller_number` and `called_number` context variables are automatically set by the telephony provider and included in the pre-call data fetch request as `from_number` and `to_number`. For **web calls** (WebRTC), there are no real caller and callee phone numbers, so provide test context if your endpoint requires them. Phone calls use the caller and callee information available when the call connects.
 
 To simulate telephony data during testing:
 
@@ -134,10 +170,10 @@ To simulate telephony data during testing:
    - `called_number` — set to the number that would be dialed (e.g., `+12137771235`).
 3. Save the settings.
 
-Now when you make a test call (web or phone), these values will be sent in the pre-call data fetch request to your endpoint, allowing you to test the full flow as if a real inbound call were coming in.
+Now when you make a web test call, these values will be sent in the pre-call data fetch request to your endpoint, allowing you to test the full flow as if a real inbound call were coming in.
 
 <Note>
-These context variables are only used during test calls from the workflow editor. On production inbound calls and campaign outbound calls, the actual telephony data is used and these values are ignored.
+Use actual telephony numbers when present. Test context is useful for WebRTC calls that have no telephony metadata.
 </Note>
 
 ## Example Integration

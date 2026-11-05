@@ -9,11 +9,11 @@ from api.services.configuration.registry import (
 from api.services.pipecat.service_factory import create_tts_service
 
 
-def test_cartesia_tts_configuration_defaults_to_sonic_3_5():
+def test_cartesia_tts_configuration_defaults_to_sonic_3_6():
     config = CartesiaTTSConfiguration(api_key="test-key")
 
     assert config.provider == ServiceProviders.CARTESIA
-    assert config.model == "sonic-3.5"
+    assert config.model == "sonic-3.6"
     assert CARTESIA_TTS_MODELS == ["sonic-3.6", "sonic-3.5", "sonic-3"]
 
 

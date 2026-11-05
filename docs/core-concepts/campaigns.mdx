@@ -71,17 +71,27 @@ Dograh can automatically retry contacts who didn't answer, were busy, or went to
 
 ## Circuit breaker
 
-The circuit breaker automatically pauses a campaign when the call failure rate gets too high — protecting against wasted spend and telephony reputation issues caused by a misconfigured agent or a bad contact list.
+The circuit breaker automatically pauses a campaign when too many connected calls end with an AI pipeline failure, such as an STT, LLM, or TTS error.
 
-When enabled, Dograh monitors the failure rate within a rolling time window. If it exceeds the threshold, the campaign is paused automatically and must be manually resumed after the issue is investigated.
+While the campaign is running, each finished pipeline with a known outcome contributes one sample, including calls made through ARI. The failure rate is failed pipelines divided by all counted pipelines in the rolling time window. Unclassified framework cancellations, busy, no-answer, carrier rejections, and failed dial attempts are excluded. Calls finishing while the campaign is paused do not enter the window. A telephony provider's "completed" callback does not count as a successful pipeline.
+
+When enabled, the circuit breaker pauses the campaign once the minimum sample size is reached and the failure rate meets or exceeds the threshold. You must manually resume the campaign after investigating the issue.
 
 | Setting | Default | Description |
 |---|---|---|
-| Failure Threshold (%) | `50` | Pause when the failure rate within the window exceeds this percentage |
+| Failure Threshold (%) | `50` | Pause when the pipeline failure rate within the window meets or exceeds this percentage |
 | Window (seconds) | `120` | Rolling time window over which the failure rate is calculated |
-| Min Calls in Window | `5` | Minimum number of calls required before the circuit breaker can trip — prevents false positives on small samples |
+| Min Calls in Window | `5` | Minimum number of finished pipelines required before the circuit breaker can trip — prevents false positives on small samples |
 
 A campaign paused by the circuit breaker behaves the same as a manually paused campaign — in-flight calls complete normally, and it can be resumed once the underlying issue is resolved.
+
+### Provider errors
+
+An HTTP 401, 402, or 403 reported by a campaign call's STT, TTS, LLM, realtime, or outbound telephony provider immediately pauses that campaign. This applies independently of the failure-rate threshold and sample size, including errors handled by an LLM fallback. The campaign log records the provider, status code, and workflow run that caused the pause.
+
+Fix the provider issue, then resume the campaign normally. Resuming clears the pause; another 401, 402, or 403 pauses it again. Other provider errors do not trigger this immediate pause; pipeline failures still contribute to the existing failure-rate breaker.
+
+Calls waiting to dial recheck the campaign state after each rate-limit wait, immediately before trying rate admission. If paused, their contacts remain queued and their reserved call capacity is released. Calls already dialed can finish. This protection does not block API-triggered calls or other campaigns using the same provider.
 
 ## Campaign lifecycle
 

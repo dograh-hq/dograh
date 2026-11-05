@@ -28,19 +28,15 @@ RUN --mount=type=bind,source=api/requirements.txt,target=/tmp/req.txt \
     uv pip install -r /tmp/req.txt
 
 # Layer 2: pipecat deps. Cache invalidates when pipecat source changes.
-# After installing pipecat, two hardening tweaks:
-#   1. Swap opencv-python (pulled by pipecat[webrtc]) for opencv-python-headless.
-#      The non-headless build links against X11/Qt (libxcb*); without those
-#      shared libs in the image, `import cv2` fails at runtime.
-#   2. Pre-download NLTK's punkt_tab tokenizer so pipecat's text processing
-#      doesn't hit the network on first agent run. NLTK auto-finds it under
-#      sys.prefix/nltk_data, so it travels with the venv on COPY.
+# After installing pipecat, swap opencv-python (pulled by pipecat[webrtc]) for
+# opencv-python-headless. The non-headless build links against X11/Qt
+# (libxcb*); without those shared libs in the image, `import cv2` fails at
+# runtime.
 RUN --mount=type=bind,source=pipecat,target=/tmp/pipecat,rw \
     --mount=type=cache,target=/root/.cache/uv \
     uv pip install '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest,aws-nova-sonic]' \
  && uv pip uninstall opencv-python \
- && uv pip install opencv-python-headless \
- && python -c "import nltk; nltk.download('punkt_tab', download_dir='/opt/venv/nltk_data', quiet=True)"
+ && uv pip install opencv-python-headless
 
 # Strip cache files, test/example dirs, and type stubs from the venv
 RUN find /opt/venv -type f -name '*.pyc' -delete && \
@@ -125,8 +121,7 @@ COPY --from=ffmpeg-static /usr/local/bin/ffprobe /usr/local/bin/ffprobe
 # already provides libstdc++6, libgcc-s1, and ca-certificates that node needs.
 COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 
-# Copy the populated venv from the builder stage. NLTK data lives at
-# /opt/venv/nltk_data and is auto-discovered via sys.prefix.
+# Copy the populated venv from the builder stage.
 COPY --from=builder /opt/venv /opt/venv
 
 # Activate the venv for subsequent RUN/CMD layers.

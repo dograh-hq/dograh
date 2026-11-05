@@ -2,6 +2,7 @@ from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from api.mcp_server.instructions import DOGRAH_MCP_INSTRUCTIONS
+from api.mcp_server.tools.call_history import get_call_transcript, list_calls
 from api.mcp_server.tools.catalog import (
     list_credentials,
     list_documents,
@@ -22,9 +23,11 @@ mcp = FastMCP("dograh", instructions=DOGRAH_MCP_INSTRUCTIONS)
 for _tool in (
     create_workflow,
     create_tool,
+    get_call_transcript,
     get_node_type,
     get_workflow,
     get_workflow_code,
+    list_calls,
     list_credentials,
     list_documents,
     list_node_types,

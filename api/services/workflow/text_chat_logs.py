@@ -74,6 +74,16 @@ def build_text_chat_realtime_feedback_events(
                 if node_id is not None:
                     last_emitted_node_id = node_id
                 events.append(snapshot_event)
+            elif event_type == "bot_speech" and turn.get("message_events_version") == 1:
+                events.append(
+                    stamp_realtime_feedback_event(
+                        build_bot_text_event(
+                            text=payload.get("text", ""), timestamp=timestamp
+                        ),
+                        timestamp=timestamp,
+                        turn=turn_index,
+                    )
+                )
             elif event_type == "tool_call_started":
                 events.append(
                     stamp_realtime_feedback_event(
@@ -126,7 +136,7 @@ def build_text_chat_realtime_feedback_events(
             )
 
         assistant_message = turn.get("assistant_message") or {}
-        if assistant_message.get("text"):
+        if assistant_message.get("text") and turn.get("message_events_version") != 1:
             message_timestamp = assistant_message.get("created_at") or turn.get(
                 "created_at"
             )

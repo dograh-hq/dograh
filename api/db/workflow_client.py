@@ -7,10 +7,117 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import load_only, selectinload
 
 from api.db.base_client import BaseDBClient
-from api.db.models import WorkflowDefinitionModel, WorkflowModel, WorkflowRunModel
+from api.db.model_connection_client import ModelCatalogNotFound, ModelConnectionClient
+from api.db.models import (
+    NamedModelConfigurationModel,
+    ProviderConnectionModel,
+    WorkflowDefinitionModel,
+    WorkflowModel,
+    WorkflowRunModel,
+)
 
 
 class WorkflowClient(BaseDBClient):
+    async def _lock_workflow_model_catalog(self, session, workflow_id):
+        """Serialize catalog references with archive and normalization writes."""
+        row = (
+            await session.execute(
+                select(WorkflowModel.id, WorkflowModel.organization_id).where(
+                    WorkflowModel.id == workflow_id
+                )
+            )
+        ).first()
+        if row is None:
+            raise ValueError(f"Workflow with ID {workflow_id} not found")
+        if row.organization_id is not None:
+            await ModelConnectionClient._lock_catalog(
+                self, session, row.organization_id
+            )
+        return row.organization_id
+
+    async def _check_workflow_model_references(
+        self, session, organization_id, configurations
+    ):
+        override = (configurations or {}).get("model_configuration_override")
+        if not override:
+            return
+        if organization_id is None:
+            raise ModelCatalogNotFound("Organization not found")
+        selected = [override]
+        if override.get("model_configuration_uuid"):
+            configuration = await ModelConnectionClient._catalog_row(
+                self,
+                session,
+                NamedModelConfigurationModel,
+                organization_id,
+                override["model_configuration_uuid"],
+            )
+            if configuration is None:
+                raise ModelCatalogNotFound("Model configuration not found")
+            selected.append(configuration.configuration)
+        for configuration in selected:
+            selections = [
+                configuration.get(role)
+                for role in ("llm", "stt", "tts", "realtime", "embeddings")
+            ]
+            selections.extend(
+                rule["target"]
+                for rule in (configuration.get("llm_fallback") or {}).get("rules", [])
+            )
+            for selection in selections:
+                if not selection or "provider_connection_uuid" not in selection:
+                    continue
+                connection = await ModelConnectionClient._catalog_row(
+                    self,
+                    session,
+                    ProviderConnectionModel,
+                    organization_id,
+                    selection["provider_connection_uuid"],
+                )
+                if connection is None:
+                    raise ModelCatalogNotFound("Provider connection not found")
+
+    async def get_workflow_definition(
+        self, workflow_id: int, definition_id: int, organization_id: int
+    ) -> WorkflowDefinitionModel | None:
+        async with self.async_session() as session:
+            return await session.scalar(
+                select(WorkflowDefinitionModel)
+                .join(
+                    WorkflowModel,
+                    WorkflowModel.id == WorkflowDefinitionModel.workflow_id,
+                )
+                .where(
+                    WorkflowDefinitionModel.id == definition_id,
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowModel.organization_id == organization_id,
+                )
+            )
+
+    async def get_workflow_version_summaries(
+        self, workflow_id: int, organization_id: int
+    ):
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(
+                    WorkflowDefinitionModel.id,
+                    WorkflowDefinitionModel.version_number,
+                    WorkflowDefinitionModel.status,
+                    WorkflowDefinitionModel.published_at,
+                )
+                .join(
+                    WorkflowModel,
+                    WorkflowModel.id == WorkflowDefinitionModel.workflow_id,
+                )
+                .where(
+                    WorkflowModel.id == workflow_id,
+                    WorkflowModel.organization_id == organization_id,
+                    WorkflowDefinitionModel.status.in_(["published", "archived"]),
+                )
+                .order_by(WorkflowDefinitionModel.version_number.desc())
+            )
+            return [dict(row) for row in result.mappings()]
+
     async def _next_version_number(self, session, workflow_id: int) -> int:
         """Get the next version number for a workflow."""
         result = await session.execute(
@@ -68,6 +175,45 @@ class WorkflowClient(BaseDBClient):
     # Versioning methods
     # ------------------------------------------------------------------
 
+    async def update_workflow_version_metadata(
+        self,
+        workflow_id: int,
+        definition_id: int,
+        organization_id: int,
+        updates: dict[str, str | None],
+    ) -> WorkflowDefinitionModel | None:
+        """Update release notes while preserving the version's behavioral snapshot."""
+        async with self.async_session() as session:
+            version = await session.scalar(
+                select(WorkflowDefinitionModel)
+                .join(
+                    WorkflowModel,
+                    WorkflowModel.id == WorkflowDefinitionModel.workflow_id,
+                )
+                .where(
+                    WorkflowDefinitionModel.id == definition_id,
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowModel.organization_id == organization_id,
+                    WorkflowDefinitionModel.status.in_(["published", "archived"]),
+                )
+                .with_for_update(of=WorkflowDefinitionModel)
+            )
+            if version is None:
+                return None
+
+            metadata = dict(version.extra_metadata or {})
+            for key in ("version_name", "change_description"):
+                if key not in updates:
+                    continue
+                if updates[key] is None:
+                    metadata.pop(key, None)
+                else:
+                    metadata[key] = updates[key]
+            version.extra_metadata = metadata
+            await session.commit()
+            await session.refresh(version)
+            return version
+
     async def save_workflow_draft(
         self,
         workflow_id: int,
@@ -81,6 +227,9 @@ class WorkflowClient(BaseDBClient):
         If no draft exists, a new one is created with the next version number.
         """
         async with self.async_session() as session:
+            organization_id = await self._lock_workflow_model_catalog(
+                session, workflow_id
+            )
             # Check for existing draft
             result = await session.execute(
                 select(WorkflowDefinitionModel).where(
@@ -127,6 +276,10 @@ class WorkflowClient(BaseDBClient):
                 )
                 session.add(draft)
 
+            await self._check_workflow_model_references(
+                session, organization_id, draft.workflow_configurations
+            )
+
             # Keep legacy columns on workflows table in sync with draft
             wf_result = await session.execute(
                 select(WorkflowModel).where(WorkflowModel.id == workflow_id)
@@ -148,6 +301,9 @@ class WorkflowClient(BaseDBClient):
     async def publish_workflow_draft(
         self,
         workflow_id: int,
+        *,
+        version_name: str | None = None,
+        change_description: str | None = None,
     ) -> WorkflowDefinitionModel:
         """Promote the current draft to published.
 
@@ -157,6 +313,9 @@ class WorkflowClient(BaseDBClient):
         - Sets is_current for backward compatibility
         """
         async with self.async_session() as session:
+            organization_id = await self._lock_workflow_model_catalog(
+                session, workflow_id
+            )
             # Find the draft
             result = await session.execute(
                 select(WorkflowDefinitionModel).where(
@@ -167,6 +326,10 @@ class WorkflowClient(BaseDBClient):
             draft = result.scalars().first()
             if not draft:
                 raise ValueError(f"No draft exists for workflow {workflow_id}")
+
+            await self._check_workflow_model_references(
+                session, organization_id, draft.workflow_configurations
+            )
 
             # Archive the current published version
             await session.execute(
@@ -182,6 +345,17 @@ class WorkflowClient(BaseDBClient):
             draft.status = "published"
             draft.published_at = datetime.now(UTC)
             draft.is_current = True
+            metadata = dict(draft.extra_metadata or {})
+            for key, value in {
+                "version_name": version_name,
+                "change_description": change_description,
+            }.items():
+                if value is None:
+                    metadata.pop(key, None)
+                else:
+                    metadata[key] = value
+            # Assign a new object so SQLAlchemy persists the JSON update.
+            draft.extra_metadata = metadata
 
             # Update workflow's released pointer + legacy fields
             wf_result = await session.execute(
@@ -235,6 +409,9 @@ class WorkflowClient(BaseDBClient):
         Raises ValueError if a draft already exists (must discard first).
         """
         async with self.async_session() as session:
+            organization_id = await self._lock_workflow_model_catalog(
+                session, workflow_id
+            )
             # Ensure no existing draft
             draft_result = await session.execute(
                 select(WorkflowDefinitionModel).where(
@@ -261,6 +438,9 @@ class WorkflowClient(BaseDBClient):
                     f"Version {definition_id} not found for workflow {workflow_id}"
                 )
 
+            await self._check_workflow_model_references(
+                session, organization_id, source.workflow_configurations
+            )
             next_version = await self._next_version_number(session, workflow_id)
 
             # Create new draft from the source snapshot
@@ -335,6 +515,8 @@ class WorkflowClient(BaseDBClient):
         workflow_id: int,
         limit: int | None = None,
         offset: int = 0,
+        version_number: int | None = None,
+        status: str | None = None,
     ) -> list[WorkflowDefinitionModel]:
         """List versions for a workflow, newest first.
 
@@ -354,6 +536,12 @@ class WorkflowClient(BaseDBClient):
                 )
                 .order_by(WorkflowDefinitionModel.version_number.desc())
             )
+            if version_number is not None:
+                query = query.where(
+                    WorkflowDefinitionModel.version_number == version_number
+                )
+            if status is not None:
+                query = query.where(WorkflowDefinitionModel.status == status)
             if offset:
                 query = query.offset(offset)
             if limit is not None:
@@ -382,61 +570,6 @@ class WorkflowClient(BaseDBClient):
 
             result = await session.execute(query)
             return result.scalars().all()
-
-    async def list_workflows_for_model_configuration_migration(
-        self, organization_id: int
-    ) -> list[WorkflowModel]:
-        """Load an organization's workflows and every version for migration."""
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(WorkflowModel)
-                .options(selectinload(WorkflowModel.definitions))
-                .where(WorkflowModel.organization_id == organization_id)
-            )
-            return list(result.scalars().unique().all())
-
-    async def bulk_update_workflow_model_configurations(
-        self,
-        *,
-        organization_id: int,
-        workflow_updates: list[tuple[int, dict]],
-        definition_updates: list[tuple[int, dict]],
-    ) -> None:
-        """Atomically update workflow and version configurations for one org."""
-        if not workflow_updates and not definition_updates:
-            return
-
-        async with self.async_session() as session:
-            try:
-                for workflow_id, workflow_configurations in workflow_updates:
-                    await session.execute(
-                        update(WorkflowModel)
-                        .where(
-                            WorkflowModel.id == workflow_id,
-                            WorkflowModel.organization_id == organization_id,
-                        )
-                        .values(workflow_configurations=workflow_configurations)
-                    )
-
-                organization_workflow_ids = select(WorkflowModel.id).where(
-                    WorkflowModel.organization_id == organization_id
-                )
-                for definition_id, workflow_configurations in definition_updates:
-                    await session.execute(
-                        update(WorkflowDefinitionModel)
-                        .where(
-                            WorkflowDefinitionModel.id == definition_id,
-                            WorkflowDefinitionModel.workflow_id.in_(
-                                organization_workflow_ids
-                            ),
-                        )
-                        .values(workflow_configurations=workflow_configurations)
-                    )
-
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
 
     async def get_all_workflows_for_listing(
         self, organization_id: int = None, status: str = None
@@ -741,6 +874,7 @@ class WorkflowClient(BaseDBClient):
             ValueError: If the workflow is not found
         """
         async with self.async_session() as session:
+            await ModelConnectionClient._lock_catalog(self, session, organization_id)
             query = (
                 select(WorkflowModel)
                 .options(
@@ -759,6 +893,20 @@ class WorkflowClient(BaseDBClient):
             if not workflow:
                 raise ValueError(f"Workflow with ID {workflow_id} not found")
 
+            if status == "active":
+                await self._check_workflow_model_references(
+                    session, organization_id, workflow.workflow_configurations
+                )
+                definitions = await session.scalars(
+                    select(WorkflowDefinitionModel.workflow_configurations).where(
+                        WorkflowDefinitionModel.workflow_id == workflow_id,
+                        WorkflowDefinitionModel.status.in_(("draft", "published")),
+                    )
+                )
+                for configuration in definitions:
+                    await self._check_workflow_model_references(
+                        session, organization_id, configuration
+                    )
             workflow.status = status
 
             try:
@@ -921,7 +1069,9 @@ class WorkflowClient(BaseDBClient):
 
         async with self.async_session() as session:
             result = await session.execute(
-                select(WorkflowModel).where(WorkflowModel.id == workflow_id)
+                select(WorkflowModel)
+                .where(WorkflowModel.id == workflow_id)
+                .with_for_update()
             )
             workflow = result.scalars().first()
             if not workflow:
@@ -943,3 +1093,4 @@ class WorkflowClient(BaseDBClient):
                     f"Failed to add disposition code '{disposition_code}' "
                     f"to workflow {workflow_id}: {e}"
                 )
+                raise

@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 
+from api.schemas.call_events import CallEventsSettings
+
 # A mapping is hand-maintained in the settings modal, so these ceilings exist to
 # keep a malformed or pasted payload out of the org configuration row rather
 # than to constrain any real deployment.
@@ -8,6 +10,10 @@ MAX_DISPOSITION_CODE_LENGTH = 64
 
 
 class OrganizationPreferences(BaseModel):
+    call_events: CallEventsSettings | None = Field(
+        default=None,
+        description="Omit to keep the destination unchanged; null removes it.",
+    )
     test_phone_number: str | None = None
     timezone: str | None = None
     external_pbx_integrations_enabled: bool = False
@@ -64,3 +70,7 @@ class OrganizationPreferences(BaseModel):
                 f"{MAX_DISPOSITION_MAPPING_ENTRIES} entries"
             )
         return normalized
+
+
+class OrganizationPreferencesResponse(OrganizationPreferences):
+    call_events: CallEventsSettings

@@ -50,11 +50,19 @@ _INFORMATIONAL_EVENT_TYPES = frozenset(
 )
 
 
+# Telnyx's documented `hangup_cause` values, plus the earlier `busy` /
+# `unallocated_number` keys in case those still arrive. Anything unlisted is
+# call_failed. originator_cancel means we cancelled the ringing transfer leg,
+# which the caller experiences as no answer (Plivo maps ORIGINATOR_CANCEL the
+# same way).
 _HANGUP_CAUSE_TO_REASON = {
+    "user_busy": "busy",
     "busy": "busy",
     "no_answer": "no_answer",
     "timeout": "no_answer",
+    "originator_cancel": "no_answer",
     "call_rejected": "call_failed",
+    "not_found": "call_failed",
     "unallocated_number": "call_failed",
 }
 

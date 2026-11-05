@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 from typing import Any, Dict
 
@@ -90,12 +91,16 @@ class CampaignRunnerService:
                 f"Campaign must be in 'paused' state to resume, current state: {campaign.state}"
             )
 
-        # Update state to running. Do not queue batch since campaign orchestrator's
-        # stale campaign checker would do that if there are pending work.
-        await db_client.update_campaign(campaign_id=campaign_id, state="running")
+        # Provider errors wait on the same row lock and observe running after
+        # commit, so an error during the reset cannot be silently cleared.
+        async with db_client.campaign_resume_transition(
+            campaign_id, campaign.organization_id
+        ):
+            async with asyncio.timeout(10):
+                if not await circuit_breaker.reset(campaign_id):
+                    raise ValueError("Could not reset the circuit breaker; try again")
 
-        # Reset circuit breaker so the resumed campaign starts with a clean slate
-        await circuit_breaker.reset(campaign_id)
+        # The orchestrator's stale campaign checker schedules pending work.
 
         logger.info(f"Campaign {campaign_id} resumed")
 

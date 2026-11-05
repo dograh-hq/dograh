@@ -1,0 +1,686 @@
+{
+  "PipelineWorker": {
+    "declared_methods": [
+      "__init__",
+      "_advance_flush_probe",
+      "_cancel",
+      "_cancel_tasks",
+      "_cleanup",
+      "_create_start_metadata",
+      "_create_tasks",
+      "_drain_pipeline",
+      "_find_processor",
+      "_handle_ui_bus_message",
+      "_handle_unusable_processor",
+      "_handle_worker_cancel",
+      "_handle_worker_end",
+      "_heartbeat_monitor_handler",
+      "_heartbeat_push_handler",
+      "_idle_monitor_handler",
+      "_idle_timeout_detected",
+      "_initial_metrics_frame",
+      "_load_setup_files",
+      "_maybe_cancel_heartbeat_tasks",
+      "_maybe_cancel_idle_task",
+      "_maybe_start_heartbeat_tasks",
+      "_maybe_start_idle_task",
+      "_process_push_queue",
+      "_queue_bridged_frame",
+      "_report_flush_progress",
+      "_republish_ui_message_on_bus",
+      "_setup",
+      "_setup_within_timeout",
+      "_sink_push_frame",
+      "_source_push_frame",
+      "_wait_for_pipeline_end",
+      "_wait_for_pipeline_finished",
+      "_wait_for_pipeline_start",
+      "activate_worker",
+      "add_observer",
+      "add_reached_downstream_filter",
+      "add_reached_upstream_filter",
+      "cancel",
+      "end",
+      "flush_pipeline",
+      "has_finished",
+      "on_bus_message",
+      "queue_frame",
+      "queue_frames",
+      "remove_observer",
+      "run",
+      "set_reached_downstream_filter",
+      "set_reached_upstream_filter",
+      "stop_when_done",
+      "track_flush_probe",
+      "wait_for_observers"
+    ],
+    "events": [
+      "on_frame_reached_upstream",
+      "on_frame_reached_downstream",
+      "on_heartbeat_timeout",
+      "on_idle_timeout",
+      "on_pipeline_started",
+      "on_pipeline_finished",
+      "on_pipeline_timeout",
+      "on_setup_timeout",
+      "on_pipeline_error"
+    ],
+    "lifecycle": {
+      "run": {
+        "signature": "(self, params: pipecat.workers.base_worker.WorkerParams)",
+        "async": true,
+        "calls": [
+          "self.has_finished",
+          "await self._setup_within_timeout",
+          "await self._cleanup",
+          "await self._create_tasks",
+          "await self._wait_for_pipeline_finished",
+          "await self._cancel",
+          "await self._wait_for_pipeline_finished",
+          "await self._cancel_tasks",
+          "self._print_dangling_tasks"
+        ]
+      },
+      "cancel": {
+        "signature": "(self, *, reason: str | None = None)",
+        "async": true,
+        "calls": [
+          "await self._cancel"
+        ]
+      },
+      "end": {
+        "signature": "(self, *, reason: str | None = None) -> None",
+        "async": true,
+        "calls": [
+          "await self._drain_pipeline",
+          "await super().end"
+        ]
+      },
+      "stop_when_done": {
+        "signature": "(self)",
+        "async": true,
+        "calls": [
+          "await self.queue_frame",
+          "EndFrame"
+        ]
+      },
+      "on_bus_message": {
+        "signature": "(self, message: pipecat.bus.messages.BusMessage) -> None",
+        "async": true,
+        "calls": [
+          "await super().on_bus_message",
+          "isinstance",
+          "await self._queue_bridged_frame",
+          "isinstance",
+          "isinstance",
+          "await self.queue_frame",
+          "TTSSpeakFrame",
+          "isinstance",
+          "await self._handle_ui_bus_message"
+        ]
+      },
+      "_setup_within_timeout": {
+        "signature": "(self, params: pipecat.workers.base_worker.WorkerParams) -> bool",
+        "async": true,
+        "calls": [
+          "await asyncio.wait_for",
+          "self._setup",
+          "await self._call_event_handler('on_setup_timeout')"
+        ]
+      },
+      "_setup": {
+        "signature": "(self, params: pipecat.workers.base_worker.WorkerParams)",
+        "async": true,
+        "calls": [
+          "self._clock.start",
+          "await super().setup",
+          "await self._load_setup_files",
+          "await self._observer.setup",
+          "FrameProcessorSetup",
+          "await self.create_task",
+          "self._pipeline.setup"
+        ]
+      },
+      "_cleanup": {
+        "signature": "(self, cleanup_pipeline: bool)",
+        "async": true,
+        "calls": [
+          "await self.cleanup",
+          "await self._observer.cleanup",
+          "self._turn_trace_observer.end_conversation_tracing",
+          "await self._pipeline.cleanup",
+          "self._foreign_probes.clear"
+        ]
+      },
+      "_cancel": {
+        "signature": "(self, *, reason: str | None = None)",
+        "async": true,
+        "calls": [
+          "self._pipeline_start_event.is_set",
+          "self._pipeline_start_event.set",
+          "await self.queue_frame",
+          "CancelFrame"
+        ]
+      },
+      "_create_tasks": {
+        "signature": "(self)",
+        "async": true,
+        "calls": [
+          "self.create_task",
+          "self._process_push_queue"
+        ]
+      },
+      "_cancel_tasks": {
+        "signature": "(self)",
+        "async": true,
+        "calls": [
+          "await self.cancel_task",
+          "await self._maybe_cancel_heartbeat_tasks",
+          "await self._maybe_cancel_idle_task"
+        ]
+      },
+      "_process_push_queue": {
+        "signature": "(self)",
+        "async": true,
+        "calls": [
+          "self._maybe_start_idle_task",
+          "StartFrame",
+          "self._create_start_metadata",
+          "await self._pipeline.queue_frame",
+          "await self._wait_for_pipeline_start",
+          "await self._pipeline.queue_frame",
+          "self._initial_metrics_frame",
+          "await self._push_queue.get",
+          "await self._pipeline.queue_frame",
+          "isinstance",
+          "await self._wait_for_pipeline_end",
+          "isinstance",
+          "isinstance",
+          "self._push_queue.task_done",
+          "await self._cleanup"
+        ]
+      },
+      "_wait_for_pipeline_start": {
+        "signature": "(self, frame: pipecat.frames.frames.Frame) -> bool",
+        "async": true,
+        "calls": [
+          "await asyncio.wait_for",
+          "self._pipeline_start_event.wait",
+          "await self._call_event_handler('on_pipeline_timeout')",
+          "self._pipeline_start_event.clear"
+        ]
+      },
+      "_wait_for_pipeline_end": {
+        "signature": "(self, frame: pipecat.frames.frames.Frame)",
+        "async": true,
+        "calls": [
+          "await asyncio.wait_for",
+          "self._pipeline_end_event.wait",
+          "await self._call_event_handler('on_pipeline_timeout')",
+          "await self._call_event_handler('on_pipeline_finished')",
+          "isinstance",
+          "await wait_for_cancel",
+          "await self._pipeline_end_event.wait",
+          "self._pipeline_end_event.clear",
+          "self._finished_event.set"
+        ]
+      },
+      "_wait_for_pipeline_finished": {
+        "signature": "(self)",
+        "async": true,
+        "calls": [
+          "await self._finished_event.wait"
+        ]
+      },
+      "_handle_worker_end": {
+        "signature": "(self, message: pipecat.bus.messages.BusEndWorkerMessage) -> None",
+        "async": true,
+        "calls": [
+          "await self._propagate_end_to_children",
+          "await self.queue_frame",
+          "EndFrame"
+        ]
+      },
+      "_handle_worker_cancel": {
+        "signature": "(self, message: pipecat.bus.messages.BusCancelWorkerMessage) -> None",
+        "async": true,
+        "calls": [
+          "await self._propagate_cancel_to_children",
+          "await self.cancel"
+        ]
+      },
+      "_source_push_frame": {
+        "signature": "(self, frame: pipecat.frames.frames.Frame, direction: pipecat.processors.frame_processor.FrameDirection)",
+        "async": true,
+        "calls": [
+          "isinstance",
+          "tuple",
+          "await self._call_event_handler('on_frame_reached_upstream')",
+          "isinstance",
+          "await self.queue_frame",
+          "EndFrame",
+          "isinstance",
+          "await self.queue_frame",
+          "CancelFrame",
+          "isinstance",
+          "await self.queue_frame",
+          "StopFrame",
+          "isinstance",
+          "await self._pipeline.queue_frame",
+          "InterruptionFrame",
+          "isinstance",
+          "await self._call_event_handler('on_pipeline_error')",
+          "await self._cancel",
+          "await self._handle_unusable_processor",
+          "isinstance",
+          "await self._advance_flush_probe"
+        ]
+      },
+      "_sink_push_frame": {
+        "signature": "(self, frame: pipecat.frames.frames.Frame, direction: pipecat.processors.frame_processor.FrameDirection)",
+        "async": true,
+        "calls": [
+          "isinstance",
+          "tuple",
+          "await self._call_event_handler('on_frame_reached_downstream')",
+          "isinstance",
+          "await self._report_flush_progress",
+          "isinstance",
+          "await self._call_event_handler('on_pipeline_started')",
+          "await self._observer.on_pipeline_started",
+          "self._maybe_start_heartbeat_tasks",
+          "self._pipeline_start_event.set",
+          "isinstance",
+          "await self._call_event_handler('on_pipeline_finished')",
+          "self._pipeline_end_event.set",
+          "isinstance",
+          "await self._call_event_handler('on_pipeline_finished')",
+          "self._pipeline_end_event.set",
+          "isinstance",
+          "self._pipeline_end_event.set",
+          "isinstance",
+          "await self._heartbeat_queue.put",
+          "isinstance",
+          "await self.queue_frame",
+          "EndWorkerFrame",
+          "isinstance",
+          "await self.queue_frame",
+          "StopWorkerFrame",
+          "isinstance",
+          "await self.queue_frame",
+          "CancelWorkerFrame",
+          "isinstance",
+          "await self.queue_frame",
+          "InterruptionWorkerFrame",
+          "isinstance",
+          "await self._advance_flush_probe"
+        ]
+      },
+      "_handle_unusable_processor": {
+        "signature": "(self, processor: pipecat.processors.frame_processor.FrameProcessor)",
+        "async": true,
+        "calls": [
+          "self._unusable_processors.add",
+          "await self.stop_when_done",
+          "await self._cancel"
+        ]
+      }
+    }
+  },
+  "BaseWorker": {
+    "declared_methods": [
+      "__init__",
+      "_create_job_group",
+      "_handle_job_cancel",
+      "_handle_job_request",
+      "_handle_job_response",
+      "_handle_job_stream_data",
+      "_handle_job_stream_end",
+      "_handle_job_stream_start",
+      "_handle_job_update",
+      "_handle_job_update_request",
+      "_handle_worker_activate",
+      "_handle_worker_cancel",
+      "_handle_worker_deactivate",
+      "_handle_worker_end",
+      "_handle_worker_error",
+      "_mark_worker_terminated",
+      "_maybe_activate",
+      "_on_watched_worker_ready",
+      "_print_dangling_tasks",
+      "_propagate_cancel_to_children",
+      "_propagate_end_to_children",
+      "_push_job_group_event",
+      "_register_ready",
+      "_run_job_handler",
+      "_send_job_request",
+      "_task_timeout",
+      "_track_job_group_response",
+      "_wait_workers_ready",
+      "_watch_decorated_workers",
+      "accepts_bus_message",
+      "activate_worker",
+      "add_workers",
+      "attach",
+      "cancel",
+      "cancel_job_group",
+      "cleanup",
+      "create_job_group_and_request_job",
+      "deactivate_worker",
+      "end",
+      "job",
+      "job_group",
+      "on_activated",
+      "on_bus_message",
+      "on_deactivated",
+      "on_job_cancelled",
+      "on_job_completed",
+      "on_job_error",
+      "on_job_request",
+      "on_job_response",
+      "on_job_stream_data",
+      "on_job_stream_end",
+      "on_job_stream_start",
+      "on_job_update",
+      "on_job_update_requested",
+      "on_worker_failed",
+      "on_worker_ready",
+      "request_cancel_job_group",
+      "request_job",
+      "request_job_group",
+      "request_job_update",
+      "run",
+      "send_bus_error_message",
+      "send_bus_message",
+      "send_job_response",
+      "send_job_stream_data",
+      "send_job_stream_end",
+      "send_job_stream_start",
+      "send_job_update",
+      "start",
+      "stop",
+      "wait",
+      "watch_workers"
+    ],
+    "events": [
+      "on_activated",
+      "on_deactivated",
+      "on_bus_message",
+      "on_job_request",
+      "on_job_response",
+      "on_job_update",
+      "on_job_update_requested",
+      "on_job_completed",
+      "on_job_error",
+      "on_job_stream_start",
+      "on_job_stream_data",
+      "on_job_stream_end",
+      "on_job_cancelled",
+      "on_worker_ready",
+      "on_worker_failed"
+    ],
+    "lifecycle": {
+      "attach": {
+        "signature": "(self, *, registry: pipecat.registry.registry.WorkerRegistry, bus: pipecat.bus.bus.WorkerBus, worker_runner: 'WorkerRunner') -> None",
+        "async": true,
+        "calls": [
+          "await self._bus.subscribe"
+        ]
+      },
+      "start": {
+        "signature": "(self) -> None",
+        "async": true,
+        "calls": [
+          "time.time",
+          "await self._register_ready",
+          "await self._maybe_activate",
+          "await self._watch_decorated_workers"
+        ]
+      },
+      "stop": {
+        "signature": "(self) -> None",
+        "async": true,
+        "calls": [
+          "list",
+          "self._job_groups.keys",
+          "await self.cancel_job_group",
+          "list",
+          "self._active_jobs.keys",
+          "await self.send_job_response",
+          "self._finished_event.set"
+        ]
+      },
+      "cleanup": {
+        "signature": "(self) -> None",
+        "async": true,
+        "calls": [
+          "await super().cleanup",
+          "await self.stop"
+        ]
+      },
+      "wait": {
+        "signature": "(self) -> None",
+        "async": true,
+        "calls": [
+          "await self._finished_event.wait"
+        ]
+      },
+      "add_workers": {
+        "signature": "(self, *workers: 'BaseWorker', watch: bool = True) -> None",
+        "async": true,
+        "calls": [
+          "self._children.append",
+          "added_names.append",
+          "await self.send_bus_message",
+          "BusAddWorkerMessage",
+          "await self.watch_workers"
+        ]
+      },
+      "accepts_bus_message": {
+        "signature": "(self, message: pipecat.bus.messages.BusMessage) -> bool",
+        "async": false,
+        "calls": [
+          "isinstance"
+        ]
+      },
+      "on_bus_message": {
+        "signature": "(self, message: pipecat.bus.messages.BusMessage) -> None",
+        "async": true,
+        "calls": [
+          "isinstance",
+          "isinstance",
+          "await self._handle_worker_error",
+          "isinstance",
+          "await self._handle_worker_activate",
+          "isinstance",
+          "await self._handle_worker_deactivate",
+          "isinstance",
+          "await self._handle_worker_end",
+          "isinstance",
+          "await self._handle_worker_cancel",
+          "isinstance",
+          "await self._handle_job_request",
+          "isinstance",
+          "await self._handle_job_response",
+          "isinstance",
+          "await self._handle_job_update",
+          "isinstance",
+          "await self._handle_job_update_request",
+          "isinstance",
+          "await self._handle_job_cancel",
+          "isinstance",
+          "await self._handle_job_stream_start",
+          "isinstance",
+          "await self._handle_job_stream_data",
+          "isinstance",
+          "await self._handle_job_stream_end",
+          "await self._call_event_handler('on_bus_message')"
+        ]
+      },
+      "_propagate_end_to_children": {
+        "signature": "(self, message: pipecat.bus.messages.BusEndWorkerMessage) -> None",
+        "async": true,
+        "calls": [
+          "await self.send_bus_message",
+          "BusEndWorkerMessage",
+          "await asyncio.gather",
+          "child.wait"
+        ]
+      },
+      "_propagate_cancel_to_children": {
+        "signature": "(self, message: pipecat.bus.messages.BusCancelWorkerMessage) -> None",
+        "async": true,
+        "calls": [
+          "await self.send_bus_message",
+          "BusCancelWorkerMessage"
+        ]
+      }
+    }
+  },
+  "WorkerRunner": {
+    "declared_methods": [
+      "__init__",
+      "_cancel_spawned_workers",
+      "_finish_running_workers",
+      "_gc_collect",
+      "_handle_worker_registry",
+      "_load_setup_files",
+      "_on_local_worker_ready",
+      "_print_dangling_tasks",
+      "_run_worker",
+      "_send_registry",
+      "_setup_session",
+      "_setup_sigint",
+      "_setup_sigterm",
+      "_sig_cancel",
+      "_sig_handler",
+      "_start_worker",
+      "add_workers",
+      "cancel",
+      "end",
+      "get_worker",
+      "on_bus_message",
+      "run",
+      "stop_when_done"
+    ],
+    "events": [
+      "on_ready",
+      "on_error"
+    ],
+    "lifecycle": {
+      "add_workers": {
+        "signature": "(self, *workers: pipecat.workers.base_worker.BaseWorker) -> None",
+        "async": true,
+        "calls": [
+          "await worker.attach",
+          "await self._registry.watch",
+          "_WorkerEntry",
+          "await self._start_worker"
+        ]
+      },
+      "run": {
+        "signature": "(self, worker: pipecat.workers.base_worker.BaseWorker | None = None, *, auto_end: bool = True) -> None",
+        "async": true,
+        "calls": [
+          "self._shutdown_event.clear",
+          "await self.add_workers",
+          "await self._setup_session",
+          "await self._call_event_handler('on_ready')",
+          "await self._shutdown_event.wait",
+          "await self._cancel_spawned_workers",
+          "await self.cleanup",
+          "await self._bus.stop",
+          "await self._gc_collect",
+          "self._print_dangling_tasks"
+        ]
+      },
+      "end": {
+        "signature": "(self, reason: str | None = None) -> None",
+        "async": true,
+        "calls": [
+          "self._shutdown_event.is_set",
+          "self._shutdown_event.set",
+          "await self._finish_running_workers"
+        ]
+      },
+      "cancel": {
+        "signature": "(self, reason: str | None = None) -> None",
+        "async": true,
+        "calls": [
+          "self._shutdown_event.is_set",
+          "self._shutdown_event.set"
+        ]
+      },
+      "on_bus_message": {
+        "signature": "(self, message: pipecat.bus.messages.BusMessage) -> None",
+        "async": true,
+        "calls": [
+          "isinstance",
+          "self.create_task",
+          "self.end",
+          "isinstance",
+          "self.create_task",
+          "self.cancel",
+          "isinstance",
+          "await self.add_workers",
+          "isinstance",
+          "await self._handle_worker_registry"
+        ]
+      },
+      "_setup_session": {
+        "signature": "(self) -> None",
+        "async": true,
+        "calls": [
+          "await self._bus.setup",
+          "self._setup_sigint",
+          "self._setup_sigterm",
+          "await self._bus.subscribe",
+          "await self._bus.start",
+          "await self._load_setup_files",
+          "list",
+          "self._entries.values",
+          "await self._start_worker"
+        ]
+      },
+      "_start_worker": {
+        "signature": "(self, entry: pipecat.workers.runner._WorkerEntry) -> None",
+        "async": true,
+        "calls": [
+          "self.create_task",
+          "self._run_worker",
+          "await asyncio.sleep"
+        ]
+      },
+      "_run_worker": {
+        "signature": "(self, worker: pipecat.workers.base_worker.BaseWorker) -> None",
+        "async": true,
+        "calls": [
+          "WorkerParams",
+          "await worker.run",
+          "any",
+          "e.runner_task.done",
+          "self._entries.values",
+          "self._shutdown_event.set"
+        ]
+      },
+      "_cancel_spawned_workers": {
+        "signature": "(self) -> None",
+        "async": true,
+        "calls": [
+          "await self._finish_running_workers",
+          "await asyncio.gather"
+        ]
+      },
+      "_finish_running_workers": {
+        "signature": "(self, message_class: type[pipecat.bus.messages.BusEndWorkerMessage] | type[pipecat.bus.messages.BusCancelWorkerMessage], reason: str | None) -> list[pipecat.workers.runner._WorkerEntry]",
+        "async": true,
+        "calls": [
+          "self._entries.values",
+          "entry.runner_task.done",
+          "await self._bus.send",
+          "message_class"
+        ]
+      }
+    }
+  }
+}

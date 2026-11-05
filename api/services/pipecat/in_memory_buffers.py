@@ -72,7 +72,7 @@ class InMemoryAudioBuffer:
 
         # Encoding is mostly memcpy but can touch ~100MB; keep it off the event loop
         data = await asyncio.to_thread(_encode)
-        logger.info(f"Encoded {total_size} bytes of {self._track} audio")
+        logger.debug(f"Encoded {total_size} bytes of {self._track} audio")
         return data
 
     @property
@@ -89,6 +89,7 @@ class InMemoryAudioBuffer:
 class InMemoryRecordingBuffers:
     """Holds the mixed recording plus aligned user and bot mono tracks.
 
+    The bot track excludes output mixer audio; the mixed recording retains it.
     User and bot tracks include silence padding from AudioBufferProcessor, so
     all three recordings have the same byte size when the mixed track is mono.
     """
@@ -143,6 +144,10 @@ class InMemoryLogsBuffer:
         """Set the fallback turn for non-transcript events."""
         self._current_turn = turn
 
+    @property
+    def current_turn(self) -> int | None:
+        return self._current_turn
+
     async def append(
         self,
         event: dict,
@@ -152,6 +157,7 @@ class InMemoryLogsBuffer:
         node_id: Optional[str] = None,
         node_name: Optional[str] = None,
         use_current_node: bool = True,
+        use_current_turn: bool = True,
     ):
         """Append an immutable event with optional correlation metadata."""
         if use_current_node:
@@ -160,7 +166,7 @@ class InMemoryLogsBuffer:
         timestamped_event = stamp_realtime_feedback_event(
             deepcopy(event),
             timestamp=timestamp or datetime.now(UTC).isoformat(timespec="milliseconds"),
-            turn=self._current_turn if turn is None else turn,
+            turn=self._current_turn if use_current_turn and turn is None else turn,
             node_id=node_id,
             node_name=node_name,
         )

@@ -14,6 +14,8 @@ from pydantic import BaseModel
 
 from api.db import db_client
 from api.enums import TriggerState, WorkflowStatus
+from api.routes.model_connections import SecretSafeRoute
+from api.schemas.model_connections import ModelConfigurationOverride
 from api.services.call_concurrency import (
     CallConcurrencyLimitError,
     call_concurrency,
@@ -30,7 +32,7 @@ from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow_run_failure import mark_workflow_run_failed
 from api.utils.common import get_backend_endpoints
 
-router = APIRouter(prefix="/public/agent")
+router = APIRouter(prefix="/public/agent", route_class=SecretSafeRoute)
 
 
 class TriggerCallRequest(BaseModel):
@@ -43,6 +45,7 @@ class TriggerCallRequest(BaseModel):
     telephony_configuration_id: int | None = None
     # Optional active caller ID in the resolved telephony configuration.
     from_phone_number_id: int | None = None
+    model_overrides: ModelConfigurationOverride | None = None
 
 
 class TriggerCallResponse(BaseModel):
@@ -269,6 +272,8 @@ async def _execute_resolved_target(
     # The destination describes the actual call and must not be overridden by
     # caller-supplied context.
     initial_context["called_number"] = request.phone_number
+    if from_number is not None:
+        initial_context["caller_number"] = from_number
 
     try:
         concurrency_slot = await call_concurrency.acquire_org_slot(
@@ -299,6 +304,11 @@ async def _execute_resolved_target(
             organization_id=target.organization_id,
             definition_id=run_inputs.definition_id,
             use_draft=run_inputs.use_draft,
+            model_configuration_overrides=(
+                request.model_overrides.model_dump(mode="json", exclude_unset=True)
+                if request.model_overrides is not None
+                else None
+            ),
         )
         await call_concurrency.bind_workflow_run(concurrency_slot, workflow_run.id)
     except Exception:
@@ -324,7 +334,10 @@ async def _execute_resolved_target(
             workflow_run.id, quota_result.error_message or "Quota exceeded"
         )
         await call_concurrency.release_workflow_run_slot(workflow_run.id)
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
+        raise HTTPException(
+            status_code=getattr(quota_result, "status_code", 402),
+            detail=quota_result.error_message,
+        )
 
     # 9. Construct webhook URL for telephony provider callback
     try:

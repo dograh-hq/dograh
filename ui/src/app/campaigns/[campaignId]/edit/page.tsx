@@ -12,7 +12,8 @@ import {
     listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
     updateCampaignApiV1CampaignCampaignIdPatch
 } from '@/client/sdk.gen';
-import type { CampaignResponse } from '@/client/types.gen';
+import type { CampaignResponse, TrafficVariantRequest } from '@/client/types.gen';
+import { PageShell } from '@/components/layout/PageShell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -22,6 +23,7 @@ import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 
 import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../../CampaignAdvancedSettings';
+import TrafficSplitEditor, { trafficSplitError } from '../../TrafficSplitEditor';
 
 export default function EditCampaignPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
@@ -35,6 +37,8 @@ export default function EditCampaignPage() {
 
     // Form state
     const [campaignName, setCampaignName] = useState('');
+    const [variants, setVariants] = useState<TrafficVariantRequest[]>([]);
+    const [splitChanged, setSplitChanged] = useState(false);
     const [maxConcurrency, setMaxConcurrency] = useState<string>('');
     const [rateLimitPerSecond, setRateLimitPerSecond] = useState('1');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -125,6 +129,8 @@ export default function EditCampaignPage() {
 
                 // Populate form state
                 setCampaignName(c.name);
+                setVariants(c.traffic_split?.variants.map(v => ({ workflow_id: v.workflow_id, workflow_definition_id: v.workflow_definition_id, weight: v.weight })) ?? [{ workflow_id: c.workflow_id, workflow_definition_id: null, weight: 100 }]);
+                setSplitChanged(false);
                 setRateLimitPerSecond(String(c.rate_limit_per_second));
                 setMaxConcurrency(c.max_concurrency ? String(c.max_concurrency) : '');
 
@@ -179,6 +185,12 @@ export default function EditCampaignPage() {
 
         if (!campaignName.trim()) {
             toast.error('Campaign name is required');
+            return;
+        }
+
+        const splitError = trafficSplitError(variants);
+        if (splitChanged && splitError) {
+            toast.error(splitError);
             return;
         }
 
@@ -248,6 +260,7 @@ export default function EditCampaignPage() {
                 path: { campaign_id: campaignId },
                 body: {
                     name: campaignName,
+                    ...(splitChanged ? { traffic_split: { variants } } : {}),
                     retry_config: retryConfig,
                     max_concurrency: maxConcurrencyValue,
                     rate_limit_per_second: dialRate,
@@ -258,8 +271,7 @@ export default function EditCampaignPage() {
             });
 
             if (response.error) {
-                const errorDetail = (response.error as { detail?: string })?.detail;
-                const errorMessage = errorDetail || 'Failed to update campaign';
+                const errorMessage = detailFromError(response.error, 'Failed to update campaign');
                 setSubmitError(errorMessage);
                 toast.error(errorMessage);
                 return;
@@ -285,25 +297,25 @@ export default function EditCampaignPage() {
 
     if (isLoading) {
         return (
-            <div className="container mx-auto p-6 space-y-6 max-w-2xl">
+            <PageShell width="narrow" className="space-y-6">
                 <div className="animate-pulse">
                     <div className="h-8 bg-muted rounded w-1/4 mb-4"></div>
                     <div className="h-64 bg-muted rounded"></div>
                 </div>
-            </div>
+            </PageShell>
         );
     }
 
     if (!campaign) {
         return (
-            <div className="container mx-auto p-6 space-y-6 max-w-2xl">
+            <PageShell width="narrow" className="space-y-6">
                 <p className="text-center text-muted-foreground">Campaign not found</p>
-            </div>
+            </PageShell>
         );
     }
 
     return (
-        <div className="container mx-auto p-6 pb-12 space-y-6 max-w-2xl">
+        <PageShell width="narrow" className="space-y-6 pb-12">
             <div>
                 <Button
                     variant="ghost"
@@ -340,6 +352,8 @@ export default function EditCampaignPage() {
                         </div>
 
                         <Separator />
+
+                        <TrafficSplitEditor value={variants} onChange={value => { setVariants(value); setSplitChanged(true); }} disabled={isSubmitting} editing />
 
                         <CampaignAdvancedSettings
                             maxConcurrency={maxConcurrency}
@@ -403,6 +417,6 @@ export default function EditCampaignPage() {
                     </form>
                 </CardContent>
             </Card>
-        </div>
+        </PageShell>
     );
 }

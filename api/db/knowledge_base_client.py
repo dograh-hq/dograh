@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from loguru import logger
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
 from api.db.base_client import BaseDBClient
@@ -489,6 +489,11 @@ class KnowledgeBaseClient(BaseDBClient):
 
         Returns:
             List of documents with retrieval_mode='full_document' and full_text set
+
+        Filters on ``full_text`` rather than ``processing_status``: processing
+        only overwrites ``full_text`` on success, so a document being
+        re-indexed after an edit (or whose re-index failed) keeps serving its
+        last good text instead of dropping out of retrieval.
         """
         async with self.async_session() as session:
             query = select(KnowledgeBaseDocumentModel).where(
@@ -496,10 +501,79 @@ class KnowledgeBaseClient(BaseDBClient):
                 KnowledgeBaseDocumentModel.document_uuid.in_(document_uuids),
                 KnowledgeBaseDocumentModel.retrieval_mode == "full_document",
                 KnowledgeBaseDocumentModel.is_active == True,
-                KnowledgeBaseDocumentModel.processing_status == "completed",
+                KnowledgeBaseDocumentModel.full_text.is_not(None),
             )
             result = await session.execute(query)
             return list(result.scalars().all())
+
+    async def claim_document_for_content_update(
+        self,
+        document_uuid: str,
+        organization_id: int,
+        expected_file_hash: str,
+        file_hash: str,
+        file_size_bytes: int,
+    ) -> KnowledgeBaseDocumentModel | None:
+        """Atomically mark an idle document ``pending`` for new content.
+
+        Matches only while the document is still at ``expected_file_hash`` and
+        no processing job is queued or running, so two concurrent saves cannot
+        both win and a save cannot race a job still reading the old file.
+        Returns None when that guard fails.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(KnowledgeBaseDocumentModel)
+                .where(
+                    KnowledgeBaseDocumentModel.document_uuid == document_uuid,
+                    KnowledgeBaseDocumentModel.organization_id == organization_id,
+                    KnowledgeBaseDocumentModel.is_active == True,
+                    KnowledgeBaseDocumentModel.file_hash == expected_file_hash,
+                    KnowledgeBaseDocumentModel.processing_status.not_in(
+                        ("pending", "processing")
+                    ),
+                )
+                .values(
+                    processing_status="pending",
+                    processing_error=None,
+                    file_hash=file_hash,
+                    file_size_bytes=file_size_bytes,
+                )
+                .returning(KnowledgeBaseDocumentModel)
+                .execution_options(synchronize_session=False)
+            )
+            document = result.scalar_one_or_none()
+            await session.commit()
+            if document is not None:
+                await session.refresh(document)
+            return document
+
+    async def restore_document_after_failed_content_update(
+        self,
+        document_id: int,
+        organization_id: int,
+        processing_status: str,
+        processing_error: str | None,
+        file_hash: str,
+        file_size_bytes: int | None,
+    ) -> None:
+        """Undo ``claim_document_for_content_update`` when the new file never
+        reached storage, putting back the pre-claim status and file metadata."""
+        async with self.async_session() as session:
+            await session.execute(
+                update(KnowledgeBaseDocumentModel)
+                .where(
+                    KnowledgeBaseDocumentModel.id == document_id,
+                    KnowledgeBaseDocumentModel.organization_id == organization_id,
+                )
+                .values(
+                    processing_status=processing_status,
+                    processing_error=processing_error,
+                    file_hash=file_hash,
+                    file_size_bytes=file_size_bytes,
+                )
+            )
+            await session.commit()
 
     async def delete_document(
         self,

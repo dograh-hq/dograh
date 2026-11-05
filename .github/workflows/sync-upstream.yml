@@ -1,0 +1,75 @@
+name: Sync upstream (dograh-hq/dograh)
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: false
+          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Merge upstream into a sync branch
+        id: merge
+        run: |
+          set -uo pipefail
+          git config user.name "donna-sync-bot"
+          git config user.email "donna-sync-bot@users.noreply.github.com"
+          git config rerere.enabled true
+          git config merge.ours.driver true
+          git remote add upstream https://github.com/dograh-hq/dograh
+          git fetch upstream main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "status=uptodate" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          branch="sync/upstream-$(date +%Y%m%d)"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          git checkout -b "$branch"
+          if git merge --no-edit upstream/main; then
+            echo "status=clean" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort
+            echo "status=conflict" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check branding overlay still applies
+        if: steps.merge.outputs.status == 'clean'
+        id: brand
+        run: |
+          set +e
+          python3 branding/apply.py --dry-run > /tmp/apply.log 2>&1; rc=$?
+          python3 branding/apply.py --check | tail -1 >> /tmp/apply.log
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          cat /tmp/apply.log
+
+      - name: Open PR
+        if: steps.merge.outputs.status == 'clean'
+        run: |
+          set -euo pipefail
+          git push origin "${{ steps.merge.outputs.branch }}"
+          note="Automated upstream merge. Overlay check:\n\n\`\`\`\n$(cat /tmp/apply.log)\n\`\`\`"
+          if [ "${{ steps.brand.outputs.rc }}" != "0" ]; then
+            note="$note\n\n⚠️ An overridden file changed upstream: diff it, update branding/overrides, run \`python3 branding/apply.py --update-lock\`."
+          fi
+          gh pr create --base main --head "${{ steps.merge.outputs.branch }}" \
+            --title "chore: sync upstream dograh-hq/dograh" --body "$(printf "$note")"
+
+      - name: Open issue on conflict
+        if: steps.merge.outputs.status == 'conflict'
+        run: |
+          gh issue create --title "Upstream sync has merge conflicts" \
+            --body "Automatic merge of dograh-hq/dograh failed. Run scripts/sync_upstream.sh locally and resolve (rerere will remember the resolution)."

@@ -153,6 +153,36 @@ class DograhSandboxedEnvironment(ImmutableSandboxedEnvironment):
             return False
         return super().is_safe_callable(obj)
 
+    def call(self, __context: Any, __obj: Any, *args: Any, **kwargs: Any) -> Any:
+        # 1. Resolve loop range() without mutating context or leaking function repr into {{ range }}
+        if (
+            isinstance(__obj, jinja2.Undefined)
+            and getattr(__obj, "_undefined_name", None) == "range"
+        ) or (not callable(__obj) and __context.resolve_or_missing("range") is __obj):
+            return _dograh_safe_range(*args, **kwargs)
+
+        # 2. Defend against memory bomb string allocation methods like ljust(1000000000)
+        bound_self = getattr(__obj, "__self__", None)
+        if isinstance(bound_self, (str, bytes)):
+            method_name = getattr(__obj, "__name__", "")
+            if method_name in {"ljust", "rjust", "center", "zfill"}:
+                width = kwargs.get("width", args[0] if args else 0)
+                if isinstance(width, int) and abs(width) > MAX_RENDERED_PROMPT_CHARS:
+                    raise OverflowError(
+                        f"String method '{method_name}' width exceeds allowable limit."
+                    )
+            elif method_name == "expandtabs":
+                tabsize = kwargs.get("tabsize", args[0] if args else 8)
+                if isinstance(tabsize, int) and (
+                    abs(tabsize) > MAX_RENDERED_PROMPT_CHARS
+                    or len(bound_self) * tabsize > MAX_RENDERED_PROMPT_CHARS
+                ):
+                    raise OverflowError(
+                        "String method 'expandtabs' exceeds allowable limit."
+                    )
+
+        return super().call(__context, __obj, *args, **kwargs)
+
 
 def _custom_fallback_filter(val: Any, default_val: Any = "") -> Any:
     """Fallback filter matching Dograh legacy behavior."""
@@ -200,6 +230,13 @@ class SafeTelephonyUndefined(jinja2.Undefined):
     to evaluate safely without crashing or leaking raw Jinja tags into the call.
     """
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self._undefined_exception and issubclass(
+            self._undefined_exception, jinja2.exceptions.SecurityError
+        ):
+            raise self._undefined_exception(self._undefined_message)
+
     def __getattr__(self, name: str) -> Any:
         return self
 
@@ -244,7 +281,6 @@ def create_jinja_environment() -> DograhSandboxedEnvironment:
     )
     # Clear default Jinja reflection helpers (lipsum, cycler, joiner, namespace)
     env.globals.clear()
-    env.globals["range"] = _dograh_safe_range
 
     env.filters["fallback"] = _custom_fallback_filter
     env.filters["default"] = _custom_default_filter
@@ -273,13 +309,6 @@ def _extract_tz_from_str(template_str: str) -> str | None:
     return None
 
 
-class RangeContextValue(str):
-    """String context value that also behaves as safe_range when invoked as a function in loops."""
-
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return _dograh_safe_range(*args, **kwargs)
-
-
 def _prepare_context(
     context: dict[str, Any] | None,
     template_str: str = "",
@@ -298,11 +327,6 @@ def _prepare_context(
     else:
         # Context is flat: alias initial_context to the dictionary itself
         enriched["initial_context"] = dict(enriched)
-
-    # Wrap non-callable range context fields so {{ range }} preserves the value
-    # while {% for i in range(5) %} still executes safely in loops.
-    if "range" in enriched and not callable(enriched["range"]):
-        enriched["range"] = RangeContextValue(str(enriched["range"]))
 
     return enriched
 
@@ -467,6 +491,24 @@ def validate_jinja_syntax(template_str: str) -> tuple[bool, str | None]:
                         f"Function '{func_name}' is not permitted in templates.",
                     )
 
+            # Block memory bomb string methods like ljust(1000000000)
+            if isinstance(call_node.node, jinja2.nodes.Getattr):
+                method_name = call_node.node.attr
+                if (
+                    method_name in ("ljust", "rjust", "center", "zfill", "expandtabs")
+                    and call_node.args
+                ):
+                    first_arg = call_node.args[0]
+                    if (
+                        isinstance(first_arg, jinja2.nodes.Const)
+                        and isinstance(first_arg.value, int)
+                        and abs(first_arg.value) > MAX_RENDERED_PROMPT_CHARS
+                    ):
+                        return (
+                            False,
+                            f"String method '{method_name}' argument exceeds maximum allowable limit of {MAX_RENDERED_PROMPT_CHARS}.",
+                        )
+
         # 6. Block private or dangerous attribute access (_*, format, mro, subclasses)
         for get_attr in parsed.find_all(jinja2.nodes.Getattr):
             attr_name = get_attr.attr
@@ -589,6 +631,8 @@ def render_jinja_string(
             rendered = rendered.replace("\\n", "\n")
         return rendered
     except SecurityError as e:
+        if raise_on_error:
+            raise
         logger.error(f"SSTI / Security exploit blocked in template: {e}")
         return ""
     except (TemplateError, OverflowError) as e:

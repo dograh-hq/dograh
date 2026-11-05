@@ -70,7 +70,7 @@ export function parsePromptToPreviewBlocks(text: string): PreviewBlock[] {
         const trimmedLine = line.trim();
 
         const ifMatch = trimmedLine.match(/^\{%-?\s*if\s+(.+?)\s*-?%\}$/);
-        const forMatch = trimmedLine.match(/^\{%-?\s*for\s+(\w+)\s+in\s+(.+?)\s*-?%\}$/);
+        const forMatch = trimmedLine.match(/^\{%-?\s*for\s+([^%]+?)\s+in\s+(.+?)\s*-?%\}$/);
 
         if (ifMatch) {
             flushMarkdown();
@@ -79,50 +79,65 @@ export function parsePromptToPreviewBlocks(text: string): PreviewBlock[] {
             let currentKind: "if" | "elif" | "else" = "if";
             let currentCondition: string | undefined = ifMatch[1].trim();
             let currentLines: string[] = [];
-            let depth = 1;
+            const blockStack: ("if" | "for")[] = ["if"];
             i++;
 
-            while (i < lines.length && depth > 0) {
+            while (i < lines.length && blockStack.length > 0) {
                 const subLine = lines[i];
                 const trimmedSub = subLine.trim();
 
-                const nestedIfMatch = trimmedSub.match(/^\{%-?\s*if\s+(.+?)\s*-?%\}$/);
+                const isNestedIf = /^\{%-?\s*if\b/.test(trimmedSub);
+                const isNestedFor = /^\{%-?\s*for\b/.test(trimmedSub);
+                const isEndif = /^\{%-?\s*endif\b/.test(trimmedSub);
+                const isEndfor = /^\{%-?\s*endfor\b/.test(trimmedSub);
                 const elifMatch = trimmedSub.match(/^\{%-?\s*elif\s+(.+?)\s*-?%\}$/);
-                const elseMatch = trimmedSub.match(/^\{%-?\s*else\s*-?%\}$/);
-                const endifMatch = trimmedSub.match(/^\{%-?\s*endif\s*-?%\}$/);
+                const isElse = /^\{%-?\s*else\s*-?%\}/.test(trimmedSub);
 
-                if (depth === 1 && elifMatch) {
-                    branches.push({
-                        kind: currentKind,
-                        condition: currentCondition,
-                        content: currentLines.join("\n").trim(),
-                    });
-                    currentKind = "elif";
-                    currentCondition = elifMatch[1].trim();
-                    currentLines = [];
-                } else if (depth === 1 && elseMatch) {
-                    branches.push({
-                        kind: currentKind,
-                        condition: currentCondition,
-                        content: currentLines.join("\n").trim(),
-                    });
-                    currentKind = "else";
-                    currentCondition = undefined;
-                    currentLines = [];
-                } else if (depth === 1 && endifMatch) {
-                    branches.push({
-                        kind: currentKind,
-                        condition: currentCondition,
-                        content: currentLines.join("\n").trim(),
-                    });
-                    depth = 0;
-                } else {
-                    if (nestedIfMatch) {
-                        depth++;
-                    } else if (endifMatch) {
-                        depth--;
+                if (blockStack.length === 1 && blockStack[0] === "if") {
+                    if (elifMatch) {
+                        branches.push({
+                            kind: currentKind,
+                            condition: currentCondition,
+                            content: currentLines.join("\n").trim(),
+                        });
+                        currentKind = "elif";
+                        currentCondition = elifMatch[1].trim();
+                        currentLines = [];
+                    } else if (isElse) {
+                        branches.push({
+                            kind: currentKind,
+                            condition: currentCondition,
+                            content: currentLines.join("\n").trim(),
+                        });
+                        currentKind = "else";
+                        currentCondition = undefined;
+                        currentLines = [];
+                    } else if (isEndif) {
+                        branches.push({
+                            kind: currentKind,
+                            condition: currentCondition,
+                            content: currentLines.join("\n").trim(),
+                        });
+                        blockStack.pop();
+                    } else {
+                        currentLines.push(subLine);
+                        if (isNestedIf) {
+                            blockStack.push("if");
+                        } else if (isNestedFor) {
+                            blockStack.push("for");
+                        }
                     }
+                } else {
                     currentLines.push(subLine);
+                    if (isNestedIf) {
+                        blockStack.push("if");
+                    } else if (isNestedFor) {
+                        blockStack.push("for");
+                    } else if (isEndif && blockStack[blockStack.length - 1] === "if") {
+                        blockStack.pop();
+                    } else if (isEndfor && blockStack[blockStack.length - 1] === "for") {
+                        blockStack.pop();
+                    }
                 }
                 i++;
             }
@@ -142,36 +157,52 @@ export function parsePromptToPreviewBlocks(text: string): PreviewBlock[] {
 
         if (forMatch) {
             flushMarkdown();
-            const item = forMatch[1];
-            const items = forMatch[2];
+            const item = forMatch[1].trim();
+            const items = forMatch[2].trim();
             const forLines: string[] = [];
             const elseLines: string[] = [];
             let inElse = false;
-            let depth = 1;
+            const blockStack: ("if" | "for")[] = ["for"];
             i++;
 
-            while (i < lines.length && depth > 0) {
+            while (i < lines.length && blockStack.length > 0) {
                 const subLine = lines[i];
                 const trimmedSub = subLine.trim();
-                const nestedFor = trimmedSub.match(/^\{%-?\s*for\b/);
-                const endforMatch = trimmedSub.match(/^\{%-?\s*endfor\b/);
-                const elseMatch = trimmedSub.match(/^\{%-?\s*else\s*-?%\}/);
 
-                if (depth === 1 && elseMatch) {
-                    inElse = true;
-                } else if (nestedFor) {
-                    depth++;
-                    if (inElse) elseLines.push(subLine);
-                    else forLines.push(subLine);
-                } else if (endforMatch) {
-                    depth--;
-                    if (depth > 0) {
+                const isNestedFor = /^\{%-?\s*for\b/.test(trimmedSub);
+                const isNestedIf = /^\{%-?\s*if\b/.test(trimmedSub);
+                const isEndfor = /^\{%-?\s*endfor\b/.test(trimmedSub);
+                const isEndif = /^\{%-?\s*endif\b/.test(trimmedSub);
+                const isElse = /^\{%-?\s*else\s*-?%\}/.test(trimmedSub);
+
+                if (blockStack.length === 1 && blockStack[0] === "for") {
+                    if (isElse) {
+                        inElse = true;
+                    } else if (isEndfor) {
+                        blockStack.pop();
+                    } else {
                         if (inElse) elseLines.push(subLine);
                         else forLines.push(subLine);
+
+                        if (isNestedFor) {
+                            blockStack.push("for");
+                        } else if (isNestedIf) {
+                            blockStack.push("if");
+                        }
                     }
                 } else {
                     if (inElse) elseLines.push(subLine);
                     else forLines.push(subLine);
+
+                    if (isNestedFor) {
+                        blockStack.push("for");
+                    } else if (isNestedIf) {
+                        blockStack.push("if");
+                    } else if (isEndfor && blockStack[blockStack.length - 1] === "for") {
+                        blockStack.pop();
+                    } else if (isEndif && blockStack[blockStack.length - 1] === "if") {
+                        blockStack.pop();
+                    }
                 }
                 i++;
             }
@@ -186,7 +217,7 @@ export function parsePromptToPreviewBlocks(text: string): PreviewBlock[] {
             continue;
         }
 
-        const setMatch = trimmedLine.match(/^\{%\s*set\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*%\}/);
+        const setMatch = trimmedLine.match(/^\{%-?\s*set\s+([^%=]+?)\s*=\s*(.+?)\s*-?%\}$/);
         if (setMatch) {
             flushMarkdown();
             blocks.push({

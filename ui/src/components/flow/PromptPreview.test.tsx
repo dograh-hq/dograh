@@ -130,6 +130,45 @@ describe("parsePromptToPreviewBlocks", () => {
             expect(blocks[0].elseContent).toBe("No items.");
         }
     });
+
+    it("does not mistake inner if-else inside for loop for outer loop else", () => {
+        const prompt = [
+            "{% for item in items %}",
+            "{% if item.active %}",
+            "Active: {{ item.name }}",
+            "{% else %}",
+            "Inactive: {{ item.name }}",
+            "{% endif %}",
+            "{% else %}",
+            "No items found.",
+            "{% endfor %}",
+        ].join("\n");
+
+        const blocks = parsePromptToPreviewBlocks(prompt);
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0].type).toBe("loop");
+        if (blocks[0].type === "loop") {
+            expect(blocks[0].content).toContain("Active: {{ item.name }}");
+            expect(blocks[0].content).toContain("Inactive: {{ item.name }}");
+            expect(blocks[0].elseContent).toBe("No items found.");
+        }
+    });
+
+    it("supports tuple loop targets in preview", () => {
+        const prompt = [
+            "{% for key, value in data.items %}",
+            "{{ key }}: {{ value }}",
+            "{% endfor %}",
+        ].join("\n");
+
+        const blocks = parsePromptToPreviewBlocks(prompt);
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0].type).toBe("loop");
+        if (blocks[0].type === "loop") {
+            expect(blocks[0].item).toBe("key, value");
+            expect(blocks[0].items).toBe("data.items");
+        }
+    });
 });
 
 describe("PromptPreview Component", () => {

@@ -26,6 +26,7 @@ const JINJA_KEYWORDS = new Set([
     "none", "null", "true", "false", "loop", "int", "float",
     "str", "string", "lower", "upper", "default", "fallback",
     "initial_context", "gathered_context", "call",
+    "if", "elif", "else", "range", "len", "length",
 ]);
 
 // `{{name}}` references in prompts and other node text.
@@ -86,6 +87,7 @@ export function referencedVariables(nodes: FlowNode[]): string[] {
                     }
                 }
                 const iterExpr = match[2]
+                    .replace(/\bif\b/g, "")
                     .replace(/"(?:[^"\\]|\\.)*"/g, "")
                     .replace(/'(?:[^'\\]|\\.)*'/g, "")
                     .replace(/\.\s*[A-Za-z_][A-Za-z0-9_]*/g, "")

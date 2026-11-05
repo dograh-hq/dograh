@@ -1,5 +1,7 @@
 """Unit tests for Dograh Sandboxed Jinja2 Engine."""
 
+import pytest
+
 from api.utils.jinja_engine import (
     render_jinja_string,
     validate_jinja_syntax,
@@ -333,3 +335,43 @@ def test_invalid_timezone_fails_silently():
     template = "Time: '{{ current_time_Invalid_Zone_12345 }}'"
     rendered = render_jinja_string(template, {})
     assert rendered == "Time: ''"
+
+
+def test_validate_and_runtime_block_allocating_string_methods():
+    """Verify that string methods with huge width/tabsize are rejected at both save and runtime."""
+    huge_template = "{{ 'x'.ljust(1000000000) }}"
+    is_valid, err = validate_jinja_syntax(huge_template)
+    assert not is_valid
+    assert err is not None
+    assert "exceeds maximum allowable limit" in err
+
+    # Runtime check: even if dynamic argument bypassed AST check
+    with pytest.raises(OverflowError):
+        render_jinja_string(huge_template, {}, raise_on_error=True)
+
+
+def test_range_preserves_native_types_and_resolves_cleanly():
+    """Verify range resolves correctly when missing, numeric, string, None, or in loops."""
+    # 1. Missing from context: renders empty and triggers fallback without leaking function repr
+    t_missing = "{{ range }} | {{ range | fallback:N/A }} | {% for i in range(3) %}{{ i }}{% endfor %}"
+    res_missing = render_jinja_string(t_missing, {})
+    assert res_missing == " | N/A | 012"
+
+    # 2. Integer in context: preserves numeric arithmetic while safe range() loop still works
+    t_int = "{{ range + 15 }} | {% for i in range(2) %}{{ i }}{% endfor %}"
+    res_int = render_jinja_string(t_int, {"range": 100})
+    assert res_int == "115 | 01"
+
+    # 3. None in context: renders empty string without leaking None literal
+    t_none = "'{{ range }}' | {% for i in range(2) %}{{ i }}{% endfor %}"
+    res_none = render_jinja_string(t_none, {"range": None})
+    assert res_none == "'' | 01"
+
+
+def test_security_error_reraised_when_raise_on_error_true():
+    """Verify that SSTI security violations are raised when raise_on_error=True."""
+    from jinja2.exceptions import SecurityError
+
+    malicious = "{{ [].__class__.__mro__ }}"
+    with pytest.raises(SecurityError):
+        render_jinja_string(malicious, {}, raise_on_error=True)

@@ -104,6 +104,19 @@ describe("editor setup", () => {
         // "pro" (string literal), "is_active" (attribute), "length" (filter), "k" and "v" (loop vars) are NOT candidate variables
         // "local_token" in prompt does not suppress "local_token" in greeting
         expect(referencedVariables(complexNodes)).toEqual(["items", "local_token", "pairs", "plan", "user"]);
+
+        // Loop filters with 'if' and built-in 'range' do not get extracted as variables
+        const loopFilterNodes = [
+            {
+                id: "step4",
+                type: "agent",
+                position: { x: 0, y: 0 },
+                data: {
+                    prompt: "{% for item in inventory if item.in_stock %}{{ item.name }}{% endfor %}\n{% for i in range(5) %}{{ i }}{% endfor %}",
+                },
+            },
+        ] as FlowNode[];
+        expect(referencedVariables(loopFilterNodes)).toEqual(["inventory"]);
     });
 
     it("offers the four views and switches on click", () => {

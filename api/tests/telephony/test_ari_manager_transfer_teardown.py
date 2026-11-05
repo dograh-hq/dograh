@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -21,11 +22,11 @@ class _FakeDbClient:
         self.updated_contexts = []
 
     async def get_workflow_run_by_id(self, run_id: int):
-        return self.workflow_run
+        return deepcopy(self.workflow_run)
 
     async def update_workflow_run(self, run_id: int, gathered_context: dict):
         self.updated_contexts.append((run_id, dict(gathered_context)))
-        self.workflow_run.gathered_context = gathered_context
+        self.workflow_run.gathered_context.update(gathered_context)
 
 
 class _RecordingARIConnection(ARIConnection):

@@ -31,9 +31,8 @@ from api.enums import PostHogEvent
 from api.mcp_server.auth import authenticate_mcp_request
 from api.mcp_server.tracing import traced_tool
 from api.mcp_server.ts_bridge import TsBridgeError, parse_code
-from api.services.posthog_client import capture_event
+from api.services.posthog_tenant import capture_tenant_event
 from api.services.workflow.dto import ReactFlowDTO
-from api.services.workflow.layout import reconcile_positions
 from api.services.workflow.tool_name_validation import (
     validate_workflow_tool_name_collisions,
 )
@@ -100,7 +99,7 @@ async def create_workflow(code: str) -> dict[str, Any]:
 
     # 1. Parse + spec-validate via the Node TS validator.
     try:
-        parsed = await parse_code(code)
+        parsed = await parse_code(code, tidy=True)
     except TsBridgeError as e:
         logger.warning(f"ts_bridge failure: {e}")
         return _error_result("bridge_error", str(e))
@@ -119,9 +118,6 @@ async def create_workflow(code: str) -> dict[str, Any]:
             'Workflow name is required. Add `new Workflow({ name: "..." })` to the source.',
         )
 
-    # 1b. New workflow — no prior version to reconcile against; layout
-    # places new nodes adjacent to their first incoming neighbor.
-    payload = reconcile_positions(payload, None)
     trigger_path_issues = validate_trigger_paths(payload)
     if trigger_path_issues:
         return _error_result(
@@ -173,14 +169,14 @@ async def create_workflow(code: str) -> dict[str, Any]:
         user.selected_organization_id,
     )
 
-    capture_event(
+    await capture_tenant_event(
         distinct_id=str(user.provider_id),
         event=PostHogEvent.WORKFLOW_CREATED,
+        organization_id=user.selected_organization_id,
         properties={
-            "workflow_id": workflow.id,
+            "workflow_uuid": workflow.workflow_uuid,
             "workflow_name": workflow.name,
             "source": "mcp",
-            "organization_id": user.selected_organization_id,
         },
     )
 

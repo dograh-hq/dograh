@@ -1,44 +1,10 @@
 """Topic: end every agent turn with a question or clear nudge."""
 
-from __future__ import annotations
-
-from api.services.voice_prompting_guide._base import (
-    AuditCheck,
-    Stage,
-    StageLens,
-    VoicePromptingTopic,
-)
+from api.services.voice_prompting_guide._base import VoicePromptingTopic
 
 TOPIC = VoicePromptingTopic(
     id="turn_taking",
     title="End every agent turn with a question or clear nudge",
-    severity="high",
-    applies_to_node_types=("globalNode", "agentNode", "startCall"),
-    stages={
-        Stage.plan: StageLens(
-            relevant=True,
-            lens=(
-                "When sketching the flow, plan a clear handoff back to the user at "
-                "each node. Nodes that finish without prompting the user are stall "
-                "risks; flag them at design time."
-            ),
-        ),
-        Stage.create: StageLens(
-            relevant=True,
-            lens=(
-                "Instruct the agent to ask, confirm, or wait for the user at the end "
-                "of every turn. If no natural question fits, add a clarifier "
-                "('Does that work?', 'Make sense?')."
-            ),
-        ),
-        Stage.review: StageLens(
-            relevant=True,
-            lens=(
-                "Check each prompt instructs the agent to ask or wait. Don't look "
-                "for a literal '?' — the prompt is meta-instruction, not script."
-            ),
-        ),
-    },
     content="""\
 End every agent turn with a question or a clear prompt for the user to respond.
 
@@ -69,20 +35,4 @@ Examples (prompt → expected runtime behavior):
 - Bad:  "Thank the user. End the call." (No handoff cue — risks dead air
   before the end-call tool fires.)
 """,
-    audit_checks=(
-        AuditCheck(
-            id="instructs_ask_or_wait",
-            judge_question=(
-                "Does this prompt instruct the agent to ask a question, request "
-                "input, or wait for the user before continuing? A direct "
-                "instruction to ask, find out, confirm, or await counts as yes."
-            ),
-            expected="yes",
-            quote=(
-                "Prompt doesn't instruct the agent to ask or wait — risks both "
-                "parties going silent."
-            ),
-        ),
-    ),
-    cross_refs=("common_guidelines", "success_criteria"),
 )

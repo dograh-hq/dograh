@@ -4,12 +4,17 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 import type { WorkflowVersionResponse } from '@/client/types.gen';
 
+import { useWorkflow } from './contexts/WorkflowContext';
 import RenderWorkflow from './RenderWorkflow';
 
 const mocks = vi.hoisted(() => ({
     query: 'version=3&source=campaign',
     push: vi.fn(),
+    replace: vi.fn(),
     versions: vi.fn(),
+    workflow: vi.fn(),
+    tools: vi.fn(),
+    updateMetadata: vi.fn(),
     save: vi.fn(),
     state: {
         rfInstance: { current: null },
@@ -20,15 +25,19 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@xyflow/react/dist/style.css', () => ({}));
 vi.mock('next/navigation', () => ({
-    useRouter: () => ({ push: mocks.push }),
+    useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
     useSearchParams: () => new URLSearchParams(mocks.query),
 }));
 vi.mock('@/client', () => ({
+    getWorkflowApiV1WorkflowFetchWorkflowIdGet: mocks.workflow,
     getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet: mocks.versions,
     createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost: vi.fn(),
     listDocumentsApiV1KnowledgeBaseDocumentsGet: async () => ({ data: { documents: [] } }),
-    listToolsApiV1ToolsGet: async () => ({ data: [] }),
+    listToolsApiV1ToolsGet: mocks.tools,
     listRecordingsApiV1WorkflowRecordingsGet: async () => ({ data: { recordings: [] } }),
+}));
+vi.mock('@/client/sdk.gen', () => ({
+    updateWorkflowVersionMetadataApiV1WorkflowWorkflowIdVersionsDefinitionIdMetadataPatch: mocks.updateMetadata,
 }));
 vi.mock('./hooks/useWorkflowState', () => ({ useWorkflowState: () => ({ ...mocks.state, saveWorkflow: mocks.save }) }));
 vi.mock('@/components/flow/renderer', () => ({ useNodeSpecs: () => ({ specs: [] }) }));
@@ -38,6 +47,19 @@ vi.mock('@/components/flow/AddNodePanel', () => ({ default: () => null }));
 vi.mock('@/components/flow/edges/CustomEdge', () => ({ default: () => null }));
 vi.mock('@/components/flow/nodes/GenericNode', () => ({ GenericNode: () => null }));
 vi.mock('./components/PhoneCallDialog', () => ({ PhoneCallDialog: () => null }));
+vi.mock('./components/EditorSetup', () => ({
+    isEditorView: (value: string | null) => ['builder', 'canvas', 'model', 'variables', 'settings'].includes(value ?? ''),
+    EditorSetup: ({ view, onViewChange, onBuilderSaved, onBuilderBusyChange }: { view: string; onViewChange: (view: string) => void; onBuilderSaved: () => Promise<void>; onBuilderBusyChange: (busy: boolean) => void }) => {
+        const { tools } = useWorkflow();
+        return <>
+        <span data-testid="tool-catalog">{tools?.map(tool => tool.name).join(', ')}</span>
+        <button onClick={() => onViewChange(view === 'model' ? 'canvas' : 'model')}>View: {view}</button>
+        <button onClick={onBuilderSaved}>Builder saved</button>
+        <button onClick={() => onBuilderBusyChange(true)}>Start builder update</button>
+        <button onClick={() => onBuilderBusyChange(false)}>Finish builder update</button>
+    </>;
+    },
+}));
 vi.mock('./components/WorkflowVersionDiffDialog', () => ({ WorkflowVersionDiffDialog: () => null }));
 vi.mock('./components/WorkflowTesterPanel', () => ({
     WorkflowTesterPanel: ({ disabled }: { disabled: boolean }) => <div data-testid="tester" data-disabled={disabled} />,
@@ -71,6 +93,68 @@ beforeEach(() => {
     vi.clearAllMocks();
     mocks.query = 'version=3&source=campaign';
     mocks.versions.mockResolvedValue({ data: [version(21, 'draft'), version(20, 'published')] });
+    mocks.tools.mockResolvedValue({ data: [] });
+});
+
+it('refreshes the canvas and draft version after saving a retained builder session', async () => {
+    mocks.query = 'view=builder';
+    const nodes = [{ id: 'updated', data: { name: 'Updated step' } }];
+    mocks.workflow.mockResolvedValue({ data: { workflow_definition: { nodes, edges: [] }, version_number: 22, version_status: 'draft' } });
+    render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" initialVersionNumber={21} initialVersionStatus="published" user={{ id: '1' }} />);
+    expect(screen.getByRole('button', { name: 'View: builder' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Builder saved' }));
+    await waitFor(() => expect(mocks.state.setNodes).toHaveBeenCalledWith(nodes));
+    expect(mocks.state.setEdges).toHaveBeenCalledWith([]);
+    expect(mocks.state.setIsDirty).toHaveBeenCalledWith(false);
+    expect(screen.getByTestId('version-label').textContent).toContain('v22');
+    expect(mocks.replace).not.toHaveBeenCalled();
+});
+
+it('holds test calls while the builder is applying changes', () => {
+    mocks.query = 'view=builder';
+    render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" initialVersionNumber={21} initialVersionStatus="draft" user={{ id: '1' }} />);
+    expect(screen.getByTestId('tester').getAttribute('data-disabled')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: 'Start builder update' }));
+    expect(screen.getByTestId('tester').getAttribute('data-disabled')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Finish builder update' }));
+    expect(screen.getByTestId('tester').getAttribute('data-disabled')).toBe('false');
+});
+
+it('refreshes the tool catalog after the builder creates and attaches a tool', async () => {
+    mocks.query = 'view=builder';
+    const nodes = [{ id: 'agent', data: { name: 'Agent', tool_uuids: ['new-tool'] } }];
+    mocks.workflow.mockResolvedValue({ data: { workflow_definition: { nodes, edges: [] }, version_number: 22, version_status: 'draft' } });
+    render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" user={{ id: '1' }} />);
+    await waitFor(() => expect(mocks.tools).toHaveBeenCalledOnce());
+    mocks.tools.mockResolvedValue({ data: [{ tool_uuid: 'new-tool', name: 'Transfer to support' }] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Builder saved' }));
+
+    await screen.findByText('Transfer to support');
+    expect(mocks.tools).toHaveBeenCalledTimes(2);
+    expect(mocks.state.setNodes).toHaveBeenCalledWith(nodes);
+    expect(mocks.save).not.toHaveBeenCalled();
+});
+
+it('loads the saved tool bindings even when refreshing the catalog fails', async () => {
+    const logError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+        mocks.query = 'view=builder';
+        const nodes = [{ id: 'agent', data: { name: 'Agent', tool_uuids: ['new-tool'] } }];
+        mocks.workflow.mockResolvedValue({ data: { workflow_definition: { nodes, edges: [] }, version_number: 22, version_status: 'draft' } });
+        render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" user={{ id: '1' }} />);
+        await waitFor(() => expect(mocks.tools).toHaveBeenCalledOnce());
+        mocks.tools.mockResolvedValue({ error: { detail: 'Unavailable' } });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Builder saved' }));
+
+        await waitFor(() => expect(mocks.state.setNodes).toHaveBeenCalledWith(nodes));
+        expect(screen.getByTestId('version-label').textContent).toContain('v22');
+        expect(mocks.save).not.toHaveBeenCalled();
+        expect(logError).toHaveBeenCalled();
+    } finally {
+        logError.mockRestore();
+    }
 });
 
 it.each(['archived', 'published'])('opens a linked %s version read-only before history loads', async status => {
@@ -84,6 +168,20 @@ it.each(['archived', 'published'])('opens a linked %s version read-only before h
     await screen.findByRole('button', { name: /^v20/ });
     expect(screen.getByTestId('version-label').textContent).toContain('v3');
     expect(screen.getByTestId('canvas').getAttribute('data-editable')).toBe('false');
+});
+
+it('updates version metadata in history while preserving the selected historical version', async () => {
+    mocks.updateMetadata.mockResolvedValueOnce({ data: { id: 120, version_name: 'Updated release', change_description: 'Corrected notes' } });
+    render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" user={{ id: '1' }} initialSelectedVersion={version(3, 'archived')} />);
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit details for v20' }));
+    fireEvent.change(screen.getByLabelText('Version name (optional)'), { target: { value: 'Updated release' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await screen.findByText('Updated release');
+    expect(screen.getByText('Corrected notes')).toBeTruthy();
+    expect(screen.getByTestId('version-label').textContent).toContain('v3');
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.versions).toHaveBeenCalledOnce();
 });
 
 it('updates shareable URLs from history and clears only the version when returning to the draft', async () => {
@@ -111,4 +209,38 @@ it.each(['current', 'historical'])('selects the editable published version from 
     fireEvent.click(await screen.findByRole('button', { name: /^v20/ }));
 
     expect(mocks.push).toHaveBeenCalledWith('/workflow/12?source=campaign', { scroll: false });
+});
+
+it.each([
+    ['source=campaign&view=canvas', 'canvas', '/workflow/12?source=campaign&view=model'],
+    ['source=campaign&view=model', 'model', '/workflow/12?source=campaign&view=canvas'],
+])('keeps the editor view in the URL (%s)', (query, view, next) => {
+    mocks.query = query;
+    mocks.versions.mockResolvedValue({ data: [version(20, 'draft')] });
+    render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" initialVersionNumber={20} initialVersionStatus="draft" user={{ id: '1' }} />);
+
+    fireEvent.click(screen.getByRole('button', { name: `View: ${view}` }));
+
+    expect(mocks.replace).toHaveBeenCalledWith(next, { scroll: false });
+});
+
+it.each(['source=campaign', 'source=campaign&view=recordings'])('rewrites a URL without a known view to the canvas (%s)', query => {
+    mocks.query = query;
+    mocks.versions.mockResolvedValue({ data: [version(20, 'draft')] });
+    render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" initialVersionNumber={20} initialVersionStatus="draft" user={{ id: '1' }} />);
+
+    expect(screen.getByRole('button', { name: 'View: canvas' })).toBeTruthy();
+    expect(mocks.replace).toHaveBeenCalledWith('/workflow/12?source=campaign&view=canvas', { scroll: false });
+});
+
+it('blocks canvas edits and saves during a builder run, then restores editing', () => {
+    mocks.query = 'view=builder';
+    render(<RenderWorkflow workflowId={12} initialWorkflowName="Agent" user={{ id: '1' }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start builder update' }));
+    expect(screen.getByTestId('canvas').getAttribute('data-editable')).toBe('false');
+    expect(screen.getByTestId('canvas').parentElement?.hasAttribute('inert')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(mocks.save).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Finish builder update' }));
+    expect(screen.getByTestId('canvas').getAttribute('data-editable')).toBe('true');
 });

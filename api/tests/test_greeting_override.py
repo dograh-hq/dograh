@@ -1,3 +1,5 @@
+import pytest
+
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
@@ -43,6 +45,18 @@ def _workflow() -> WorkflowGraph:
             ],
         )
     )
+
+
+@pytest.mark.parametrize("recording_id", [None, "", "  "])
+@pytest.mark.parametrize("fallback", [None, "Fallback greeting"])
+def test_legacy_missing_recording_preserves_runtime_fallback(recording_id, fallback):
+    workflow = _workflow()
+    start = workflow.nodes[workflow.start_node_id]
+    start.greeting_type = "audio"
+    start.greeting_recording_id = recording_id
+    start.greeting = fallback
+    engine = PipecatEngine(workflow=workflow, call_context_vars={})
+    assert engine.get_start_greeting() == (("text", fallback) if fallback else None)
 
 
 def test_text_override_wins_and_renders_hydrated_context():

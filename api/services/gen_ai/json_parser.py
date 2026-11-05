@@ -7,7 +7,9 @@ import re
 from typing import Any
 
 
-def parse_llm_json(raw_content: str) -> dict[str, Any]:
+def parse_llm_json(
+    raw_content: str, *, raise_on_error: bool = False
+) -> dict[str, Any] | list:
     """Parse JSON from LLM output, handling common formatting issues.
 
     Handles the following common LLM mistakes:
@@ -17,11 +19,19 @@ def parse_llm_json(raw_content: str) -> dict[str, Any]:
 
     Args:
         raw_content: The raw string output from the LLM.
+        raise_on_error: Raise ValueError instead of returning a fallback value.
 
     Returns:
-        Parsed JSON as a dictionary. If parsing fails, returns {"raw": raw_content}.
+        Parsed JSON as a dictionary or list. When raise_on_error is False,
+        empty input returns {} and unparseable input returns {"raw": raw_content}.
+
+    Raises:
+        ValueError: If raise_on_error is True and the input is empty or cannot
+            be parsed as a JSON object or array.
     """
     if not raw_content or not raw_content.strip():
+        if raise_on_error:
+            raise ValueError("Empty JSON response")
         return {}
 
     content = raw_content.strip()
@@ -52,6 +62,8 @@ def parse_llm_json(raw_content: str) -> dict[str, Any]:
         return parsed
 
     # All attempts failed - return raw content
+    if raise_on_error:
+        raise ValueError("No JSON object or array in response")
     return {"raw": raw_content}
 
 

@@ -2,7 +2,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from pipecat.frames.frames import LLMMessagesAppendFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    BotStoppedSpeakingFrame,
+    LLMMessagesAppendFrame,
+    TTSSpeakFrame,
+)
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.xai.realtime import events
@@ -13,6 +17,7 @@ from api.services.pipecat.realtime.grok_realtime import (
     DograhGrokRealtimeLLMService,
 )
 from api.services.pipecat.service_factory import create_realtime_llm_service
+from api.tests.test_streamed_tool_response import response_done
 
 
 def _make_service() -> DograhGrokRealtimeLLMService:
@@ -137,7 +142,7 @@ async def test_non_transition_function_call_runs_while_bot_is_speaking():
     service = _make_service()
     service._context = LLMContext()
     service.run_function_calls = AsyncMock()
-    service._bot_is_speaking = True
+    service._workflow_bot_is_speaking = True
     service._pending_function_calls["call-1"] = SimpleNamespace(name="customer_support")
 
     await service._handle_evt_function_call_arguments_done(
@@ -149,7 +154,7 @@ async def test_non_transition_function_call_runs_while_bot_is_speaking():
     )
 
     service.run_function_calls.assert_awaited_once()
-    assert service._deferred_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []
 
 
 @pytest.mark.asyncio
@@ -157,7 +162,7 @@ async def test_node_transition_function_call_waits_until_bot_stops_speaking():
     service = _make_service()
     service._context = LLMContext()
     service.run_function_calls = AsyncMock()
-    service._bot_is_speaking = True
+    service._workflow_bot_is_speaking = True
     service.register_function(
         "customer_support",
         AsyncMock(),
@@ -174,12 +179,14 @@ async def test_node_transition_function_call_waits_until_bot_stops_speaking():
     )
 
     service.run_function_calls.assert_not_awaited()
-    assert len(service._deferred_node_transition_function_calls) == 1
+    assert len(service._workflow_tool_deferral.pending) == 1
 
-    await service._run_pending_node_transition_function_calls()
+    service.push_frame = AsyncMock()
+    await response_done(service)
+    await service.process_frame(BotStoppedSpeakingFrame(), FrameDirection.UPSTREAM)
 
     service.run_function_calls.assert_awaited_once()
-    assert service._deferred_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []
 
 
 @pytest.mark.asyncio

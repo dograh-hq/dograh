@@ -20,9 +20,12 @@ from typing import Any
 
 from loguru import logger
 
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
-from pipecat.adapters.services.aws_nova_sonic_adapter import (
+from pipecat.adapters.llm.services.aws_nova_sonic_adapter import (
     AWSNovaSonicConversationHistoryMessage,
     AWSNovaSonicLLMAdapter,
     AWSNovaSonicLLMInvocationParams,
@@ -51,11 +54,15 @@ _NODE_TRANSITION_RESPONSE_PROMPT = (
 class DograhAWSNovaSonicLLMAdapter(AWSNovaSonicLLMAdapter):
     """Keep bot-first conversations valid when replaying history to Nova."""
 
-    def get_llm_invocation_params(
-        self, context: LLMContext, *, system_instruction: str | None = None
+    async def get_llm_invocation_params(
+        self,
+        context: LLMContext,
+        *,
+        system_instruction: str | None = None,
+        service_tools: Any = None,
     ) -> AWSNovaSonicLLMInvocationParams:
-        params = super().get_llm_invocation_params(
-            context, system_instruction=system_instruction
+        params = await super().get_llm_invocation_params(
+            context, system_instruction=system_instruction, service_tools=service_tools
         )
         messages = params["messages"]
         history: list[AWSNovaSonicConversationHistoryMessage] = []
@@ -85,6 +92,15 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
 
     adapter_class = DograhAWSNovaSonicLLMAdapter
 
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(
+            self._stream
+            and self._audio_input_started
+            and self._prompt_name
+            and self._input_audio_content_name
+        )
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._input_content_lock = asyncio.Lock()
@@ -93,7 +109,6 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         self._opening_after_prerecorded_greeting: bool = False
         self._pending_initial_prompt: str | None = None
         self._pending_message_batches: list[tuple[list[tuple[Role, str]], bool]] = []
-        self._deferred_node_transition_function_calls: list[FunctionCallFromLLM] = []
         self._awaiting_node_transition_context = False
 
     # ------------------------------------------------------------------
@@ -159,6 +174,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
     # Initial and one-off response triggers
     # ------------------------------------------------------------------
 
+    @opening_request
     async def _handle_context(self, context: LLMContext):
         if self._disconnecting:
             return
@@ -203,7 +219,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
             return
         if transcript:
             self._pending_message_batches.append(
-                (self._prerecorded_greeting_turns(transcript), False)
+                (await self._prerecorded_greeting_turns(transcript), False)
             )
         self._opening_after_prerecorded_greeting = True
         try:
@@ -212,7 +228,9 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         finally:
             self._opening_after_prerecorded_greeting = False
 
-    def _prerecorded_greeting_turns(self, transcript: str) -> list[tuple[Role, str]]:
+    async def _prerecorded_greeting_turns(
+        self, transcript: str
+    ) -> list[tuple[Role, str]]:
         """The greeting as Nova history: never opening on ASSISTANT, alternating.
 
         AWS rejects history that begins with ASSISTANT and requires roles to
@@ -222,9 +240,9 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         """
         messages = []
         if self._context is not None:
-            messages = self.get_llm_adapter().get_llm_invocation_params(self._context)[
-                "messages"
-            ]
+            messages = (
+                await self.get_llm_adapter().get_llm_invocation_params(self._context)
+            )["messages"]
         turns: list[tuple[Role, str]] = []
         if not messages or messages[-1].role is not Role.USER:
             turns.append((Role.USER, _INITIAL_RESPONSE_PROMPT))
@@ -253,6 +271,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         await self._finish_connecting_if_context_available()
         await self._flush_pending_text_inputs()
 
+    @opening_request
     async def _finish_connecting_if_context_available(self):
         # Upstream assumes this method is invoked once. Dograh can reach it from
         # connection-ready, runtime settings, and the initial response trigger.
@@ -385,7 +404,7 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
         # (common when a transition follows spoken text), queue a short user
         # nudge so the fresh session still responds exactly once.
         adapter = self.get_llm_adapter()
-        invocation_params = adapter.get_llm_invocation_params(
+        invocation_params = await adapter.get_llm_invocation_params(
             context,
             system_instruction=self._settings.system_instruction,
         )
@@ -416,35 +435,21 @@ class DograhAWSNovaSonicLLMService(RealtimeConversationMixin, AWSNovaSonicLLMSer
     # ------------------------------------------------------------------
 
     async def run_function_calls(self, function_calls: Sequence[FunctionCallFromLLM]):
-        has_node_transition = any(
-            self._function_is_node_transition(call.function_name)
-            for call in function_calls
+        await self._workflow_tool_deferral.submit(
+            function_calls,
+            speaking=self._assistant_is_responding or self._workflow_bot_is_speaking,
+            dispatch=super().run_function_calls,
         )
-        if self._assistant_is_responding and has_node_transition:
-            self._deferred_node_transition_function_calls.extend(function_calls)
-            logger.debug(
-                f"{self}: deferring {len(function_calls)} workflow-control "
-                "call(s) until the Nova audio turn ends"
-            )
-            return
-        await super().run_function_calls(function_calls)
 
     async def _report_assistant_response_ended(self):
         await super()._report_assistant_response_ended()
-        await self._run_deferred_node_transition_function_calls()
+        if self._workflow_playback_stopped:
+            await self._run_deferred_node_transition_function_calls()
 
     async def _handle_completion_end_event(self, event_json):
         await super()._handle_completion_end_event(event_json)
-        if not self._assistant_is_responding:
+        if not self._assistant_is_responding and self._workflow_playback_stopped:
             await self._run_deferred_node_transition_function_calls()
 
     async def _run_deferred_node_transition_function_calls(self):
-        if not self._deferred_node_transition_function_calls:
-            return
-        function_calls = self._deferred_node_transition_function_calls
-        self._deferred_node_transition_function_calls = []
-        logger.debug(
-            f"{self}: executing {len(function_calls)} deferred workflow-control "
-            "call(s) after the Nova audio turn ended"
-        )
-        await super().run_function_calls(function_calls)
+        await self._workflow_tool_deferral.release()

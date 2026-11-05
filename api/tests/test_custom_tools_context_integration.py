@@ -9,8 +9,8 @@ This module tests the full flow of:
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.processors.aggregators.llm_context import LLMContext
 
 from api.services.workflow.pipecat_engine_custom_tools import (

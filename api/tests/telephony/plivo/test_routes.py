@@ -90,6 +90,11 @@ def _signature(
 @pytest.mark.asyncio
 async def test_plivo_xml_route_accepts_valid_signature_with_extra_query_param():
     provider = _provider()
+    stored_context = {"name": "Ada"}
+
+    async def save_patch(*, run_id, gathered_context):
+        stored_context.update(gathered_context)
+
     query = {
         "workflow_id": 7,
         "workflow_run_id": 123,
@@ -134,9 +139,12 @@ async def test_plivo_xml_route_accepts_valid_signature_with_extra_query_param():
         ) as get_webhook_response,
     ):
         db_client.get_workflow_run_by_id = AsyncMock(
-            return_value=SimpleNamespace(gathered_context={}, workflow_id=7)
+            # A detached read made before another writer saved the latest name.
+            return_value=SimpleNamespace(
+                gathered_context={"name": "old"}, workflow_id=7
+            )
         )
-        db_client.update_workflow_run = AsyncMock()
+        db_client.update_workflow_run = AsyncMock(side_effect=save_patch)
 
         response = await handle_plivo_xml_webhook(
             workflow_id=7,
@@ -148,6 +156,7 @@ async def test_plivo_xml_route_accepts_valid_signature_with_extra_query_param():
     assert response.body == b"<Response/>"
     get_webhook_response.assert_awaited_once_with(7, 11, 123)
     db_client.update_workflow_run.assert_awaited_once()
+    assert stored_context == {"name": "Ada", "call_id": "call-123"}
 
 
 @pytest.mark.asyncio

@@ -96,7 +96,16 @@ function specAllowInterrupt(
     return prop?.default as boolean | undefined;
 }
 
+/** The version a save landed in, from the update response. */
+export type SavedVersion = { versionNumber?: number; versionStatus?: string };
+
 interface UseWorkflowStateProps {
+    editingDisabled?: boolean;
+    /**
+     * Called after a settings, variables or dictionary save with the version
+     * it landed in: saving a published workflow turns it into a draft.
+     */
+    onVersionSaved?: (version: SavedVersion) => void;
     initialWorkflowName: string;
     workflowId: number;
     initialFlow?: {
@@ -120,7 +129,13 @@ export const useWorkflowState = ({
     initialTemplateContextVariables,
     initialWorkflowConfigurations,
     user,
+    onVersionSaved,
+    editingDisabled = false,
 }: UseWorkflowStateProps) => {
+    const reportVersion = useCallback((data: { version_number?: number | null; version_status?: string | null } | undefined) => {
+        if (!data || !onVersionSaved) return;
+        onVersionSaved({ versionNumber: data.version_number ?? undefined, versionStatus: data.version_status ?? undefined });
+    }, [onVersionSaved]);
     const router = useRouter();
     const rfInstance = useRef<ReactFlowInstance<FlowNode, FlowEdge> | null>(null);
     const [workflowConfigurationDefaults, setWorkflowConfigurationDefaults] =
@@ -270,6 +285,7 @@ export const useWorkflowState = ({
     // Set up keyboard shortcuts for undo/redo
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (editingDisabled) return;
             // Check if we're in an input field
             const target = e.target as HTMLElement;
             if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
@@ -297,7 +313,7 @@ export const useWorkflowState = ({
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [undo, redo, canUndo, canRedo]);
+    }, [undo, redo, canUndo, canRedo, editingDisabled]);
 
     const handleNodeSelect = useCallback((nodeType: string) => {
         if (!rfInstance.current) return;
@@ -326,10 +342,9 @@ export const useWorkflowState = ({
         rfInstance.current.addNodes([newNode]);
         posthog.capture(PostHogEvent.WORKFLOW_NODE_ADDED, {
             node_type: nodeType,
-            workflow_id: workflowId,
         });
         setIsAddNodePanelOpen(false);
-    }, [nodes, setIsAddNodePanelOpen, workflowId, bySpecName]);
+    }, [nodes, setIsAddNodePanelOpen, bySpecName]);
 
     const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setWorkflowName(e.target.value);
@@ -380,8 +395,8 @@ export const useWorkflowState = ({
     }, [workflowId, user, applyWorkflowErrors]);
 
     // Save workflow function. Returns version info from the API response.
-    const saveWorkflow = useCallback(async (updateWorkflowDefinition: boolean = true): Promise<{ versionNumber?: number; versionStatus?: string } | undefined> => {
-        if (!user?.id || !rfInstance.current) return;
+    const saveWorkflow = useCallback(async (updateWorkflowDefinition: boolean = true): Promise<SavedVersion | undefined> => {
+        if (editingDisabled || !user?.id || !rfInstance.current) return;
         // Read nodes/edges from the Zustand store (synchronously up-to-date)
         // and viewport from the ReactFlow instance to build the flow object.
         // This avoids a race condition where rfInstance.toObject() may return
@@ -407,7 +422,7 @@ export const useWorkflowState = ({
         }
         const viewport = rfInstance.current.getViewport();
         const flow = { nodes: currentNodes, edges: currentEdges, viewport };
-        let result: { versionNumber?: number; versionStatus?: string } | undefined;
+        let result: SavedVersion | undefined;
         let saveSucceeded = false;
         try {
             const response = await updateWorkflowApiV1WorkflowWorkflowIdPut({
@@ -470,6 +485,7 @@ export const useWorkflowState = ({
         setEdges,
         user,
         validateWorkflow,
+        editingDisabled,
         applyWorkflowErrors,
         specs,
     ]);
@@ -564,12 +580,13 @@ export const useWorkflowState = ({
                 );
             }
             setTemplateContextVariables(variables);
+            reportVersion(response.data);
             logger.info('Template context variables saved successfully');
         } catch (error) {
             logger.error(`Error saving template context variables: ${error}`);
             throw error;
         }
-    }, [workflowId, workflowName, user, setTemplateContextVariables]);
+    }, [workflowId, workflowName, user, setTemplateContextVariables, reportVersion]);
 
     // Save workflow configurations
     const saveWorkflowConfigurations = useCallback(async (configurations: WorkflowConfigurations, newWorkflowName: string) => {
@@ -613,12 +630,13 @@ export const useWorkflowState = ({
             setWorkflowConfigurations(savedConfigurations);
             // Set name directly in the store to avoid setWorkflowName which marks isDirty: true
             useWorkflowStore.setState({ workflowName: newWorkflowName });
+            reportVersion(response.data);
             logger.info('Workflow configurations saved successfully');
         } catch (error) {
             logger.error(`Error saving workflow configurations: ${error}`);
             throw error;
         }
-    }, [workflowId, user, setWorkflowConfigurations, workflowConfigurationDefaults]);
+    }, [workflowId, user, setWorkflowConfigurations, workflowConfigurationDefaults, reportVersion]);
 
     // Save dictionary
     const saveDictionary = useCallback(async (newDictionary: string) => {
@@ -643,11 +661,12 @@ export const useWorkflowState = ({
             }
             setDictionary(newDictionary);
             setWorkflowConfigurations(updatedConfigurations);
+            reportVersion(response.data);
         } catch (error) {
             logger.error(`Error saving dictionary: ${error}`);
             throw error;
         }
-    }, [workflowId, workflowName, user, setDictionary, setWorkflowConfigurations, workflowConfigurationDefaults]);
+    }, [workflowId, workflowName, user, setDictionary, setWorkflowConfigurations, workflowConfigurationDefaults, reportVersion]);
 
     // Update rfInstance when it changes
     useEffect(() => {

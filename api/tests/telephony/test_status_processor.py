@@ -116,3 +116,46 @@ async def test_running_terminal_status_does_not_enqueue_workflow_completion(
     ]
     mock_enqueue.assert_not_awaited()
     mock_dispatcher.release_call_slot.assert_awaited_once_with(456)
+
+
+@pytest.mark.asyncio
+async def test_failed_call_records_twilio_sip_and_error_codes(
+    no_disposition_mapping,
+):
+    workflow_run = SimpleNamespace(
+        id=789,
+        campaign_id=None,
+        queued_run_id=None,
+        state=WorkflowRunState.INITIALIZED.value,
+        is_completed=False,
+        logs={"telephony_status_callbacks": []},
+        gathered_context={"call_tags": []},
+        workflow=SimpleNamespace(organization_id=7),
+    )
+    status = StatusCallbackRequest(
+        call_id="call-789",
+        status=TelephonyCallStatus.FAILED,
+        duration="0",
+        extra={"SipResponseCode": "404", "ErrorCode": "13224"},
+    )
+
+    with (
+        patch("api.services.telephony.status_processor.db_client") as mock_db,
+        patch(
+            "api.services.telephony.status_processor.campaign_call_dispatcher"
+        ) as mock_dispatcher,
+        patch(
+            "api.services.telephony.status_processor.enqueue_job",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_db.get_workflow_run_by_id = AsyncMock(return_value=workflow_run)
+        mock_db.update_workflow_run = AsyncMock()
+        mock_dispatcher.release_call_slot = AsyncMock(return_value=True)
+
+        await _process_status_update(789, status)
+
+    gathered = mock_db.update_workflow_run.await_args_list[1].kwargs["gathered_context"]
+    assert gathered["telephony_sip_code"] == "404"
+    assert gathered["telephony_error_code"] == "13224"
+    assert gathered["call_status"] == "failed"

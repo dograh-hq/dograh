@@ -1,9 +1,10 @@
 """Answer startup regressions using real Pipecat queues and turn aggregation."""
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pipecat.frames.frames import (
@@ -132,8 +133,19 @@ async def verdict(c):
 
 
 @pytest.mark.asyncio
-async def test_short_hello_is_committed_and_trigger_dropped_before_release():
-    async with call() as c:
+async def test_listening_deadline_is_measured_from_arm_not_timer_scheduling():
+    async with call(arm_on_start=False, listening_window_ms=200) as c:
+        c.supervisor.arm()
+        # Simulate synchronous construction delaying the timer's first turn.
+        time.sleep(0.25)  # noqa: ASYNC251 - deliberately delay the event loop
+        result = await asyncio.wait_for(c.supervisor.wait_for_verdict(), timeout=0.1)
+        assert result.action == "start_opening"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_short_hello_is_committed_and_trigger_dropped_before_release(enabled):
+    async with call(enabled=enabled) as c:
         await c.say("Hello?")
         assert (await verdict(c)).action == "release"
         # This acknowledgement must already hold when permission is granted.
@@ -147,6 +159,24 @@ async def test_short_hello_is_committed_and_trigger_dropped_before_release():
         await c.say("I would like an appointment")
         await asyncio.sleep(0.02)
         assert sum(isinstance(f, LLMContextFrame) for f in c.capture.frames) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_answer_logs_omit_transcript_but_keep_it_in_decision_audit(
+    monkeypatch, enabled
+):
+    logged = Mock()
+    monkeypatch.setattr(
+        "api.services.pipecat.processors.answer_supervisor.logger.info", logged
+    )
+    text = "My account number is synthetic-private-value."
+    async with call(enabled=enabled) as c:
+        await c.say(text)
+        result = await verdict(c)
+        assert result.diagnostics["transcript"] == text
+        assert "synthetic-private-value" not in repr(logged.call_args_list)
+        assert "transcript_chars" in repr(logged.call_args_list)
 
 
 @pytest.mark.asyncio
@@ -173,7 +203,7 @@ async def test_decision_audit_records_transcripts_and_classification_signals(
         await c.say(text, duration=duration)
         result = await verdict(c)
         assert messages
-        assert any(f"transcript={text!r}" in message for message in messages)
+        assert all(text not in message for message in messages)
         assert any(f"transcript_chars={len(text)}" in message for message in messages)
         # The pattern verdict stays visible beside the final one, so a missing
         # pattern can be told apart from a classifier disagreement. Here the
@@ -210,7 +240,7 @@ async def test_audit_retains_full_transcript_for_pattern_analysis(monkeypatch):
     async with call(classify=AsyncMock(return_value=MachineSubtype.CONVERSATION)) as c:
         await c.say(text, duration=0.01)
         result = await verdict(c)
-        assert any(f"transcript={text!r}" in message for message in messages)
+        assert all(text not in message for message in messages)
         assert any(f"transcript_chars={len(text)}" in message for message in messages)
         decision = result.diagnostics
         assert decision["transcript"] == text
@@ -270,8 +300,9 @@ async def test_permission_waits_for_gate_acknowledgement_under_queue_backlog():
 
 
 @pytest.mark.asyncio
-async def test_silent_answer_waits_for_window():
-    async with call() as c:
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_silent_answer_waits_for_window(enabled):
+    async with call(enabled=enabled) as c:
         pending = asyncio.create_task(c.supervisor.wait_for_verdict())
         await asyncio.sleep(0.025)
         assert not pending.done()
@@ -297,8 +328,9 @@ async def test_completed_opening_releases_without_another_timer():
 
 
 @pytest.mark.asyncio
-async def test_speech_during_pre_call_fetch_revokes_unused_silent_permission():
-    async with call() as c:
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_speech_during_pre_call_fetch_revokes_unused_silent_permission(enabled):
+    async with call(enabled=enabled) as c:
         permission = await verdict(c)
         assert permission.action == "start_opening"
         await c.worker.queue_frame(VADUserStartedSpeakingFrame())

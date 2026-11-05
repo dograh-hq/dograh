@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
 
-from api.mcp_server.auth import authenticate_mcp_request
+from api.mcp_server.auth import authenticate_mcp_request, builder_mcp_operation
 from api.mcp_server.tracing import traced_tool
 from api.schemas.tool import CreateToolRequest
 from api.services.tool_management import ToolManagementError, create_tool_for_user
@@ -42,6 +42,8 @@ async def create_tool(request: CreateToolRequest) -> dict[str, Any]:
     - `validation_error` — the request failed schema validation.
     - `credential_not_found` — a supplied credential_uuid is not in this
       organization; ask the user to create/select it in the UI first.
+    - `recording_not_found` — a message's recording_id is not in this
+      organization; ask the user to upload/select a recording in the UI.
     - `destination_not_found` — a `transfer_agent` tool's `workflow_id` is
       not an agent in this organization; confirm the id with `list_workflows`.
     - `organization_required` — the API key user has no selected organization.
@@ -56,7 +58,13 @@ async def create_tool(request: CreateToolRequest) -> dict[str, Any]:
         return _error_result("validation_error", str(e))
 
     try:
-        tool = await create_tool_for_user(parsed_request, user, source="mcp")
+        operation = builder_mcp_operation.get()
+        tool = await create_tool_for_user(
+            parsed_request,
+            user,
+            source="mcp",
+            **({"operation_id": operation} if operation else {}),
+        )
     except ToolManagementError as e:
         return _error_result(e.error_code, e.message)
     except Exception as e:  # noqa: BLE001

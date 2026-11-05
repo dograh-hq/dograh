@@ -103,11 +103,10 @@ class MockEndCallToolModel:
         self.definition = {
             "schema_version": 1,
             "type": "end_call",
-            "config": {
-                "messageType": message_type,
-                "customMessage": custom_message,
-                "endCallReason": end_call_reason,
-            },
+            "messages": [{"event": "start", "type": "text", "text": custom_message}]
+            if message_type == "custom" and custom_message
+            else [],
+            "config": {"endCallReason": end_call_reason},
         }
 
 

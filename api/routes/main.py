@@ -11,6 +11,7 @@ from api.routes.campaign import router as campaign_router
 from api.routes.credentials import router as credentials_router
 from api.routes.folder import router as folder_router
 from api.routes.knowledge_base import router as knowledge_base_router
+from api.routes.model_connections import router as model_connections_router
 from api.routes.node_types import router as node_types_router
 from api.routes.organization import router as organization_router
 from api.routes.organization_usage import router as organization_usage_router
@@ -29,6 +30,7 @@ from api.routes.turn_credentials import router as turn_credentials_router
 from api.routes.user import router as user_router
 from api.routes.webrtc_signaling import router as webrtc_signaling_router
 from api.routes.workflow import router as workflow_router
+from api.routes.workflow_builder import router as workflow_builder_router
 from api.routes.workflow_embed import router as workflow_embed_router
 from api.routes.workflow_recording import router as workflow_recording_router
 from api.routes.workflow_text_chat import router as workflow_text_chat_router
@@ -41,6 +43,7 @@ router = APIRouter(
 
 router.include_router(telephony_router)
 router.include_router(superuser_router)
+router.include_router(workflow_builder_router)
 router.include_router(workflow_router)
 router.include_router(workflow_text_chat_router)
 router.include_router(user_router)
@@ -48,6 +51,7 @@ router.include_router(campaign_router)
 router.include_router(credentials_router)
 router.include_router(tool_router)
 router.include_router(organization_router)
+router.include_router(model_connections_router)
 router.include_router(s3_router)
 router.include_router(service_keys_router)
 router.include_router(organization_usage_router)

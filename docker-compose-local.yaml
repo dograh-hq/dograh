@@ -39,7 +39,9 @@ services:
       - app-network
 
   minio:
-    image: quay.io/minio/minio
+    # Built from the community MinIO fork by github.com/dograh-hq/minio; upstream
+    # MinIO no longer publishes images.
+    image: dograhai/minio:2026.09.22
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin

@@ -336,7 +336,8 @@ async def test_realtime_provisional_opening_answers_held_turn_after_interruption
                 await asyncio.sleep(0)
         [speech] = engine.speech_playback.pending.values()
         assert not engine.call_monitor.active
-        assert engine.speech_playback.greeting is None
+        assert engine.speech_playback.greeting is speech
+        assert speech.manage_text is (greeting_type == "audio")
         # The provisional generation, if any, must not be counted as the reply.
         llm.queue_frame.reset_mock()
 

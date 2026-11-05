@@ -1,5 +1,5 @@
 import { AlertCircle, Check, ChevronDown, Pause, Play, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,7 @@ export function TextOrAudioInput({
     recordings = [],
     children,
 }: TextOrAudioInputProps) {
+    const id = useId();
     return (
         <>
             <RadioGroup
@@ -55,12 +56,12 @@ export function TextOrAudioInput({
                 className="flex items-center gap-4"
             >
                 <div className="flex items-center gap-2">
-                    <RadioGroupItem value="text" id="toa-text" />
-                    <Label htmlFor="toa-text" className="font-normal cursor-pointer">Text</Label>
+                    <RadioGroupItem value="text" id={`${id}-text`} />
+                    <Label htmlFor={`${id}-text`} className="font-normal cursor-pointer">Text</Label>
                 </div>
                 <div className="flex items-center gap-2">
-                    <RadioGroupItem value="audio" id="toa-audio" />
-                    <Label htmlFor="toa-audio" className="font-normal cursor-pointer">Audio</Label>
+                    <RadioGroupItem value="audio" id={`${id}-audio`} />
+                    <Label htmlFor={`${id}-audio`} className="font-normal cursor-pointer">Audio</Label>
                 </div>
             </RadioGroup>
             {type === 'text' ? (

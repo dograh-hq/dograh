@@ -85,6 +85,7 @@ class UserConfigurationValidator:
             ServiceProviders.SMALLEST.value: self._check_smallest_api_key,
             ServiceProviders.XAI.value: self._check_xai_api_key,
             ServiceProviders.LMNT.value: self._check_lmnt_api_key,
+            ServiceProviders.MURF.value: self._check_murf_api_key,
             ServiceProviders.SPEECHIFY.value: self._check_speechify_api_key,
         }
 
@@ -104,6 +105,11 @@ class UserConfigurationValidator:
         status_list = []
 
         status_list.extend(self._validate_service(configuration.llm, "llm"))
+        if configuration.llm_fallback is not None:
+            for index, rule in enumerate(configuration.llm_fallback.rules):
+                status_list.extend(
+                    self._validate_service(rule.target, f"llm_fallback_{index + 1}")
+                )
         if configuration.is_realtime:
             status_list.extend(
                 self._validate_service(
@@ -124,6 +130,37 @@ class UserConfigurationValidator:
             raise ValueError(status_list)
 
         return {"status": [{"model": "all", "message": "ok"}]}
+
+    def validate_connection(
+        self,
+        service_config: ServiceConfig,
+        organization_id: int | None = None,
+        created_by: str | None = None,
+    ) -> None:
+        """Validate a saved connection, checking every key in its pool.
+
+        The existing provider checks are synchronous; callers must run this
+        method in a worker thread rather than block an async request handler.
+        """
+        self._dograh_service_key_validation_cache.clear()
+        self._auth_context = {
+            "organization_id": organization_id,
+            "created_by": created_by,
+        }
+        keys = service_config.get_all_api_keys()
+        selections = (
+            [service_config.model_copy(update={"api_key": key}) for key in keys]
+            if keys
+            else [service_config]
+        )
+        errors = []
+        for index, selection in enumerate(selections):
+            errors.extend(
+                f"Key {index + 1}: {error['message']}"
+                for error in self._validate_service(selection, "connection")
+            )
+        if errors:
+            raise ValueError("; ".join(errors))
 
     def _validate_service(
         self,
@@ -472,6 +509,28 @@ class UserConfigurationValidator:
                 "not allowed to access the TTS API (expired plan, revoked key, or "
                 "missing scope). Check your key and plan at "
                 "https://platform.speechify.ai."
+            )
+        return True
+
+    def _check_murf_api_key(self, model: str, api_key: str) -> bool:
+        # Best-effort smoke test against Murf's voice list. Only a clear auth
+        # failure rejects the save; other statuses stay inconclusive.
+        try:
+            response = httpx.get(
+                "https://api.murf.ai/v1/speech/voices",
+                headers={"api-key": api_key},
+                timeout=10.0,
+            )
+        except httpx.RequestError:
+            raise ValueError(
+                "Could not connect to the Murf API. Please check your network "
+                "connection and try again."
+            )
+        if response.status_code in (401, 403):
+            raise ValueError(
+                "Invalid Murf API key. The key was rejected by the Murf API. "
+                "Please check that your API key is correct and active. "
+                "You can find your key at https://murf.ai/api/docs."
             )
         return True
 

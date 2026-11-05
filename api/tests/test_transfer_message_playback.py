@@ -143,11 +143,12 @@ class TransferToolModel:
         self.definition = {
             "schema_version": 1,
             "type": "transfer_call",
+            "messages": [{"event": "start", "type": "text", "text": custom_message}]
+            if custom_message
+            else [],
             "config": {
                 "destination_source": "dynamic",
                 "resolver": {"type": "context_mapping"},
-                "messageType": "custom",
-                "customMessage": custom_message,
                 "call_disposition": call_disposition,
             },
         }
@@ -227,7 +228,7 @@ async def test_external_pbx_transfer_without_message_does_not_wait():
     engine = RecordingEngine()
     manager = CustomToolManager(engine)
     tool = TransferToolModel()
-    tool.definition["config"]["messageType"] = "none"
+    tool.definition["messages"] = []
     handler = manager._create_transfer_call_handler(tool, "transfer_call")
 
     workflow_run = SimpleNamespace(

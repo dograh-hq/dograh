@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from pipecat.adapters.services.aws_nova_sonic_adapter import Role
+from pipecat.adapters.llm.services.aws_nova_sonic_adapter import Role
 from pipecat.frames.frames import (
     FunctionCallFromLLM,
     InputAudioRawFrame,
@@ -182,7 +182,7 @@ def test_factory_normalizes_blank_nova_session_token():
         ),
     ],
 )
-def test_nova_history_starts_with_user_and_alternates_without_changing_transcript(
+async def test_nova_history_starts_with_user_and_alternates_without_changing_transcript(
     messages, expected
 ):
     service = _make_service()
@@ -190,7 +190,7 @@ def test_nova_history_starts_with_user_and_alternates_without_changing_transcrip
 
     # Repeated reconnects must not accumulate synthetic messages in the context.
     for _ in range(2):
-        params = service.get_llm_adapter().get_llm_invocation_params(context)
+        params = await service.get_llm_adapter().get_llm_invocation_params(context)
         history = params["messages"]
         assert [m.role for m in history] == [role for role, _ in expected]
         for message, (_, text) in zip(history, expected):
@@ -645,13 +645,13 @@ async def test_node_transition_tool_waits_for_nova_audio_turn(monkeypatch):
     await service.run_function_calls([function_call])
 
     upstream_run.assert_not_awaited()
-    assert service._deferred_node_transition_function_calls == [function_call]
+    assert service._workflow_tool_deferral.pending == [function_call]
 
     service._assistant_is_responding = False
     await service._run_deferred_node_transition_function_calls()
 
     upstream_run.assert_awaited_once_with([function_call])
-    assert service._deferred_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []
 
 
 @pytest.mark.asyncio
@@ -671,7 +671,7 @@ async def test_ordinary_tool_runs_while_nova_audio_turn_is_active(monkeypatch):
     await service.run_function_calls([function_call])
 
     upstream_run.assert_awaited_once_with([function_call])
-    assert service._deferred_node_transition_function_calls == []
+    assert service._workflow_tool_deferral.pending == []
 
 
 @pytest.mark.asyncio
@@ -758,7 +758,7 @@ async def test_end_node_reconnect_removes_previous_transition_tools(
         "promptStart"
     ]
     assert "toolConfiguration" not in closing_prompt
-    assert service.get_setup_params()[1] == []
+    assert (await service.get_setup_params())[1] == []
     sent_text = service._send_text_event.await_args_list
     assert sent_text[0].kwargs == {
         "text": service._settings.system_instruction,

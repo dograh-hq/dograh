@@ -55,7 +55,8 @@ class CallMonitorProcessor(FrameProcessor):
     180-second budget, and the call's hard duration limit stays independent.
     Conversation monitoring starts on activation; the hard duration limit runs
     from pipeline startup. Timers run outside frame processing so a stalled
-    agent cannot stall them.
+    agent cannot stall them. After the greeting, idle waits are capped at three
+    seconds until the caller speaks, then use the workflow's configured timeout.
     """
 
     def __init__(
@@ -65,6 +66,7 @@ class CallMonitorProcessor(FrameProcessor):
         on_response_timeout: Callable[[FrameProcessor], None],
         on_user_idle: Callable[[int], Awaitable[None]],
         conversation_enabled: Callable[[], bool],
+        greeting_finished: Callable[[], bool] = lambda: False,
         response_timeout: float = 35,
         tool_timeout: float = 180,
         max_call_duration_seconds: int = DEFAULT_MAX_CALL_DURATION_SECONDS,
@@ -78,6 +80,8 @@ class CallMonitorProcessor(FrameProcessor):
         self._on_response_timeout = on_response_timeout
         self._on_user_idle = on_user_idle
         self._conversation_enabled = conversation_enabled
+        self._greeting_finished = greeting_finished
+        self._user_spoke_after_greeting = False
         self._sources: dict[FrameProcessor, Callable[[], bool]] = {}
         self._response_watch: _ResponseWatch | None = None
         self._deadline: asyncio.TimerHandle | None = None
@@ -127,6 +131,8 @@ class CallMonitorProcessor(FrameProcessor):
             self.user_aggregator = None
 
     def _user_started(self, _aggregator=None, *_args) -> None:
+        if self._greeting_finished():
+            self._user_spoke_after_greeting = True
         if not self._user_turn_active:
             self._response_during_user_turn = False
         self._user_turn_active = True
@@ -144,6 +150,10 @@ class CallMonitorProcessor(FrameProcessor):
         # frames. Only the first stop ends this turn; its duplicate cannot
         # create another response expectation after fast playback completes.
         if was_active:
+            # Also count a turn that began during the greeting and continued
+            # past its playback (or interrupted it).
+            if self._greeting_finished():
+                self._user_spoke_after_greeting = True
             self._confirm_user_response()
         self._arm_idle()
 
@@ -225,8 +235,11 @@ class CallMonitorProcessor(FrameProcessor):
             return
         self._cancel_deadline()
         self._deadline_kind = "idle"
+        timeout = self.user_idle_timeout
+        if not self._user_spoke_after_greeting and self._greeting_finished():
+            timeout = min(timeout, 3.0)
         self._deadline = asyncio.get_running_loop().call_later(
-            self.user_idle_timeout, self._idle_expired, self._revision
+            timeout, self._idle_expired, self._revision
         )
 
     def _idle_expired(self, revision: int) -> None:

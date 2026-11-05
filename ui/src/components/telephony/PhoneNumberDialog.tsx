@@ -35,6 +35,9 @@ interface PhoneNumberDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   configId: number;
+  /** False for a provider that only receives calls: a number on it is never a
+      caller ID, so the default-caller choice is not offered. */
+  supportsOutbound?: boolean;
   /** Carrier paths on this configuration; empty for providers without trunks. */
   trunks?: TrunkResponse[];
   /** Preselected trunk when creating — set when the dialog is opened from a
@@ -71,6 +74,7 @@ export function PhoneNumberDialog({
   open,
   onOpenChange,
   configId,
+  supportsOutbound = true,
   trunks = [],
   defaultTrunkId = null,
   existing,
@@ -176,7 +180,7 @@ export function PhoneNumberDialog({
               country_code: countryCode || undefined,
               label: label || undefined,
               is_active: isActive,
-              is_default_caller_id: isDefaultCallerId,
+              is_default_caller_id: supportsOutbound && isDefaultCallerId,
               inbound_workflow_id: inboundId ?? undefined,
               telephony_trunk_id: selectedTrunkId ?? undefined,
             },
@@ -314,7 +318,7 @@ export function PhoneNumberDialog({
             <Switch checked={isActive} onCheckedChange={setIsActive} />
           </div>
 
-          {!isEdit && (
+          {!isEdit && supportsOutbound && (
             <div className="flex items-center justify-between rounded border p-3">
               <div>
                 <Label className="text-sm">Default caller ID for this configuration</Label>

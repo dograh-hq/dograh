@@ -110,7 +110,11 @@ export const PhoneCallDialog = ({
             try {
                 const configResponse = await listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet({});
 
-                const configurations = configResponse.data?.configurations ?? [];
+                // A configuration that only receives calls has no place in a
+                // dialog that places one.
+                const configurations = (configResponse.data?.configurations ?? []).filter(
+                    (config) => config.supports_outbound !== false,
+                );
                 if (configResponse.error || configurations.length === 0) {
                     setNeedsConfiguration(true);
                     setTelephonyConfigs([]);

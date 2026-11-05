@@ -122,7 +122,6 @@ def test_update_tool_request_accepts_http_api_complex_parameter_types():
                     }
                 ],
                 "timeout_ms": 5000,
-                "customMessageType": "text",
             },
         },
     )

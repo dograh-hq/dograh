@@ -60,6 +60,14 @@ export interface Tuner {
      * USD per minute
      */
     cost_telephony_rate?: number;
+    /**
+     * Send selected variables to Tuner as call metadata, so Tuner evals, rules and alerts can use them.
+     */
+    metadata_enabled?: boolean;
+    /**
+     * Variables from the call's initial context (including Pre-Call Data Fetch) or extracted variables. Separate names with commas or new lines. Variables you don't list are never sent.
+     */
+    metadata_keys?: string;
 }
 
 /** Factory — sets `type` for you so you don't repeat the discriminator. */

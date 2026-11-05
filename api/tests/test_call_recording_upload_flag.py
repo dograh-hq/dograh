@@ -81,6 +81,9 @@ async def _run_pipeline_finished(
         record_context=lambda ctx: None,
         get_gathered_context=AsyncMock(return_value=gathered_context or {}),
         cleanup=AsyncMock(),
+        finish_tool_calls=AsyncMock(),
+        final_extraction_logs=Mock(return_value={}),
+        final_extraction_metadata=Mock(return_value={}),
     )
     if logs_buffer is None:
         logs_buffer = SimpleNamespace(
@@ -169,7 +172,7 @@ async def test_answer_decision_is_saved_in_gathered_context_without_rtf_events(
     assert decision["action"] == "drop"
     assert logs_buffer.is_empty
     assert all(
-        "logs" not in call.kwargs
+        not call.kwargs.get("logs")
         for call in event_handlers.db_client.update_workflow_run.await_args_list
     )
     assert all(

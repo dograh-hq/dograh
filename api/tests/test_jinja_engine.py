@@ -338,16 +338,31 @@ def test_invalid_timezone_fails_silently():
 
 
 def test_validate_and_runtime_block_allocating_string_methods():
-    """Verify that string methods with huge width/tabsize are rejected at both save and runtime."""
+    """Verify that string methods with huge width/tabsize or replace expansion are rejected at both save and runtime."""
+    # 1. ljust width check
     huge_template = "{{ 'x'.ljust(1000000000) }}"
     is_valid, err = validate_jinja_syntax(huge_template)
     assert not is_valid
     assert err is not None
     assert "exceeds maximum allowable limit" in err
 
-    # Runtime check: even if dynamic argument bypassed AST check
     with pytest.raises(OverflowError):
         render_jinja_string(huge_template, {}, raise_on_error=True)
+
+    # 2. expandtabs tabsize check
+    huge_tab_template = "{{ 'x\t'.expandtabs(1000000000) }}"
+    is_valid_tab, err_tab = validate_jinja_syntax(huge_tab_template)
+    assert not is_valid_tab
+    assert err_tab is not None
+    assert "exceeds maximum allowable limit" in err_tab
+
+    with pytest.raises(OverflowError):
+        render_jinja_string(huge_tab_template, {}, raise_on_error=True)
+
+    # 3. replace expansion memory bomb check
+    huge_replace_template = "{{ ('x' * 500).replace('x', 'y' * 500) }}"
+    with pytest.raises(OverflowError):
+        render_jinja_string(huge_replace_template, {}, raise_on_error=True)
 
 
 def test_range_preserves_native_types_and_resolves_cleanly():

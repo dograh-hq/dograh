@@ -26,7 +26,7 @@ const JINJA_KEYWORDS = new Set([
     "none", "null", "true", "false", "loop", "int", "float",
     "str", "string", "lower", "upper", "default", "fallback",
     "initial_context", "gathered_context", "call",
-    "if", "elif", "else", "range", "len", "length",
+    "if", "elif", "else",
 ]);
 
 // `{{name}}` references in prompts and other node text.
@@ -88,6 +88,7 @@ export function referencedVariables(nodes: FlowNode[]): string[] {
                 }
                 const iterExpr = match[2]
                     .replace(/\bif\b/g, "")
+                    .replace(/\b(?:range|len|length|int|float|str)\s*\(/g, "(")
                     .replace(/"(?:[^"\\]|\\.)*"/g, "")
                     .replace(/'(?:[^'\\]|\\.)*'/g, "")
                     .replace(/\.\s*[A-Za-z_][A-Za-z0-9_]*/g, "")
@@ -103,6 +104,7 @@ export function referencedVariables(nodes: FlowNode[]): string[] {
                 const expr = match[2];
                 if (expr) {
                     const strippedExpr = expr
+                        .replace(/\b(?:range|len|length|int|float|str)\s*\(/g, "(")
                         .replace(/"(?:[^"\\]|\\.)*"/g, "")
                         .replace(/'(?:[^'\\]|\\.)*'/g, "")
                         .replace(/\.\s*[A-Za-z_][A-Za-z0-9_]*/g, "")
@@ -124,6 +126,7 @@ export function referencedVariables(nodes: FlowNode[]): string[] {
             // 4. Jinja condition references {% if expr %} and {% elif expr %}
             for (const match of text.matchAll(/\{%-?\s*(?:if|elif)\s+([\s\S]+?)-?%\}/g)) {
                 const strippedCond = match[1]
+                    .replace(/\b(?:range|len|length|int|float|str)\s*\(/g, "(")
                     .replace(/"(?:[^"\\]|\\.)*"/g, "")
                     .replace(/'(?:[^'\\]|\\.)*'/g, "")
                     .replace(/\.\s*[A-Za-z_][A-Za-z0-9_]*/g, "")

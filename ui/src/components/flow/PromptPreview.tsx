@@ -86,12 +86,12 @@ export function parsePromptToPreviewBlocks(text: string): PreviewBlock[] {
                 const subLine = lines[i];
                 const trimmedSub = subLine.trim();
 
-                const isNestedIf = /^\{%-?\s*if\b/.test(trimmedSub);
-                const isNestedFor = /^\{%-?\s*for\b/.test(trimmedSub);
-                const isEndif = /^\{%-?\s*endif\b/.test(trimmedSub);
-                const isEndfor = /^\{%-?\s*endfor\b/.test(trimmedSub);
+                const isNestedIf = /^\{%-?\s*if\s(?:(?!%\}).)*-?%\}$/.test(trimmedSub);
+                const isNestedFor = /^\{%-?\s*for\s+(?:(?!%\}).)*-?%\}$/.test(trimmedSub);
+                const isEndif = /^\{%-?\s*endif\s*-?%\}$/.test(trimmedSub);
+                const isEndfor = /^\{%-?\s*endfor\s*-?%\}$/.test(trimmedSub);
                 const elifMatch = trimmedSub.match(/^\{%-?\s*elif\s+(.+?)\s*-?%\}$/);
-                const isElse = /^\{%-?\s*else\s*-?%\}/.test(trimmedSub);
+                const isElse = /^\{%-?\s*else\s*-?%\}$/.test(trimmedSub);
 
                 if (blockStack.length === 1 && blockStack[0] === "if") {
                     if (elifMatch) {
@@ -169,11 +169,11 @@ export function parsePromptToPreviewBlocks(text: string): PreviewBlock[] {
                 const subLine = lines[i];
                 const trimmedSub = subLine.trim();
 
-                const isNestedFor = /^\{%-?\s*for\b/.test(trimmedSub);
-                const isNestedIf = /^\{%-?\s*if\b/.test(trimmedSub);
-                const isEndfor = /^\{%-?\s*endfor\b/.test(trimmedSub);
-                const isEndif = /^\{%-?\s*endif\b/.test(trimmedSub);
-                const isElse = /^\{%-?\s*else\s*-?%\}/.test(trimmedSub);
+                const isNestedFor = /^\{%-?\s*for\s+(?:(?!%\}).)*-?%\}$/.test(trimmedSub);
+                const isNestedIf = /^\{%-?\s*if\s(?:(?!%\}).)*-?%\}$/.test(trimmedSub);
+                const isEndfor = /^\{%-?\s*endfor\s*-?%\}$/.test(trimmedSub);
+                const isEndif = /^\{%-?\s*endif\s*-?%\}$/.test(trimmedSub);
+                const isElse = /^\{%-?\s*else\s*-?%\}$/.test(trimmedSub);
 
                 if (blockStack.length === 1 && blockStack[0] === "for") {
                     if (isElse) {

@@ -178,6 +178,13 @@ def _get_version() -> str:
 # Application version (read from pyproject.toml)
 APP_VERSION = _get_version()
 
+# Attribution pair Speechify reads on every request from an integration. Sent
+# on synthesis and on the save-time key check so usage is credited to Dograh.
+SPEECHIFY_CALLER_HEADERS = {
+    "Speechify-Caller": "dograh",
+    "Speechify-Caller-Version": APP_VERSION,
+}
+
 # Country code mapping: ISO country code -> international dialing prefix
 COUNTRY_CODES = {
     "US": "1",  # United States

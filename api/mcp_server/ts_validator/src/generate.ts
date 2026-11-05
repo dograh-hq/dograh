@@ -79,10 +79,8 @@ export function generateCode(
         const factoryArg = renderObject(data, 0);
 
         // Positions are intentionally omitted — LLMs don't place nodes
-        // sensibly, so we let a downstream auto-layout pass (future
-        // enhancement) assign coordinates on save. Existing positions
-        // in the DB are preserved by `parse.ts` defaulting to {0,0}
-        // and the save path leaving pre-existing node positions alone.
+        // sensibly. Initial creation uses the shared Tidy Up layout;
+        // later saves reconcile against the stored positions instead.
         lines.push(
             `const ${varName} = wf.addTyped(${node.type}(${factoryArg}));`,
         );

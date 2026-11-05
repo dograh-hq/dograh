@@ -1,5 +1,6 @@
 from api.db.agent_trigger_client import AgentTriggerClient
 from api.db.api_key_client import APIKeyClient
+from api.db.builder_run_client import BuilderRunClient
 from api.db.campaign_client import CampaignClient
 from api.db.embed_token_client import EmbedTokenClient
 from api.db.folder_client import FolderClient
@@ -17,6 +18,7 @@ from api.db.tool_client import ToolClient
 from api.db.user_client import UserClient
 from api.db.webhook_credential_client import WebhookCredentialClient
 from api.db.webhook_delivery_client import WebhookDeliveryClient
+from api.db.workflow_builder import WorkflowBuilderClient
 from api.db.workflow_client import WorkflowClient
 from api.db.workflow_completion_client import WorkflowCompletionClient
 from api.db.workflow_recording_client import WorkflowRecordingClient
@@ -26,6 +28,8 @@ from api.db.workflow_template_client import WorkflowTemplateClient
 
 
 class DBClient(
+    BuilderRunClient,
+    WorkflowBuilderClient,
     ModelConnectionClient,
     WorkflowClient,
     WorkflowCompletionClient,
@@ -56,6 +60,7 @@ class DBClient(
     Unified database client that combines all specialized database operations.
 
     This client inherits from:
+    - WorkflowBuilderClient: handles durable builder checkpoints and conversation locks
     - WorkflowClient: handles workflow and workflow definition operations
     - WorkflowRunClient: handles workflow run operations
     - UserClient: handles user and user configuration operations

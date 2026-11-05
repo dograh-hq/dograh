@@ -70,6 +70,7 @@ from api.tasks.text_chat_inactivity import (
     sweep_inactive_text_chat_sessions,
 )
 from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
+from api.tasks.workflow_builder import process_builder_run, sweep_builder_runs
 from api.tasks.workflow_completion import (
     process_workflow_completion,
     sweep_workflow_completions,
@@ -78,6 +79,7 @@ from api.tasks.workflow_completion import (
 
 class WorkerSettings:
     functions = [
+        func(process_builder_run, timeout=900),
         run_integrations_post_workflow_run,
         func(process_workflow_completion, timeout=300),
         sync_campaign_source,
@@ -88,6 +90,7 @@ class WorkerSettings:
         finalize_completed_text_chat,
     ]
     cron_jobs = [
+        cron(sweep_builder_runs, minute=set(range(60)), second=45, run_at_startup=True),
         cron(
             sweep_workflow_completions,
             minute=set(range(0, 60, 15)),

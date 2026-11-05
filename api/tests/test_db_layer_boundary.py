@@ -25,6 +25,8 @@ SQL_LITERAL = re.compile(
 def _runtime_python_files():
     for path in API_ROOT.rglob("*.py"):
         relative = path.relative_to(API_ROOT)
+        if ".venv" in relative.parts:
+            continue  # Local virtualenv dependencies are not application code.
         if relative in NON_RUNTIME_FILES:
             continue
         if relative.parts[0] in NON_RUNTIME_TOP_LEVEL:

@@ -4,16 +4,59 @@ from datetime import UTC, datetime
 from typing import List, Optional
 
 from loguru import logger
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.orm import selectinload
 
 from api.db.base_client import BaseDBClient
-from api.db.models import ToolModel
+from api.db.models import ToolModel, ToolMutationReceiptModel
 from api.enums import ToolCategory, ToolStatus
+
+
+async def _mutation_receipt(session, operation_id, organization_id):
+    if operation_id is None:
+        return None
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"tool-mutation:{operation_id}"},
+    )
+    receipt = await session.get(ToolMutationReceiptModel, operation_id)
+    if receipt is None:
+        return None
+    if receipt.organization_id != organization_id:
+        raise ValueError("Operation belongs to another organization")
+    values = dict(receipt.result)
+    for key in ("created_at", "updated_at"):
+        if values.get(key):
+            values[key] = datetime.fromisoformat(values[key])
+    return ToolModel(**values)
+
+
+def _save_receipt(session, operation_id, tool):
+    if operation_id is None:
+        return
+    result = {
+        column.name: getattr(tool, column.name)
+        for column in ToolModel.__table__.columns
+    }
+    for key in ("created_at", "updated_at"):
+        if result.get(key):
+            result[key] = result[key].isoformat()
+    session.add(
+        ToolMutationReceiptModel(
+            operation_id=operation_id,
+            organization_id=tool.organization_id,
+            result=result,
+        )
+    )
 
 
 class ToolClient(BaseDBClient):
     """Client for managing tools (organization-scoped, UUID-referenced)."""
+
+    async def get_tool_mutation_receipt(self, operation_id: str, organization_id: int):
+        """Return an already committed result before rechecking external references."""
+        async with self.async_session() as session:
+            return await _mutation_receipt(session, operation_id, organization_id)
 
     async def create_tool(
         self,
@@ -25,6 +68,7 @@ class ToolClient(BaseDBClient):
         description: Optional[str] = None,
         icon: Optional[str] = None,
         icon_color: Optional[str] = None,
+        operation_id: str | None = None,
     ) -> ToolModel:
         """Create a new tool.
 
@@ -42,6 +86,10 @@ class ToolClient(BaseDBClient):
             The created ToolModel with auto-generated UUID
         """
         async with self.async_session() as session:
+            if previous := await _mutation_receipt(
+                session, operation_id, organization_id
+            ):
+                return previous
             tool = ToolModel(
                 organization_id=organization_id,
                 created_by=user_id,
@@ -55,6 +103,9 @@ class ToolClient(BaseDBClient):
             )
 
             session.add(tool)
+            await session.flush()
+            await session.refresh(tool)
+            _save_receipt(session, operation_id, tool)
             await session.commit()
             await session.refresh(tool)
 
@@ -146,6 +197,7 @@ class ToolClient(BaseDBClient):
         icon: Optional[str] = None,
         icon_color: Optional[str] = None,
         status: Optional[str] = None,
+        operation_id: str | None = None,
     ) -> Optional[ToolModel]:
         """Update a tool by UUID.
 
@@ -163,6 +215,10 @@ class ToolClient(BaseDBClient):
             Updated ToolModel if found, None otherwise
         """
         async with self.async_session() as session:
+            if previous := await _mutation_receipt(
+                session, operation_id, organization_id
+            ):
+                return previous
             # First check if tool exists and belongs to organization
             tool = await self.get_tool_by_uuid(
                 tool_uuid, organization_id, include_archived=True
@@ -193,8 +249,6 @@ class ToolClient(BaseDBClient):
                 )
                 .values(**update_values)
             )
-            await session.commit()
-
             # Fetch updated tool
             result = await session.execute(
                 select(ToolModel)
@@ -202,6 +256,9 @@ class ToolClient(BaseDBClient):
                 .options(selectinload(ToolModel.created_by_user))
             )
             updated_tool = result.scalar_one()
+            _save_receipt(session, operation_id, updated_tool)
+            await session.commit()
+            await session.refresh(updated_tool)
 
             logger.info(f"Updated tool {tool_uuid} for organization {organization_id}")
             return updated_tool

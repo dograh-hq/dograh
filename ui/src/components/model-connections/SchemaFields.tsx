@@ -70,13 +70,15 @@ function ValueInput({ id, name, schema, value, onChange, secret, required, provi
     const canPool = secret && alternatives.some(option => option.type === "array") && alternatives.some(option => option.type === "string");
     const enumerated = Boolean(schema.enum || concrete.enum);
     // Select values are strings; numeric enums are converted back on change.
-    const options = (schema.enum || concrete.enum || schema.examples)?.map(String);
-    const optionsKey = options ? options.join(",") : "";
+    const options = useMemo(
+        () => (schema.enum || concrete.enum || schema.examples)?.map(String),
+        [schema.enum, concrete.enum, schema.examples],
+    );
     const hasModelOptions = !schema.model_options || Boolean(model && schema.model_options[model]);
     const staticVoices = useMemo(() => {
         if (!provider || !hasModelOptions) return undefined;
         return getStaticVoices(provider, options, model);
-    }, [provider, optionsKey, model, hasModelOptions]);
+    }, [provider, options, model, hasModelOptions]);
     const voiceCatalog = Boolean(schema.voice_catalog && provider);
     const [custom, setCustom] = useState(false);
 

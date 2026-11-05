@@ -1,5 +1,6 @@
 """Business handoffs shared by the builder runtime and external MCP hosts."""
 
+import json
 from enum import Enum
 from typing import Annotated, Literal
 
@@ -55,10 +56,27 @@ class CallBrief(Handoff):
 
     @model_validator(mode="before")
     @classmethod
-    def discard_legacy_open_questions(cls, value):
-        # Older saved approval checkpoints include this removed field.
+    def migrate_legacy_brief(cls, value):
+        # Preserve requirements from the original approval-checkpoint schema
+        # as business context, while continuing to reject unknown new fields.
         if isinstance(value, dict):
-            return {key: item for key, item in value.items() if key != "open_questions"}
+            value = dict(value)
+            value.pop("open_questions", None)
+            rules = list(value.get("business_rules", []))
+            for field in (
+                "audience",
+                "trigger",
+                "information_available_at_start",
+                "conversation_steps",
+                "data_operations",
+                "exit_conditions",
+                "acceptance_scenarios",
+            ):
+                item = value.pop(field, None)
+                if item:
+                    text = item if isinstance(item, str) else json.dumps(item)
+                    rules.append(f"{field.replace('_', ' ')}: {text}")
+            value["business_rules"] = rules
         return value
 
 

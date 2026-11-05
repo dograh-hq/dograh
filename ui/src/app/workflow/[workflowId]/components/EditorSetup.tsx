@@ -70,11 +70,12 @@ type EditorSetupProps = WorkflowSettingsState & {
     workflowUuid?: string | null;
     nodes: FlowNode[];
     builderDisabled?: boolean;
+    builderBusy?: boolean;
     onBuilderSaved?: () => Promise<void>;
     onBuilderBusyChange?: (busy: boolean) => void;
 };
 
-export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, workflowName, workflowUuid, nodes, builderDisabled, onBuilderSaved, onBuilderBusyChange, ...state }: EditorSetupProps) {
+export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, workflowName, workflowUuid, nodes, builderDisabled, builderBusy, onBuilderSaved, onBuilderBusyChange, ...state }: EditorSetupProps) {
     // Keep the conversation and any in-flight turn mounted when changing tabs.
     const [builderOpened, setBuilderOpened] = useState(view === "builder");
     useEffect(() => { if (view === "builder") setBuilderOpened(true); }, [view]);
@@ -97,6 +98,7 @@ export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, wo
     const variables = useMemo(() => describeVariables(templateContextVariables, nodes), [templateContextVariables, nodes]);
 
     const switchView = (next: EditorView) => {
+        if (builderBusy && next !== "builder") return;
         // The model editor stays mounted across views, so only the other
         // sections' edits are at stake when switching.
         const othersDirty = [...dirtySections].some(id => id !== MODEL_SECTION);
@@ -110,14 +112,14 @@ export function EditorSetup({ view, onViewChange, onSavingChange, workflowId, wo
                 <Tabs value={view} onValueChange={next => switchView(next as EditorView)}>
                     <TabsList className="h-8" aria-label="Editor view">
                         <TabsTrigger value="builder" className={TAB}><MessageSquare className="h-4 w-4" aria-hidden />Builder</TabsTrigger>
-                        <TabsTrigger value="canvas" className={TAB}><Workflow className="h-4 w-4" aria-hidden />Canvas</TabsTrigger>
-                        <TabsTrigger value="model" className={TAB} disabled={!ready} title={ready ? model.summary : "Loading…"}>
+                        <TabsTrigger value="canvas" className={TAB} disabled={builderBusy}><Workflow className="h-4 w-4" aria-hidden />Canvas</TabsTrigger>
+                        <TabsTrigger value="model" className={TAB} disabled={!ready || builderBusy} title={ready ? model.summary : "Loading…"}>
                             <Brain className="h-4 w-4" aria-hidden />Model
                         </TabsTrigger>
-                        <TabsTrigger value="variables" className={TAB} disabled={!ready} title={ready ? variables.text : "Loading…"}>
+                        <TabsTrigger value="variables" className={TAB} disabled={!ready || builderBusy} title={ready ? variables.text : "Loading…"}>
                             <Braces className="h-4 w-4" aria-hidden />Variables
                         </TabsTrigger>
-                        <TabsTrigger value="settings" className={TAB} disabled={!ready}><Settings className="h-4 w-4" aria-hidden />Settings</TabsTrigger>
+                        <TabsTrigger value="settings" className={TAB} disabled={!ready || builderBusy}><Settings className="h-4 w-4" aria-hidden />Settings</TabsTrigger>
                     </TabsList>
                 </Tabs>
             </div>

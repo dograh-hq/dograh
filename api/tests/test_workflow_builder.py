@@ -21,6 +21,7 @@ from api.services.workflow.builder import (
     save_builder_draft,
 )
 from api.services.workflow.builder_runtime.errors import BuilderModelError
+from api.services.workflow.builder_runtime.working_copy import source_revision
 from api.services.workflow.builder_validation import preview_workflow_code
 from api.tests.support.builder_execution import builder_execution  # noqa: F401
 from api.tests.support.workflow_authoring import BRIEF
@@ -76,7 +77,7 @@ async def test_preview_rejects_executable_code_and_foreign_references():
         result = await preview_workflow_code(code, 17)
     assert not result["valid"]
     assert "reference" in result["error"]
-    catalog.assert_awaited_once_with(organization_id=17)
+    catalog.assert_awaited_once_with(organization_id=17, status="active")
 
 
 @pytest.mark.asyncio
@@ -406,9 +407,12 @@ async def test_streaming_route_relays_real_mcp_under_request_identity():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("submission", ["legacy", "patch"])
 async def test_in_app_editor_loads_saved_source_and_attaches_an_org_tool_without_a_brief(
     monkeypatch,
+    submission,
 ):
+    from langchain_core.messages import AIMessage
     from langgraph.checkpoint.memory import InMemorySaver
 
     from api.mcp_server.ts_bridge import parse_code
@@ -483,6 +487,33 @@ async def test_in_app_editor_loads_saved_source_and_attaches_an_org_tool_without
             ),
         ],
     )
+    if submission == "patch":
+        from api.mcp_server.tools._workflow_projection import (
+            project_workflow_to_sdk_view,
+        )
+
+        view = await project_workflow_to_sdk_view(workflow)
+        edits = [
+            {
+                "old_text": 'name: "Qualify",',
+                "new_text": 'name: "Qualify", tool_uuids: ["org-calculator"],',
+            },
+            {
+                "old_text": "Ask for the caller's name.",
+                "new_text": "Ask for the caller's name. Use Calculator when the caller requests arithmetic.",
+            },
+        ]
+        edited = view["code"]
+        for edit in edits:
+            edited = edited.replace(edit["old_text"], edit["new_text"])
+        model.replies[1:] = [
+            tool_call(
+                "patch_workflow",
+                {"expected_revision": source_revision(view["code"]), "edits": edits},
+                "patch",
+            ),
+            AIMessage(content="Added the existing calculator to Qualify."),
+        ]
     monkeypatch.setattr(runtime, "BuilderChatModel", lambda **kwargs: model)
     app = FastAPI()
     app.include_router(router)
@@ -519,7 +550,7 @@ async def test_in_app_editor_loads_saved_source_and_attaches_an_org_tool_without
     )
     assert qualify["data"]["tool_uuids"] == ["org-calculator"]
     assert final["proposal"]["code"] == edited
-    assert len(model.seen) == 2
+    assert len(model.seen) == (2 if submission == "legacy" else 3)
     assert all(
         messages[0].content == builder_instructions("build", iteration=True)
         for messages in model.seen
@@ -527,15 +558,19 @@ async def test_in_app_editor_loads_saved_source_and_attaches_an_org_tool_without
     context = json.loads(model.seen[0][1].content)
     assert "Greet the caller." in context["previous_code"]
     assert "brief" not in context
-    assert "org-calculator" in model.seen[-1][-1].content
+    assert "org-calculator" in str(model.seen[-1])
+    if submission == "patch":
+        statuses = [event["message"] for event in events if event["type"] == "status"]
+        assert "Updating your agent…" in statuses
+        assert "Agent checks passed." in statuses
     assert all(
         call.args == (41,) and call.kwargs == {"organization_id": 27}
         for call in get_workflow.await_args_list
     )
     assert [call.kwargs for call in catalog.await_args_list] == [
         {"organization_id": 27, "status": "active"},
-        {"organization_id": 27},
-        {"organization_id": 27},
+        {"organization_id": 27, "status": "active"},
+        {"organization_id": 27, "status": "active"},
     ]
 
 
@@ -594,9 +629,10 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
         ("ask_questions", {"questions": [question]}),
         ("submit_brief", {"brief": BRIEF}),
         (
-            "propose_workflow",
-            {"candidate": {"code": VALID_CODE, "summary": "An inbound receptionist"}},
+            "write_workflow",
+            {"code": VALID_CODE, "expected_revision": source_revision("")},
         ),
+        (None, "An inbound receptionist"),
     ]
     expected_calls = len(replies)
     calls = []
@@ -741,6 +777,7 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     assert [call["metadata"]["builder_stage"] for call in calls] == [
         "build_requirements",
         "build_requirements",
+        "build",
         "build",
     ]
     assert not replies

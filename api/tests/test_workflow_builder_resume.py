@@ -42,12 +42,16 @@ async def test_resume_rejects_another_users_orgs_or_sessions_workflow(
                 if owner == 3 and session_matches
                 else str(uuid4())
             ),
-        ),
+        ) as get_session,
         pytest.raises(HTTPException) as error,
     ):
         await load_builder_workflow(user, session, 41)
     assert error.value.status_code == 404
     get.assert_awaited_once_with(41, organization_id=7)
+    if organization == 7:
+        get_session.assert_awaited_once_with(41, organization_id=7, user_id=3)
+    else:
+        get_session.assert_not_awaited()
 
 
 @pytest.mark.asyncio

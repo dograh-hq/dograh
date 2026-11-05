@@ -9,9 +9,11 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 
+from fastapi import HTTPException
 from opentelemetry import trace
 from opentelemetry.context import Context
 from opentelemetry.trace import Status, StatusCode
+from pipecat.utils.run_context import org_id_var
 
 from api.services.observability.trace_payloads import trace_json
 
@@ -46,14 +48,17 @@ def builder_trace_metadata() -> dict[str, str]:
     return dict(current.metadata) if current else {}
 
 
-def trace_error(span, message: str) -> None:
-    span.set_status(Status(StatusCode.ERROR, message))
-    span.set_attribute("langfuse.observation.level", "ERROR")
+def trace_error(span, message: str, *, rejected: bool = False) -> None:
+    if not rejected:
+        span.set_status(Status(StatusCode.ERROR, message))
+    span.set_attribute("langfuse.observation.level", "WARNING" if rejected else "ERROR")
     span.set_attribute("langfuse.observation.status_message", message)
-    span.set_attribute("builder.outcome", "error")
+    span.set_attribute("builder.outcome", "rejected" if rejected else "error")
     span.set_attribute(
         "langfuse.observation.output",
-        trace_json({"outcome": "error", "message": message}),
+        trace_json(
+            {"outcome": "rejected" if rejected else "error", "message": message}
+        ),
     )
 
 
@@ -69,37 +74,49 @@ def builder_trace(*, user, session_id, operation: str, input: dict, request_id=N
     }
     if request_id is not None:
         metadata["builder_turn_id"] = str(request_id)
-    with _TRACER.start_as_current_span(
-        f"workflow_builder.{operation}",
-        context=Context(),
-        record_exception=False,
-        set_status_on_exception=False,
-    ) as span:
-        scope = BuilderTrace(trace.set_span_in_context(span, Context()), metadata)
-        span.set_attributes(scope.attributes())
-        span.set_attribute("langfuse.trace.name", f"workflow_builder.{operation}")
-        span.set_attribute("langfuse.observation.input", trace_json(input))
-        token = current_builder_trace.set(scope)
-        try:
-            yield span
-        except (asyncio.CancelledError, GeneratorExit):
-            span.set_attribute("builder.outcome", "cancelled")
-            span.set_attribute("langfuse.observation.level", "WARNING")
-            span.set_attribute(
-                "langfuse.observation.status_message", "Builder disconnected"
-            )
-            raise
-        except Exception as exc:
-            # Never attach raw upstream bodies, credentials, or exception chains.
-            trace_error(span, f"Builder {operation} failed ({type(exc).__name__})")
-            raise
-        finally:
-            current_builder_trace.reset(token)
+    org_token = org_id_var.set(str(user.selected_organization_id))
+    try:
+        with _TRACER.start_as_current_span(
+            f"workflow_builder.{operation}",
+            context=Context(),
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
+            scope = BuilderTrace(trace.set_span_in_context(span, Context()), metadata)
+            span.set_attributes(scope.attributes())
+            span.set_attribute("langfuse.trace.name", f"workflow_builder.{operation}")
+            span.set_attribute("langfuse.observation.input", trace_json(input))
+            token = current_builder_trace.set(scope)
+            try:
+                yield span
+            except (asyncio.CancelledError, GeneratorExit):
+                span.set_attribute("builder.outcome", "cancelled")
+                span.set_attribute("langfuse.observation.level", "WARNING")
+                span.set_attribute(
+                    "langfuse.observation.status_message", "Builder disconnected"
+                )
+                raise
+            except HTTPException as exc:
+                trace_error(
+                    span, str(exc.detail), rejected=400 <= exc.status_code < 500
+                )
+                span.set_attribute("builder.status_code", exc.status_code)
+                raise
+            except Exception as exc:
+                # Never attach raw upstream bodies, credentials, or exception chains.
+                trace_error(span, f"Builder {operation} failed ({type(exc).__name__})")
+                raise
+            finally:
+                current_builder_trace.reset(token)
+    finally:
+        org_id_var.reset(org_token)
 
 
 def record_turn_event(span, event: dict) -> None:
     if event["type"] == "error":
-        trace_error(span, event["message"])
+        trace_error(
+            span, event["message"], rejected=400 <= event.get("status_code", 500) < 500
+        )
         for key in ("error_code", "status_code", "upstream_status_code", "retryable"):
             if event.get(key) is not None:
                 span.set_attribute(f"builder.{key}", event[key])

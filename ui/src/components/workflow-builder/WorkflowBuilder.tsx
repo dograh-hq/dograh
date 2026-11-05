@@ -31,6 +31,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     const [sessionId, setSessionId] = useState('');
     const [input, setInput] = useState('');
     const [restoring, setRestoring] = useState(true);
+    const [restoreAttempt, setRestoreAttempt] = useState(0);
     const [saving, setSaving] = useState(false);
     const [status, setStatus] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -46,12 +47,13 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     const { busy } = execution;
 
     useEffect(() => {
-        onBusyChange?.(busy || saving);
+        onBusyChange?.(busy || saving || (!!workflowId && restoring));
         return () => onBusyChange?.(false);
-    }, [busy, saving, onBusyChange]);
+    }, [busy, saving, restoring, workflowId, onBusyChange]);
 
     useEffect(() => {
-        if (authLoading || !user) return;
+        if (authLoading) return;
+        if (!user) { setRestoring(false); return; }
         const controller = new AbortController();
         execution.detach(); setSession(null); setSessionId(''); setError(null); setRestoring(true);
         const id = new URL(window.location.href).searchParams.get('session');
@@ -77,7 +79,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
         return () => { controller.abort(); execution.detach(); };
     // The authenticated user and organization identify this conversation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [authLoading, user?.id, organization, workflowId]);
+    }, [authLoading, user?.id, organization, workflowId, restoreAttempt]);
 
     useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [session?.messages?.length, session?.pending?.length, status]);
     const pendingQuestions = session?.pending?.filter(item => item.kind === 'questions') ?? [];
@@ -126,6 +128,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
         } catch (err) { setError(err instanceof Error ? err.message : 'Could not prepare the agent.'); }
         finally { setSaving(false); }
     };
+    if (!authLoading && !user) return <p className="p-6">Sign in to build an agent. <Link href="/handler/sign-in" className="underline">Sign in</Link></p>;
     return <div className="flex min-h-full flex-1 flex-col">
         <header className="mb-6 flex items-center justify-between gap-3"><div><h1 className="text-xl font-semibold tracking-tight">{workflowId ? 'Agent builder' : 'Create an agent'}</h1><p className="mt-1 text-sm text-muted-foreground">{workflowId ? 'Describe a change, then test your updated agent.' : 'Describe what you need. Build and refine it together.'}</p></div>{!workflowId && !isStarting && <Button variant="outline" size="sm" onClick={newConversation} disabled={busy || saving || restoring}><Plus className="mr-2 h-4 w-4" />New conversation</Button>}</header>
         {disabled && <p role="status" className="mb-4 rounded-md border bg-muted p-3 text-sm">Save your canvas changes before continuing in the builder.</p>}
@@ -147,6 +150,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
                         <Button variant="outline" size="sm" disabled={execution.stopping} onClick={() => void execution.stop()}><Square className="mr-2 h-3 w-3" />{execution.stopping ? 'Stopping…' : 'Stop'}</Button>
                     </div>}
                     {error && <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}
+                        {!sessionId && !restoring && <Button variant="outline" size="sm" onClick={() => setRestoreAttempt(value => value + 1)}>Retry restoring conversation</Button>}
                         {error.includes('/model-configurations') && <Link href="/model-configurations" className="mt-2 block font-medium underline">Open Model Configurations</Link>}
                     </div>}
                     {!busy && !awaitingUser && session?.can_continue && <Button variant="outline" disabled={disabled || saving} onClick={() => void send()}>Resume building</Button>}

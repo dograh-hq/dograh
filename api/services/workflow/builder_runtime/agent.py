@@ -35,6 +35,7 @@ from api.services.workflow.authoring.contracts import (
 )
 
 from .context import bounded_messages, capture_tool_results, merge_tool_results
+from .progress import TOOL_PROGRESS, report_progress
 from .scenarios import WorkflowScenario
 from .schemas import (
     BuilderQuestion,
@@ -44,7 +45,13 @@ from .schemas import (
     validate_tool_decision,
 )
 from .tool_schemas import tool_request_schema
-from .working_copy import edit_source, read_source, source_revision
+from .working_copy import (
+    SourceEdit,
+    edit_source,
+    patch_source,
+    read_source,
+    source_revision,
+)
 
 ASSETS = Path(__file__).parent / "assets"
 STAGE_MCP_TOOLS = {
@@ -70,7 +77,7 @@ GATED_TOOLS = frozenset({"create_tool", "update_tool"})
 ALLOWED_TOOLS = (
     frozenset.union(*STAGE_MCP_TOOLS.values())
     | ITERATION_MCP_TOOLS
-    | {"preview_workflow", "test_workflow_scenario"}
+    | {"preview_workflow", "test_workflow_scenario", "list_node_types"}
     | GATED_TOOLS
 )
 MAX_VALIDATION_ATTEMPTS = 3
@@ -121,6 +128,8 @@ class BuilderState(TypedDict, total=False):
     validation_attempts: int
     review_attempts: int
     idle_turns: int
+    pending_tool_calls: Annotated[list[dict], _keep_latest]
+    tools: Annotated[list[dict], _keep_latest]
     last_request_id: Annotated[str, _keep_latest]
 
 
@@ -254,6 +263,7 @@ def submit_brief(
                 "brief_revision": revision,
                 "user_request": latest_request,
                 "previous_code": previous_code,
+                "working_revision": source_revision(previous_code or ""),
             }
         ),
         review_messages=[RemoveMessage(id=REMOVE_ALL_MESSAGES)],
@@ -556,12 +566,15 @@ def get_tool_definition_schema(
         "http_api", "end_call", "transfer_call", "transfer_agent", "calculator", "mcp"
     ],
     operation: Literal["create", "update"] = "create",
+    destination_source: Literal["static", "dynamic", "context_mapping"] = "static",
 ) -> dict:
     """Read the authoritative request schema for one reusable tool category.
 
     Retrieve before proposing a new definition; reuse a schema already in context.
+    Transfers default to a static destination. Select dynamic for HTTP lookup or
+    context_mapping for routing rules to retrieve that mode's fields instead.
     """
-    return tool_request_schema(category, operation)
+    return tool_request_schema(category, operation, destination_source)
 
 
 @tool
@@ -577,7 +590,9 @@ def read_workflow(
     return read_source(_working_source(state), start_line, limit)
 
 
-def _working_update(state: dict, call_id: str, code: str, payload: dict) -> Command:
+def _working_update(
+    state: dict, call_id: str, code: str, payload: dict, **updates
+) -> Command:
     history = [*state.get("edit_history", []), _working_source(state)][-5:]
     return _result(
         "build",
@@ -585,9 +600,82 @@ def _working_update(state: dict, call_id: str, code: str, payload: dict) -> Comm
         payload,
         working_code=code,
         edit_history=history,
-        validated_working_copy=None,
         proposal=None,
         candidate=None,
+        **{"validated_working_copy": None, **updates},
+    )
+
+
+def _validate_edit(
+    state: dict,
+    call_id: str,
+    code: str,
+    payload: dict,
+    configuration_gaps: list[str] | None,
+) -> Command:
+    result = interrupt(
+        {"kind": "mcp", "tool_name": "preview_workflow", "arguments": {"code": code}}
+    )
+    valid = bool(result.get("valid"))
+    attempts = 0 if valid else state.get("validation_attempts", 0) + 1
+    updates = {
+        "validated_working_copy": {**result, "revision": source_revision(code)}
+        if valid
+        else None,
+        "validation_attempts": attempts,
+    }
+    if configuration_gaps is not None:
+        updates["configuration_gaps"] = configuration_gaps
+    if attempts >= MAX_VALIDATION_ATTEMPTS:
+        updates.update(
+            phase="complete",
+            messages=[
+                AIMessage(
+                    content="I couldn't validate this agent after three attempts. Your working copy is preserved; send a message to continue."
+                )
+            ],
+        )
+    report_progress(
+        "Agent checks passed." if valid else "Found an issue to fix in your agent…"
+    )
+    return _working_update(
+        state,
+        call_id,
+        code,
+        {
+            **payload,
+            **{k: v for k, v in result.items() if k not in {"code", "workflow"}},
+        },
+        **updates,
+    )
+
+
+@tool
+def patch_workflow(
+    expected_revision: str,
+    edits: Annotated[list[SourceEdit], Field(min_length=1, max_length=50)],
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    configuration_gaps: list[str] | None = None,
+) -> Command:
+    """Apply related source edits atomically and automatically validate the result.
+
+    Every old_text must match one unique, non-overlapping region of the supplied
+    revision. No replacements apply if any fails. Returns the new revision and
+    validation errors to repair. Omit configuration_gaps to preserve existing gaps;
+    supply remaining missing connections/settings when this edit changes them.
+    """
+    if not _can_build(state):
+        return _result(
+            "build",
+            tool_call_id,
+            {"error": "Approve the business brief before building."},
+        )
+    result = patch_source(_working_source(state), expected_revision, edits)
+    if "error" in result:
+        return _result("build", tool_call_id, result)
+    return _validate_edit(
+        state, tool_call_id, result.pop("code"), result, configuration_gaps
     )
 
 
@@ -621,10 +709,14 @@ def write_workflow(
     expected_revision: str,
     state: Annotated[dict, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
+    configuration_gaps: list[str] | None = None,
 ) -> Command:
-    """Write a complete first draft or explicitly requested broad rewrite.
+    """Write a complete first draft or requested broad rewrite and validate it.
 
-    Read the working copy first for its revision. Prefer edit_workflow for targeted changes.
+    Use the supplied working_revision; read_workflow only if source is missing or
+    stale. Prefer patch_workflow for targeted edits. Return missing connections
+    or settings in configuration_gaps, never testing disclaimers. Omit to preserve
+    existing gaps. Repair reported errors, then answer normally to complete.
     """
     if not _can_build(state):
         return _result(
@@ -636,8 +728,12 @@ def write_workflow(
         return _result(
             "build", tool_call_id, {"error": "The working copy changed. Read it again."}
         )
-    return _working_update(
-        state, tool_call_id, code, {"revision": source_revision(code), "written": True}
+    return _validate_edit(
+        state,
+        tool_call_id,
+        code,
+        {"revision": source_revision(code), "written": True},
+        configuration_gaps,
     )
 
 
@@ -837,38 +933,39 @@ def _finish_legacy_review(state: BuilderState) -> dict:
 LOCAL_TOOLS = {
     "build_requirements": [ask_questions, submit_brief, read_conversation],
     "build": [
-        request_clarification,
-        propose_workflow,
+        ask_questions,
         read_workflow,
         write_workflow,
-        edit_workflow,
-        undo_workflow_edit,
-        validate_workflow,
-        finish_workflow,
-        test_workflow_scenario,
+        patch_workflow,
+        read_tool_result,
+        read_conversation,
     ],
 }
-LOCAL_TOOLS["build"].extend([remember_decisions, read_tool_result, read_conversation])
 # Like ITERATION_MCP_TOOLS: tool changes are deferred past the first draft.
 ITERATION_LOCAL_TOOLS = {
     "build": [
         ask_questions,
-        propose_workflow,
         propose_tool,
         propose_tool_edit,
         get_tool_definition_schema,
         read_workflow,
         write_workflow,
-        edit_workflow,
-        undo_workflow_edit,
-        validate_workflow,
-        finish_workflow,
-        test_workflow_scenario,
+        patch_workflow,
+        read_tool_result,
+        read_conversation,
     ],
 }
-ITERATION_LOCAL_TOOLS["build"].extend(
-    [remember_decisions, read_tool_result, read_conversation]
-)
+# Unadvertised handlers let an already checkpointed tool call finish after deploy.
+LEGACY_BUILD_TOOLS = [
+    request_clarification,
+    propose_workflow,
+    edit_workflow,
+    undo_workflow_edit,
+    validate_workflow,
+    finish_workflow,
+    test_workflow_scenario,
+    remember_decisions,
+]
 
 
 def local_tools(stage: str, *, iteration: bool = False) -> list:
@@ -945,20 +1042,19 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
         async def invoke(state: BuilderState):
             agent_model = model.bind_tools(stage_tools(state), authoring_stage=stage)
             history = bounded_messages(state.get(key, []))
-            if stage == "build":
-                history = [
-                    *history[:1],
+            if stage == "build" and len(history) != len(state.get(key, [])):
+                # Only refresh authoritative state when exchanges were removed.
+                history.append(
                     HumanMessage(
                         content=json.dumps(
                             {
                                 "working_revision": source_revision(
                                     _working_source(state)
                                 ),
-                                "decision_notes": state.get("decision_notes", ""),
                                 "configuration_gaps": state.get(
                                     "configuration_gaps", []
                                 ),
-                                "recent_tool_results": [
+                                "stored_results": [
                                     {"result_id": id, "tool": result["tool"]}
                                     for id, result in list(
                                         state.get("tool_results", {}).items()
@@ -966,9 +1062,9 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
                                 ],
                             }
                         )
-                    ),
-                    *history[1:],
-                ]
+                    )
+                )
+            report_progress("Thinking about your agent…")
             reply = await agent_model.ainvoke(
                 [
                     SystemMessage(
@@ -1001,13 +1097,36 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
                 key: [reply],
                 "model_repair_attempts": 0,
                 "idle_turns": 0 if reply.tool_calls else state.get("idle_turns", 0) + 1,
+                "pending_tool_calls": reply.tool_calls,
             }
             if stage == "build_requirements" or any(
                 call["name"] == "ask_questions" for call in reply.tool_calls
             ):
                 updates["messages"] = [reply]
             elif not reply.tool_calls:
+                validated = state.get("validated_working_copy") or {}
                 if (
+                    reply.content
+                    and _can_build(state)
+                    and validated.get("revision")
+                    == source_revision(_working_source(state))
+                    and (_working_source(state) != state.get("previous_code"))
+                ):
+                    revision = state.get("candidate_revision", 0) + 1
+                    candidate = {
+                        **validated,
+                        "code": _working_source(state),
+                        "summary": reply.text,
+                        "configuration_gaps": state.get("configuration_gaps", []),
+                        "candidate_revision": revision,
+                        "brief_revision": state.get("approved_brief_revision"),
+                    }
+                    updates.update(
+                        candidate=candidate,
+                        candidate_revision=revision,
+                        **_proposal_updates(candidate),
+                    )
+                elif (
                     state.get("previous_code")
                     and reply.content
                     and _working_source(state) == state["previous_code"]
@@ -1026,35 +1145,69 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
                 else:
                     updates[key].append(
                         HumanMessage(
-                            content="Continue using the available tools; finish with the stage's handoff tool."
+                            content="The current source has not passed validation. Write or patch the working copy to fix it; these tools validate automatically. Then give a concise final answer."
                         )
                     )
             return updates
 
         async def execute(state: BuilderState, config):
-            calls = state[key][-1].tool_calls
-            if len(calls) != 1:
-                # Read batches are split into separate tasks by after_model.
-                # Questions and stage handoffs must run on their own.
+            # Each mutation gets its own checkpoint before the next call. Reads
+            # dispatched via Send have one call each; mixed batches run in order.
+            calls = state.get("pending_tool_calls") or state[key][-1].tool_calls
+            if len(calls) > 1 and any(
+                call["name"]
+                in {
+                    "submit_brief",
+                    "request_clarification",
+                    "propose_workflow",
+                    "finish_workflow",
+                }
+                for call in calls
+            ):
+                # These legacy/requirements handoffs leave this conversation;
+                # there would be no consumer for subsequent calls in the batch.
                 return {
                     key: [
                         ToolMessage(
-                            content=(
-                                "Only independent read tools can run in parallel. "
-                                "Call questions and stage handoffs on their own."
-                            ),
+                            content="Call a requirements or completion handoff on its own, after other tools finish.",
                             tool_call_id=call["id"],
                             status="error",
                         )
                         for call in calls
-                    ]
+                    ],
+                    "pending_tool_calls": [],
                 }
-            result = await ToolNode(stage_tools(state), messages_key=key).ainvoke(
-                state, config
+            call = calls[0]
+            if call["name"] in TOOL_PROGRESS:
+                report_progress(TOOL_PROGRESS[call["name"]])
+            executable = stage_tools(state) + (
+                LEGACY_BUILD_TOOLS if stage == "build" else []
             )
-            return capture_tool_results(
-                result, calls, request_id=state.get("last_request_id", "")
+            if stage == "build" and not state.get("pending_tool_calls"):
+                # Old first-draft checkpoints may be paused inside a catalog
+                # read that is now advertised only to editors. Keep it executable.
+                bound_names = {tool.name for tool in executable}
+                executable.extend(
+                    relay_tool(spec)
+                    for spec in tool_specs
+                    if spec["name"] in ITERATION_MCP_TOOLS | {"list_node_types"}
+                    and spec["name"] not in bound_names
+                )
+            result = await ToolNode(executable, messages_key=key).ainvoke(
+                {**state, key: [AIMessage(content="", tool_calls=[call])]}, config
             )
+            result = capture_tool_results(
+                result, [call], request_id=state.get("last_request_id", "")
+            )
+            for item in result if isinstance(result, list) else [result]:
+                update = item.update if isinstance(item, Command) else item
+                update["pending_tool_calls"] = calls[1:]
+            return result
+
+        def after_tools(state):
+            if state.get("phase") == stage and state.get("pending_tool_calls"):
+                return f"{node_name}_tools"
+            return route(state)
 
         def after_model(state):
             if state.get("phase") == "complete":
@@ -1082,6 +1235,7 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
                         {
                             **state,
                             key: [AIMessage(content="", tool_calls=[call])],
+                            "pending_tool_calls": [call],
                         },
                     )
                     for call in calls
@@ -1093,7 +1247,7 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
         graph.add_node(node_name, invoke)
         graph.add_node(f"{node_name}_tools", execute)
         graph.add_conditional_edges(node_name, after_model)
-        graph.add_conditional_edges(f"{node_name}_tools", route)
+        graph.add_conditional_edges(f"{node_name}_tools", after_tools)
 
     for stage in STAGE_MCP_TOOLS:
         add_stage(stage)

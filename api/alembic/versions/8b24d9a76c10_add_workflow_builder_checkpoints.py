@@ -17,9 +17,17 @@ revision = "8b24d9a76c10"
 down_revision = "d6a83e2b19f0"
 branch_labels = None
 depends_on = None
+TABLES = (
+    "checkpoint_writes",
+    "checkpoint_blobs",
+    "checkpoints",
+    "checkpoint_migrations",
+)
+OWNER = "Created by Alembic revision 8b24d9a76c10"
 
 
 def upgrade():
+    existing = set(sa.inspect(op.get_bind()).get_table_names())
     op.create_table(
         "checkpoint_migrations",
         sa.Column("v", sa.Integer(), primary_key=True, autoincrement=False),
@@ -81,13 +89,18 @@ def upgrade():
     op.execute(
         "INSERT INTO checkpoint_migrations (v) SELECT generate_series(0, 9) ON CONFLICT DO NOTHING"
     )
+    for table in TABLES:
+        if table not in existing:
+            op.execute(f"COMMENT ON TABLE {table} IS '{OWNER}'")
 
 
 def downgrade():
-    for table in (
-        "checkpoint_writes",
-        "checkpoint_blobs",
-        "checkpoints",
-        "checkpoint_migrations",
-    ):
-        op.drop_table(table)
+    inspector = sa.inspect(op.get_bind())
+    for table in TABLES:
+        # Preserve tables adopted from the setup script, including installs
+        # upgraded before this ownership marker was introduced.
+        if (
+            inspector.has_table(table)
+            and inspector.get_table_comment(table)["text"] == OWNER
+        ):
+            op.drop_table(table)

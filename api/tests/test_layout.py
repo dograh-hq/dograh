@@ -162,6 +162,7 @@ async def test_layout_route_sends_lean_payload_and_maps_bridge_outages(monkeypat
     async def mock_get_user():
         return SimpleNamespace(id=1, selected_organization_id=7)
 
+    previous_override = app.dependency_overrides.get(get_user)
     app.dependency_overrides[get_user] = mock_get_user
     try:
         async with AsyncClient(
@@ -198,4 +199,7 @@ async def test_layout_route_sends_lean_payload_and_maps_bridge_outages(monkeypat
             )
             assert response.status_code == 503
     finally:
-        app.dependency_overrides.pop(get_user, None)
+        if previous_override is None:
+            app.dependency_overrides.pop(get_user, None)
+        else:
+            app.dependency_overrides[get_user] = previous_override

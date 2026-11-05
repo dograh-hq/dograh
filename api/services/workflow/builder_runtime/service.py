@@ -9,7 +9,7 @@ from langgraph.types import Command
 from api.db import db_client
 
 from .agent import _fresh_messages, build_agent
-from .context import recent_conversation
+from .context import INLINE_RESULT_CHARACTERS, recent_conversation
 from .model import BUILDER_USAGE_CONTEXT, BuilderChatModel
 from .schemas import (
     BuilderStep,
@@ -94,6 +94,8 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
         if current["checkpoint"] != request.checkpoint:
             raise HTTPException(409, "Conversation changed; reload and try again")
         updates = {"last_request_id": str(request.request_id)}
+        if request.tools:
+            updates["tools"] = request.tools
         if request.message is not None:
             if current["pending"]:
                 raise HTTPException(
@@ -122,6 +124,7 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                 "model_repair_attempts": 0,
                 "validated_working_copy": None,
                 "idle_turns": 0,
+                "pending_tool_calls": [],
                 "messages": [message],
                 "plan_messages": [message],
             }
@@ -150,7 +153,6 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                             "working_revision": source_revision(previous_code),
                             "user_request": request.message,
                             "conversation": recent_conversation(current["messages"]),
-                            "decision_notes": snapshot.values.get("decision_notes", ""),
                             "configuration_gaps": snapshot.values.get(
                                 "configuration_gaps", []
                             ),
@@ -159,6 +161,7 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                                 for key, result in list(
                                     snapshot.values.get("tool_results", {}).items()
                                 )[-20:]
+                                if len(result["content"]) > INLINE_RESULT_CHARACTERS
                             ],
                         }
                     ),
@@ -204,7 +207,10 @@ async def builder_step(
     async with db_client.builder_checkpointer(
         thread_id, **({"readonly": True} if request is None else {})
     ) as saver:
-        graph = build_agent(model, saver, request.tools if request else [])
-        return await run_step(
-            graph, {"configurable": {"thread_id": thread_id}}, session_id, request
+        config = {"configurable": {"thread_id": thread_id}}
+        saved = await saver.aget_tuple(config)
+        tools = (request.tools if request else []) or (
+            saved.checkpoint["channel_values"].get("tools", []) if saved else []
         )
+        graph = build_agent(model, saver, tools)
+        return await run_step(graph, config, session_id, request)

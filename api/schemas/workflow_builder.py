@@ -104,6 +104,8 @@ class BuilderCancelResponse(BaseModel):
 
 
 class BuilderTurnRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     request_id: UUID
     workflow_id: int | None = None
     checkpoint: str | None = None

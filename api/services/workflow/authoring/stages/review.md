@@ -5,7 +5,8 @@ assess the requested change, previous source, and validated candidate; preserve
 unrelated behavior without requiring a new brief. Check that
 information is captured, business rules are applied, prompts and transitions
 implement the requested behavior, and the call can end cleanly.
-Walk through a successful call and a relevant failure or early-exit path.
+Walk through every requested success criterion and each relevant failure or
+early-exit path.
 
 Use the compact SDK reference for field semantics. Reuse voice guidance already
 in context. If needed, call `get_voice_prompting_guide` without arguments for a

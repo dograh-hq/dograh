@@ -70,9 +70,9 @@ async def test_backend_tidy_on_creation_preserves_positions_on_later_edits(
     # The UI's top-to-bottom layout, including the staggered conversation step,
     # is already stored before a browser opens the new workflow.
     assert [node["position"] for node in initial["nodes"]] == [
-        {"x": 175, "y": 60},
-        {"x": 775, "y": 480},
-        {"x": 175, "y": 900},
+        {"x": 0, "y": 0},
+        {"x": 600, "y": 420},
+        {"x": 0, "y": 840},
     ]
     create.assert_awaited_once()
 

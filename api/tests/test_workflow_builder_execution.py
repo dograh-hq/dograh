@@ -19,6 +19,37 @@ USER = SimpleNamespace(id=3, provider_id="user-3", selected_organization_id=7)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("raised", [False, True])
+async def test_failed_turn_sends_latest_checkpoint_before_error(
+    builder_execution, monkeypatch, raised
+):
+    session_id = uuid4()
+    latest = BuilderSession(
+        id=session_id, checkpoint="after-failed-inference", can_continue=True
+    )
+    monkeypatch.setattr(builder, "load_session", AsyncMock(return_value=latest))
+
+    async def turn(*args):
+        if raised:
+            raise RuntimeError("private failure")
+        yield {"type": "error", "message": "Try again"}
+
+    monkeypatch.setattr(builder, "builder_turn", turn)
+    run = await execution.admit_builder_turn(
+        USER,
+        session_id,
+        BuilderTurnRequest(request_id=uuid4(), message="Build an agent"),
+    )
+    await asyncio.wait_for(asyncio.gather(*builder_execution.tasks), timeout=5)
+    events = [row["event"] for row in builder_execution.events[run["id"]]]
+    assert events[-2]["type"] == "session"
+    assert events[-2]["session"]["checkpoint"] == "after-failed-inference"
+    assert events[-2]["session"]["can_continue"]
+    assert events[-1]["type"] == "error"
+    assert run["status"] == "failed"
+
+
+@pytest.mark.asyncio
 async def test_disconnect_does_not_cancel_worker_or_prevent_existing_draft_save(
     builder_execution, monkeypatch
 ):

@@ -45,8 +45,9 @@ workflow's corresponding node property.
   Make that effect clear when confirming the requirements. Subsequent edits use
   `save_workflow`. A single `startCall` node is sufficient if the user asks only
   for a starter; do not add unnecessary stages.
-- Review with the shared guide before submitting. After submission, report what
-  the tool actually saved or created and any outstanding configuration needs.
+- Check the requested behavior before submitting; a separate review stage is
+  optional. After submission, report what the tool actually saved or created
+  and any outstanding configuration needs.
 
 ### Iterating on errors
 

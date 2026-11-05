@@ -19,7 +19,10 @@ export function QuestionCards({ pending, disabled, onSubmit }: {
         ...(selected[key] ?? []),
         ...(multiple ? (custom[key] ?? '').split('\n').map(value => value.trim()).filter(Boolean) : custom[key]?.trim() ? [custom[key].trim()] : []),
     ]));
-    const complete = questions.every(({ key, question }) => valuesFor(key, question.kind === 'multiple').length > 0);
+    const complete = questions.every(({ key, question }) => {
+        const count = valuesFor(key, question.kind === 'multiple').length;
+        return count > 0 && count <= 20;
+    });
     return <form className="space-y-6 rounded-2xl border bg-background p-5" onSubmit={event => {
         event.preventDefault();
         if (!complete || disabled) return;
@@ -33,6 +36,7 @@ export function QuestionCards({ pending, disabled, onSubmit }: {
         {questions.map(({ question, key }) => <fieldset key={key} disabled={disabled} className="space-y-3">
             <legend className="mb-2 text-sm font-medium">{question.title}</legend>
             {question.kind === 'multiple' && <p className="text-xs text-muted-foreground">Select all that apply.</p>}
+            {valuesFor(key, question.kind === 'multiple').length > 20 && <p role="alert" className="text-xs text-destructive">Choose at most 20 answers.</p>}
             {question.kind !== 'text' && <div className="flex flex-wrap gap-2">
                 {(question.options ?? []).map(option => <button key={option} type="button" aria-pressed={(selected[key] ?? []).includes(option)}
                     className={`rounded-xl border px-3 py-2 text-left text-sm transition-colors disabled:opacity-50 ${(selected[key] ?? []).includes(option) ? 'border-primary bg-primary/10' : 'hover:bg-muted'}`}

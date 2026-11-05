@@ -11,6 +11,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from api.services.workflow.builder_runtime.agent import ITERATION_MCP_TOOLS, build_agent
 from api.services.workflow.builder_runtime.schemas import BuilderStep
 from api.services.workflow.builder_runtime.service import run_step
+from api.services.workflow.builder_runtime.working_copy import source_revision
 from api.tests.support.workflow_authoring import BRIEF
 from api.tests.test_workflow_builder_runtime import ScriptedModel, tool_call
 
@@ -269,6 +270,7 @@ async def test_approved_brief_builds_directly_and_validation_finishes_without_in
         "brief_revision": 1,
         "user_request": request,
         "previous_code": None,
+        "working_revision": source_revision(""),
     }
     assert "REQUIREMENTS_PRIVATE_EXPLANATION" not in str(conversation.model.seen[1])
     assert all(
@@ -546,10 +548,18 @@ async def test_read_batches_cannot_include_handoffs_or_unavailable_tools(other):
     )
     await conversation.step(message="Build a receptionist")
     await conversation.approve()
-    # Neither the read nor the other tool ran; the model had to retry its handoff.
+    if other == "list_documents":
+        # Valid reads run, but an unavailable tool is still denied individually.
+        assert (
+            conversation.current["pending"][0]["tool_name"]
+            == "get_voice_prompting_guide"
+        )
+        await conversation.resume({"content": "Guidance"})
     assert conversation.current["pending"][0]["tool_name"] == "preview_workflow"
     errors = [m for m in conversation.model.seen[2] if isinstance(m, ToolMessage)]
-    assert len(errors) == 2 and all(m.status == "error" for m in errors)
+    assert len(errors) == 2
+    assert errors[-1].status == "error"
+    assert errors[0].status == ("error" if other == "propose_workflow" else "success")
 
 
 @pytest.mark.asyncio

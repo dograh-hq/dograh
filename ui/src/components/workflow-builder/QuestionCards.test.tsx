@@ -24,3 +24,16 @@ describe('builder question cards', () => {
         expect(submit).toHaveBeenCalledWith({ 'pending-2': { structure: ['Choose for me'] } });
     });
 });
+
+it('blocks more than twenty answers and recovers when corrected', () => {
+    const submit = vi.fn();
+    render(<QuestionCards disabled={false} onSubmit={submit} pending={[{ id: 'pending', kind: 'questions', questions: [{ id: 'fields', title: 'Fields?', kind: 'multiple', options: ['Name'], allow_custom: true }] }]} />);
+    const answers = Array.from({ length: 21 }, (_, i) => `Field ${i}`);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: answers.join('\n') } });
+    expect(screen.getByRole('alert').textContent).toContain('at most 20');
+    fireEvent.click(screen.getByText('Continue'));
+    expect(submit).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: answers.slice(0, 20).join('\n') } });
+    fireEvent.click(screen.getByText('Continue'));
+    expect(submit).toHaveBeenCalledOnce();
+});

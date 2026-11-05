@@ -20,12 +20,58 @@ from api.db.workflow_builder import BLOBS, CHECKPOINTS, WRITES, WorkflowBuilderC
 from api.services.workflow.builder_runtime.agent import build_agent
 from api.services.workflow.builder_runtime.schemas import BuilderStep
 from api.services.workflow.builder_runtime.service import run_step
+from api.services.workflow.builder_runtime.working_copy import source_revision
 from api.tests.support.workflow_authoring import BRIEF
 from api.tests.test_workflow_builder_runtime import ScriptedModel, tool_call
 
 MIGRATION = import_module(
     "api.alembic.versions.8b24d9a76c10_add_workflow_builder_checkpoints"
 )
+
+
+@pytest.mark.asyncio
+async def test_adopted_legacy_tables_and_saved_data_survive_downgrade(
+    checkpoint_client,
+):
+    async with checkpoint_client.engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade")
+        # Create the prior schema independently of this migration, as the old
+        # setup script did, then populate it before adoption.
+        for name in MIGRATION.TABLES:
+            await connection.run_sync(Base.metadata.tables[name].create)
+    thread = config()["configurable"]["thread_id"]
+    state = checkpoint({"messages": ["legacy conversation"]})
+    async with checkpoint_client.builder_checkpointer(thread) as saver:
+        saved = await saver.aput(config(), state, {}, state["channel_versions"])
+        await saver.aput_writes(saved, [("messages", ["pending legacy tool"])], "tool")
+    async with checkpoint_client.engine.begin() as connection:
+        await connection.run_sync(migrate, "upgrade")
+        await connection.run_sync(migrate, "downgrade")
+        assert set(
+            await connection.run_sync(lambda conn: inspect(conn).get_table_names())
+        ) == set(MIGRATION.TABLES)
+    async with checkpoint_client.builder_checkpointer(thread, readonly=True) as saver:
+        restored = await saver.aget_tuple(config())
+        assert restored.checkpoint == state
+        assert restored.pending_writes == [
+            ("tool", "messages", ["pending legacy tool"])
+        ]
+
+
+@pytest.mark.asyncio
+async def test_inference_locks_do_not_exhaust_the_shared_connection_pool(
+    checkpoint_client,
+):
+    async with (
+        checkpoint_client.builder_checkpointer("first"),
+        checkpoint_client.builder_checkpointer("second"),
+    ):
+
+        async def query():
+            async with checkpoint_client.engine.connect() as connection:
+                return await connection.scalar(text("SELECT 1"))
+
+        assert await asyncio.wait_for(query(), timeout=2) == 1
 
 
 def migrate(connection, direction):
@@ -225,6 +271,74 @@ async def test_parallel_read_tasks_survive_database_checkpoint_reload(
 
 
 @pytest.mark.asyncio
+async def test_patch_and_following_read_resume_once_across_database_connections(
+    checkpoint_client,
+):
+    session_id = uuid4()
+    thread = f"workflow-builder:12:3:{session_id}"
+    graph_config = config(thread)
+    model = ScriptedModel(
+        organization_id=12,
+        user_id="3",
+        replies=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    *tool_call(
+                        "patch_workflow",
+                        {
+                            "expected_revision": source_revision("old greeting"),
+                            "edits": [{"old_text": "old", "new_text": "new"}],
+                        },
+                        "patch",
+                    ).tool_calls,
+                    *tool_call("read_workflow", {}, "read").tool_calls,
+                ],
+            ),
+            AIMessage(content="Updated the greeting."),
+        ],
+    )
+
+    async def step(request=None):
+        async with checkpoint_client.builder_checkpointer(thread) as saver:
+            return await run_step(
+                build_agent(model, saver, []), graph_config, session_id, request
+            )
+
+    current = await step(
+        BuilderStep(
+            request_id=uuid4(),
+            message="Update the greeting",
+            current_workflow={"id": 41, "revision": "saved", "code": "old greeting"},
+        )
+    )
+    assert current["pending"][0]["arguments"]["code"] == "new greeting"
+    assert await step() == current
+    request = BuilderStep(
+        request_id=uuid4(),
+        checkpoint=current["checkpoint"],
+        resume={
+            current["pending"][0]["id"]: {
+                "valid": True,
+                "code": "new greeting",
+                "name": "Agent",
+                "workflow": {"nodes": [], "edges": []},
+            }
+        },
+    )
+    final = await step(request)
+    assert final["proposal"]["code"] == "new greeting"
+    assert await step(request) == final
+    assert len(model.seen) == 2
+    async with checkpoint_client.builder_checkpointer(thread) as saver:
+        state = await build_agent(model, saver, []).aget_state(graph_config)
+    results = [m for m in state.values["build_messages"] if isinstance(m, ToolMessage)]
+    assert [m.tool_call_id for m in results] == ["patch", "read"]
+    assert "new greeting" in results[1].content
+    assert state.values["edit_history"] == ["old greeting"]
+
+
+@pytest.mark.asyncio
 async def test_failed_checkpoint_save_rolls_back_its_blobs(checkpoint_client):
     thread = config()["configurable"]["thread_id"]
     state = checkpoint({"messages": ["must roll back"]})
@@ -354,7 +468,8 @@ async def test_migration_adopts_existing_data_matches_models_and_downgrades(
                 "checkpoint_writes",
                 "checkpoint_migrations",
             ):
-                Base.metadata.tables[name].to_metadata(metadata)
+                table = Base.metadata.tables[name].to_metadata(metadata)
+                table.comment = MIGRATION.OWNER
             return compare_metadata(
                 MigrationContext.configure(
                     sync_connection, opts={"compare_server_default": True}

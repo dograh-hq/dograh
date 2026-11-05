@@ -22,7 +22,10 @@ from api.services.workflow.builder_runtime import tracing
 @pytest.fixture(name="captured_traces")
 def _captured_traces(monkeypatch):
     exporter = InMemorySpanExporter()
+    from api.services.pipecat.tracing_config import _OrgAttributeSpanProcessor
+
     provider = TracerProvider()
+    provider.add_span_processor(_OrgAttributeSpanProcessor())
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     monkeypatch.setattr(
         tracing, "_TRACER", provider.get_tracer("dograh.workflow_builder")
@@ -66,7 +69,9 @@ async def test_concurrent_tool_calls_join_scoped_turns_and_keep_full_previews(
         if span.name == "workflow_builder.turn"
     }
     assert len(roots) == 2
-    for child in (span for span in spans if span.name == "mcp.preview"):
+    children = [span for span in spans if span.name == "mcp.preview"]
+    assert len(children) == 2
+    for child in children:
         root = roots[child.context.trace_id]
         assert child.parent.span_id == root.context.span_id
         assert child.attributes["session.id"] == root.attributes["session.id"]
@@ -80,7 +85,7 @@ async def test_concurrent_tool_calls_join_scoped_turns_and_keep_full_previews(
             == payload["code"]
         )
         assert "langfuse.trace.name" not in child.attributes
-        assert "dograh.org_id" not in child.attributes
+        assert child.attributes["dograh.org_id"] == root.attributes["dograh.org_id"]
     assert len({root.attributes["session.id"] for root in roots.values()}) == 2
 
 
@@ -192,3 +197,30 @@ def test_exporter_filters_sdk_noise_but_keeps_authoring_spans():
     ]
     assert _OrgRoutingExporter(destination).export(spans) == SpanExportResult.SUCCESS
     destination.export.assert_called_once_with(spans[2:])
+
+
+@pytest.mark.parametrize("status_code", [409, 422])
+def test_expected_rejections_are_warnings_and_restore_org_context(
+    captured_traces, status_code
+):
+    from fastapi import HTTPException
+    from pipecat.utils.run_context import get_current_org_id, org_id_var
+
+    token = org_id_var.set("previous-org")
+    try:
+        with pytest.raises(HTTPException):
+            with tracing.builder_trace(
+                user=SimpleNamespace(id=3, selected_organization_id=7),
+                session_id=uuid4(),
+                operation="save",
+                input={},
+            ):
+                assert get_current_org_id() == "7"
+                raise HTTPException(status_code, "Review the latest checkpoint")
+        assert get_current_org_id() == "previous-org"
+        span = captured_traces.get_finished_spans()[-1]
+        assert span.attributes["langfuse.observation.level"] == "WARNING"
+        assert span.attributes["builder.status_code"] == status_code
+        assert span.status.status_code.name == "UNSET"
+    finally:
+        org_id_var.reset(token)

@@ -119,7 +119,7 @@ def test_editor_prompt_is_separate_from_first_draft_requirements_and_building():
     assert "`propose_tool`" in editing and "`propose_tool_edit`" in editing
     assert "tool_uuids" in editing
     assert "# Editor:" not in creation
-    assert "`ask_questions`" not in creation
+    assert "`ask_questions`" in creation
     assert "`propose_tool`" not in creation
     assert "approved CallBrief" in creation
 

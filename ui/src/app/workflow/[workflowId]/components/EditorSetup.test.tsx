@@ -134,3 +134,12 @@ describe("editor setup", () => {
         expect(screen.queryByRole("alertdialog")).toBeNull();
     });
 });
+
+it('keeps editing tabs disabled while the builder owns the update', () => {
+    const { onViewChange } = renderSetup('builder', { builderBusy: true });
+    for (const name of [/^Canvas/, /^Model/, /^Variables/, /^Settings/]) {
+        expect((tab(name) as HTMLButtonElement).disabled).toBe(true);
+        fireEvent.mouseDown(tab(name));
+    }
+    expect(onViewChange).not.toHaveBeenCalled();
+});

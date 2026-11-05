@@ -183,15 +183,11 @@ function CanvasPreview({
     data,
     onCopyTrigger,
     triggerCopied,
-    onStaleTools,
-    onStaleDocuments,
 }: {
     spec: NodeSpec;
     data: FlowNodeData;
     onCopyTrigger: () => void;
     triggerCopied: boolean;
-    onStaleTools: (uuids: string[]) => void;
-    onStaleDocuments: (uuids: string[]) => void;
 }) {
     const { config: appConfig } = useAppConfig();
     if (spec.name === "trigger") {
@@ -299,7 +295,6 @@ function CanvasPreview({
                     </div>
                     <ToolBadges
                         toolUuids={data.tool_uuids}
-                        onStaleUuidsDetected={onStaleTools}
                         mcpToolFilters={data.mcp_tool_filters}
                     />
                 </div>
@@ -312,7 +307,6 @@ function CanvasPreview({
                     </div>
                     <DocumentBadges
                         documentUuids={data.document_uuids}
-                        onStaleUuidsDetected={onStaleDocuments}
                     />
                 </div>
             )}
@@ -541,34 +535,6 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [type]);
 
-    // ── Stale tool/document cleanup (was duplicated in Start/Agent) ─────
-    const handleStaleTools = useCallback(
-        async (staleUuids: string[]) => {
-            const cleaned = (data.tool_uuids ?? []).filter(
-                (u) => !staleUuids.includes(u),
-            );
-            handleSaveNodeData({
-                ...data,
-                tool_uuids: cleaned.length > 0 ? cleaned : undefined,
-            });
-            await saveWorkflow();
-        },
-        [data, handleSaveNodeData, saveWorkflow],
-    );
-    const handleStaleDocuments = useCallback(
-        async (staleUuids: string[]) => {
-            const cleaned = (data.document_uuids ?? []).filter(
-                (u) => !staleUuids.includes(u),
-            );
-            handleSaveNodeData({
-                ...data,
-                document_uuids: cleaned.length > 0 ? cleaned : undefined,
-            });
-            await saveWorkflow();
-        },
-        [data, handleSaveNodeData, saveWorkflow],
-    );
-
     // ── Dirty / save / open handlers ────────────────────────────────────
     const propertyNames = useMemo(
         () => spec?.properties.map((p) => p.name) ?? [],
@@ -650,8 +616,6 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                         data={data}
                         onCopyTrigger={handleCopyTrigger}
                         triggerCopied={triggerCopied}
-                        onStaleTools={handleStaleTools}
-                        onStaleDocuments={handleStaleDocuments}
                     />
                 )}
             </NodeContent>

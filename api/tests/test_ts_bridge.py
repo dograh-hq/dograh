@@ -462,17 +462,59 @@ async def test_layout_nodes_places_every_canvas_section():
     positions = await layout_nodes(nodes, edges)
 
     assert positions == [
-        {"id": "0", "x": -825, "y": 480},
-        {"id": "1", "x": -325, "y": 480},
-        {"id": "2", "x": 550, "y": 60},
-        {"id": "3", "x": 175, "y": 480},
-        {"id": "4", "x": 925, "y": 480},
-        {"id": "5", "x": 550, "y": 900},
-        {"id": "6", "x": 1775, "y": 210},
-        {"id": "7", "x": 1775, "y": 480},
-        {"id": "8", "x": 1775, "y": 750},
+        {"id": "0", "x": -1000, "y": 420},
+        {"id": "1", "x": -500, "y": 420},
+        {"id": "2", "x": 375, "y": 0},
+        {"id": "3", "x": 0, "y": 420},
+        {"id": "4", "x": 750, "y": 420},
+        {"id": "5", "x": 375, "y": 840},
+        {"id": "6", "x": 1600, "y": 150},
+        {"id": "7", "x": 1600, "y": 420},
+        {"id": "8", "x": 1600, "y": 690},
     ]
 
 
 async def test_layout_nodes_is_empty_without_conversation_nodes():
     assert await layout_nodes([{"id": "g", "type": "globalNode"}], []) == []
+
+
+async def test_lr_layout_keeps_branches_at_the_same_depth():
+    nodes = [
+        {"id": id, "type": type}
+        for id, type in [
+            ("start", "startCall"),
+            ("a", "agentNode"),
+            ("b", "agentNode"),
+            ("end", "endCall"),
+        ]
+    ]
+    edges = [
+        {"source": source, "target": target}
+        for source, target in [
+            ("start", "a"),
+            ("start", "b"),
+            ("a", "end"),
+            ("b", "end"),
+        ]
+    ]
+    positions = {
+        node["id"]: node for node in await layout_nodes(nodes, edges, rankdir="LR")
+    }
+    assert positions["start"]["x"] == 0
+    assert positions["a"]["x"] == positions["b"]["x"]
+    assert positions["a"]["y"] != positions["b"]["y"]
+    assert positions["start"]["x"] < positions["a"]["x"] < positions["end"]["x"]
+
+
+async def test_missing_node_executable_is_a_bridge_error(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from api.mcp_server import ts_bridge
+
+    monkeypatch.setattr(
+        ts_bridge.asyncio,
+        "create_subprocess_exec",
+        AsyncMock(side_effect=FileNotFoundError("node")),
+    )
+    with pytest.raises(ts_bridge.TsBridgeError, match="could not be started"):
+        await ts_bridge.layout_nodes([{"id": "start", "type": "startCall"}], [])

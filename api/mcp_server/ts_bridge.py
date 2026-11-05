@@ -38,13 +38,16 @@ def _edge_field_names() -> list[str]:
 
 
 async def _invoke(request: dict[str, Any]) -> dict[str, Any]:
-    proc = await asyncio.create_subprocess_exec(
-        "node",
-        str(_VALIDATOR_ENTRY),
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "node",
+            str(_VALIDATOR_ENTRY),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise TsBridgeError("Workflow validator could not be started") from exc
     stdout, stderr = await proc.communicate(json.dumps(request).encode("utf-8"))
     if proc.returncode != 0 and not stdout:
         raise TsBridgeError(

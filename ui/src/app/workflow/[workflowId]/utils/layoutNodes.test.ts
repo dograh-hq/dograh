@@ -52,3 +52,20 @@ it('surfaces the API error message', async () => {
     await expect(layoutNodes([node('1', 'startCall')], [], 'TB', { current: null }))
         .rejects.toThrow('Layout is unavailable right now. Try again.');
 });
+
+it('does not request layout for an integration-only canvas', async () => {
+    const nodes = [node('hook', 'webhook')];
+    await expect(layoutNodes(nodes, [], 'TB', { current: null })).resolves.toBe(nodes);
+    expect(layoutWorkflow).not.toHaveBeenCalled();
+});
+
+it('preserves prompt edits, additions and deletions when applying an older layout', async () => {
+    const { applyLayoutPositions } = await import('./layoutNodes');
+    const original = [node('start', 'startCall'), node('deleted', 'agentNode')];
+    const positioned = original.map(n => ({ ...n, position: { x: 100, y: 200 } }));
+    const edited = { ...original[0], data: { name: 'New name', prompt: 'New instructions' } };
+    const added = node('added', 'agentNode');
+    expect(applyLayoutPositions([edited, added], positioned)).toEqual([
+        { ...edited, position: { x: 100, y: 200 } }, added,
+    ]);
+});

@@ -8,7 +8,7 @@ TOPIC = VoicePromptingTopic(
     content="""\
 Each tool should do one thing. A tool that "schedules an appointment and sends a
 confirmation email and updates the CRM" fails unpredictably — split it into
-three. (This is mostly a plan-time decision about tool design.)
+three when they need independent triggers or failure handling.
 
 An Edge with label Schedule Appointment is sent to llm with tool name schedule_appointment.
 
@@ -24,14 +24,13 @@ A turn is either spoken text or a tool call, never both. If the model tries to
 mix a spoken response with a tool call in the same turn, most voice stacks
 behave strangely. Make this explicit in the prompt.
 
-Handle tool errors gracefully. On an error, the agent should say something like
-"I'm having an issue with our system, let me try again." If it errors a second
-time, apologize and offer to have someone call them back — don't loop the
-caller through three failed retries.
+Handle tool errors using the supplied recovery policy. Acknowledge the failure
+and offer only available next steps. Do not repeatedly retry or promise a callback
+or human handoff that has not been configured.
 
-To avoid dead air during a slow call, have the agent say one short line before
-calling a tool — "okay, give me a second" or "I'm checking that now" — then
-call the tool immediately.
+Use configured tool start/delayed messages for wait announcements. When the tool
+speaks its own announcement, call it directly; do not duplicate that speech in
+the conversational response.
 
 Summarize tool routing as condition → action rules in the node's success-criteria
 section. For example: "Call schedule_appointment only after all three screening

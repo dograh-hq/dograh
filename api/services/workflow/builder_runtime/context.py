@@ -98,6 +98,15 @@ def capture_tool_results(result, calls: list[dict], *, request_id: str = ""):
             "arguments": call["args"],
             "content": content,
         }
+        if (
+            call["name"] in {"patch_workflow", "edit_workflow"}
+            and message.status != "error"
+        ):
+            # Retain the full diff in the checkpoint, not in every model request.
+            payload = json.loads(content)
+            payload.pop("diff", None)
+            content = json.dumps(payload)
+            message.content = content
         if len(content) > INLINE_RESULT_CHARACTERS:
             message.content = json.dumps(
                 {

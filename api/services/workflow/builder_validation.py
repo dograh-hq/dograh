@@ -49,12 +49,17 @@ async def preview_workflow_code(
 
     # Resolve every external reference against this organization before preview/save.
     references: dict[str, set[str]] = {
-        key: set() for key in ("tool", "document", "credential", "recording")
+        key: set()
+        for key in ("tool", "document", "credential", "recording", "recording_pk")
     }
 
     def collect(value: Any) -> None:
         if isinstance(value, dict):
             for key, item in value.items():
+                if key in {"greeting_recording_id", "transition_speech_recording_id"}:
+                    if item:
+                        references["recording_pk"].add(str(item))
+                    continue
                 kind = next(
                     (
                         kind
@@ -81,14 +86,26 @@ async def preview_workflow_code(
         "document": (db_client.get_documents_for_organization, "document_uuid"),
         "credential": (db_client.get_credentials_for_organization, "credential_uuid"),
         "recording": (db_client.get_recordings, "recording_id"),
+        "recording_pk": (db_client.get_recordings, "id"),
     }
     for kind, values in references.items():
         if values:
             fetch, field = catalogs[kind]
-            available = {
-                str(getattr(row, field))
-                for row in await fetch(organization_id=organization_id)
-            }
+            if kind == "document":
+                # The list endpoint is paginated. Resolve only references,
+                # including older active documents, with tenant-scoped reads.
+                available = set()
+                for value in values:
+                    if await db_client.get_document_by_uuid(
+                        value, organization_id=organization_id
+                    ):
+                        available.add(value)
+            else:
+                kwargs = {"status": "active"} if kind == "tool" else {}
+                available = {
+                    str(getattr(row, field))
+                    for row in await fetch(organization_id=organization_id, **kwargs)
+                }
             if not values <= available:
                 return {
                     "valid": False,

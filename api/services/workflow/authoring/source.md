@@ -24,6 +24,6 @@ before edges. Omit position and unused fields; the server supplies layout and
 defaults. Values are literal strings, numbers, booleans, null, arrays, or objects.
 
 Each edge connects two bound node variables, not strings or .id values. Both
-label and condition are required, non-empty strings. Use a short, distinct label
+label and condition are required, non-empty strings. Use a distinct label of at most four words
 for each outgoing branch and a natural-language condition evaluated against the
 conversation. Emit one edge per branch, grouped by source node.

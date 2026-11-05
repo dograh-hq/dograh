@@ -26,6 +26,9 @@ class BuilderQuestion(BaseModel):
 
     @model_validator(mode="after")
     def check_options(self):
+        self.options = [option.strip() for option in self.options]
+        if any(not option for option in self.options):
+            raise ValueError("Question options must not be blank")
         if self.kind != "text" and not self.options:
             raise ValueError("Choice questions require options")
         if len(set(self.options)) != len(self.options):

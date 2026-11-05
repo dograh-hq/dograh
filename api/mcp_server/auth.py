@@ -24,7 +24,8 @@ async def authenticate_mcp_request() -> UserModel:
     reusing the API-key flow from `api.services.auth.depends`.
 
     Tags the active span with the authenticated identity. MCP authoring spans
-    use the default developer-facing project, not the per-org call exporter.
+    use the default project for external clients. Builder calls join the
+    organization-scoped builder trace.
     """
     if (user := builder_mcp_user.get()) is not None:
         _stamp_identity(user)
@@ -54,7 +55,8 @@ def _stamp_identity(user: UserModel) -> None:
         org_id = user.selected_organization_id
         # Intentionally NOT `dograh.org_id` — that attribute triggers the
         # per-org Langfuse routing for pipeline spans, and MCP traffic
-        # should land in the default (developer-facing) project only.
+        # from external clients should land in the default project. In-app
+        # builder spans inherit their org routing from the builder context.
         # Exposed under `mcp.org_id` for Langfuse UI filtering without
         # affecting the router.
         span.set_attribute("mcp.org_id", str(org_id))

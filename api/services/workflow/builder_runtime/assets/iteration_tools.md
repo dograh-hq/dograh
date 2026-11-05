@@ -14,6 +14,11 @@ tools listed in its `tool_uuids`.
   after the user approves; put the returned `tool_uuid` in the node's
   `tool_uuids`. A tool does nothing unless a node both lists it and the node's
   prompt tells the agent when to call it — add both in the same candidate.
+  Use the returned identifier directly; creation already confirms it exists.
+  Omit optional settings unless the request needs them. A simple phone transfer
+  needs type="transfer_call" and config.destination; introductions are optional.
+  For dynamic or context-based transfers, request the schema with the matching
+  destination_source, preserving the existing mode when editing its definition.
 - Editing a tool: read it with `get_tool`, then call `propose_tool_edit` with
   only the fields that change. A `definition` is the full replacement, not a
   patch. Read `get_tool_definition_schema` with operation="update" before changing

@@ -8,7 +8,6 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from fastapi import HTTPException
 from fastmcp import Client
 from loguru import logger
-from pipecat.utils.run_context import set_current_org_id
 
 from api.db import db_client
 from api.db.models import UserModel
@@ -20,6 +19,7 @@ from api.schemas.workflow_builder import BuilderSession, BuilderTurnRequest
 from api.services.observability.trace_payloads import trace_json
 from api.services.workflow.builder_runtime.agent import ALLOWED_TOOLS as BUILDER_TOOLS
 from api.services.workflow.builder_runtime.errors import BuilderModelError
+from api.services.workflow.builder_runtime.progress import progress_queue
 from api.services.workflow.builder_runtime.schemas import BuilderStep
 from api.services.workflow.builder_runtime.service import builder_step
 from api.services.workflow.builder_runtime.tracing import (
@@ -36,6 +36,9 @@ TOOL_PROGRESS = {
     "list_node_types": "Looking at available conversation steps…",
     "get_node_type": "Checking how this conversation step works…",
     "list_tools": "Looking at your integrations…",
+    "get_tool": "Reading integration settings…",
+    "create_tool": "Creating your approved integration…",
+    "update_tool": "Updating your approved integration…",
     "list_documents": "Looking at your knowledge base…",
     "list_credentials": "Checking available connections…",
     "list_recordings": "Looking at your recordings…",
@@ -71,6 +74,37 @@ async def local_step(
 
 async def load_session(user, session_id) -> BuilderSession:
     return BuilderSession.model_validate(await local_step(user, session_id))
+
+
+async def _local_step_events(user, session_id, body):
+    """Stream local activity while the checkpointed step is running."""
+    queue = asyncio.Queue()
+
+    async def run():
+        token = progress_queue.set((asyncio.get_running_loop(), queue))
+        try:
+            state = await local_step(user, session_id, body)
+            queue.put_nowait(
+                {
+                    "type": "session",
+                    "session": BuilderSession.model_validate(state).model_dump(
+                        mode="json"
+                    ),
+                }
+            )
+        finally:
+            progress_queue.reset(token)
+            queue.put_nowait(None)
+
+    task = asyncio.create_task(run())
+    try:
+        while (event := await queue.get()) is not None:
+            yield event
+        await task  # Propagate failures through the existing public error handling.
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 async def open_workflow_builder(user, workflow_id: int) -> BuilderSession:
@@ -153,12 +187,6 @@ async def call_builder_tool(
 
 
 async def builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
-    # Route builder traces to this org's Langfuse project. `_OrgAttributeSpanProcessor`
-    # stamps `dograh.org_id` from this context var at span start and
-    # `_OrgRoutingExporter` routes on it. Every other trace-producing path sets this;
-    # the builder omitted it, so its spans fell to the env-default exporter (or were
-    # dropped). Set before `builder_trace` so the span is stamped on creation.
-    set_current_org_id(user.selected_organization_id)
     with builder_trace(
         user=user,
         session_id=session_id,
@@ -261,13 +289,13 @@ async def _builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
             }
             yield {"type": "status", "message": "Thinking about your agent…"}
             for _ in range(30):
-                state = await local_step(user, session_id, body)
-                yield {
-                    "type": "session",
-                    "session": BuilderSession.model_validate(state).model_dump(
-                        mode="json"
-                    ),
-                }
+                async with aclosing(
+                    _local_step_events(user, session_id, body)
+                ) as events:
+                    async for event in events:
+                        if event["type"] == "session":
+                            state = event["session"]
+                        yield event
                 pending = state["pending"]
                 if not pending or any(item["kind"] != "mcp" for item in pending):
                     yield {"type": "done"}
@@ -326,7 +354,6 @@ async def _builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
 async def save_builder_draft(
     user, session_id: UUID, checkpoint: str, workflow_id: int | None = None
 ) -> int:
-    set_current_org_id(user.selected_organization_id)
     with builder_trace(
         user=user,
         session_id=session_id,

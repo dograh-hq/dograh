@@ -6,10 +6,11 @@ TOPIC = VoicePromptingTopic(
     id="call_flow_design",
     title="Structure node prompts; sequence multi-turn tasks; design conversation around variable extraction",
     content="""\
-A good node prompt is broken into clear sections — pick five to eight depending
-on the use case rather than dumping one wall of text. Sections worth using:
-main task at this node, call flow at this node, common objections, knowledge base, 
-guardrails, rules, and success criteria.
+Keep each node prompt focused on its task, the information it needs, and when to
+move on. Use short sections or a numbered sequence when they improve clarity;
+there is no required section count. Keep related questions in one node unless
+tools, extraction, or branching need a separate step. Reuse endings with the same
+behavior instead of creating a node for every possible outcome.
 
 For multi-turn tasks, break the work into a numbered sequence inside the call
 flow. A refund-status flow looks like:

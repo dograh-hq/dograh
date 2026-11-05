@@ -7,22 +7,35 @@ planning stages. Legacy graph node names remain only to resume old checkpoints.
 
 ## Working copy and context
 
-The session owns SDK source, its SHA-256 revision, five undo snapshots, validation,
-confirmed decision notes and complete tool receipts. Targeted edits replace one
-unique text region. Writes, edits, validation and finishing check the revision;
-finishing requires validation of exactly that revision. Only independent reads
-can run in parallel. Explanations may finish without producing a new agent.
+Creation and editing share the same model/tool loop after requirements approval.
+The session owns SDK source, its SHA-256 revision, validation and tool receipts.
+`write_workflow` creates a draft; `patch_workflow` applies a batch of exact,
+non-overlapping replacements against one revision. A failed replacement applies
+none of the patch. Both tools validate automatically and return concise diagnostics.
+The model repairs errors or answers normally. A final answer exposes a proposal
+only when that exact changed revision passed validation. Explanations can finish
+without producing a new agent. Three consecutive validation failures preserve the
+working copy and return control to the user.
+
+Independent reads run in parallel; mixed tool batches execute in order, with a
+checkpoint between calls. Requirements handoffs run alone because they switch
+conversation context. Existing checkpointed validation, finish, undo, memory and
+scenario tools remain executable for compatibility but are not advertised.
 
 New editing turns receive at most 12,000 characters of recent public conversation
 and 20,000 characters of initial source. Private model history drops older whole
 tool exchanges around a 48,000-character budget; the initial task and newest
 exchange remain intact even if larger. Large tool results expose an 8,000-character
 preview. Source, earlier conversation and full tool receipts have paged read tools.
-Decision notes and receipt IDs are refreshed on every build inference.
+Edit diffs remain in receipts; model responses contain only revision, applied-edit
+count and diagnostics. Context grows by appending results; revision and receipt
+metadata are refreshed only after history is shortened, preserving a stable prefix.
 
 Tool create/update schemas accept a compact JSON object and enforce the same
 Pydantic models as the API before showing approval. The model retrieves a category's
-authoritative schema with `get_tool_definition_schema`. Creating or changing an
+authoritative schema with `get_tool_definition_schema`. Transfer schemas default
+to static destinations; dynamic or context-mapping modes can be requested explicitly.
+Optional settings keep their API defaults. Creating or changing an
 organisation tool still requires explicit approval in the conversation.
 
 Incomplete tool JSON or output-limit responses execute no tools; the model gets a
@@ -36,8 +49,14 @@ idempotent and only one run per organisation/user/session can be active. Workers
 hold a PostgreSQL session lock to exclude duplicate delivery, record ordered events,
 and recover checkpointed work after restart. A periodic sweep requeues abandoned
 runs or admissions made during a Redis outage, with a three-attempt recovery limit.
+Long-lived run and checkpoint locks detach their connections from the shared pool
+so model and tool queries can still acquire connections. Each closes on exit.
+Builder roots and their MCP child spans route together to the organization’s
+Langfuse project; external MCP clients keep separate roots in the default project.
 
 SSE only subscribes to persisted progress. Closing a browser does not cancel work.
+Local model steps, source edits and validation report status through the same
+stream as integration reads and writes; they do not wait for the whole turn to end.
 GET events accepts `after` or `Last-Event-ID`; Stop sets a durable cancellation flag.
 Existing-agent proposals save in the worker using the existing draft revision
 check. New-agent drafts still save when the user selects Test agent. Publishing
@@ -52,7 +71,9 @@ not automatically expired.
 
 ## Behavioral checks
 
-`test_workflow_scenario` rehearses the validated working revision with caller
+Scenario evaluation is a developer utility, outside the v1 authoring loop. The
+legacy `test_workflow_scenario` handler can resume older checkpoints. It rehearses
+the validated working revision with caller
 messages, supplied mock results and deterministic assertions. It reuses production
 prompt composition, tool schemas and transition names. Reports include transcript,
 visited nodes, tool arguments, check outcomes, inference count, character volume

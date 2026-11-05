@@ -89,8 +89,8 @@ export function layoutWorkflowNodes<N extends LayoutNode>(
 
     dagre.layout(g);
 
-    // Group workflow nodes by their Y position (rank/depth level)
-    const rankOf = (id: string): number => Math.round(g.node(id).y / 50) * 50;
+    // Depth is Y for TB and X for LR. Stagger across, never along, depth.
+    const rankOf = (id: string): number => Math.round(g.node(id)[rankdir === "TB" ? "y" : "x"] / 50) * 50;
     const nodesByRank = new Map<number, number>();
     sortedWorkflowNodes.forEach((node) => {
         const rankY = rankOf(node.id);
@@ -116,8 +116,9 @@ export function layoutWorkflowNodes<N extends LayoutNode>(
             xOffset = rankIndex % 2 === 0 ? -HORIZONTAL_STAGGER : HORIZONTAL_STAGGER;
         }
 
-        const x = dagreNode.x + xOffset;
-        const y = dagreNode.y;
+        // Dagre gives centers; React Flow expects the top-left corner.
+        const x = dagreNode.x - NODE_WIDTH / 2 + (rankdir === "TB" ? xOffset : 0);
+        const y = dagreNode.y - NODE_HEIGHT / 2 + (rankdir === "LR" ? xOffset : 0);
 
         workflowMinX = Math.min(workflowMinX, x);
         workflowMaxX = Math.max(workflowMaxX, x + NODE_WIDTH);

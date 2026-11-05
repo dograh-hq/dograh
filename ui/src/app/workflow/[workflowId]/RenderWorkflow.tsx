@@ -36,7 +36,8 @@ import { WorkflowTesterPanel } from './components/WorkflowTesterPanel';
 import { WorkflowVersionDiffDialog } from './components/WorkflowVersionDiffDialog';
 import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { type SavedVersion, useWorkflowState } from "./hooks/useWorkflowState";
-import { layoutNodes } from './utils/layoutNodes';
+import { useWorkflowStore } from './stores/workflowStore';
+import { applyLayoutPositions, layoutNodes } from './utils/layoutNodes';
 
 const edgeTypes = {
     custom: CustomEdge,
@@ -180,6 +181,7 @@ function WorkflowEditor({
         initialWorkflowConfigurations,
         user,
         onVersionSaved,
+        editingDisabled: builderBusy,
     });
 
     // Single generic component for every node type. Seed with core node types
@@ -425,16 +427,31 @@ function WorkflowEditor({
     }, [fetchVersions]);
     applySavedVersionRef.current = (version) => { void applySavedVersion(version); };
 
+    const refreshTools = useCallback(async () => {
+        try {
+            const response = await listToolsApiV1ToolsGet({});
+            if (response.error) throw new Error(detailFromError(response.error, 'Could not refresh tools.'));
+            if (!response.data) throw new Error('Could not load tools.');
+            setTools(response.data);
+        } catch (error) {
+            // A catalog failure must not prevent loading the saved workflow
+            // or discard its tool bindings.
+            console.error('Failed to refresh tools:', error);
+            toast.error('Could not refresh tools. Reload to try again.');
+        }
+    }, []);
+
     const handleBuilderSaved = useCallback(async () => {
         const response = await getWorkflowApiV1WorkflowFetchWorkflowIdGet({ path: { workflow_id: workflowId } });
         if (response.error) throw new Error(detailFromError(response.error, 'Draft saved, but the canvas could not be refreshed. Reload to try again.'));
         if (!response.data) throw new Error('Draft saved, but the workflow could not be loaded.');
+        await refreshTools();
         setNodes((response.data.workflow_definition.nodes ?? []) as FlowNode[]);
         setEdges((response.data.workflow_definition.edges ?? []) as FlowEdge[]);
         setIsDirty(false);
         await applySavedVersion({ versionNumber: response.data.version_number ?? undefined, versionStatus: response.data.version_status ?? undefined });
         toast.success('Agent updated');
-    }, [workflowId, setNodes, setEdges, setIsDirty, applySavedVersion]);
+    }, [workflowId, setNodes, setEdges, setIsDirty, applySavedVersion, refreshTools]);
 
     // Compute version label for the header.
     // Uses currentVersionNumber/Status which update immediately from save responses,
@@ -520,10 +537,7 @@ function WorkflowEditor({
                 }
 
                 // Fetch tools
-                const toolsResponse = await listToolsApiV1ToolsGet({});
-                if (toolsResponse.data) {
-                    setTools(toolsResponse.data);
-                }
+                await refreshTools();
 
                 // Fetch org-level recordings
                 try {
@@ -542,7 +556,7 @@ function WorkflowEditor({
         };
 
         fetchData();
-    }, [workflowId]);
+    }, [workflowId, refreshTools]);
 
     // Memoize defaultEdgeOptions to prevent unnecessary re-renders
     const defaultEdgeOptions = useMemo(() => ({
@@ -595,10 +609,10 @@ function WorkflowEditor({
     // Cmd+S, node edit dialogs, stale doc/tool cleanup, etc.
     // Uses the save response to immediately update version label and hasDraft.
     const guardedSaveWorkflow = useCallback(async (updateWorkflowDefinition?: boolean) => {
-        if (isViewingHistoricalVersion) return;
+        if (isViewingHistoricalVersion || builderBusy) return;
         const result = await saveWorkflow(updateWorkflowDefinition);
         if (result) await applySavedVersion(result);
-    }, [saveWorkflow, isViewingHistoricalVersion, applySavedVersion]);
+    }, [saveWorkflow, isViewingHistoricalVersion, builderBusy, applySavedVersion]);
 
     const renameWorkflow = useCallback(async (newName: string) => {
         // The header doesn't render the pencil until the page has mounted with
@@ -629,7 +643,7 @@ function WorkflowEditor({
         tools,
         updateTool,
         recordings,
-        readOnly: isViewingHistoricalVersion,
+        readOnly: isViewingHistoricalVersion || builderBusy,
     }), [
         guardedSaveWorkflow,
         documents,
@@ -637,6 +651,7 @@ function WorkflowEditor({
         updateTool,
         recordings,
         isViewingHistoricalVersion,
+        builderBusy,
     ]);
 
     return (
@@ -670,6 +685,7 @@ function WorkflowEditor({
                 <div className="flex-1 min-h-0">
                     <div className="flex h-full min-w-0">
                         <div className="relative min-w-0 flex-1">
+                            <div className="h-full" inert={builderBusy}>
                             <ReactFlow
                                 key={activeVersionId ?? 'current'}
                                 nodes={displayNodes}
@@ -690,11 +706,11 @@ function WorkflowEditor({
                                 }}
                                 defaultEdgeOptions={defaultEdgeOptions}
                                 defaultViewport={initialFlow?.viewport}
-                                nodesDraggable={!isViewingHistoricalVersion}
-                                nodesConnectable={!isViewingHistoricalVersion}
-                                edgesReconnectable={!isViewingHistoricalVersion}
+                                nodesDraggable={!isViewingHistoricalVersion && !builderBusy}
+                                nodesConnectable={!isViewingHistoricalVersion && !builderBusy}
+                                edgesReconnectable={!isViewingHistoricalVersion && !builderBusy}
                                 zoomOnDoubleClick={false}
-                                deleteKeyCode={isViewingHistoricalVersion ? null : "Backspace"}
+                                deleteKeyCode={isViewingHistoricalVersion || builderBusy ? null : "Backspace"}
                             >
                                 <Background
                                     variant={BackgroundVariant.Dots}
@@ -728,6 +744,7 @@ function WorkflowEditor({
                                     </Panel>
                                 )}
                             </ReactFlow>
+                            </div>
 
                             {/* Bottom-left controls - horizontal layout with custom buttons */}
                             <div className="absolute bottom-12 left-8 z-10 flex gap-2">
@@ -786,11 +803,12 @@ function WorkflowEditor({
                                                 <Button
                                                     variant="outline"
                                                     size="icon"
+                                                    disabled={builderBusy}
                                                     onClick={() => {
                                                         void layoutNodes(nodes, edges, 'TB', rfInstance)
                                                             .then((positioned) => {
                                                                 if (positioned === nodes) return;
-                                                                setNodes(positioned);
+                                                                setNodes(applyLayoutPositions(useWorkflowStore.getState().nodes, positioned));
                                                                 setIsDirty(true);
                                                             })
                                                             .catch((err: unknown) => {
@@ -820,6 +838,7 @@ function WorkflowEditor({
                                     workflowName={workflowName}
                                     workflowUuid={workflowUuid}
                                     builderDisabled={isDirty || settingsSaving}
+                                    builderBusy={builderBusy}
                                     onBuilderSaved={handleBuilderSaved}
                                     onBuilderBusyChange={setBuilderBusy}
                                     nodes={nodes}

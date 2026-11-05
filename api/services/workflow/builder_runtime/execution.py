@@ -188,6 +188,20 @@ async def execute_builder_run(run_id: str) -> None:
         session_id = UUID(run["session_id"])
         request = BuilderTurnRequest.model_validate(run["request"])
 
+        async def failed(event):
+            # A failed inference may still have checkpointed the user input or
+            # completed tools. Send that checkpoint before the terminal error.
+            try:
+                session = await load_session(actor, session_id)
+            except Exception:  # noqa: BLE001 -- preserve the original failure if checkpoint storage is unavailable
+                logger.warning("Could not refresh failed builder run {}", run_id)
+            else:
+                await db_client.append_builder_event(
+                    run_id,
+                    {"type": "session", "session": session.model_dump(mode="json")},
+                )
+            await db_client.append_builder_event(run_id, event, status="failed")
+
         async def stopped():
             try:
                 session = await load_session(actor, session_id)
@@ -263,9 +277,7 @@ async def execute_builder_run(run_id: str) -> None:
                             )
                         continue
                     if event["type"] == "error":
-                        await db_client.append_builder_event(
-                            run_id, event, status="failed"
-                        )
+                        await failed(event)
                         continue
                     await db_client.append_builder_event(run_id, event)
 
@@ -309,24 +321,20 @@ async def execute_builder_run(run_id: str) -> None:
             # handled above. Cancellation never implies the request was completed.
             raise
         except HTTPException as exc:
-            await db_client.append_builder_event(
-                run_id,
+            await failed(
                 {
                     "type": "error",
                     "message": str(exc.detail),
                     "status_code": exc.status_code,
                 },
-                status="failed",
             )
         except Exception:  # noqa: BLE001 -- persist a safe error at the worker/queue boundary
             logger.exception("Builder run {} failed", run_id)
-            await db_client.append_builder_event(
-                run_id,
+            await failed(
                 {
                     "type": "error",
                     "message": "The builder stopped unexpectedly. Reopen the conversation to continue.",
                 },
-                status="failed",
             )
         finally:
             if not task.done():

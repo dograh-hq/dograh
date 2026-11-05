@@ -3,9 +3,9 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 import { WorkflowBuilder } from './WorkflowBuilder';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), open: vi.fn(), events: vi.fn(), cancel: vi.fn(), send: vi.fn(), save: vi.fn(), push: vi.fn(), token: vi.fn(async () => 'token') }));
+const mocks = vi.hoisted(() => ({ signedIn: true, get: vi.fn(), open: vi.fn(), events: vi.fn(), cancel: vi.fn(), send: vi.fn(), save: vi.fn(), push: vi.fn(), token: vi.fn(async () => 'token') }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: '1', organizationId: '7' }, loading: false, getAccessToken: mocks.token }) }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: mocks.signedIn ? { id: '1', organizationId: '7' } : null, loading: false, getAccessToken: mocks.token }) }));
 vi.mock('@/client/sdk.gen', () => ({
     getBuilderSessionApiV1WorkflowBuilderSessionIdGet: mocks.get,
     openWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPost: mocks.open,
@@ -22,12 +22,13 @@ const session = {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    mocks.signedIn = true;
     Element.prototype.scrollIntoView = vi.fn();
     window.history.replaceState({}, '', '/workflow/create?session=retained-session');
     mocks.get.mockResolvedValue({ data: session });
     mocks.open.mockResolvedValue({ data: session });
-    mocks.send.mockImplementation(async () => ({ stream: (async function* () {
-        yield { type: 'session', session: { ...session, workflow_id: 41, checkpoint: 'new', messages: [...session.messages, { id: 'reply', role: 'assistant', content: 'Updated greeting' }] } };
+    mocks.send.mockImplementation(async ({ path }) => ({ stream: (async function* () {
+        yield { type: 'session', session: { ...session, id: path.session_id, workflow_id: 41, checkpoint: 'new', messages: [...session.messages, { id: 'reply', role: 'assistant', content: 'Updated greeting' }] } };
         yield { type: 'saved', workflow_id: 41 };
         yield { type: 'done' };
     })() }));
@@ -177,6 +178,10 @@ it('opens a new persistent conversation for a workflow that has never used the b
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     await screen.findByText('Updated greeting');
     expect(mocks.send.mock.calls[0][0]).toMatchObject({ path: { session_id: 'new-session' }, body: { workflow_id: 41, checkpoint: null } });
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'One more change' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(2));
+    expect(mocks.send.mock.calls[1][0]).toMatchObject({ path: { session_id: 'new-session' }, body: { checkpoint: 'new' } });
     unmount();
     mocks.open.mockResolvedValue({ data: { ...session, id: 'new-session' } });
     render(<WorkflowBuilder workflowId={41} />);
@@ -261,4 +266,23 @@ it('shows a queued request as waiting instead of thinking', async () => {
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
     finish();
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull());
+});
+
+it('retries a failed session restore without reloading the page', async () => {
+    mocks.open.mockResolvedValueOnce({ error: { detail: 'Temporary failure' } }).mockResolvedValue({ data: session });
+    render(<WorkflowBuilder workflowId={41} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry restoring conversation' }));
+    await screen.findByText('Build a receptionist');
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).disabled).toBe(false);
+    expect(mocks.open).toHaveBeenCalledTimes(2);
+});
+
+
+it('shows a sign-in action when authentication finishes without a user', () => {
+    mocks.signedIn = false;
+    render(<WorkflowBuilder />);
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/handler/sign-in');
+    expect(screen.queryByText('Restoring conversation…')).toBeNull();
+    expect(mocks.open).not.toHaveBeenCalled();
+    expect(mocks.get).not.toHaveBeenCalled();
 });

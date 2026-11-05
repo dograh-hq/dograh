@@ -1,8 +1,8 @@
 """MCP discovery tools for the reference catalogs.
 
 Node properties of type `tool_refs`, `document_refs`, `recording_ref`, and
-`credential_ref` carry UUIDs that resolve against these catalogs. LLMs must
-list the catalog before populating those fields with real UUIDs.
+`credential_ref` carry identifiers that resolve against these catalogs. LLMs
+must list the catalog and use the identifier specified for each field.
 """
 
 from api.db import db_client
@@ -84,10 +84,12 @@ async def list_recordings(workflow_id: int | None = None) -> list[dict]:
     """List pre-recorded audio files available for greetings and edge
     transition speech.
 
-    Returns each recording's `recording_id` (use this in
-    `greeting_recording_id` / `transition_speech_recording_id` properties),
-    `transcript`, and TTS metadata. Pass `workflow_id` to filter to one
-    workflow's recordings.
+    Returns each recording's numeric database `id`, public `recording_id`,
+    `transcript`, and TTS metadata. For node `greeting_recording_id` and edge
+    `transition_speech_recording_id`, convert `id` to a string (for example,
+    `id: 42` becomes `"42"`). The public `recording_id` is used for
+    `greeting_override.recording_id` in a call's initial context.
+    Pass `workflow_id` to filter to one workflow's recordings.
     """
     user = await authenticate_mcp_request()
     recordings = await db_client.get_recordings(

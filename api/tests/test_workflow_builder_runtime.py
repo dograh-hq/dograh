@@ -404,7 +404,7 @@ async def test_model_adapter_preserves_reasoning_and_provider_tool_metadata(
         ]
     )
     with patch.object(
-        adapter.mps_service_key_client, "create_chat_completion", complete
+        adapter.mps_service_key_client, "create_agent_builder_completion", complete
     ):
         first = await model.ainvoke([HumanMessage(content="Build an agent")])
         await model.ainvoke(
@@ -417,7 +417,7 @@ async def test_model_adapter_preserves_reasoning_and_provider_tool_metadata(
     assert complete.await_count == 2
     payload = complete.await_args.kwargs
     assert payload["service_key"] == "org-service-key"
-    assert payload["model"] == "workflow_builder"
+    assert "model" not in payload
     assert payload["metadata"]["usage_context"] == "workflow_builder"
     assert payload["metadata"]["dograh_organization_id"] == "2"
     assert "correlation_id" not in payload["metadata"]
@@ -522,34 +522,6 @@ async def test_model_adapter_sanitizes_upstream_errors(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "failed_request", [True, False], ids=["unavailable", "missing-id"]
-)
-async def test_model_adapter_requires_correlation_before_inference(
-    managed_builder_config, failed_request
-):
-    _, minted = managed_builder_config
-    if failed_request:
-        minted.side_effect = httpx.ConnectError("sensitive upstream error")
-    else:
-        minted.return_value = {}
-    with (
-        patch.object(mps_client_module.httpx, "AsyncClient") as client,
-        pytest.raises(HTTPException) as error,
-    ):
-        await BuilderChatModel(organization_id=2, user_id="3").ainvoke(
-            [HumanMessage(content="Hello")]
-        )
-    assert error.value.status_code == 503
-    assert error.value.error_code == (
-        "dograh-connection" if failed_request else "dograh-invalid-response"
-    )
-    assert error.value.detail == MPS_UNAVAILABLE_PUBLIC_MESSAGE
-    assert "sensitive" not in error.value.detail
-    client.assert_not_called()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
     "exception,status,error_code,message",
     [
         (httpx.ConnectError, 503, "dograh-connection", MPS_UNAVAILABLE_PUBLIC_MESSAGE),
@@ -563,7 +535,7 @@ async def test_model_adapter_reports_transport_errors(
 
     monkeypatch.setattr(
         adapter.mps_service_key_client,
-        "create_chat_completion",
+        "create_agent_builder_completion",
         AsyncMock(side_effect=exception("private provider details")),
     )
     with pytest.raises(HTTPException) as error:
@@ -594,12 +566,7 @@ async def test_model_adapter_isolates_org_keys_and_refreshes_configuration(
             ),
         )
 
-    async def mint(*, service_key):
-        await asyncio.sleep(0)
-        return {"correlation_id": f"correlation-for-{service_key}"}
-
     config.side_effect = lookup
-    minted.side_effect = mint
     requests = []
 
     def complete(request):
@@ -608,9 +575,8 @@ async def test_model_adapter_isolates_org_keys_and_refreshes_configuration(
         payload = json.loads(request.content)
         org_id = int(payload["metadata"]["dograh_organization_id"])
         assert request.headers["Authorization"] == f"Bearer {keys[org_id]}"
-        assert (
-            payload["metadata"]["correlation_id"] == f"correlation-for-{keys[org_id]}"
-        )
+        assert request.url.path == "/api/v1/agent-builder/chat/completions"
+        assert "correlation_id" not in payload["metadata"]
         requests.append(org_id)
         return httpx.Response(
             200, json={"choices": [{"message": {"content": "Hello"}}]}
@@ -634,6 +600,7 @@ async def test_model_adapter_isolates_org_keys_and_refreshes_configuration(
     keys[2] = "rotated-org-two-key"
     await model.ainvoke([HumanMessage(content="Continue")])
     assert sorted(requests) == [2, 2, 4]
+    minted.assert_not_awaited()
 
 
 @pytest.mark.asyncio

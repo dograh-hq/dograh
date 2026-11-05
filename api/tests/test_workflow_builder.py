@@ -636,23 +636,16 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     ]
     expected_calls = len(replies)
     calls = []
-    correlation_requests = []
     trace_headers = []
 
     def complete(request):
         assert request.headers["Authorization"] == "Bearer org-service-key"
-        if request.url.path == "/api/v1/service-keys/correlation-id/self":
-            assert json.loads(request.content) == {
-                "deployment_id": mps_client_module.DOGRAH_DEPLOYMENT_ID
-            }
-            correlation_requests.append(request)
-            return httpx.Response(200, json={"correlation_id": "builder-correlation"})
-        assert request.url.path == "/api/v1/llm/chat/completions"
+        assert request.url.path == "/api/v1/agent-builder/chat/completions"
         assert "X-Dograh-Usage-Context" not in request.headers
         body = json.loads(request.content)
         assert body["metadata"]["usage_context"] == "workflow_builder"
-        assert body["metadata"]["correlation_id"] == "builder-correlation"
-        assert body["metadata"]["mps_billing_version"] == "2"
+        assert "correlation_id" not in body["metadata"]
+        assert "mps_billing_version" not in body["metadata"]
         assert "org-service-key" not in str(body)
         system = next(
             message["content"]
@@ -771,7 +764,6 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
         assert (await browser.get(f"/workflow/builder/{session_id}")).status_code == 404
     assert create.call_args.kwargs["organization_id"] == 27
     assert len(calls) == expected_calls
-    assert len(correlation_requests) == expected_calls
     assert all(args.args[0] == 27 for args in config.await_args_list)
     # The new-agent builder receives the guide inline, without a retrieval turn.
     assert [call["metadata"]["builder_stage"] for call in calls] == [

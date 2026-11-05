@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { validateJinjaSyntax } from "@/lib/jinjaValidator";
 import { cn } from "@/lib/utils";
 import { createUuid } from "@/lib/uuid";
 import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
@@ -551,6 +552,17 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
         );
     }, [values, data, spec, propertyNames]);
 
+    const jinjaError = useMemo(() => {
+        for (const key of ["prompt", "greeting", "extraction_prompt"]) {
+            const val = values[key];
+            if (typeof val === "string") {
+                const res = validateJinjaSyntax(val);
+                if (!res.isValid) return res.error;
+            }
+        }
+        return null;
+    }, [values]);
+
     const handleSave = async () => {
         if (!spec) return;
         handleSaveNodeData({
@@ -644,6 +656,7 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                 nodeData={data}
                 title={dialogTitle}
                 onSave={handleSave}
+                error={jinjaError}
                 isDirty={isDirty}
                 documentationUrl={docUrl}
             >

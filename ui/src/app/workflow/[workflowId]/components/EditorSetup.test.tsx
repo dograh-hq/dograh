@@ -72,6 +72,52 @@ describe("editor setup", () => {
         expect(describeVariables({}, [])).toEqual({ text: "No variables", missing: [] });
         // Only the agent's own variables count, not what every object inherits.
         expect(describeVariables({}, [{ ...nodes[0], data: { prompt: "{{toString}}" } }] as FlowNode[])).toEqual({ text: "0 set, 1 missing", missing: ["toString"] });
+
+        // Jinja conditional and loop variables
+        const jinjaNodes = [
+            {
+                id: "step1",
+                type: "agent",
+                position: { x: 0, y: 0 },
+                data: {
+                    prompt: "{% if loan_amount > 500000 and is_vip %}VIP{% endif %}\n{% for item in cart_items %}{{ item }}{% endfor %}",
+                },
+            },
+        ] as FlowNode[];
+        expect(referencedVariables(jinjaNodes)).toEqual(["cart_items", "is_vip", "loan_amount"]);
+        expect(describeVariables({ loan_amount: "600000" }, jinjaNodes)).toEqual({
+            text: "1 set, 2 missing",
+            missing: ["cart_items", "is_vip"],
+        });
+
+        // Jinja {% set %} variables are recognized as local and don't trigger missing warnings
+        const setNodes = [
+            {
+                id: "step2",
+                type: "agent",
+                position: { x: 0, y: 0 },
+                data: {
+                    prompt: '{% set interest_rate = "8.5%" %}\nRate is {{ interest_rate }} for {{ custom_customer.id }}.\n{% set total = base_amount + fee %}',
+                },
+            },
+        ] as FlowNode[];
+        expect(referencedVariables(setNodes)).toEqual(["base_amount", "custom_customer", "fee"]);
+
+        // Advanced Jinja: tuple loops, string comparisons, attribute access, filter access, and field isolation
+        const complexNodes = [
+            {
+                id: "step3",
+                type: "agent",
+                position: { x: 0, y: 0 },
+                data: {
+                    prompt: '{% for (k, v) in pairs %}{{ k }}: {{ v }}{% endfor %}\n{% if plan == "pro" and user.is_active and items|length > 0 %}Yes{% endif %}\n{% set local_token = "abc" %}',
+                    greeting: "Hello {{ local_token }}",
+                },
+            },
+        ] as FlowNode[];
+        // "pro" (string literal), "is_active" (attribute), "length" (filter), "k" and "v" (loop vars) are NOT candidate variables
+        // "local_token" in prompt does not suppress "local_token" in greeting
+        expect(referencedVariables(complexNodes)).toEqual(["items", "local_token", "pairs", "plan", "user"]);
     });
 
     it("offers all five views for every workflow and switches on click", () => {

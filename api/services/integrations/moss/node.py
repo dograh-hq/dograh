@@ -152,6 +152,9 @@ class MossNodeData(BaseNodeData):
         ui_type=PropertyType.number,
         display_name="Results per Search",
         description="How many documents each search returns to the agent.",
+        renderer_options=PropertyRendererOptions(
+            number_input=NumberInputOptions(fractional=False)
+        ),
     )
     moss_alpha: float = spec_field(
         default=0.8,

@@ -62,7 +62,7 @@ class Moss(TypedNode):
     search tool, in tool mode and on speech to speech calls.
     """
 
-    moss_top_k: float = 3
+    moss_top_k: int = 3
     """
     How many documents each search returns to the agent.
     """

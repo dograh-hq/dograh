@@ -1,5 +1,6 @@
 """Continue a saved builder session without replacing newer or published work."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -15,7 +16,7 @@ from api.services.workflow.builder import (
     open_workflow_builder,
     save_builder_draft,
 )
-from api.tests.test_workflow_builder_stages import Conversation
+from api.tests.test_workflow_builder_stages import Conversation, candidate_call
 from api.utils.workflow_revision import workflow_revision
 
 
@@ -42,9 +43,9 @@ async def test_resume_rejects_another_users_orgs_or_sessions_workflow(
                 else str(uuid4())
             ),
         ),
+        pytest.raises(HTTPException) as error,
     ):
-        with pytest.raises(HTTPException) as error:
-            await load_builder_workflow(user, session, 41)
+        await load_builder_workflow(user, session, 41)
     assert error.value.status_code == 404
     get.assert_awaited_once_with(41, organization_id=7)
 
@@ -113,9 +114,9 @@ async def test_resume_keeps_history_and_uses_current_canvas_without_resetting_un
     conversation = Conversation(
         [
             AIMessage(content="Original conversation"),
-            AIMessage(content="First change"),
-            AIMessage(content="Second change"),
-            AIMessage(content="Canvas changed"),
+            candidate_call("unsaved first change", "first"),
+            candidate_call("unsaved second change", "second"),
+            candidate_call("final source", "third"),
         ]
     )
     await conversation.step(message="Build a receptionist")
@@ -132,17 +133,21 @@ async def test_resume_keeps_history_and_uses_current_canvas_without_resetting_un
         "Original conversation",
     ]
     assert all(context["code"] not in m["content"] for m in result["messages"])
-    assert context["code"] in conversation.model.seen[-1][-2].content
+    assert (
+        json.loads(conversation.model.seen[-1][1].content)["previous_code"]
+        == context["code"]
+    )
+    assert result["pending"][0]["tool_name"] == "preview_workflow"
+    await conversation.validate("unsaved first change")
 
     # A subsequent request before saving must refine the last candidate.
-    await conversation.graph.aupdate_state(
-        conversation.config, {"candidate": {"code": "unsaved first change"}}
-    )
-    conversation.current["checkpoint"] = (
-        await conversation.graph.aget_state(conversation.config)
-    ).config["configurable"]["checkpoint_id"]
     await conversation.step(message="Also change the ending", current_workflow=context)
-    assert (await conversation.state())["candidate"]["code"] == "unsaved first change"
+    assert (await conversation.state())["previous_code"] == "unsaved first change"
+    assert (
+        json.loads(conversation.model.seen[-1][1].content)["previous_code"]
+        == "unsaved first change"
+    )
+    await conversation.validate("unsaved second change")
     await conversation.step(
         message="Keep my canvas edits",
         current_workflow={
@@ -154,6 +159,13 @@ async def test_resume_keeps_history_and_uses_current_canvas_without_resetting_un
     state = await conversation.state()
     assert state["candidate"] is None
     assert state["previous_code"] == "manually edited canvas"
+    assert (
+        json.loads(conversation.model.seen[-1][1].content)["previous_code"]
+        == "manually edited canvas"
+    )
+    assert (await conversation.validate("final source"))["proposal"][
+        "code"
+    ] == "final source"
 
 
 @pytest.mark.asyncio

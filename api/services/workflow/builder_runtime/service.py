@@ -8,7 +8,7 @@ from langgraph.types import Command
 
 from api.db import db_client
 
-from .agent import build_agent
+from .agent import _fresh_messages, build_agent
 from .model import BUILDER_USAGE_CONTEXT, BuilderChatModel
 from .schemas import (
     BuilderStep,
@@ -99,13 +99,20 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                     "Respond to the pending questions or requirements before sending another message",
                 )
             message = HumanMessage(content=request.message, id=str(request.request_id))
+            previous = (
+                snapshot.values.get("candidate")
+                or snapshot.values.get("proposal")
+                or {}
+            )
+            previous_code = previous.get("code") or snapshot.values.get("previous_code")
             value = {
                 **updates,
                 "phase": "build_requirements",
                 "approved_brief_revision": None,
-                "conversation_plan": None,
                 "proposal": None,
                 "review": None,
+                "candidate": None,
+                "validation_attempts": 0,
                 "idle_turns": 0,
                 "messages": [message],
                 "plan_messages": [message],
@@ -116,23 +123,27 @@ async def run_step(graph, config: dict, session_id: UUID, request: BuilderStep |
                 or request.current_workflow["id"] != snapshot.values.get("workflow_id")
             ):
                 workflow = request.current_workflow
+                previous_code = workflow["code"]
                 value.update(
                     workflow_id=workflow["id"],
                     workflow_revision=workflow["revision"],
-                    previous_code=workflow["code"],
-                    candidate=None,
-                    plan_messages=[
-                        HumanMessage(
-                            content="Current saved workflow, including canvas edits. "
-                            "Use this as the starting point for the requested changes. "
-                            "Answer your own questions about current behavior from it; "
-                            "ask the user only about the change they want:\n"
-                            + workflow["code"],
-                            id=f"{request.request_id}:workflow",
-                        ),
-                        message,
-                    ],
                 )
+            if previous_code:
+                value.update(
+                    phase="build",
+                    previous_code=previous_code,
+                    build_messages=_fresh_messages(
+                        {
+                            "previous_code": previous_code,
+                            "user_request": request.message,
+                            "conversation": [
+                                {"role": m["role"], "content": m["content"]}
+                                for m in current["messages"]
+                            ],
+                        }
+                    ),
+                )
+                del value["plan_messages"]
         elif request.resume is not None:
             pending = {item["id"]: item for item in current["pending"]}
             if set(request.resume) != set(pending):

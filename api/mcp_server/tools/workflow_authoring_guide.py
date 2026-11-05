@@ -12,12 +12,13 @@ async def get_workflow_authoring_guide(
 ) -> dict:
     """Retrieve just the current authoring stage and its structured output schema.
 
-    Start with build_requirements: produce a CallBrief and get manual approval.
-    Plan designs the conversation and prompts using the voice guide. Build
-    translates that plan into SDK source using the included core reference.
-    Review checks the candidate against the brief and plan before submission.
-    Set iteration=true only for explicitly requested integration changes to an
-    existing agent; build/review then include targeted resource lookup guidance.
+    For a new agent, start with build_requirements: produce a CallBrief and get manual approval.
+    Build turns that brief directly into conversation flow, prompts, and SDK
+    source using the voice guide and included core reference. Review checks
+    the candidate against the brief before submission.
+    For any edit to an existing agent, use build with iteration=true directly.
+    This selects the editor prompt, without requiring a new brief, and includes
+    targeted resource lookup guidance. Review edits with iteration=true as well.
     Only fetch the stage you need. This tool supplies guidance, not agent
     execution or stage enforcement; the MCP host controls its conversation.
     """

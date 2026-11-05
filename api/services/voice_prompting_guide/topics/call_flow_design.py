@@ -1,46 +1,10 @@
 """Topic: structure node prompts in sections; sequence multi-turn tasks."""
 
-from __future__ import annotations
-
-from api.services.voice_prompting_guide._base import (
-    AuditCheck,
-    Stage,
-    StageLens,
-    VoicePromptingTopic,
-)
+from api.services.voice_prompting_guide._base import VoicePromptingTopic
 
 TOPIC = VoicePromptingTopic(
     id="call_flow_design",
     title="Structure node prompts; sequence multi-turn tasks; design conversation around variable extraction",
-    severity="medium",
-    applies_to_node_types=("agentNode", "startCall"),
-    stages={
-        Stage.plan: StageLens(
-            relevant=True,
-            lens=(
-                "Sketch the customer conversation (e.g. ask for the order ID, "
-                "verify it, look up the order, explain the result). Establish "
-                "which information is needed at each step."
-            ),
-        ),
-        Stage.create: StageLens(
-            relevant=True,
-            lens=(
-                "Break the node prompt into 5-8 labeled sections and write multi-turn "
-                "tasks as a numbered sequence. Collect one piece of information per "
-                "turn, and keep variable-extraction instructions in the node's "
-                "separate extraction_prompt field, not the main prompt."
-            ),
-        ),
-        Stage.review: StageLens(
-            relevant=True,
-            lens=(
-                "Check the node asks for one thing at a time and that extraction "
-                "logic isn't tangled into the conversational prompt. Check whether the nodes "
-                "are created around variable extraction."
-            ),
-        ),
-    },
     content="""\
 A good node prompt is broken into clear sections — pick five to eight depending
 on the use case rather than dumping one wall of text. Sections worth using:
@@ -74,33 +38,4 @@ Generic, always-applicable material (persona, common objections, global
 response style, anti-jailbreak rules) belongs in the global prompt, not in
 each node prompt — a global node is reachable from anywhere in the call.
 """,
-    audit_checks=(
-        AuditCheck(
-            id="collects_one_thing_at_a_time",
-            judge_question=(
-                "When the node gathers multiple pieces of information, does the "
-                "prompt instruct the agent to collect them one at a time rather than "
-                "asking for several in a single turn?"
-            ),
-            expected="yes",
-            quote=(
-                "Prompt batches several asks in one turn — collect one item at a "
-                "time, confirming as you go."
-            ),
-        ),
-        AuditCheck(
-            id="extraction_kept_separate",
-            judge_question=(
-                "Is the main conversational prompt free of variable-extraction "
-                "instructions (which belong in the separate extraction_prompt "
-                "field)?"
-            ),
-            expected="yes",
-            quote=(
-                "Extraction logic is mixed into the main prompt — move it to the "
-                "node's extraction_prompt field."
-            ),
-        ),
-    ),
-    cross_refs=("common_guidelines", "success_criteria", "tool_calls"),
 )

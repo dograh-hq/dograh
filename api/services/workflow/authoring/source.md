@@ -18,7 +18,7 @@ wf.edge(greet, done, {
 });
 ```
 
-Adapt this syntax to the supplied conversation plan and factory signatures.
+Adapt this syntax to the confirmed requirements and factory signatures.
 The workflow name is required. Use descriptive node names and declare nodes
 before edges. Omit position and unused fields; the server supplies layout and
 defaults. Values are literal strings, numbers, booleans, null, arrays, or objects.

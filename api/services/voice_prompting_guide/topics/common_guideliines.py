@@ -1,41 +1,10 @@
 """Topic: common global guidelines for phone-call agents."""
 
-from __future__ import annotations
-
-from api.services.voice_prompting_guide._base import (
-    AuditCheck,
-    Stage,
-    StageLens,
-    VoicePromptingTopic,
-)
+from api.services.voice_prompting_guide._base import VoicePromptingTopic
 
 TOPIC = VoicePromptingTopic(
     id="common_guidelines",
     title="Global node template: preserve this structure and wording",
-    severity="high",
-    applies_to_node_types=("globalNode",),
-    stages={
-        Stage.create: StageLens(
-            relevant=True,
-            required_read=True,
-            lens=(
-                "Before writing the global node, call "
-                "get_voice_prompting_guide(topic='common_guidelines') and read "
-                "the full content. Copy that template into the global node as "
-                "close to verbatim as possible, changing only details the builder "
-                "has overridden."
-            ),
-        ),
-        Stage.review: StageLens(
-            relevant=True,
-            required_read=True,
-            lens=(
-                "Check that the global node preserves the common template's "
-                "headings, order, examples, and voice rules unless the builder's "
-                "business context required a targeted change."
-            ),
-        ),
-    },
     content="""\
 This content belongs in the global node so every node inherits it. When writing
 or revising the global node, copy the template below as close to verbatim as
@@ -82,34 +51,4 @@ Rude once → stay kind. Repeat abuse → "I want to help, but let's keep it res
 ## Current Date and Time
 UTC Time: {{current_time}} UTC Weekday: {{current_weekday}}
 """,
-    audit_checks=(
-        AuditCheck(
-            id="global_has_common_voice_rules",
-            judge_question=(
-                "Does the global prompt include shared phone-call guidelines for "
-                "identity and goal, concise spoken style, language behavior, speech "
-                "recovery, honesty and scope, and off-topic or unsafe turns?"
-            ),
-            expected="yes",
-            quote=(
-                "Global node is missing common phone-call rules — add shared style, "
-                "language, speech handling, honesty, and objection guidance there."
-            ),
-        ),
-        AuditCheck(
-            id="global_preserves_common_template",
-            judge_question=(
-                "Does the global prompt preserve the common_guidelines template's "
-                "heading structure, order, examples, and core wording, changing "
-                "only details that the builder explicitly supplied or refined?"
-            ),
-            expected="yes",
-            quote=(
-                "Global node drifted from the common template — restore the "
-                "#goal, Rules, Speech Handling, and Common Objections structure "
-                "unless the builder explicitly changed it."
-            ),
-        ),
-    ),
-    cross_refs=("guardrails", "turn_taking", "instruction_collision"),
 )

@@ -6,7 +6,6 @@ from .contracts import (
     AuthoringStage,
     BuildResult,
     CallBrief,
-    ConversationPlan,
     ReviewResult,
 )
 from .sdk_reference import core_sdk_reference
@@ -27,8 +26,9 @@ def render_authoring_instructions(interface_instructions: str) -> str:
 def authoring_stage(stage: AuthoringStage | str, *, iteration: bool = False) -> dict:
     """Return the same instructions and handoff schema through either interface."""
     stage = AuthoringStage(stage)
+    prompt = "edit" if stage == AuthoringStage.build and iteration else stage.value
     parts = [
-        (_ASSETS / "stages" / f"{stage.value}.md").read_text(encoding="utf-8").strip(),
+        (_ASSETS / "stages" / f"{prompt}.md").read_text(encoding="utf-8").strip(),
         (_ASSETS / "common.md").read_text(encoding="utf-8").strip(),
     ]
     if stage == AuthoringStage.build:
@@ -39,7 +39,6 @@ def authoring_stage(stage: AuthoringStage | str, *, iteration: bool = False) -> 
             parts.append((_ASSETS / "iteration.md").read_text(encoding="utf-8").strip())
     contract = {
         AuthoringStage.build_requirements: CallBrief,
-        AuthoringStage.plan: ConversationPlan,
         AuthoringStage.build: BuildResult,
         AuthoringStage.review: ReviewResult,
     }[stage]

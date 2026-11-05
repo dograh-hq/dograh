@@ -1,7 +1,7 @@
-"""Requirements, planning, and SDK building with explicit handoffs.
+"""Create from an approved CallBrief, or edit existing SDK source directly.
 
 Each agent has a private message channel and an independently bound tool set.
-Only requirements conversations and validated proposals reach the public transcript.
+Only requirements conversations, edit questions, and validated proposals reach the public transcript.
 The flat graph keeps interrupts and checkpoints compatible with the existing relay.
 """
 
@@ -26,12 +26,12 @@ from pydantic import Field
 from typing_extensions import TypedDict
 
 from api.schemas.tool import CreateToolRequest, UpdateToolRequest
+from api.services.voice_prompting_guide import render_guide
 from api.services.workflow.authoring import authoring_stage
 from api.services.workflow.authoring.contracts import (
     AuthoringStage,
     BuildResult,
     CallBrief,
-    ConversationPlan,
 )
 
 from .schemas import (
@@ -45,8 +45,7 @@ from .schemas import (
 ASSETS = Path(__file__).parent / "assets"
 STAGE_MCP_TOOLS = {
     "build_requirements": frozenset(),
-    "plan": frozenset({"get_voice_prompting_guide"}),
-    "build": frozenset(),
+    "build": frozenset({"get_voice_prompting_guide"}),
 }
 ITERATION_MCP_TOOLS = frozenset(
     {
@@ -76,7 +75,7 @@ MAX_VALIDATION_ATTEMPTS = 3
 # tool permissions, and tracing use the new stage terminology.
 _GRAPH_NAMES = {
     "build_requirements": "plan",
-    "plan": "plan_conversation",
+    "plan": "plan_conversation",  # Resume the removed planning stage.
     "build": "build",
     "review": "review",  # Resume checkpoints created before review was removed.
 }
@@ -94,6 +93,7 @@ class BuilderState(TypedDict, total=False):
     workflow_id: int | None
     workflow_revision: str | None
     messages: Annotated[list[AnyMessage], add_messages]
+    # Read only when migrating checkpoints from the removed planning stage.
     plan_conversation_messages: Annotated[list[AnyMessage], add_messages]
     plan_messages: Annotated[list[AnyMessage], add_messages]
     build_messages: Annotated[list[AnyMessage], add_messages]
@@ -102,7 +102,6 @@ class BuilderState(TypedDict, total=False):
     brief: dict[str, Any] | None
     brief_revision: int
     approved_brief_revision: int | None
-    conversation_plan: dict[str, Any] | None
     candidate: dict[str, Any] | None
     candidate_revision: int
     previous_code: str | None
@@ -147,9 +146,10 @@ def _stop(stage: str, call_id: str, message: str, **updates) -> Command:
 @tool
 def ask_questions(
     questions: Annotated[list[BuilderQuestion], Field(min_length=1, max_length=3)],
+    state: Annotated[dict, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
 ) -> Command:
-    """Ask up to three missing business requirements using interactive cards.
+    """Ask up to three missing requirements or edit details using interactive cards.
 
     Use single for one choice, multiple for several values, text for free text.
     Do not ask again about requirements already supplied by the user.
@@ -158,11 +158,12 @@ def ask_questions(
     answers = interrupt({"kind": "questions", **payload})
     validated = validate_answers(payload["questions"], answers)
     message = ToolMessage(content=json.dumps(validated), tool_call_id=tool_call_id)
+    stage = "build" if state.get("phase") == "build" else "build_requirements"
     return Command(
         update={
-            "plan_messages": [message],
+            f"{_GRAPH_NAMES[stage]}_messages": [message],
             "messages": [message],
-            "phase": "build_requirements",
+            "phase": stage,
         }
     )
 
@@ -173,7 +174,7 @@ def submit_brief(
     state: Annotated[dict, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
 ) -> Command:
-    """Show the complete business requirements for manual approval before planning.
+    """Show the complete business requirements for manual approval before building.
 
     The user can approve it or request changes. Never assume approval from chat.
     """
@@ -205,7 +206,6 @@ def submit_brief(
             brief=brief.model_dump(),
             brief_revision=revision,
             approved_brief_revision=None,
-            conversation_plan=None,
             previous_code=previous_code,
             candidate=None,
             review=None,
@@ -224,11 +224,10 @@ def submit_brief(
         "build_requirements",
         tool_call_id,
         {"approved": True, "brief_revision": revision},
-        phase="plan",
+        phase="build",
         brief=brief.model_dump(),
         brief_revision=revision,
         approved_brief_revision=revision,
-        conversation_plan=None,
         previous_code=previous_code,
         candidate=None,
         review=None,
@@ -238,7 +237,7 @@ def submit_brief(
         messages=[
             HumanMessage(content=f"Approved requirements {revision}. Build the agent.")
         ],
-        plan_conversation_messages=_fresh_messages(
+        build_messages=_fresh_messages(
             {
                 "brief": brief.model_dump(),
                 "brief_revision": revision,
@@ -246,42 +245,7 @@ def submit_brief(
                 "previous_code": previous_code,
             }
         ),
-        build_messages=[RemoveMessage(id=REMOVE_ALL_MESSAGES)],
         review_messages=[RemoveMessage(id=REMOVE_ALL_MESSAGES)],
-    )
-
-
-@tool
-def submit_plan(
-    plan: ConversationPlan,
-    state: Annotated[dict, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-) -> Command:
-    """Hand conversation flow and complete prompts to the SDK Builder.
-
-    Requirements must already be approved. This internal handoff does not ask
-    for a second approval, validate source, or show a proposal.
-    """
-    if not state.get("brief") or state.get("approved_brief_revision") != state.get(
-        "brief_revision"
-    ):
-        return _result(
-            "plan", tool_call_id, {"error": "Approved requirements are required."}
-        )
-    planned = {**plan.model_dump(), "brief_revision": state["brief_revision"]}
-    return _result(
-        "plan",
-        tool_call_id,
-        {"sent_to_builder": True},
-        phase="build",
-        conversation_plan=planned,
-        build_messages=_fresh_messages(
-            {
-                "brief": state["brief"],
-                "conversation_plan": planned,
-                "previous_code": state.get("previous_code"),
-            }
-        ),
     )
 
 
@@ -294,7 +258,6 @@ def _requirements_gap(
         {"returned_to_requirements": True},
         phase="build_requirements",
         approved_brief_revision=None,
-        conversation_plan=None,
         proposal=None,
         plan_messages=[
             HumanMessage(
@@ -333,43 +296,18 @@ def propose_workflow(
     """Validate complete workflow source and show the preview to the user.
 
     Fix validation errors and retry. Successful validation finishes the turn
-    and exposes the proposal. Saving remains a separate user action.
+    and exposes the proposal for the interface to apply.
     """
-    if not state.get("brief") or state.get("approved_brief_revision") != state.get(
-        "brief_revision"
+    if not state.get("previous_code") and (
+        not state.get("brief")
+        or state.get("approved_brief_revision") is None
+        or state["approved_brief_revision"] != state.get("brief_revision")
     ):
         return _result(
             "build",
             tool_call_id,
             {"error": "A human-approved business brief is required."},
         )
-    plan = state.get("conversation_plan")
-    if not plan or plan.get("brief_revision") != state["brief_revision"]:
-        # A pre-refactor checkpoint may resume without the new conversation plan.
-        return _result(
-            "build",
-            tool_call_id,
-            {"sent_for_planning": True},
-            phase="plan",
-            previous_code=candidate.code,
-            plan_conversation_messages=_fresh_messages(
-                {
-                    "brief": state["brief"],
-                    "previous_code": candidate.code,
-                    "configuration_gaps": candidate.configuration_gaps,
-                }
-            ),
-        )
-    # Preserve explicitly deferred work even if the SDK writer omits it.
-    candidate = candidate.model_copy(
-        update={
-            "configuration_gaps": list(
-                dict.fromkeys(
-                    [*plan["configuration_gaps"], *candidate.configuration_gaps]
-                )
-            )
-        }
-    )
     result = interrupt(
         {
             "kind": "mcp",
@@ -393,7 +331,7 @@ def propose_workflow(
     validated = {
         **result,
         **candidate.model_dump(),
-        "brief_revision": state["brief_revision"],
+        "brief_revision": state.get("approved_brief_revision"),
         "candidate_revision": revision,
     }
     return _result(
@@ -516,6 +454,40 @@ def _proposal_updates(candidate: dict) -> dict:
     }
 
 
+def _resume_legacy_plan(state: BuilderState) -> dict:
+    """Move old planning checkpoints to the builder without planner inference."""
+    if (
+        not state.get("brief")
+        or state.get("approved_brief_revision") is None
+        or state["approved_brief_revision"] != state.get("brief_revision")
+    ):
+        return {"phase": "build_requirements", "proposal": None}
+    context = next(
+        (
+            m.content
+            for m in state.get("plan_conversation_messages", [])
+            if m.type == "human"
+        ),
+        "{}",
+    )
+    try:
+        user_request = json.loads(context).get("user_request", "")
+    except (ValueError, TypeError, AttributeError):
+        user_request = context
+    return {
+        "phase": "build",
+        "build_messages": _fresh_messages(
+            {
+                "brief": state["brief"],
+                "brief_revision": state["brief_revision"],
+                "user_request": user_request,
+                "previous_code": state.get("previous_code"),
+            }
+        ),
+        "plan_conversation_messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES)],
+    }
+
+
 def _finish_legacy_review(state: BuilderState) -> dict:
     """Finish previously validated candidates when resuming an old checkpoint."""
     candidate = state.get("candidate")
@@ -532,13 +504,19 @@ def _finish_legacy_review(state: BuilderState) -> dict:
 
 LOCAL_TOOLS = {
     "build_requirements": [ask_questions, submit_brief],
-    "plan": [request_clarification, submit_plan],
     "build": [request_clarification, propose_workflow],
 }
 # Like ITERATION_MCP_TOOLS: tool changes are deferred past the first draft.
 ITERATION_LOCAL_TOOLS = {
-    "build": [propose_tool, propose_tool_edit],
+    "build": [ask_questions, propose_workflow, propose_tool, propose_tool_edit],
 }
+
+
+def local_tools(stage: str, *, iteration: bool = False) -> list:
+    """The editor asks focused questions itself instead of restarting discovery."""
+    if iteration and stage in ITERATION_LOCAL_TOOLS:
+        return ITERATION_LOCAL_TOOLS[stage]
+    return LOCAL_TOOLS[stage]
 
 
 def relay_tool(spec: dict) -> StructuredTool:
@@ -563,13 +541,19 @@ def builder_instructions(
     stage = AuthoringStage(stage)
     if stage.value not in STAGE_MCP_TOOLS:
         raise ValueError(f"Unsupported in-app builder stage: {stage.value}")
-    return "\n\n".join(
-        [
-            authoring_stage(stage, iteration=iteration)["instructions"],
-            (ASSETS / "instructions.md").read_text(encoding="utf-8").strip(),
-            (ASSETS / f"{stage.value}.md").read_text(encoding="utf-8").strip(),
-        ]
-    )
+    prompt = "edit" if stage == AuthoringStage.build and iteration else stage.value
+    parts = [
+        authoring_stage(stage, iteration=iteration)["instructions"],
+        (ASSETS / "instructions.md").read_text(encoding="utf-8").strip(),
+        (ASSETS / f"{prompt}.md").read_text(encoding="utf-8").strip(),
+    ]
+    if stage == AuthoringStage.build and not iteration:
+        parts.append("# Voice prompting guide\n\n" + render_guide())
+    if stage == AuthoringStage.build and iteration:
+        parts.append(
+            (ASSETS / "iteration_tools.md").read_text(encoding="utf-8").strip()
+        )
+    return "\n\n".join(parts)
 
 
 def build_agent(model, checkpointer, tool_specs: list[dict]):
@@ -591,12 +575,7 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
 
         def stage_tools(state):
             return [
-                *LOCAL_TOOLS[stage],
-                *(
-                    ITERATION_LOCAL_TOOLS.get(stage, [])
-                    if state.get("previous_code")
-                    else []
-                ),
+                *local_tools(stage, iteration=bool(state.get("previous_code"))),
                 *[
                     relay_tool(spec)
                     for spec in tool_specs
@@ -620,7 +599,9 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
                 key: [reply],
                 "idle_turns": 0 if reply.tool_calls else state.get("idle_turns", 0) + 1,
             }
-            if stage == "build_requirements":
+            if stage == "build_requirements" or any(
+                call["name"] == "ask_questions" for call in reply.tool_calls
+            ):
                 updates["messages"] = [reply]
             elif not reply.tool_calls:
                 if updates["idle_turns"] >= 2:
@@ -693,6 +674,11 @@ def build_agent(model, checkpointer, tool_specs: list[dict]):
 
     for stage in STAGE_MCP_TOOLS:
         add_stage(stage)
+    # Drain reads from the removed planner, then build from the approved brief.
+    graph.add_node("plan_conversation_tools", lambda state: {})
+    graph.add_edge("plan_conversation_tools", "plan_conversation")
+    graph.add_node("plan_conversation", _resume_legacy_plan)
+    graph.add_conditional_edges("plan_conversation", route)
     # Old checkpoints can be paused before review or inside its read tools.
     # Drain those tasks, then expose the validated candidate without inference.
     graph.add_node("review_tools", lambda state: {})

@@ -111,6 +111,13 @@ async def load_builder_workflow(user, session_id: UUID, workflow_id: int):
 async def call_builder_tool(client, name: str, arguments: dict) -> dict:
     if name not in BUILDER_TOOLS:
         return {"error": "This tool is not available to the builder"}
+    if name == "get_voice_prompting_guide":
+        # Saved checkpoints may still contain arguments from the staged guide.
+        arguments = {
+            key: value
+            for key, value in arguments.items()
+            if key not in {"stage", "node_type"}
+        }
     try:
         result = await client.call_tool(name, arguments)
         if result.is_error:

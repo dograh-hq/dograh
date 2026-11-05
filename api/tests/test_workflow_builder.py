@@ -22,7 +22,7 @@ from api.services.workflow.builder import (
 )
 from api.services.workflow.builder_runtime.errors import BuilderModelError
 from api.services.workflow.builder_validation import preview_workflow_code
-from api.tests.support.workflow_authoring import BRIEF, PLAN
+from api.tests.support.workflow_authoring import BRIEF
 from api.tests.test_workflow_builder_tracing import _captured_traces  # noqa: F401
 
 VALID_CODE = """import { Workflow } from "@dograh/sdk";
@@ -399,6 +399,135 @@ async def test_streaming_route_relays_real_mcp_under_request_identity():
 
 
 @pytest.mark.asyncio
+async def test_in_app_editor_loads_saved_source_and_attaches_an_org_tool_without_a_brief(
+    monkeypatch,
+):
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from api.mcp_server.ts_bridge import parse_code
+    from api.routes.workflow_builder import router
+    from api.services.auth.depends import get_user
+    from api.services.workflow.builder_runtime import service as runtime
+    from api.services.workflow.builder_runtime.agent import builder_instructions
+    from api.tests.test_workflow_builder_runtime import ScriptedModel, tool_call
+
+    session_id = uuid4()
+    saver = InMemorySaver()
+    source = (await parse_code(VALID_CODE))["workflow"]
+    workflow = SimpleNamespace(
+        id=41,
+        name="Receptionist",
+        user_id=3,
+        workflow_definition=source,
+        released_definition=None,
+    )
+    get_workflow = AsyncMock(return_value=workflow)
+    monkeypatch.setattr(runtime.db_client, "get_workflow", get_workflow)
+    monkeypatch.setattr(
+        runtime.db_client, "get_draft_version", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        runtime.db_client,
+        "get_workflow_builder_session_id",
+        AsyncMock(return_value=str(session_id)),
+    )
+    catalog = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                tool_uuid="org-calculator",
+                name="Calculator",
+                description="Arithmetic",
+                category="calculator",
+            )
+        ]
+    )
+    monkeypatch.setattr(runtime.db_client, "get_tools_for_organization", catalog)
+    monkeypatch.setattr(
+        "api.services.workflow.builder_validation.validate_workflow_tool_name_collisions",
+        AsyncMock(return_value=[]),
+    )
+
+    @asynccontextmanager
+    async def checkpoints(thread_id):
+        yield saver
+
+    monkeypatch.setattr(runtime.db_client, "builder_checkpointer", checkpoints)
+    edited = VALID_CODE.replace(
+        'name: "Qualify",', 'name: "Qualify", tool_uuids: ["org-calculator"],'
+    ).replace(
+        "Ask for the caller's name.",
+        "Ask for the caller's name. Use Calculator when the caller requests arithmetic.",
+    )
+    model = ScriptedModel(
+        organization_id=27,
+        user_id="3",
+        replies=[
+            tool_call("list_tools", {}, "catalog"),
+            tool_call(
+                "propose_workflow",
+                {
+                    "candidate": {
+                        "code": edited,
+                        "summary": "Added the existing calculator to Qualify.",
+                    }
+                },
+                "candidate",
+            ),
+        ],
+    )
+    monkeypatch.setattr(runtime, "BuilderChatModel", lambda **kwargs: model)
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_user] = lambda: SimpleNamespace(
+        id=3, selected_organization_id=27
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            f"/workflow/builder/{session_id}/turn",
+            json={
+                "request_id": str(uuid4()),
+                "workflow_id": 41,
+                "message": "Let Qualify use our existing Calculator for arithmetic.",
+            },
+        )
+    assert response.status_code == 200
+    events = [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert events[-1]["type"] == "done", events
+    sessions = [event["session"] for event in events if event["type"] == "session"]
+    assert all(item["kind"] == "mcp" for s in sessions for item in s["pending"])
+    final = sessions[-1]
+    assert not final["pending"]
+    assert final["workflow_id"] == 41
+    qualify = next(
+        node
+        for node in final["proposal"]["workflow"]["nodes"]
+        if node["data"]["name"] == "Qualify"
+    )
+    assert qualify["data"]["tool_uuids"] == ["org-calculator"]
+    assert final["proposal"]["code"] == edited
+    assert len(model.seen) == 2
+    assert all(
+        messages[0].content == builder_instructions("build", iteration=True)
+        for messages in model.seen
+    )
+    context = json.loads(model.seen[0][1].content)
+    assert "Greet the caller." in context["previous_code"]
+    assert "brief" not in context
+    assert "org-calculator" in model.seen[-1][-1].content
+    get_workflow.assert_awaited_once_with(41, organization_id=27)
+    assert [call.kwargs for call in catalog.await_args_list] == [
+        {"organization_id": 27, "status": "active"},
+        {"organization_id": 27},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_local_builder_routes_inference_and_builds_a_real_preview(
     monkeypatch, captured_traces
 ):
@@ -452,8 +581,6 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     replies = [
         ("ask_questions", {"questions": [question]}),
         ("submit_brief", {"brief": BRIEF}),
-        ("get_voice_prompting_guide", {"stage": "create", "node_type": "agentNode"}),
-        ("submit_plan", {"plan": PLAN}),
         (
             "propose_workflow",
             {"candidate": {"code": VALID_CODE, "summary": "An inbound receptionist"}},
@@ -486,10 +613,14 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
         )
         stage = next(
             stage
-            for stage in ("build_requirements", "plan", "build")
+            for stage in ("build_requirements", "build")
             if builder_instructions(stage) == system
         )
         assert body["metadata"]["builder_stage"] == stage
+        if stage == "build":
+            from api.services.voice_prompting_guide import render_guide
+
+            assert render_guide() in system
         trace_headers.append(request.headers["traceparent"])
         assert (
             body["metadata"]["builder_session_id"]
@@ -594,15 +725,12 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
     assert len(calls) == expected_calls
     assert len(correlation_requests) == expected_calls
     assert all(args.args[0] == 27 for args in config.await_args_list)
-    # Real MCP stage results reached the model, not just successful tool requests.
-    guide_results = [
-        json.loads(message["content"])
-        for call in calls
-        for message in call["messages"][-1:]
-        if message["role"] == "tool" and "stage" in json.loads(message["content"])
+    # The new-agent builder receives the guide inline, without a retrieval turn.
+    assert [call["metadata"]["builder_stage"] for call in calls] == [
+        "build_requirements",
+        "build_requirements",
+        "build",
     ]
-    assert [result["stage"] for result in guide_results] == ["create"]
-    assert all(result["topics"] for result in guide_results)
     assert not replies
     assert builder_mcp_user.get() is None
     from api.services.workflow.builder_runtime.tracing import current_builder_trace

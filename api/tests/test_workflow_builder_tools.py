@@ -1,6 +1,7 @@
 """The tool-approval gate: creating and editing tools is committed only after
 the user approves it, and the mutating tools are never agent-callable."""
 
+import json
 from uuid import uuid4
 
 import pytest
@@ -8,9 +9,10 @@ from fastapi import HTTPException
 from langchain_core.messages import ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
+from api.services.voice_prompting_guide import get_topic, render_guide
 from api.services.workflow.builder_runtime.schemas import BuilderStep
 from api.services.workflow.builder_runtime.service import run_step
-from api.tests.support.workflow_authoring import BRIEF, PLAN
+from api.tests.support.workflow_authoring import BRIEF
 from api.tests.test_workflow_builder_runtime import (
     ScriptedModel,
     approve_plan,
@@ -55,8 +57,6 @@ async def test_propose_tool_commits_only_after_approval():
         organization_id=12,
         user_id="3",
         replies=[
-            tool_call("submit_brief", {"brief": BRIEF}, "brief"),
-            tool_call("submit_plan", {"plan": PLAN}, "plan"),
             tool_call(
                 "propose_tool",
                 {"tool": CALC_TOOL, "plain_language": "Does arithmetic in-call."},
@@ -79,7 +79,7 @@ async def test_propose_tool_commits_only_after_approval():
         session_id,
         BuilderStep(request_id=uuid4(), message="Build it", current_workflow=CURRENT),
     )
-    gated = await approve_plan(graph, config, session_id, first)
+    gated = first
 
     # The build agent paused for approval before anything was created.
     approval = gated["pending"][0]
@@ -130,7 +130,8 @@ async def test_propose_tool_commits_only_after_approval():
     # The mutators were never offered to the model; get_tool was.
     bound = {item["function"]["name"] for tools in model.seen_tools for item in tools}
     assert "create_tool" not in bound and "update_tool" not in bound
-    assert {"propose_tool", "propose_tool_edit", "get_tool"} <= bound
+    assert {"propose_tool", "propose_tool_edit", "get_tool", "ask_questions"} <= bound
+    assert not bound & {"submit_brief", "request_clarification"}
 
 
 @pytest.mark.asyncio
@@ -140,8 +141,6 @@ async def test_denied_tool_is_not_created():
         organization_id=12,
         user_id="3",
         replies=[
-            tool_call("submit_brief", {"brief": BRIEF}, "brief"),
-            tool_call("submit_plan", {"plan": PLAN}, "plan"),
             tool_call(
                 "propose_tool",
                 {"tool": CALC_TOOL, "plain_language": "Does arithmetic in-call."},
@@ -165,7 +164,7 @@ async def test_denied_tool_is_not_created():
         session_id,
         BuilderStep(request_id=uuid4(), message="Build it", current_workflow=CURRENT),
     )
-    gated = await approve_plan(graph, config, session_id, first)
+    gated = first
     approval = gated["pending"][0]
     assert approval["kind"] == "tool_approval"
 
@@ -187,14 +186,13 @@ async def test_denied_tool_is_not_created():
 
 
 @pytest.mark.asyncio
-async def test_propose_tool_edit_gates_update():
+async def test_tool_edit_can_read_focused_guidance_before_approval():
     model = ScriptedModel(
         model_name="test",
         organization_id=12,
         user_id="3",
         replies=[
-            tool_call("submit_brief", {"brief": BRIEF}, "brief"),
-            tool_call("submit_plan", {"plan": PLAN}, "plan"),
+            tool_call("get_voice_prompting_guide", {"topic": "tool_calls"}, "guide"),
             tool_call(
                 "propose_tool_edit",
                 {
@@ -213,7 +211,19 @@ async def test_propose_tool_edit_gates_update():
     )
     session_id = uuid4()
     config = {"configurable": {"thread_id": str(session_id)}}
-    graph = build_agent_memory(model, TOOL_SPECS)
+    graph = build_agent_memory(
+        model,
+        [
+            *TOOL_SPECS,
+            {
+                "name": "get_voice_prompting_guide",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"topic": {"type": "string"}},
+                },
+            },
+        ],
+    )
 
     first = await run_step(
         graph,
@@ -221,7 +231,19 @@ async def test_propose_tool_edit_gates_update():
         session_id,
         BuilderStep(request_id=uuid4(), message="Edit it", current_workflow=CURRENT),
     )
-    gated = await approve_plan(graph, config, session_id, first)
+    reading = first
+    pending = reading["pending"][0]
+    assert pending["tool_name"] == "get_voice_prompting_guide"
+    assert pending["arguments"] == {"topic": "tool_calls"}
+    guidance = {"content": render_guide("tool_calls")}
+    gated = await _step(
+        graph, config, session_id, reading["checkpoint"], {pending["id"]: guidance}
+    )
+    assert json.loads(_tool_messages(model.seen[-1])[-1].content) == guidance
+    assert (
+        get_topic("common_guidelines").content.strip() not in model.seen[-1][0].content
+    )
+    assert CURRENT["code"] in model.seen[-1][1].content
     approval = gated["pending"][0]
     assert approval["kind"] == "tool_approval"
     assert approval["operation"] == "update"
@@ -248,8 +270,6 @@ async def test_tool_decision_validation_rejects_feedback_on_approve():
         organization_id=12,
         user_id="3",
         replies=[
-            tool_call("submit_brief", {"brief": BRIEF}, "brief"),
-            tool_call("submit_plan", {"plan": PLAN}, "plan"),
             tool_call(
                 "propose_tool",
                 {"tool": CALC_TOOL, "plain_language": "Does arithmetic in-call."},
@@ -266,7 +286,7 @@ async def test_tool_decision_validation_rejects_feedback_on_approve():
         session_id,
         BuilderStep(request_id=uuid4(), message="Build it", current_workflow=CURRENT),
     )
-    gated = await approve_plan(graph, config, session_id, first)
+    gated = first
     approval = gated["pending"][0]
     with pytest.raises(HTTPException) as invalid:
         await _step(
@@ -287,7 +307,6 @@ async def test_first_draft_does_not_offer_tool_handoffs():
         user_id="3",
         replies=[
             tool_call("submit_brief", {"brief": BRIEF}, "brief"),
-            tool_call("submit_plan", {"plan": PLAN}, "plan"),
             tool_call(
                 "propose_workflow",
                 {"candidate": {"code": "workflow source", "summary": "Receptionist"}},

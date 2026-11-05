@@ -20,7 +20,7 @@ from api.db.workflow_builder import BLOBS, CHECKPOINTS, WRITES, WorkflowBuilderC
 from api.services.workflow.builder_runtime.agent import build_agent
 from api.services.workflow.builder_runtime.schemas import BuilderStep
 from api.services.workflow.builder_runtime.service import run_step
-from api.tests.support.workflow_authoring import BRIEF, PLAN
+from api.tests.support.workflow_authoring import BRIEF
 from api.tests.test_workflow_builder_runtime import ScriptedModel, tool_call
 
 MIGRATION = import_module(
@@ -168,7 +168,6 @@ async def test_parallel_read_tasks_survive_database_checkpoint_reload(
         replies=[
             tool_call("submit_brief", {"brief": BRIEF}, "brief"),
             AIMessage(content="", tool_calls=reads),
-            tool_call("submit_plan", {"plan": PLAN}, "plan"),
             tool_call(
                 "propose_workflow",
                 {"candidate": {"code": "source", "summary": "A receptionist"}},
@@ -219,10 +218,10 @@ async def test_parallel_read_tasks_survive_database_checkpoint_reload(
         state = await build_agent(model, saver, specs).aget_state(graph_config)
     assert {
         m.tool_call_id: m.content
-        for m in state.values["plan_conversation_messages"]
+        for m in state.values["build_messages"]
         if isinstance(m, ToolMessage) and m.tool_call_id in {c["id"] for c in reads}
     } == {c["id"]: c["args"]["topic"] for c in reads}
-    assert len(model.seen) == 4
+    assert len(model.seen) == 3
 
 
 @pytest.mark.asyncio

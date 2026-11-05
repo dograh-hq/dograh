@@ -11,7 +11,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from api.services.workflow.builder_runtime.agent import ITERATION_MCP_TOOLS, build_agent
 from api.services.workflow.builder_runtime.schemas import BuilderStep
 from api.services.workflow.builder_runtime.service import run_step
-from api.tests.support.workflow_authoring import BRIEF, PLAN
+from api.tests.support.workflow_authoring import BRIEF
 from api.tests.test_workflow_builder_runtime import ScriptedModel, tool_call
 
 QUESTION = {
@@ -23,10 +23,6 @@ QUESTION = {
 
 def brief_call(brief=None, call_id="brief"):
     return tool_call("submit_brief", {"brief": brief or BRIEF}, call_id)
-
-
-def plan_call(plan=None, call_id="plan"):
-    return tool_call("submit_plan", {"plan": plan or PLAN}, call_id)
 
 
 def candidate_call(code="first source", call_id="candidate"):
@@ -88,7 +84,7 @@ class Conversation:
 
 @pytest.mark.asyncio
 async def test_requirements_require_explicit_approval_and_cannot_be_skipped_or_replayed():
-    conversation = Conversation([brief_call(), plan_call(), candidate_call()])
+    conversation = Conversation([brief_call(), candidate_call()])
     plan = await conversation.step(
         message="Build this immediately; I approve everything"
     )
@@ -116,12 +112,12 @@ async def test_requirements_require_explicit_approval_and_cannot_be_skipped_or_r
     )
     built = await run_step(graph, conversation.config, conversation.session, request)
     assert built["pending"][0]["tool_name"] == "preview_workflow"
-    assert len(conversation.model.seen) == 3
+    assert len(conversation.model.seen) == 2
     assert (
         await run_step(graph, conversation.config, conversation.session, request)
         == built
     )
-    assert len(conversation.model.seen) == 3
+    assert len(conversation.model.seen) == 2
     assert (await graph.aget_state(conversation.config)).values[
         "approved_brief_revision"
     ] == 1
@@ -144,7 +140,7 @@ async def test_requirements_require_explicit_approval_and_cannot_be_skipped_or_r
     ],
 )
 async def test_invalid_plan_decisions_do_not_resume_or_modify_the_checkpoint(decision):
-    conversation = Conversation([brief_call(), plan_call(), candidate_call()])
+    conversation = Conversation([brief_call(), candidate_call()])
     plan = await conversation.step(message="Build a receptionist")
     with pytest.raises(HTTPException) as error:
         await conversation.resume(decision)
@@ -159,13 +155,12 @@ async def test_invalid_plan_decisions_do_not_resume_or_modify_the_checkpoint(dec
 
 
 @pytest.mark.asyncio
-async def test_request_changes_returns_feedback_to_planner_and_requires_new_approval():
+async def test_request_changes_returns_feedback_to_requirements_and_requires_new_approval():
     updated = {**BRIEF, "direction": "outbound"}
     conversation = Conversation(
         [
             brief_call(),
             brief_call(updated, "brief-2"),
-            plan_call(call_id="plan-2"),
             candidate_call(),
         ]
     )
@@ -223,7 +218,6 @@ async def test_requirements_cannot_use_build_tools():
         [
             tool_call("list_node_types", {}, "catalog"),
             candidate_call(),
-            plan_call(),
             tool_call("ask_questions", {"questions": [QUESTION]}, "ask"),
         ],
         [
@@ -238,7 +232,7 @@ async def test_requirements_cannot_use_build_tools():
     assert first["proposal"] is None
     assert not (await conversation.state()).get("brief")
     errors = [m for m in conversation.model.seen[-1] if isinstance(m, ToolMessage)]
-    assert len(errors) == 3
+    assert len(errors) == 2
     assert all(m.status == "error" for m in errors)
     for messages, tools in zip(conversation.model.seen, conversation.model.seen_tools):
         assert "@dograh/sdk" not in str(messages)
@@ -249,59 +243,48 @@ async def test_requirements_cannot_use_build_tools():
 
 
 @pytest.mark.asyncio
-async def test_validated_proposal_finishes_without_another_model_call():
+async def test_approved_brief_builds_directly_and_validation_finishes_without_inference():
+    request = "Build a receptionist"
     conversation = Conversation(
         [
             AIMessage(
                 content="REQUIREMENTS_PRIVATE_EXPLANATION",
-                tool_calls=[
-                    {
-                        "name": "submit_brief",
-                        "args": {"brief": BRIEF},
-                        "id": "brief",
-                        "type": "tool_call",
-                    }
-                ],
+                tool_calls=brief_call().tool_calls,
             ),
-            tool_call("get_voice_prompting_guide", {}, "guide"),
-            plan_call(),
             AIMessage(
                 content="BUILDER_PRIVATE_EXPLANATION",
                 tool_calls=candidate_call().tool_calls,
             ),
-        ],
-        [
-            {
-                "name": "get_voice_prompting_guide",
-                "inputSchema": {"type": "object", "properties": {}},
-            }
-        ],
-    )
-    await conversation.step(message="Build a receptionist")
-    await conversation.approve()
-    await conversation.resume({"private_guide_marker": "PLANNER_GUIDE_ONLY"})
-    assert conversation.current["proposal"] is None
-    final = await conversation.validate()
-    assert final["proposal"]["code"] == "first source"
-    build_messages = str(conversation.model.seen[3])
-    assert "REQUIREMENTS_PRIVATE_EXPLANATION" not in build_messages
-    assert "PLANNER_GUIDE_ONLY" not in build_messages
-    assert BRIEF["goal"] in build_messages
-    assert (
-        json.loads(conversation.model.seen[3][1].content)["conversation_plan"][
-            "content"
         ]
-        == PLAN["content"]
     )
-    assert len(conversation.model.seen) == 4
+    await conversation.step(message=request)
+    await conversation.approve()
+    assert conversation.current["pending"][0]["tool_name"] == "preview_workflow"
+    assert conversation.current["proposal"] is None
+    payload = json.loads(conversation.model.seen[1][1].content)
+    assert payload == {
+        "brief": {**BRIEF, "business_rules": [], "assumptions": []},
+        "brief_revision": 1,
+        "user_request": request,
+        "previous_code": None,
+    }
+    assert "REQUIREMENTS_PRIVATE_EXPLANATION" not in str(conversation.model.seen[1])
+    assert all(
+        "submit_plan" not in {tool["function"]["name"] for tool in tools}
+        for tools in conversation.model.seen_tools
+    )
+    final = await conversation.validate()
+    assert len(conversation.model.seen) == 2
     assert not conversation.model.replies
+    assert final["proposal"]["code"] == "first source"
     assert not final["pending"] and not final["can_continue"]
     state = await conversation.state()
     assert state["phase"] == "complete"
     assert state["review"] is None
     assert not state["review_messages"]
+    assert not state.get("plan_conversation_messages")
+    assert "conversation_plan" not in state
     assert json.loads(state["build_messages"][-1].content) == {"valid": True}
-    assert final["proposal"]["workflow"] == {"nodes": [], "edges": []}
     assert all(
         "BUILDER_PRIVATE_EXPLANATION" not in m["content"] for m in final["messages"]
     )
@@ -312,7 +295,6 @@ async def test_validation_errors_return_to_builder_before_exposing_corrected_sou
     conversation = Conversation(
         [
             brief_call(),
-            plan_call(),
             candidate_call(),
             candidate_call("revised source", "candidate-2"),
         ]
@@ -334,13 +316,37 @@ async def test_validation_errors_return_to_builder_before_exposing_corrected_sou
     assert not conversation.model.replies
 
 
+@pytest.mark.parametrize(
+    "state",
+    [
+        {},
+        {"brief": BRIEF},
+        {"brief": BRIEF, "brief_revision": 2, "approved_brief_revision": None},
+        {"brief": BRIEF, "brief_revision": 2, "approved_brief_revision": 1},
+    ],
+)
+def test_direct_build_requires_approval_for_the_current_brief(state):
+    from api.services.workflow.authoring.contracts import BuildResult
+    from api.services.workflow.builder_runtime.agent import propose_workflow
+
+    # Without current approval the tool must return an error before reaching
+    # its validation interrupt, even if a saved build task calls it directly.
+    result = propose_workflow.func(
+        candidate=BuildResult(code="source", summary="Agent"),
+        state=state,
+        tool_call_id="candidate",
+    )
+    assert json.loads(result.update["build_messages"][0].content) == {
+        "error": "A human-approved business brief is required."
+    }
+
+
 @pytest.mark.asyncio
-async def test_business_gap_returns_to_planner_and_resumes_with_new_brief():
+async def test_business_gap_returns_to_requirements_and_resumes_with_new_brief():
     updated = {**BRIEF, "business_rules": ["Offer a callback when the lookup fails"]}
     conversation = Conversation(
         [
             brief_call(),
-            plan_call(),
             tool_call(
                 "request_clarification",
                 {"reason": "Clarify what to say when the lookup fails"},
@@ -348,7 +354,6 @@ async def test_business_gap_returns_to_planner_and_resumes_with_new_brief():
             ),
             tool_call("ask_questions", {"questions": [QUESTION]}, "ask"),
             brief_call(updated, "brief-2"),
-            plan_call(call_id="plan-2"),
             candidate_call("updated source", "candidate-2"),
         ]
     )
@@ -368,24 +373,12 @@ async def test_business_gap_returns_to_planner_and_resumes_with_new_brief():
 
 
 @pytest.mark.asyncio
-async def test_user_revision_invalidates_proposal_and_preserves_source_across_replanning():
-    changed = {**BRIEF, "direction": "outbound"}
+async def test_edit_asks_focused_questions_and_preserves_source_without_a_new_brief():
     conversation = Conversation(
         [
             brief_call(),
-            plan_call(),
             candidate_call(),
             tool_call("ask_questions", {"questions": [QUESTION]}, "question-1"),
-            brief_call(changed, "brief-2"),
-            plan_call(call_id="plan-2"),
-            tool_call(
-                "request_clarification",
-                {"reason": "The requested lookup is not connected."},
-                "gap",
-            ),
-            tool_call("ask_questions", {"questions": [QUESTION]}, "question-2"),
-            brief_call(changed, "brief-3"),
-            plan_call(call_id="plan-3"),
             candidate_call("outbound source", "candidate-2"),
         ]
     )
@@ -395,18 +388,29 @@ async def test_user_revision_invalidates_proposal_and_preserves_source_across_re
     assert conversation.current["proposal"]
     changed_state = await conversation.step(message="Make it outbound")
     assert changed_state["proposal"] is None
-    assert (await conversation.state())["review"] is None
-    await conversation.resume({"policy": ["Offer a callback"]})
-    await conversation.approve()
-    assert conversation.current["pending"][0]["kind"] == "questions"
-    await conversation.resume(
-        {"policy": ["Collect the request without a lookup for now"]}
+    state = await conversation.state()
+    assert state["review"] is None
+    assert state["phase"] == "build"
+    assert state["approved_brief_revision"] is None
+    assert changed_state["pending"][0]["kind"] == "questions"
+    assert (
+        json.loads(conversation.model.seen[-1][1].content)["previous_code"]
+        == "first source"
     )
-    await conversation.approve()
-    assert "first source" in conversation.model.seen[-1][1].content
+    await conversation.resume({"policy": ["Offer a callback"]})
+    assert any(
+        "Offer a callback" in str(m.content) and isinstance(m, ToolMessage)
+        for m in conversation.model.seen[-1]
+    )
     final = await conversation.validate("outbound source")
-    assert final["proposal"]["brief_revision"] == 3
-    assert (await conversation.state())["brief"]["direction"] == "outbound"
+    assert final["proposal"]["code"] == "outbound source"
+    assert final["proposal"]["brief_revision"] is None
+    assert (await conversation.state())["brief_revision"] == 1
+    assert any("Offer a callback" in m["content"] for m in final["messages"])
+    for tools in conversation.model.seen_tools[2:]:
+        names = {t["function"]["name"] for t in tools}
+        assert "ask_questions" in names
+        assert not names & {"submit_brief", "request_clarification"}
 
 
 @pytest.mark.asyncio
@@ -414,7 +418,6 @@ async def test_validation_failure_never_exposes_proposal_and_stops_after_three_a
     conversation = Conversation(
         [
             brief_call(),
-            plan_call(),
             *[candidate_call(call_id=f"candidate-{i}") for i in range(3)],
         ]
     )
@@ -432,20 +435,19 @@ async def test_validation_failure_never_exposes_proposal_and_stops_after_three_a
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stage", ["plan", "build"])
-async def test_parallel_reads_resume_after_reload_with_distinct_results(stage):
+@pytest.mark.parametrize("catalogs", [False, True])
+async def test_parallel_reads_resume_after_reload_with_distinct_results(catalogs):
     names = (
         ["list_tools", "list_documents"]
-        if stage == "build"
+        if catalogs
         else ["get_voice_prompting_guide"] * 2
     )
     calls = [
-        tool_call(name, {"topic": topic} if stage != "build" else {}, topic)
+        tool_call(name, {"topic": topic} if not catalogs else {}, topic)
         for name, topic in zip(names, ["common_guidelines", "turn_taking"], strict=True)
     ]
     batch = AIMessage(content="", tool_calls=[c.tool_calls[0] for c in calls])
-    replies = [brief_call(), plan_call(), candidate_call()]
-    replies.insert({"plan": 1, "build": 2}[stage], batch)
+    replies = ([] if catalogs else [brief_call()]) + [batch, candidate_call()]
     conversation = Conversation(
         replies,
         [
@@ -462,10 +464,11 @@ async def test_parallel_reads_resume_after_reload_with_distinct_results(stage):
     await conversation.step(
         message="Build a receptionist",
         current_workflow={"id": 41, "revision": "saved", "code": "current source"}
-        if stage == "build"
+        if catalogs
         else None,
     )
-    await conversation.approve()
+    if not catalogs:
+        await conversation.approve()
     pending = conversation.current["pending"]
     assert len(pending) == len({item["id"] for item in pending}) == 2
     assert all(item["kind"] == "mcp" for item in pending)
@@ -489,10 +492,9 @@ async def test_parallel_reads_resume_after_reload_with_distinct_results(stage):
     conversation.current = await run_step(
         conversation.graph, conversation.config, conversation.session, request
     )
-    key = "plan_conversation_messages" if stage == "plan" else f"{stage}_messages"
     responses = {
         message.tool_call_id: json.loads(message.content)
-        for message in (await conversation.state())[key]
+        for message in (await conversation.state())["build_messages"]
         if isinstance(message, ToolMessage)
         and message.tool_call_id in {"common_guidelines", "turn_taking"}
     }
@@ -515,7 +517,7 @@ async def test_parallel_reads_resume_after_reload_with_distinct_results(stage):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("other", ["submit_plan", "list_documents"])
+@pytest.mark.parametrize("other", ["propose_workflow", "list_documents"])
 async def test_read_batches_cannot_include_handoffs_or_unavailable_tools(other):
     conversation = Conversation(
         [
@@ -525,11 +527,14 @@ async def test_read_batches_cannot_include_handoffs_or_unavailable_tools(other):
                 tool_calls=[
                     *tool_call("get_voice_prompting_guide", {}, "guide").tool_calls,
                     *tool_call(
-                        other, {"plan": PLAN} if other == "submit_plan" else {}, "other"
+                        other,
+                        {"candidate": {"code": "source", "summary": "Agent"}}
+                        if other == "propose_workflow"
+                        else {},
+                        "other",
                     ).tool_calls,
                 ],
             ),
-            plan_call(),
             candidate_call(),
         ],
         [
@@ -566,21 +571,18 @@ async def test_parallel_handoffs_are_rejected_without_executing_either_tool():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("iteration", [False, True])
-async def test_planning_never_gets_resource_tools_and_build_only_gets_them_for_iterations(
-    iteration,
-):
+async def test_only_iteration_build_gets_resource_tools(iteration):
     specs = [
         {"name": name, "inputSchema": {"type": "object", "properties": {}}}
         for name in [*ITERATION_MCP_TOOLS, "list_node_types"]
     ]
+    replies = (
+        []
+        if iteration
+        else [tool_call("list_documents", {}, "requirements-catalog"), brief_call()]
+    )
     conversation = Conversation(
-        [
-            brief_call(),
-            tool_call("list_documents", {}, "plan-catalog"),
-            plan_call(),
-            tool_call("list_documents", {}, "build-catalog"),
-            candidate_call(),
-        ],
+        [*replies, tool_call("list_documents", {}, "build-catalog"), candidate_call()],
         specs,
     )
     await conversation.step(
@@ -591,23 +593,23 @@ async def test_planning_never_gets_resource_tools_and_build_only_gets_them_for_i
         if iteration
         else None,
     )
-    await conversation.approve()
-    assert all(
-        "list_documents" not in {t["function"]["name"] for t in tools}
-        for tools in conversation.model.seen_tools[:3]
-    )
-    plan_error = next(
-        m for m in conversation.model.seen[2] if isinstance(m, ToolMessage)
-    )
-    assert plan_error.status == "error"
     if iteration:
         assert conversation.current["pending"][0]["tool_name"] == "list_documents"
         await conversation.resume([])
     else:
-        build_error = next(
+        assert all(
+            "list_documents" not in {t["function"]["name"] for t in tools}
+            for tools in conversation.model.seen_tools[:2]
+        )
+        error = next(
+            m for m in conversation.model.seen[1] if isinstance(m, ToolMessage)
+        )
+        assert error.status == "error"
+        await conversation.approve()
+        error = next(
             m for m in conversation.model.seen[-1] if isinstance(m, ToolMessage)
         )
-        assert build_error.status == "error"
+        assert error.status == "error"
     assert conversation.current["pending"][0]["tool_name"] == "preview_workflow"
     assert (await conversation.validate())["proposal"]
     assert all(
@@ -617,29 +619,38 @@ async def test_planning_never_gets_resource_tools_and_build_only_gets_them_for_i
 
 
 @pytest.mark.asyncio
-async def test_plan_prompts_and_deferred_connections_reach_builder_and_preview():
+async def test_builder_reports_deferred_connections_from_the_brief():
     gap = "Connect the calendar before confirming bookings."
+    brief = {**BRIEF, "business_rules": [gap]}
     conversation = Conversation(
         [
-            brief_call(),
-            plan_call({**PLAN, "configuration_gaps": [gap]}),
-            candidate_call(),
+            brief_call(brief),
+            tool_call(
+                "propose_workflow",
+                {
+                    "candidate": {
+                        "code": "first source",
+                        "summary": "Appointment intake",
+                        "configuration_gaps": [gap],
+                    }
+                },
+                "candidate",
+            ),
         ]
     )
     await conversation.step(message="Collect appointment requests")
     await conversation.approve()
-    assert PLAN["content"] in conversation.model.seen[-1][1].content
+    assert json.loads(conversation.model.seen[-1][1].content)["brief"][
+        "business_rules"
+    ] == [gap]
     final = await conversation.validate()
-    assert PLAN["content"] in conversation.model.seen[-1][1].content
     assert gap in final["proposal"]["summary"]
     assert final["proposal"]["configuration_gaps"] == [gap]
-    # Only requirements and the final preview reach the public conversation.
-    assert all(PLAN["content"] not in m["content"] for m in final["messages"])
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("pending_kind", ["questions", "plan_approval"])
-async def test_pre_refactor_requirements_interrupt_resumes_into_new_planning_stage(
+async def test_pre_refactor_requirements_interrupt_resumes_directly_into_build(
     pending_kind,
 ):
     from langchain_core.messages import HumanMessage
@@ -671,8 +682,7 @@ async def test_pre_refactor_requirements_interrupt_resumes_into_new_planning_sta
     graph.add_edge("plan", "plan_tools")
     graph.add_edge("plan_tools", END)
     conversation = Conversation(
-        ([brief_call()] if pending_kind == "questions" else [])
-        + [plan_call(), candidate_call()]
+        ([brief_call()] if pending_kind == "questions" else []) + [candidate_call()]
     )
     legacy = graph.compile(checkpointer=conversation.saver)
     request = HumanMessage(content="Build a receptionist")
@@ -689,15 +699,18 @@ async def test_pre_refactor_requirements_interrupt_resumes_into_new_planning_sta
         assert conversation.current["pending"][0]["kind"] == "plan_approval"
     await conversation.approve()
     assert conversation.current["pending"][0]["tool_name"] == "preview_workflow"
-    assert (await conversation.state())["conversation_plan"]["content"] == PLAN[
-        "content"
-    ]
+    assert json.loads(conversation.model.seen[-1][1].content)["brief"] == {
+        **BRIEF,
+        "business_rules": [],
+        "assumptions": [],
+    }
+    assert not (await conversation.state()).get("plan_conversation_messages")
     assert "open_questions" not in (await conversation.state())["brief"]
     assert (await conversation.validate())["proposal"]
 
 
 @pytest.mark.asyncio
-async def test_pre_refactor_validation_interrupt_replans_without_losing_approved_source():
+async def test_pre_refactor_validation_interrupt_finishes_without_planning():
     from langchain_core.tools import tool
     from langgraph.graph import END, START, StateGraph
     from langgraph.prebuilt import ToolNode
@@ -726,7 +739,7 @@ async def test_pre_refactor_validation_interrupt_replans_without_losing_approved
     graph.add_edge(START, "build")
     graph.add_edge("build", "build_tools")
     graph.add_edge("build_tools", END)
-    conversation = Conversation([plan_call(), candidate_call()])
+    conversation = Conversation([])
     legacy = graph.compile(checkpointer=conversation.saver)
     await legacy.ainvoke(
         {
@@ -741,11 +754,10 @@ async def test_pre_refactor_validation_interrupt_replans_without_losing_approved
         await legacy.aget_state(conversation.config), conversation.session
     )
     await conversation.validate()
-    # The resumed proposal now goes through planning and fresh validation.
-    assert "first source" in conversation.model.seen[0][1].content
-    assert conversation.current["pending"][0]["tool_name"] == "preview_workflow"
+    assert not conversation.model.seen
+    assert conversation.current["proposal"]["code"] == "first source"
+    assert not conversation.current["pending"]
     assert (await conversation.state())["approved_brief_revision"] == 1
-    assert (await conversation.validate())["proposal"]
 
 
 @pytest.mark.asyncio
@@ -848,11 +860,6 @@ async def test_legacy_review_cannot_expose_candidate_from_another_brief():
             "brief": BRIEF,
             "brief_revision": 2,
             "approved_brief_revision": 2,
-            "conversation_plan": {
-                **PLAN,
-                "brief_revision": 2,
-                "configuration_gaps": [],
-            },
             "candidate": {"valid": True, "code": "stale", "brief_revision": 1},
         },
         as_node="build_tools",
@@ -866,3 +873,131 @@ async def test_legacy_review_cannot_expose_candidate_from_another_brief():
     assert (await conversation.validate("current source"))["proposal"][
         "brief_revision"
     ] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "pause", ["before_plan", "before_handoff", "read", "parallel_reads"]
+)
+@pytest.mark.parametrize("approved", [True, False])
+async def test_removed_planner_checkpoints_resume_from_the_approved_brief(
+    pause, approved
+):
+    from langchain_core.messages import HumanMessage
+    from langgraph.graph import END, START, StateGraph
+    from langgraph.prebuilt import ToolNode
+    from langgraph.types import Send
+
+    from api.services.workflow.builder_runtime.agent import BuilderState, relay_tool
+    from api.services.workflow.builder_runtime.service import present
+
+    spec = {
+        "name": "get_voice_prompting_guide",
+        "inputSchema": {"type": "object", "properties": {"topic": {"type": "string"}}},
+    }
+    calls = [
+        tool_call("get_voice_prompting_guide", {"topic": topic}, topic).tool_calls[0]
+        for topic in ("common_guidelines", "tool_calls")[
+            : 2 if pause == "parallel_reads" else 1
+        ]
+    ]
+    if pause == "before_handoff":
+        calls = tool_call(
+            "submit_plan", {"plan": {"content": "Obsolete plan"}}, "plan"
+        ).tool_calls
+    old = StateGraph(BuilderState)
+    old.add_node("requirements", lambda state: {"phase": "plan"})
+    old.add_node(
+        "plan_conversation",
+        lambda state: {
+            "plan_conversation_messages": [AIMessage(content="", tool_calls=calls)]
+        },
+    )
+    old.add_node(
+        "plan_conversation_tools",
+        ToolNode([relay_tool(spec)], messages_key="plan_conversation_messages"),
+    )
+    old.add_edge(START, "requirements")
+    old.add_edge("requirements", "plan_conversation")
+    old.add_conditional_edges(
+        "plan_conversation",
+        lambda state: (
+            [
+                Send(
+                    "plan_conversation_tools",
+                    {
+                        "plan_conversation_messages": [
+                            AIMessage(content="", tool_calls=[call])
+                        ]
+                    },
+                )
+                for call in calls
+            ]
+            if pause == "parallel_reads"
+            else "plan_conversation_tools"
+        ),
+    )
+    old.add_edge("plan_conversation_tools", END)
+    conversation = Conversation(
+        [candidate_call("updated source")] if approved else [brief_call()], [spec]
+    )
+    legacy = old.compile(
+        checkpointer=conversation.saver,
+        interrupt_before={
+            "before_plan": ["plan_conversation"],
+            "before_handoff": ["plan_conversation_tools"],
+        }.get(pause),
+    )
+    request = "Only change the tool trigger"
+    await legacy.ainvoke(
+        {
+            "brief": BRIEF,
+            "brief_revision": 2,
+            "approved_brief_revision": 2 if approved else 1,
+            "previous_code": "existing workflow source",
+            "plan_messages": [HumanMessage(content=request)],
+            "plan_conversation_messages": [
+                HumanMessage(
+                    content=json.dumps(
+                        {
+                            "brief": BRIEF,
+                            "user_request": request,
+                            "previous_code": "existing workflow source",
+                        }
+                    )
+                )
+            ],
+        },
+        conversation.config,
+    )
+    conversation.current = present(
+        await legacy.aget_state(conversation.config), conversation.session
+    )
+    pending = conversation.current["pending"]
+    if pending:
+        await conversation.step(
+            resume={item["id"]: {"content": "old guidance"} for item in pending}
+        )
+    else:
+        await conversation.step()
+    assert len(conversation.model.seen) == 1
+    if approved:
+        assert conversation.current["pending"][0]["tool_name"] == "preview_workflow"
+        payload = json.loads(conversation.model.seen[0][1].content)
+        assert payload == {
+            "brief": BRIEF,
+            "brief_revision": 2,
+            "user_request": request,
+            "previous_code": "existing workflow source",
+        }
+        assert not (await conversation.state())["plan_conversation_messages"]
+        assert (await conversation.validate("updated source"))["proposal"][
+            "brief_revision"
+        ] == 2
+    else:
+        assert conversation.current["pending"][0]["kind"] == "plan_approval"
+        assert conversation.current["proposal"] is None
+        assert {t["function"]["name"] for t in conversation.model.seen_tools[0]} == {
+            "ask_questions",
+            "submit_brief",
+        }

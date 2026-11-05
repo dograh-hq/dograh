@@ -9,7 +9,11 @@ from fastmcp import Client
 from api.mcp_server.auth import builder_mcp_user
 from api.mcp_server.server import mcp
 from api.mcp_server.ts_bridge import parse_code
-from api.services.voice_prompting_guide import Stage, build_briefing, get_topic
+from api.services.voice_prompting_guide import (
+    get_topic,
+    list_topic_index,
+    render_guide,
+)
 from api.services.workflow.authoring import (
     authoring_stage,
     render_authoring_instructions,
@@ -27,6 +31,12 @@ from api.services.workflow.workflow_graph import WorkflowGraph
 
 @pytest.mark.asyncio
 async def test_mcp_loads_the_same_stage_guidance_as_each_builder_agent():
+    assert {stage.value for stage in AuthoringStage} == {
+        "build_requirements",
+        "build",
+        "review",
+    }
+    assert set(STAGE_MCP_TOOLS) == {"build_requirements", "build"}
     core = render_authoring_instructions("").strip()
     async with Client(mcp) as client:
         instructions = client.instructions
@@ -41,6 +51,10 @@ async def test_mcp_loads_the_same_stage_guidance_as_each_builder_agent():
     token = builder_mcp_user.set(SimpleNamespace(id=3, selected_organization_id=27))
     try:
         async with Client(mcp) as client:
+            removed = await client.call_tool(
+                "get_workflow_authoring_guide", {"stage": "plan"}, raise_on_error=False
+            )
+            assert removed.is_error
             for stage in AuthoringStage:
                 result = (
                     await client.call_tool(
@@ -81,7 +95,7 @@ def test_creation_guidance_has_no_catalog_discovery_or_integration_node_schemas(
         assert "extraction_enabled?: boolean" in instructions
         assert 'type: "string" | "number" | "boolean"' in instructions
     if stage == AuthoringStage.build:
-        assert "get_voice_prompting_guide" not in instructions
+        assert "get_voice_prompting_guide" in instructions
 
 
 def test_only_iteration_build_and_review_expose_resource_guidance():
@@ -90,6 +104,24 @@ def test_only_iteration_build_and_review_expose_resource_guidance():
         assert ("`list_credentials`" in instructions) == (
             stage in (AuthoringStage.build, AuthoringStage.review)
         )
+
+
+def test_editor_prompt_is_separate_from_first_draft_requirements_and_building():
+    creation = builder_instructions("build")
+    editing = builder_instructions("build", iteration=True)
+    assert editing.startswith(authoring_stage("build", iteration=True)["instructions"])
+    assert "# Editor:" in editing
+    assert "# Builder:" not in editing
+    assert "approved CallBrief" not in editing
+    assert "`submit_brief`" not in editing
+    assert "`request_clarification`" not in editing
+    assert "`ask_questions`" in editing
+    assert "`propose_tool`" in editing and "`propose_tool_edit`" in editing
+    assert "tool_uuids" in editing
+    assert "# Editor:" not in creation
+    assert "`ask_questions`" not in creation
+    assert "`propose_tool`" not in creation
+    assert "approved CallBrief" in creation
 
 
 @pytest.mark.asyncio
@@ -104,36 +136,58 @@ async def test_shared_syntax_example_passes_the_real_parser_and_graph_validation
         WorkflowGraph(ReactFlowDTO.model_validate(parsed["workflow"]))
 
 
-@pytest.mark.parametrize("stage", [Stage.create, Stage.review])
-def test_required_global_guidance_is_scoped_by_the_topic(stage):
-    global_topics = build_briefing(stage, "globalNode")["topics"]
-    assert any(
-        topic["id"] == "common_guidelines" and topic["required_read"]
-        for topic in global_topics
-    )
-    assert not any(
-        topic["id"] == "common_guidelines"
-        for topic in build_briefing(stage, "agentNode")["topics"]
-    )
-    assert not any(
-        topic["required_read"] for topic in build_briefing(Stage.plan)["topics"]
-    )
-
-
 @pytest.mark.asyncio
-async def test_topic_and_lens_changes_reach_mcp_and_builder_without_copying(
-    monkeypatch,
-):
-    topic = get_topic("common_guidelines")
-    monkeypatch.setattr(topic, "content", "Updated canonical global template.")
-    monkeypatch.setattr(topic.stages[Stage.create], "lens", "Updated create lens.")
+async def test_voice_guide_returns_content_directly_and_advertises_topics():
     token = builder_mcp_user.set(SimpleNamespace(id=3, selected_organization_id=27))
     try:
         async with Client(mcp) as client:
-            for arguments in (
-                {"stage": "create", "node_type": "globalNode"},
-                {"topic": "common_guidelines"},
-            ):
+            spec = next(
+                tool
+                for tool in await client.list_tools()
+                if tool.name == "get_voice_prompting_guide"
+            )
+            assert set(spec.input_schema["properties"]) == {"topic"}
+            assert not spec.input_schema.get("required")
+            full = (await client.call_tool("get_voice_prompting_guide", {})).data
+            assert full == {"content": render_guide()}
+            for entry in list_topic_index():
+                assert (
+                    entry["id"]
+                    in spec.input_schema["properties"]["topic"]["description"]
+                )
+                topic = get_topic(entry["id"])
+                assert full["content"].count(topic.content.strip()) == 1
+
+            focused = (
+                await client.call_tool(
+                    "get_voice_prompting_guide", {"topic": "tool_calls"}
+                )
+            ).data
+            assert focused == {"content": render_guide("tool_calls")}
+            assert get_topic("tool_calls").content.strip() in focused["content"]
+            assert (
+                get_topic("common_guidelines").content.strip() not in focused["content"]
+            )
+
+            invalid = await client.call_tool(
+                "get_voice_prompting_guide", {"topic": "unknown"}, raise_on_error=False
+            )
+            assert invalid.is_error
+            error = " ".join(block.text for block in invalid.content)
+            assert "Unknown voice-prompting topic" in error
+            assert all(entry["id"] in error for entry in list_topic_index())
+    finally:
+        builder_mcp_user.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_topic_changes_reach_mcp_builder_relay_and_inline_builder(monkeypatch):
+    topic = get_topic("common_guidelines")
+    monkeypatch.setattr(topic, "content", "Updated canonical global template.")
+    token = builder_mcp_user.set(SimpleNamespace(id=3, selected_organization_id=27))
+    try:
+        async with Client(mcp) as client:
+            for arguments in ({}, {"topic": topic.id}):
                 external = (
                     await client.call_tool("get_voice_prompting_guide", arguments)
                 ).data
@@ -141,11 +195,34 @@ async def test_topic_and_lens_changes_reach_mcp_and_builder_without_copying(
                     client, "get_voice_prompting_guide", arguments
                 )
                 assert external == builder
-                if "topic" in arguments:
-                    assert builder["content"] == "Updated canonical global template."
-                else:
-                    lens = next(t for t in builder["topics"] if t["id"] == topic.id)
-                    assert lens["lens"] == "Updated create lens."
-                    assert lens["required_read"] is True
+                assert topic.content in builder["content"]
+        instructions = builder_instructions("build")
+        assert render_guide() in instructions
+        assert instructions.count(topic.content) == 1
+        # Edits fetch only what they need; other stages do not carry the guide.
+        for stage, iteration in (
+            ("build_requirements", False),
+            ("build", True),
+        ):
+            assert topic.content not in builder_instructions(stage, iteration=iteration)
+    finally:
+        builder_mcp_user.reset(token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("topic", [None, "tool_calls"])
+async def test_saved_builder_guide_requests_accept_legacy_arguments(topic):
+    arguments = {"stage": "create", "node_type": "agentNode"}
+    if topic is not None:
+        arguments["topic"] = topic
+    original = arguments.copy()
+    token = builder_mcp_user.set(SimpleNamespace(id=3, selected_organization_id=27))
+    try:
+        async with Client(mcp) as client:
+            result = await call_builder_tool(
+                client, "get_voice_prompting_guide", arguments
+            )
+        assert result == {"content": render_guide(topic)}
+        assert arguments == original
     finally:
         builder_mcp_user.reset(token)

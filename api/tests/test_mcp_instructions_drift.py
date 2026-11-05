@@ -35,9 +35,9 @@ from api.services.workflow.builder import BUILDER_TOOLS
 from api.services.workflow.builder_runtime.agent import (
     ALLOWED_TOOLS,
     ITERATION_MCP_TOOLS,
-    LOCAL_TOOLS,
     STAGE_MCP_TOOLS,
     builder_instructions,
+    local_tools,
 )
 
 # Every registered MCP tool name starts with one of these verbs. A
@@ -169,7 +169,9 @@ async def test_builder_guide_only_references_available_tools():
     assert relayed <= registered & BUILDER_TOOLS
     for stage, stage_tools in STAGE_MCP_TOOLS.items():
         for iteration in (False, True):
-            available = stage_tools | {tool.name for tool in LOCAL_TOOLS[stage]}
+            available = stage_tools | {
+                tool.name for tool in local_tools(stage, iteration=iteration)
+            }
             if iteration and stage in ("build", "review"):
                 available |= ITERATION_MCP_TOOLS
             referenced = _referenced_tool_names(

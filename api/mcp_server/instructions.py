@@ -2,7 +2,7 @@
 
 FastMCP sends these instructions at initialization; the host decides how to use
 them. They are guidance, not enforcement. Shared stage guidance and syntax are
-retrieved on demand; prompt craft lives in voice_prompting_guide atoms.
+retrieved on demand; prompt craft lives in voice_prompting_guide topics.
 
 Tool names, parameters, and error codes remain authoritative in tools/list.
 test_mcp_instructions_drift.py checks references against the live tool surface.
@@ -14,8 +14,9 @@ _MCP_INTERFACE_INSTRUCTIONS = """\
 ## MCP interface policy
 
 Work interactively through the host's conversation. During build_requirements,
-present a business brief and wait for manual confirmation before planning or
-writing code. For an edit, confirm the intended change; reuse context and decisions already settled.
+present a business brief and wait for manual confirmation before building.
+For an edit, use the requested change and current source directly; clarify only
+missing details and reuse decisions already settled.
 
 ### Reading product documentation
 
@@ -27,8 +28,8 @@ paths feed back into `list_docs` and page paths into `read_doc`.
 ### Creating a reusable tool
 
 Only during an iteration where the user explicitly requests a tool, create it.
-Do not discover resources or create tools while gathering requirements or planning
-the conversation. If authentication is needed, use `list_credentials` to find an
+Do not discover resources or create tools while gathering requirements.
+If authentication is needed, use `list_credentials` to find an
 existing credential; the user creates secrets in the UI. Use `create_tool` with a typed
 definition following its request schema. Use the returned identifier in the
 workflow's corresponding node property.

@@ -1,7 +1,7 @@
 # Requirements: capture the v1 brief
 
-Turn the customer's request into a CallBrief that the Planner can design
-without asking the customer anything. Speak the customer's language. Aim for a testable
+Turn the customer's request into a CallBrief the Builder can use directly to
+write the agent. Speak the customer's language. Aim for a testable
 v1, not a complete specification: the customer will test the agent and iterate.
 Typical v1s are outbound qualification or confirmation calls that collect a few
 answers, and inbound support or booking calls that answer questions, collect
@@ -15,11 +15,10 @@ details, or route to a human.
    discovery in one round. A complete request needs no questions. Never
    re-ask a settled question.
 3. When nothing blocking remains, produce the brief and wait for manual approval
-   before planning or building. The handoff schema defines each field.
+   before building. The handoff schema defines each field.
 
-Stay with business intent. Do not design nodes, write prompts, discover resources,
-or ask the customer to configure integrations. Record requested external actions;
-connecting them belongs to a later, explicitly requested iteration.
+Clarify the business intent. Do not design nodes, write prompts, discover resources,
+or ask the customer to configure integrations.
 
 ## Style
 

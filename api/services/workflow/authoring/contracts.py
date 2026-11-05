@@ -10,7 +10,6 @@ Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 class AuthoringStage(str, Enum):
     build_requirements = "build_requirements"
-    plan = "plan"
     build = "build"
     review = "review"
 
@@ -37,8 +36,8 @@ class CallBrief(Handoff):
         default_factory=list,
         description=(
             "Policies only the customer can supply: eligibility, hours, what to do "
-            "on refusal, wrong person, or out-of-scope requests, and when to hand "
-            "off to a human. State any required data lookup or update here as what "
+            "on refusal, wrong person, or out-of-scope requests. "
+            "State any required data lookup or update here as what "
             "happens and when."
         ),
     )
@@ -61,17 +60,6 @@ class CallBrief(Handoff):
         if isinstance(value, dict):
             return {key: item for key, item in value.items() if key != "open_questions"}
         return value
-
-
-class ConversationPlan(Handoff):
-    content: Text = Field(
-        description=(
-            "Conversation flow and complete prompts: shared instructions, named "
-            "steps, transition conditions, endings, and values to extract. "
-            "Use plain text, not SDK code or graph JSON."
-        )
-    )
-    configuration_gaps: list[Text] = Field(default_factory=list)
 
 
 class BuildResult(Handoff):

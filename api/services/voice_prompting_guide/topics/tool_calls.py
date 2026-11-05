@@ -1,47 +1,10 @@
 """Topic: when and how the agent should call tools."""
 
-from __future__ import annotations
-
-from api.services.voice_prompting_guide._base import (
-    AuditCheck,
-    Stage,
-    StageLens,
-    VoicePromptingTopic,
-)
+from api.services.voice_prompting_guide._base import VoicePromptingTopic
 
 TOPIC = VoicePromptingTopic(
     id="tool_calls",
     title="One tool, one job; specific trigger conditions; never mix text and a call",
-    severity="high",
-    applies_to_node_types=("agentNode",),
-    stages={
-        Stage.plan: StageLens(
-            relevant=True,
-            lens=(
-                "Identify each external action separately: booking, sending an "
-                "email, or updating a CRM. Establish its trigger, inputs, expected "
-                "result, and failure behavior."
-            ),
-        ),
-        Stage.create: StageLens(
-            relevant=True,
-            lens=(
-                "State the exact condition for each tool call in the prompt with right tool name ( Ex: 'call "
-                "schedule_appointment only after all three screening questions "
-                "pass'). Edge with label Schedule Appointment becomes schedule_appointment. "
-                "Also tell the agent a turn is either speech OR a tool call, "
-                "never both, and how to recover when a tool errors."
-            ),
-        ),
-        Stage.review: StageLens(
-            relevant=True,
-            lens=(
-                "Check each tool has a specific firing condition (not 'when the user "
-                "wants it'), that the prompt forbids mixing speech with a tool call, "
-                "and that tool errors have a recovery path."
-            ),
-        ),
-    },
     content="""\
 Each tool should do one thing. A tool that "schedules an appointment and sends a
 confirmation email and updates the CRM" fails unpredictably — split it into
@@ -70,35 +33,14 @@ To avoid dead air during a slow call, have the agent say one short line before
 calling a tool — "okay, give me a second" or "I'm checking that now" — then
 call the tool immediately.
 
-The decision tree for which tool fires when belongs in the success-criteria
-section — see that topic.
+Summarize tool routing as condition → action rules in the node's success-criteria
+section. For example: "Call schedule_appointment only after all three screening
+questions pass and the caller confirms the slot." Name the required inputs and
+where they come from; do not invent missing values. Wait for the tool's result
+before claiming the action succeeded.
+
+When editing an existing agent, use its actual tool names and check the tool
+description, node prompt, and inherited global instructions together. Change
+only the affected calling rules and preserve unrelated prompts and branches.
 """,
-    audit_checks=(
-        AuditCheck(
-            id="specific_tool_conditions",
-            judge_question=(
-                "For each tool the node can call, does the prompt give a specific "
-                "condition that must hold before it fires, rather than a vague "
-                "trigger like 'when the user wants it'?"
-            ),
-            expected="yes",
-            quote=(
-                "Tool trigger is vague — state the exact precondition (e.g. 'only "
-                "after all screening questions pass')."
-            ),
-        ),
-        AuditCheck(
-            id="forbids_text_and_tool_in_one_turn",
-            judge_question=(
-                "Does the prompt make clear that a turn is either spoken text or a "
-                "tool call, never both in the same turn?"
-            ),
-            expected="yes",
-            quote=(
-                "Prompt doesn't forbid mixing speech and a tool call in one turn — "
-                "most voice stacks misbehave when it does."
-            ),
-        ),
-    ),
-    cross_refs=("success_criteria", "end_call_logic"),
 )

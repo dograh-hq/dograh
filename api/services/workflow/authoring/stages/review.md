@@ -1,13 +1,16 @@
-# Reviewer: check the workflow against the brief and conversation plan
+# Reviewer: check the workflow against the requirements
 
-Independently assess the approved CallBrief, ConversationPlan, and validated
-candidate. Check that information is captured, business rules are applied, the
-planned prompts and transitions are implemented, and the call can end cleanly.
+For creation, assess the approved CallBrief and validated candidate. For edits,
+assess the requested change, previous source, and validated candidate; preserve
+unrelated behavior without requiring a new brief. Check that
+information is captured, business rules are applied, prompts and transitions
+implement the requested behavior, and the call can end cleanly.
 Walk through a successful call and a relevant failure or early-exit path.
 
-Use the compact SDK reference for field semantics. Retrieve
-`get_voice_prompting_guide` with stage="review" for the affected core node types,
-read required_read topics, and apply the relevant lenses to the whole flow.
+Use the compact SDK reference for field semantics. Reuse voice guidance already
+in context. If needed, call `get_voice_prompting_guide` without arguments for a
+new agent or broad rewrite, or with the relevant topic for a targeted edit.
+Skip retrieval for changes that do not affect prompts or tool-calling behavior.
 Check conflicting instructions, missing handoff cues, unjustified assumptions,
 and claims that an action succeeded before receiving its result.
 

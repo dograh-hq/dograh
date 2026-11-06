@@ -23,7 +23,7 @@ Click **Add node**, scroll down, and you'll find the **Webhook** node. Add it an
 
 First thing you'll see is the endpoint URL. Paste your backend's webhook URL here. Still testing? Use a free URL from [webhook.site](https://webhook.site), copy your unique URL there and paste it into Dograh.
 
-Set the method to **POST**. If your backend needs auth, add a bearer token or API key right here too.
+Set the method to **POST**. If your backend needs auth, use the **Authentication** field on the same node: pick a saved credential, or click **+** to store a bearer token, API key, basic auth, or custom header. Keep secrets out of **Custom Headers** — the workflow only records which credential to use, so the secret itself is never saved in or exported with the workflow.
 
 ## Step 3: Build the payload template
 

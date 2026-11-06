@@ -73,15 +73,24 @@ your value is kept.
 
 ## Authentication
 
-Webhook requests support the following authentication methods, configured via a stored credential:
+Never type a shared secret into the workflow. Attach a stored credential instead: open the webhook node, and in the **Authentication** field pick an existing credential or click **+** to create one. Credentials belong to your organization and are reusable across webhook nodes, HTTP API tools, MCP tools, call transfer resolvers, and pre-call data fetch.
 
-| Type | Description |
+The credential picker supports these types:
+
+| Type | Header Dograh sends |
 |---|---|
-| `NONE` | No authentication |
-| `API_KEY` | Sends the key in a custom header (e.g. `X-API-Key`) |
-| `BEARER_TOKEN` | Sends `Authorization: Bearer <token>` |
-| `BASIC_AUTH` | HTTP Basic authentication (username + password) |
-| `CUSTOM_HEADER` | Any custom header key-value pair |
+| `bearer_token` | `Authorization: Bearer <token>` |
+| `api_key` | The header name you set, conventionally `X-API-Key` |
+| `basic_auth` | `Authorization: Basic <base64(username:password)>` |
+| `custom_header` | The header name and value you choose |
+
+Leave **Authentication** empty to send no authentication header.
+
+The workflow definition stores only the credential's `credential_uuid`, and so does the delivery record. The secret is re-resolved from the credential store on every send attempt, so rotating a credential applies to later deliveries without editing the workflow, and the secret is never exported with the workflow. The credentials API never returns stored secret values.
+
+<Warning>
+Don't put secrets in **Custom Headers**. Header names that look like credentials — `Authorization`, `X-API-Key`, and anything containing `auth`, `token`, `secret`, `password`, `passwd`, `cookie`, `credential`, `api-key`, `apikey`, `api_key`, or `access-key` — are dropped and never stored or sent. Use a credential instead.
+</Warning>
 
 ---
 

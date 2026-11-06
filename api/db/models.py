@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Table,
     Text,
@@ -20,6 +21,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
 from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG
@@ -36,6 +38,115 @@ from ..enums import (
 )
 
 Base = declarative_base()
+
+
+class CheckpointMigrationModel(Base):
+    """Compatibility ledger for the adopted LangGraph PostgreSQL schema.
+
+    Only Alembic manages this schema; the runtime never runs LangGraph setup().
+    """
+
+    __tablename__ = "checkpoint_migrations"
+    v = Column(Integer, primary_key=True, autoincrement=False)
+
+
+class CheckpointModel(Base):
+    __tablename__ = "checkpoints"
+    thread_id = Column(Text, primary_key=True)
+    checkpoint_ns = Column(Text, primary_key=True, server_default=text("''"))
+    checkpoint_id = Column(Text, primary_key=True)
+    parent_checkpoint_id = Column(Text)
+    type = Column(Text)
+    checkpoint = Column(JSONB, nullable=False)
+    checkpoint_metadata = Column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    __table_args__ = (Index("checkpoints_thread_id_idx", "thread_id"),)
+
+
+class CheckpointBlobModel(Base):
+    __tablename__ = "checkpoint_blobs"
+    thread_id = Column(Text, primary_key=True)
+    checkpoint_ns = Column(Text, primary_key=True, server_default=text("''"))
+    channel = Column(Text, primary_key=True)
+    version = Column(Text, primary_key=True)
+    type = Column(Text, nullable=False)
+    blob = Column(LargeBinary)
+    __table_args__ = (Index("checkpoint_blobs_thread_id_idx", "thread_id"),)
+
+
+class CheckpointWriteModel(Base):
+    __tablename__ = "checkpoint_writes"
+    thread_id = Column(Text, primary_key=True)
+    checkpoint_ns = Column(Text, primary_key=True, server_default=text("''"))
+    checkpoint_id = Column(Text, primary_key=True)
+    task_id = Column(Text, primary_key=True)
+    idx = Column(Integer, primary_key=True, autoincrement=False)
+    channel = Column(Text, nullable=False)
+    type = Column(Text)
+    blob = Column(LargeBinary, nullable=False)
+    task_path = Column(Text, nullable=False, server_default=text("''"))
+    __table_args__ = (Index("checkpoint_writes_thread_id_idx", "thread_id"),)
+
+
+class BuilderRunModel(Base):
+    """Durable request admission and execution status, independent of SSE clients."""
+
+    __tablename__ = "workflow_builder_runs"
+    id = Column(String(36), primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    session_id = Column(String(36), nullable=False)
+    request = Column(JSONB, nullable=False)
+    status = Column(String(20), nullable=False, server_default="queued")
+    attempts = Column(Integer, nullable=False, server_default="0")
+    cancel_requested = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    __table_args__ = (
+        Index(
+            "builder_run_session_idx",
+            "organization_id",
+            "user_id",
+            "session_id",
+            "created_at",
+        ),
+        Index(
+            "builder_run_active_idx",
+            "organization_id",
+            "user_id",
+            "session_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+
+class BuilderRunEventModel(Base):
+    __tablename__ = "workflow_builder_run_events"
+    run_id = Column(
+        String(36),
+        ForeignKey("workflow_builder_runs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    seq = Column(Integer, primary_key=True, autoincrement=False)
+    payload = Column(JSONB, nullable=False)
+
+
+class ToolMutationReceiptModel(Base):
+    """A tool mutation and its receipt commit atomically for retry-safe execution."""
+
+    __tablename__ = "tool_mutation_receipts"
+    operation_id = Column(Text, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    result = Column(JSONB, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 # TODO: remove workflow_defintion after migration, remove nullable workflow_defintion_id from Workflow and Workflowrun
@@ -727,6 +838,13 @@ class WorkflowRunModel(Base):
         ),
         Index("idx_workflow_runs_workflow_id", "workflow_id"),
         Index("idx_workflow_runs_campaign_id", "campaign_id"),
+        Index(
+            "idx_workflow_runs_pending_completion",
+            "id",
+            postgresql_where=text(
+                "is_completed IS TRUE AND (extra -> 'workflow_completion' ->> 'status') IN ('pending', 'running')"
+            ),
+        ),
     )
 
 

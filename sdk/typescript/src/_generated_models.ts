@@ -1326,9 +1326,10 @@ export interface components {
          *
          *     Most of how a handoff sounds is fixed: the caller hears a ringer while the
          *     next agent is prepared. The handover line is configurable because it is
-         *     caller-facing and Dograh runs in more than one language, and so is whether
-         *     the next agent opens with its greeting, because an agent that greets
-         *     callers on its own number should not re-introduce itself mid-conversation.
+         *     caller-facing and Dograh runs in more than one language, and so is how the
+         *     next agent opens: an agent that greets callers on its own number should
+         *     not re-introduce itself mid-conversation, and one that only ever answers
+         *     handoffs needs a line of its own before it picks the conversation up.
          */
         TransferAgentConfig: {
             /**
@@ -1337,11 +1338,17 @@ export interface components {
              */
             workflow_id: number;
             /**
-             * Play Greeting
-             * @description Whether the destination agent opens with its Start Call greeting. When false, it skips the greeting and opens with a reply generated from the handover note, continuing the conversation instead of introducing itself.
-             * @default true
+             * Greeting Mode
+             * @description How the destination agent opens. 'start_greeting' plays its Start Call greeting and waits for the caller. 'continue' skips the greeting and opens with a reply generated from the handover note. 'introduce_and_continue' speaks the introduction in the destination's own voice and then opens with a generated reply, so the caller hears who picked up without having to repeat themselves.
+             * @default start_greeting
+             * @enum {string}
              */
-            play_greeting: boolean;
+            greeting_mode: "start_greeting" | "continue" | "introduce_and_continue";
+            /**
+             * Introduction
+             * @description What the destination agent says as it takes over, in its own voice, before its first generated reply. Required with greeting_mode 'introduce_and_continue' and not accepted otherwise. Supports template variables.
+             */
+            introduction?: string | null;
         };
         /**
          * TransferAgentToolDefinition

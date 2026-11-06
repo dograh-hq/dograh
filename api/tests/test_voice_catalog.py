@@ -618,28 +618,66 @@ async def test_rime_model_and_language_filtering_without_sending_secrets(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("language", [None, "hi-IN"])
 async def test_sarvam_reuses_model_options_without_external_requests(
-    language, connection, upstream
+    connection, upstream
 ):
     from api.services.configuration.options.sarvam import (
-        SARVAM_V2_VOICES,
         SARVAM_V3_VOICES,
+        SARVAM_V4_VOICES,
     )
 
     connection.provider = "sarvam"
     connection.connection_settings = {}
     requests = upstream(lambda request: pytest.fail("Bulbul voice options are static"))
     for model, expected in [
-        ("bulbul:v2", SARVAM_V2_VOICES),
+        ("bulbul:v4-flash", SARVAM_V4_VOICES),
         ("bulbul:v3", SARVAM_V3_VOICES),
     ]:
         response = await voice_catalog.get_connection_voices(
-            "sarvam", 42, connection.uuid, model=model, language=language
+            "sarvam", 42, connection.uuid, model=model
         )
         assert {voice.voice_id for voice in response.voices} == set(expected)
-        assert all(voice.language is None for voice in response.voices)
+        assert all(voice.name for voice in response.voices)
+        assert all(voice.description for voice in response.voices)
+        assert all(voice.language for voice in response.voices)
+        if model == "bulbul:v4-flash":
+            shubh_voice = next(
+                v for v in response.voices if v.voice_id == "shubh_enhi_ads"
+            )
+            assert shubh_voice.name == "Shubh"
+            assert shubh_voice.description == "English-Hindi • Ads • shubh_enhi_ads"
+            assert shubh_voice.accent is None
+            assert shubh_voice.language == "en-hi"
+            kyc_voice = next(
+                v for v in response.voices if v.voice_id == "aparna_hi_kyc"
+            )
+            assert kyc_voice.name == "Aparna"
+            assert kyc_voice.description == "Hindi • KYC • aparna_hi_kyc"
+            assert kyc_voice.accent is None
+            assert kyc_voice.language == "hi"
+        elif model == "bulbul:v3":
+            shubh_voice = next(v for v in response.voices if v.voice_id == "shubh")
+            assert shubh_voice.name == "Shubh"
+            assert shubh_voice.description == "Multilingual"
     assert requests == []
+
+
+@pytest.mark.asyncio
+async def test_sarvam_v4_voices_allow_cross_lingual_selection(connection, upstream):
+    from api.services.configuration.options.sarvam import SARVAM_V4_VOICES
+
+    connection.provider = "sarvam"
+    connection.connection_settings = {}
+    upstream(lambda request: pytest.fail("Bulbul voice options are static"))
+    response = await voice_catalog.get_connection_voices(
+        "sarvam", 42, connection.uuid, model="bulbul:v4-flash", language="pa"
+    )
+    # Sarvam Bulbul voices are cross-lingual; passing language must not restrict voice choice
+    assert {v.voice_id for v in response.voices} == set(SARVAM_V4_VOICES)
+    pa_voice = next(v for v in response.voices if v.voice_id == "anand_pa_conversation")
+    assert pa_voice.language == "pa"
+    hi_voice = next(v for v in response.voices if v.voice_id == "shubh_enhi_ads")
+    assert hi_voice.language == "en-hi"
 
 
 @pytest.mark.asyncio
@@ -677,7 +715,14 @@ def test_dynamic_voice_fields_are_backed_by_catalog_adapters():
         voice = config.model_json_schema()["properties"].get("voice", {})
         if voice.get("voice_catalog"):
             dynamic_providers.add(provider.value)
-    assert dynamic_providers == {"dograh", "elevenlabs", "cartesia", "deepgram", "rime"}
+    assert dynamic_providers == {
+        "dograh",
+        "elevenlabs",
+        "cartesia",
+        "deepgram",
+        "rime",
+        "sarvam",
+    }
     assert dynamic_providers - {"dograh"} <= VOICE_CATALOGS.keys()
 
 

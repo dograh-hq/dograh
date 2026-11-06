@@ -6,6 +6,8 @@ import { createProviderConnection, updateProviderConnection } from "@/client/sdk
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { clearVoiceCache } from "@/components/VoiceSelector";
+import { clearVoiceInfoCache } from "@/components/VoiceSelectorModal";
 import { detailFromError } from "@/lib/apiError";
 
 import { connectionProviders, schemaDefaults } from "./configuration";
@@ -72,6 +74,8 @@ export function ConnectionEditor({ catalog, connection, onSaved, providerKeys, r
                 : await createProviderConnection({ body: { ...body, provider } });
             if (result.error) throw new Error(detailFromError(result.error, "Failed to save provider connection"));
             if (!result.data) throw new Error("Failed to save provider connection");
+            clearVoiceCache(result.data.uuid);
+            clearVoiceInfoCache(result.data.uuid);
             await onSaved(result.data.uuid, result.data);
         } catch (cause) { setError(cause instanceof Error ? cause.message : "Failed to save provider connection"); }
         finally { setSaving(false); }
@@ -90,6 +94,9 @@ export function ConnectionEditor({ catalog, connection, onSaved, providerKeys, r
         </div>
         <div className="space-y-1.5"><Label htmlFor="connection-name">Connection name</Label>
             <Input id="connection-name" required maxLength={128} placeholder="Production account" value={name} onChange={event => setName(event.target.value)} /></div>
+        {provider === "dograh" && <p className="text-sm text-muted-foreground">
+            Get a service key using your email at <a className="underline" href="https://app.dograh.com/get-service-key" target="_blank" rel="noopener noreferrer">Dograh</a>, then paste it below.
+        </p>}
         {entry && <>
             {Object.keys(entry.connection_fields).length > 0 && <fieldset className="space-y-3">
                 <legend className="mb-2 text-sm font-semibold">Connection settings</legend>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from typing import Any
 
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -113,8 +114,26 @@ def _get_role_and_content(message: Any) -> tuple[str | None, str | None]:
     return normalized_role, " ".join(texts) if texts else None
 
 
+def normalize_conversation(context: LLMContext) -> list[dict]:
+    """Snapshot the text and tool messages used by out-of-band analysis."""
+    messages = []
+    for message in context.messages:
+        role, content = _get_role_and_content(message)
+        if role not in ("user", "assistant", "tool"):
+            continue
+        normalized = {"role": role, "content": content or ""}
+        if isinstance(message, dict):
+            if role == "assistant" and message.get("tool_calls"):
+                normalized["tool_calls"] = deepcopy(message["tool_calls"])
+            elif role == "tool":
+                normalized["tool_call_id"] = message.get("tool_call_id", "")
+        messages.append(normalized)
+    return messages
+
+
 def build_conversation_history(context: LLMContext) -> str:
     """Render conversation text, tool calls, and relevant responses as text."""
+    context = LLMContext(messages=normalize_conversation(context))
     tool_call_names = _build_tool_call_name_lookup(context)
     lines: list[str] = []
 

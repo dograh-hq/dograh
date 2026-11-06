@@ -5,7 +5,9 @@ import pytest
 from loguru import logger
 from pipecat.services.minimax.llm import MiniMaxLLMService as RealMiniMaxLLMService
 from pipecat.services.minimax.tts import MiniMaxTTSService
+from pydantic import ValidationError
 
+from api.services.configuration.model_connections import model_connection_catalog
 from api.services.configuration.registry import (
     MiniMaxLLMConfiguration,
     MiniMaxTTSConfiguration,
@@ -44,7 +46,23 @@ class TestMiniMaxTTSConfiguration:
         assert config.model == "speech-2.8-hd"
         assert config.voice == "English_Graceful_Lady"
         assert config.speed == 1.0
+        assert config.volume == 1.0
         assert config.group_id == "test-group"
+
+    def test_volume_is_exposed_in_model_settings(self):
+        entry = model_connection_catalog()["services"]["tts"]["minimax"]
+        volume = entry["settings_schema"]["properties"]["volume"]
+        assert volume["type"] == "number"
+        assert volume["default"] == 1.0
+        assert volume["exclusiveMinimum"] == 0.0
+        assert volume["maximum"] == 10.0
+
+    @pytest.mark.parametrize("volume", [0.0, -0.1, 10.01, float("nan"), float("inf")])
+    def test_invalid_volume(self, volume):
+        with pytest.raises(ValidationError, match="volume"):
+            MiniMaxTTSConfiguration(
+                api_key="test-key", group_id="test-group", volume=volume
+            )
 
 
 class TestMiniMaxLLMServiceFactory:
@@ -124,6 +142,24 @@ class TestMiniMaxTTSServiceFactory:
         assert kwargs["settings"].model == "speech-2.8-hd"
         assert kwargs["settings"].voice == "English_Graceful_Lady"
         assert kwargs["settings"].speed == 1.0
+        assert kwargs["settings"].volume == 1.0
+
+    @pytest.mark.parametrize(
+        "settings", [{}, {"volume": 0.01}, {"volume": 1.16}, {"volume": 10.0}]
+    )
+    def test_saved_volume_reaches_websocket_request(self, settings):
+        config = MiniMaxTTSConfiguration(
+            api_key="test-key", group_id="test-group", **settings
+        )
+        restored = MiniMaxTTSConfiguration.model_validate_json(config.model_dump_json())
+        service = create_tts_service(
+            SimpleNamespace(tts=restored),
+            SimpleNamespace(transport_in_sample_rate=16000),
+        )
+
+        assert service._task_start_message()["voice_setting"]["vol"] == settings.get(
+            "volume", 1.0
+        )
 
     def test_speech_cache_setting_only_logs_a_warning(self):
         warnings = []

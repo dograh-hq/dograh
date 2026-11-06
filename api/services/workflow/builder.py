@@ -1,0 +1,429 @@
+"""Dograh-owned builder orchestration and authenticated in-process MCP tools."""
+
+import asyncio
+import json
+from contextlib import aclosing
+from uuid import NAMESPACE_URL, UUID, uuid5
+
+from fastapi import HTTPException
+from fastmcp import Client
+from loguru import logger
+
+from api.db import db_client
+from api.db.models import UserModel
+from api.db.workflow_builder import BuilderBusy
+from api.mcp_server.auth import builder_mcp_operation, builder_mcp_user
+from api.mcp_server.server import mcp
+from api.mcp_server.tools._workflow_projection import project_workflow_to_sdk_view
+from api.schemas.workflow_builder import BuilderSession, BuilderTurnRequest
+from api.services.observability.trace_payloads import trace_json
+from api.services.workflow.builder_runtime.agent import ALLOWED_TOOLS as BUILDER_TOOLS
+from api.services.workflow.builder_runtime.errors import BuilderModelError
+from api.services.workflow.builder_runtime.progress import progress_queue
+from api.services.workflow.builder_runtime.schemas import BuilderStep
+from api.services.workflow.builder_runtime.service import builder_step
+from api.services.workflow.builder_runtime.tracing import (
+    builder_trace,
+    record_turn_event,
+)
+from api.services.workflow.builder_validation import preview_workflow_code
+from api.services.workflow.layout import reconcile_positions
+from api.utils.workflow_revision import workflow_revision
+
+TOOL_PROGRESS = {
+    "preview_workflow": "Validating your workflow…",
+    "test_workflow_scenario": "Rehearsing a caller scenario…",
+    "list_node_types": "Looking at available conversation steps…",
+    "get_node_type": "Checking how this conversation step works…",
+    "list_tools": "Looking at your integrations…",
+    "get_tool": "Reading integration settings…",
+    "create_tool": "Creating your approved integration…",
+    "update_tool": "Updating your approved integration…",
+    "list_documents": "Looking at your knowledge base…",
+    "list_credentials": "Checking available connections…",
+    "list_recordings": "Looking at your recordings…",
+    "get_voice_prompting_guide": "Reviewing voice conversation guidance…",
+}
+
+
+async def local_step(
+    user: UserModel, session_id: UUID, body: dict | None = None
+) -> dict:
+    if not user.selected_organization_id:
+        raise HTTPException(403, "Select an organization first")
+    try:
+        return await builder_step(
+            session_id,
+            user.selected_organization_id,
+            str(user.id),
+            BuilderStep.model_validate(body) if body is not None else None,
+        )
+    except HTTPException:
+        raise
+    except BuilderBusy as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except TimeoutError as exc:
+        raise HTTPException(504, "Builder timed out. Resume to retry.") from exc
+    except Exception:
+        logger.exception("Workflow builder step failed")
+        raise HTTPException(
+            503,
+            "Builder is unavailable. Check Dograh's model and checkpoint configuration.",
+        )
+
+
+async def load_session(user, session_id) -> BuilderSession:
+    return BuilderSession.model_validate(await local_step(user, session_id))
+
+
+async def _local_step_events(user, session_id, body):
+    """Stream local activity while the checkpointed step is running."""
+    queue = asyncio.Queue()
+
+    async def run():
+        token = progress_queue.set((asyncio.get_running_loop(), queue))
+        try:
+            state = await local_step(user, session_id, body)
+            queue.put_nowait(
+                {
+                    "type": "session",
+                    "session": BuilderSession.model_validate(state).model_dump(
+                        mode="json"
+                    ),
+                }
+            )
+        finally:
+            progress_queue.reset(token)
+            queue.put_nowait(None)
+
+    task = asyncio.create_task(run())
+    try:
+        while (event := await queue.get()) is not None:
+            yield event
+        await task  # Propagate failures through the existing public error handling.
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def open_workflow_builder(user, workflow_id: int) -> BuilderSession:
+    if not user.selected_organization_id:
+        raise HTTPException(403, "Select an organization first")
+    session_id = await db_client.get_workflow_builder_session_id(
+        workflow_id,
+        organization_id=user.selected_organization_id,
+        user_id=user.id,
+        create=True,
+    )
+    if session_id is None:
+        raise HTTPException(404, "Workflow not found")
+    try:
+        return await load_session(user, UUID(session_id))
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        # The link exists before the first message, so refreshes and concurrent
+        # tabs share a session even for workflows created without the builder.
+        return BuilderSession(id=UUID(session_id))
+
+
+async def load_builder_workflow(user, session_id: UUID, workflow_id: int):
+    if not user.selected_organization_id:
+        raise HTTPException(403, "Select an organization first")
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow is None or await db_client.get_workflow_builder_session_id(
+        workflow_id,
+        organization_id=user.selected_organization_id,
+        user_id=user.id,
+    ) != str(session_id):
+        raise HTTPException(404, "Workflow builder session not found")
+    return workflow
+
+
+async def call_builder_tool(
+    client, name: str, arguments: dict, *, operation_id: str | None = None
+) -> dict:
+    if name not in BUILDER_TOOLS:
+        return {"error": "This tool is not available to the builder"}
+    if name == "test_workflow_scenario":
+        from .builder_runtime.scenarios import WorkflowScenario, run_workflow_scenario
+
+        user = builder_mcp_user.get()
+        if user is None or not user.selected_organization_id:
+            return {"error": "An authenticated organization is required."}
+        return await run_workflow_scenario(
+            arguments["code"],
+            WorkflowScenario.model_validate(arguments["scenario"]),
+            user.selected_organization_id,
+            str(user.id),
+        )
+    if name == "get_voice_prompting_guide":
+        # Saved checkpoints may still contain arguments from the staged guide.
+        arguments = {
+            key: value
+            for key, value in arguments.items()
+            if key not in {"stage", "node_type"}
+        }
+    token = builder_mcp_operation.set(operation_id)
+    try:
+        result = await client.call_tool(name, arguments)
+        if result.is_error:
+            return {
+                "error": "Dograh could not complete this tool request. Check its arguments."
+            }
+        if result.data is not None:
+            return result.data
+        return {
+            "result": [block.text for block in result.content if hasattr(block, "text")]
+        }
+    except Exception:
+        logger.exception("Builder MCP tool failed: {}", name)
+        return {"error": "Dograh tool failed. Check the arguments or try again."}
+    finally:
+        builder_mcp_operation.reset(token)
+
+
+async def builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
+    with builder_trace(
+        user=user,
+        session_id=session_id,
+        operation="turn",
+        input=request.model_dump(mode="json"),
+        request_id=request.request_id,
+    ) as span:
+        async with aclosing(_builder_turn(user, session_id, request)) as events:
+            async for event in events:
+                record_turn_event(span, event)
+                yield event
+
+
+async def _builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
+    """Relay tools automatically; pause for questions and requirements approval."""
+    token = builder_mcp_user.set(user)
+    try:
+        current_workflow = None
+        if request.workflow_id is not None:
+            workflow = await load_builder_workflow(
+                user, session_id, request.workflow_id
+            )
+            if request.message is not None:
+                view = await project_workflow_to_sdk_view(workflow)
+                current_workflow = {
+                    "id": workflow.id,
+                    "code": view["code"],
+                    "revision": workflow_revision(workflow.workflow_definition),
+                }
+        async with Client(mcp) as client:
+            specs = [
+                item.model_dump(mode="json", by_alias=True)
+                for item in await client.list_tools()
+                if item.name in BUILDER_TOOLS
+            ]
+            if request.answers is not None:
+                previous = await local_step(user, session_id)
+                pending = {item["id"]: item for item in previous["pending"]}
+                # Browser input may answer questions, never impersonate MCP results.
+                if not request.answers or any(
+                    key not in pending or pending[key]["kind"] != "questions"
+                    for key in request.answers
+                ):
+                    raise HTTPException(422, "Only pending questions can be answered")
+                if set(request.answers) != {
+                    key
+                    for key, value in pending.items()
+                    if value["kind"] == "questions"
+                }:
+                    raise HTTPException(422, "Answer all pending questions")
+                resume = dict(request.answers)
+                for key, item in pending.items():
+                    if item["kind"] == "mcp":
+                        resume[key] = await call_builder_tool(
+                            client,
+                            item["tool_name"],
+                            item["arguments"],
+                            operation_id=f"{user.selected_organization_id}:{user.id}:{session_id}:{key}",
+                        )
+            elif request.approval is not None:
+                previous = await local_step(user, session_id)
+                pending = {item["id"]: item for item in previous["pending"]}
+                approval = request.approval
+                if (
+                    set(pending) != {approval.interrupt_id}
+                    or pending[approval.interrupt_id]["kind"] != "plan_approval"
+                ):
+                    raise HTTPException(
+                        409, "No matching requirements to review; reload and try again"
+                    )
+                resume = {
+                    approval.interrupt_id: approval.model_dump(exclude={"interrupt_id"})
+                }
+            elif request.tool_approval is not None:
+                previous = await local_step(user, session_id)
+                pending = {item["id"]: item for item in previous["pending"]}
+                approval = request.tool_approval
+                if (
+                    set(pending) != {approval.interrupt_id}
+                    or pending[approval.interrupt_id]["kind"] != "tool_approval"
+                ):
+                    raise HTTPException(
+                        409, "No matching tool change to review; reload and try again"
+                    )
+                # On approve the graph replays propose_tool past the approval
+                # interrupt and fires the create/update relay, which the loop
+                # below auto-executes -- the tool commits only after approval.
+                resume = {
+                    approval.interrupt_id: approval.model_dump(exclude={"interrupt_id"})
+                }
+            else:
+                resume = None
+            body = {
+                "request_id": str(request.request_id),
+                "checkpoint": request.checkpoint,
+                "message": request.message,
+                "resume": resume,
+                "tools": specs,
+                "current_workflow": current_workflow,
+            }
+            yield {"type": "status", "message": "Thinking about your agent…"}
+            for _ in range(30):
+                async with aclosing(
+                    _local_step_events(user, session_id, body)
+                ) as events:
+                    async for event in events:
+                        if event["type"] == "session":
+                            state = event["session"]
+                        yield event
+                pending = state["pending"]
+                if not pending or any(item["kind"] != "mcp" for item in pending):
+                    yield {"type": "done"}
+                    return
+                for item in pending:
+                    name = item["tool_name"]
+                    yield {
+                        "type": "status",
+                        "message": TOOL_PROGRESS.get(name, "Checking your agent…"),
+                    }
+                outputs = await asyncio.gather(
+                    *[
+                        call_builder_tool(
+                            client,
+                            item["tool_name"],
+                            item["arguments"],
+                            operation_id=f"{user.selected_organization_id}:{user.id}:{session_id}:{item['id']}",
+                        )
+                        for item in pending
+                    ]
+                )
+                results = {
+                    item["id"]: output
+                    for item, output in zip(pending, outputs, strict=True)
+                }
+                body = {
+                    "request_id": str(uuid5(request.request_id, state["checkpoint"])),
+                    "checkpoint": state["checkpoint"],
+                    "resume": results,
+                    "tools": specs,
+                }
+            yield {
+                "type": "error",
+                "message": "The builder reached its step limit. Resume to continue.",
+            }
+    except BuilderModelError as exc:
+        yield exc.event()
+    except HTTPException as exc:
+        yield {
+            "type": "error",
+            "message": str(exc.detail),
+            "status_code": exc.status_code,
+        }
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Builder conversation failed")
+        yield {
+            "type": "error",
+            "message": "The builder stopped unexpectedly. Resume to continue.",
+        }
+    finally:
+        builder_mcp_user.reset(token)
+
+
+async def save_builder_draft(
+    user, session_id: UUID, checkpoint: str, workflow_id: int | None = None
+) -> int:
+    with builder_trace(
+        user=user,
+        session_id=session_id,
+        operation="save",
+        input={"checkpoint": checkpoint},
+    ) as span:
+        workflow_id = await _save_builder_draft(
+            user, session_id, checkpoint, workflow_id
+        )
+        span.set_attribute("builder.outcome", "saved")
+        span.set_attribute(
+            "langfuse.observation.output", trace_json({"workflow_id": workflow_id})
+        )
+        return workflow_id
+
+
+async def _save_builder_draft(
+    user, session_id: UUID, checkpoint: str, workflow_id: int | None = None
+) -> int:
+    state = await load_session(user, session_id)
+    if state.checkpoint != checkpoint or state.can_continue or not state.proposal:
+        raise HTTPException(
+            409, "Finish building and review the latest proposal before saving"
+        )
+    result = await preview_workflow_code(
+        state.proposal.code, user.selected_organization_id, tidy=workflow_id is None
+    )
+    if not result["valid"]:
+        raise HTTPException(
+            422,
+            result.get(
+                "error", "Workflow validation failed; ask the builder to fix it"
+            ),
+        )
+    if workflow_id is not None:
+        workflow = await load_builder_workflow(user, session_id, workflow_id)
+        if state.workflow_id != workflow_id or not state.workflow_revision:
+            raise HTTPException(409, "Request a change before updating this workflow")
+        definition = reconcile_positions(
+            result["workflow"], workflow.workflow_definition
+        )
+        try:
+            await db_client.save_workflow_draft(
+                workflow_id,
+                workflow_definition=definition,
+                expected_workflow_revision=state.workflow_revision,
+                workflow_name=result["name"] or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return workflow_id
+    # One workflow per conversation. Existing UUID uniqueness makes retries atomic.
+    try:
+        workflow = await db_client.create_builder_workflow(
+            workflow_uuid=str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"dograh-builder:{user.selected_organization_id}:{user.id}:{session_id}",
+                )
+            ),
+            name=result["name"],
+            workflow_definition=result["workflow"],
+            user_id=user.id,
+            organization_id=user.selected_organization_id,
+            builder_session_id=str(session_id),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return workflow.id
+
+
+def encode_event(event: dict) -> str:
+    return f"data: {json.dumps(event)}\n\n"

@@ -42,6 +42,7 @@ interface VoiceSelectorModalProps {
     id?: string;
     provider: string;
     providerConnectionUuid?: string;
+    connectionRevision?: number;
     value: string;
     onChange: (voiceId: string) => void;
     /** Optional model passed through to the voice catalog query. */
@@ -70,10 +71,26 @@ function withSelected(options: string[], selected: string): string[] {
     return [selected, ...options];
 }
 
+const voiceInfoCache = new Map<string, VoiceInfo>();
+
+export function clearVoiceInfoCache(providerConnectionUuid?: string) {
+    if (!providerConnectionUuid) {
+        voiceInfoCache.clear();
+        return;
+    }
+    for (const key of Array.from(voiceInfoCache.keys())) {
+        const parts = key.split(":");
+        if (parts[2] === providerConnectionUuid) {
+            voiceInfoCache.delete(key);
+        }
+    }
+}
+
 export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
     id,
     provider,
     providerConnectionUuid,
+    connectionRevision,
     value,
     onChange,
     model,
@@ -81,6 +98,10 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
 }) => {
     const { user, loading: authLoading } = useAuth();
     const userId = user?.id;
+    const voiceCacheKey = (!authLoading && userId && provider && value)
+        ? `${userId}:${provider}:${providerConnectionUuid || ""}:${connectionRevision ?? ""}:${model || ""}:${value}`
+        : null;
+
     const [isOpen, setIsOpen] = useState(false);
     const [voices, setVoices] = useState<VoiceInfo[]>([]);
     const [facets, setFacets] = useState<Facets>(EMPTY_FACETS);
@@ -96,7 +117,9 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
 
     // Pending (in-modal) selection; only committed via "Use this voice".
     const [pendingVoiceId, setPendingVoiceId] = useState(value);
-    const [selectedVoiceInfo, setSelectedVoiceInfo] = useState<VoiceInfo | null>(null);
+    const [selectedVoiceInfo, setSelectedVoiceInfo] = useState<VoiceInfo | null>(() => (
+        voiceCacheKey ? voiceInfoCache.get(voiceCacheKey) ?? null : null
+    ));
 
     // Preview playback.
     const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
@@ -125,6 +148,10 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
             setSelectedVoiceInfo(null);
             return;
         }
+        if (voiceCacheKey && voiceInfoCache.has(voiceCacheKey)) {
+            setSelectedVoiceInfo(voiceInfoCache.get(voiceCacheKey)!);
+            return;
+        }
         let active = true;
         (async () => {
             try {
@@ -133,13 +160,17 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                     query: { q: value, ...(model ? { model } : {}), ...(providerConnectionUuid ? { provider_connection_uuid: providerConnectionUuid } : {}) },
                 });
                 if (!active) return;
-                setSelectedVoiceInfo(response.error ? null : response.data?.voices?.find((voice) => voice.voice_id === value) ?? null);
+                const found = response.error ? null : response.data?.voices?.find((voice) => voice.voice_id === value) ?? null;
+                if (found && voiceCacheKey) {
+                    voiceInfoCache.set(voiceCacheKey, found);
+                }
+                setSelectedVoiceInfo(found);
             } catch { if (active) setSelectedVoiceInfo(null); }
         })();
         return () => {
             active = false;
         };
-    }, [value, provider, providerConnectionUuid, model, authLoading, userId]);
+    }, [value, provider, providerConnectionUuid, connectionRevision, model, authLoading, userId, voiceCacheKey]);
 
     // Fetch the filtered voice list (server-side) whenever the modal is open
     // and a filter changes. A request counter discards out-of-order responses.
@@ -185,7 +216,7 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
             } finally { if (id === requestId.current) setIsLoading(false); }
         })();
         return () => { requestId.current += 1; };
-    }, [isOpen, provider, providerConnectionUuid, model, gender, accent, language, debouncedSearch, authLoading, userId]);
+    }, [isOpen, provider, providerConnectionUuid, connectionRevision, model, gender, accent, language, debouncedSearch, authLoading, userId]);
 
     // Stop any preview when the modal closes / unmounts.
     useEffect(() => {
@@ -246,7 +277,13 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
         if (pendingVoiceId) {
             onChange(pendingVoiceId);
             const chosen = voices.find((voice) => voice.voice_id === pendingVoiceId);
-            if (chosen) setSelectedVoiceInfo(chosen);
+            if (chosen) {
+                if (userId && provider) {
+                    const chosenKey = `${userId}:${provider}:${providerConnectionUuid || ""}:${connectionRevision ?? ""}:${model || ""}:${pendingVoiceId}`;
+                    voiceInfoCache.set(chosenKey, chosen);
+                }
+                setSelectedVoiceInfo(chosen);
+            }
         }
         setIsOpen(false);
     };

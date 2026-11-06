@@ -14,6 +14,7 @@ from api.services.pipecat import event_handlers
 from api.services.pipecat.event_handlers import register_event_handlers
 from api.services.pipecat.pre_call_fetch import PreCallFetchResult
 from api.services.pipecat.termination_funnel_processor import TerminationFunnelProcessor
+from api.services.workflow.pipecat_engine import PipecatEngine
 
 RUN_CONFIG = "authorized-configuration"
 
@@ -40,24 +41,24 @@ class Call:
             return_value=SimpleNamespace(queue_frame=AsyncMock())
         )
         self.ring_started = asyncio.Event()
-        self.engine = SimpleNamespace(
-            active_agent=SimpleNamespace(
-                workflow=SimpleNamespace(start_node_id="start"),
-                is_child=is_child,
-                runtime_configuration={},
-            ),
-            _call_context_vars={"customer": "before"},
-            hold_audio_sample_rate=16000,
-            set_node=AsyncMock(),
-            queue_node_opening=AsyncMock(),
-            call_monitor=Mock(),
-            start_initial_agent=AsyncMock(return_value=True),
-            finalize_initial_agent=Mock(
-                side_effect=lambda config: self.events.append(f"finalize:{config}")
-            ),
-            record_context=Mock(),
-            is_call_disposed=Mock(return_value=False),
+        self.engine = PipecatEngine(
+            workflow=None, call_context_vars={"customer": "before"}
         )
+        self.engine.active_agent.workflow = SimpleNamespace(
+            start_node_id="start", nodes={}
+        )
+        self.engine.active_agent.is_child = is_child
+        self.engine.set_node = AsyncMock()
+        self.engine.queue_node_opening = AsyncMock()
+        self.engine.call_monitor = Mock()
+        self.engine.start_initial_agent = AsyncMock(return_value=True)
+        self.engine.finalize_initial_agent = Mock(
+            side_effect=lambda config: self.events.append(f"finalize:{config}")
+        )
+        self.engine.record_context = Mock()
+        self.engine.is_call_disposed = Mock(return_value=False)
+        self.engine.end_call_with_reason = AsyncMock()
+        self.engine._audio_config = SimpleNamespace(transport_out_sample_rate=16000)
 
         async def ring(*, stop_event, sample_rate, queue_frame, **_kwargs):
             assert sample_rate == 16000
@@ -234,3 +235,93 @@ async def test_a_fetch_that_already_settled_does_not_ring(monkeypatch):
     await asyncio.wait_for(connected, 1)
     assert call.events == [f"finalize:{RUN_CONFIG}"]
     assert call.engine._call_context_vars["customer"] == "after"
+
+
+@pytest.mark.asyncio
+async def test_recorded_opening_does_not_wait_for_generation(monkeypatch):
+    call = Call(monkeypatch, fetch_task=None)
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def start():
+        started.set()
+        await release.wait()
+        return True
+
+    call.engine.start_initial_agent.side_effect = start
+    call.engine.get_start_greeting = Mock(return_value=("audio", "42"))
+    connected = await call.ready()
+    try:
+        await asyncio.wait_for(connected, 1)
+        await asyncio.wait_for(started.wait(), 1)
+        call.engine.queue_node_opening.assert_awaited_once()
+        assert not call.engine.generation_ready
+        call.engine.set_node.assert_not_awaited()
+        release.set()
+        assert await call.engine.wait_for_generation_ready()
+        call.engine.set_node.assert_awaited_once()
+    finally:
+        await call.engine.cancel_initial_agent_startup()
+
+
+@pytest.mark.asyncio
+async def test_realtime_recording_handoff_waits_for_node_preparation(monkeypatch):
+    call = Call(monkeypatch, fetch_task=None, is_child=False)
+    prepared = asyncio.Event()
+
+    async def set_node(_node_id):
+        await prepared.wait()
+
+    call.engine.set_node.side_effect = set_node
+    handler = AsyncMock()
+    call.engine.active_agent.llm = SimpleNamespace(handle_prerecorded_greeting=handler)
+    call.engine.begin_initial_agent_startup()
+    handoff = asyncio.create_task(
+        call.engine._open_realtime_after_recorded_greeting("Welcome.")
+    )
+    try:
+        await asyncio.sleep(0)
+        handler.assert_not_awaited()
+        prepared.set()
+        await asyncio.wait_for(handoff, 1)
+        handler.assert_awaited_once_with(call.engine.context, "Welcome.")
+    finally:
+        handoff.cancel()
+        await asyncio.gather(handoff, return_exceptions=True)
+        await call.engine.cancel_initial_agent_startup()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_one_waiter_keeps_shared_startup_running(monkeypatch):
+    call = Call(monkeypatch, fetch_task=None)
+    release = asyncio.Event()
+    call.engine.start_initial_agent.side_effect = release.wait
+    call.engine.begin_initial_agent_startup()
+    waiter = asyncio.create_task(call.engine.wait_for_generation_ready())
+    await asyncio.sleep(0)
+    waiter.cancel()
+    await asyncio.gather(waiter, return_exceptions=True)
+    assert not call.engine._initial_agent_startup.done()
+    release.set()
+    assert await call.engine.wait_for_generation_ready()
+    call.engine.start_initial_agent.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_cancels_preparation_and_prevents_node_setup(monkeypatch):
+    call = Call(monkeypatch, fetch_task=None)
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def start():
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    call.engine.start_initial_agent.side_effect = start
+    call.engine.begin_initial_agent_startup()
+    await asyncio.wait_for(entered.wait(), 1)
+    await call.engine.cleanup()
+    assert cancelled.is_set()
+    assert not await call.engine.wait_for_generation_ready()
+    call.engine.set_node.assert_not_awaited()

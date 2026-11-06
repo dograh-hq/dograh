@@ -14,7 +14,7 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
-from api.enums import CallType, StorageBackend, WorkflowRunMode
+from api.enums import CallType, StorageBackend, WorkflowRunMode, WorkflowRunState
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.workflow.run_usage_response import format_public_cost_info
 from api.utils.recording_artifacts import get_recording_storage_key
@@ -145,6 +145,31 @@ class WorkflowRunClient(BaseDBClient):
             run.model_configuration_snapshot = snapshot
             await session.commit()
             return snapshot
+
+    async def mark_workflow_run_running(
+        self, run_id: int, organization_id: int
+    ) -> bool:
+        """Move a run from initialized to running; return whether it moved.
+
+        Only an initialized run moves, so a terminal status that landed first
+        is never reopened.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowRunModel.id == run_id,
+                    WorkflowModel.organization_id == organization_id,
+                )
+                .with_for_update(of=WorkflowRunModel)
+            )
+            run = result.scalar_one_or_none()
+            if run is None or run.state != WorkflowRunState.INITIALIZED.value:
+                return False
+            run.state = WorkflowRunState.RUNNING.value
+            await session.commit()
+            return True
 
     async def get_all_workflow_runs(self) -> list[WorkflowRunModel]:
         async with self.async_session() as session:
@@ -407,6 +432,11 @@ class WorkflowRunClient(BaseDBClient):
         extra: dict | None = None,
         model_configuration_snapshot: dict | None = None,
     ) -> WorkflowRunModel:
+        """Merge supplied fields under a row lock.
+
+        Pass only changed context keys, not a previously read context snapshot;
+        incoming values take precedence over the current stored values.
+        """
         async with self.async_session() as session:
             # Use SELECT FOR UPDATE to lock the row during the update
             result = await session.execute(
@@ -463,7 +493,17 @@ class WorkflowRunClient(BaseDBClient):
             if annotations:
                 run.annotations = {**run.annotations, **annotations}
             if extra:
-                run.extra = {**run.extra, **extra}
+                stored_extra = run.extra or {}
+                completion_exists = bool(stored_extra.get("workflow_completion"))
+                completion_update = extra.get("workflow_completion") or {}
+                initializes_completion = completion_update.get("status") == "pending"
+
+                extra_updates = extra.copy()
+                # Repeated initialization must preserve the worker's progress.
+                if completion_exists and initializes_completion:
+                    extra_updates.pop("workflow_completion")
+
+                run.extra = {**stored_extra, **extra_updates}
             if is_completed:
                 run.is_completed = is_completed
             if state:

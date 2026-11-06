@@ -1,4 +1,4 @@
-"""Position reconciliation for LLM-edited workflows.
+"""Canvas positions for workflows the API writes or lays out.
 
 `save_workflow` re-parses LLM-authored TypeScript into workflow JSON,
 but the parser deliberately ignores positions (LLMs place nodes
@@ -11,10 +11,11 @@ against the previously-stored workflow:
     3. New nodes:     placed adjacent to their first incoming neighbor
                       (src.x + 400, src.y + 200), or (0, 0) if orphan
 
-The UI has a proper dagre-based re-layout button
-(`ui/src/app/workflow/[workflowId]/utils/layoutNodes.ts`) users can
-invoke when they want a clean pass. This module only aims to avoid
-all-nodes-at-origin after a save.
+Initial creation and the UI's Tidy Up button both use the dagre layout in
+`api/mcp_server/ts_validator/src/layout.ts` (`tidy_positions` below for Tidy
+Up; `parse_code(tidy=True)` for creation). Subsequent saves use this
+reconciliation instead, preserving existing positions (including an
+intentional origin).
 """
 
 from __future__ import annotations
@@ -27,6 +28,28 @@ _DEFAULT_POSITION: dict[str, float] = {"x": 0.0, "y": 0.0}
 # node spacing without overlapping the neighbor's card.
 _NEW_NODE_DX: float = 400.0
 _NEW_NODE_DY: float = 200.0
+
+
+async def tidy_positions(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    *,
+    rankdir: str = "TB",
+) -> list[dict[str, Any]]:
+    """Tidy Up positions (`[{"id", "x", "y"}]`) for an unsaved canvas.
+
+    Only node ids/types and edge endpoints reach the validator, so any
+    half-edited canvas state can be laid out. Empty when nothing to lay
+    out. Raises `TsBridgeError` if the validator is unavailable.
+    """
+    # Loading the MCP package registers tools that also import this module.
+    from api.mcp_server.ts_bridge import layout_nodes
+
+    return await layout_nodes(
+        [{"id": n["id"], "type": n["type"]} for n in nodes],
+        [{"source": e["source"], "target": e["target"]} for e in edges],
+        rankdir=rankdir,
+    )
 
 
 def reconcile_positions(
@@ -55,6 +78,7 @@ def reconcile_positions(
             unnamed_positions.setdefault(t, []).append(pos)
 
     unnamed_cursor: dict[str, int] = {}
+    matched_node_ids: set[str] = set()
 
     for node in new_wf.get("nodes") or []:
         t = node.get("type") or ""
@@ -71,14 +95,17 @@ def reconcile_positions(
                 unnamed_cursor[t] = idx + 1
         if pos is not None:
             node["position"] = dict(pos)
+            matched_node_ids.add(node["id"])
 
-    _place_new_nodes(new_wf)
+    _place_new_nodes(new_wf, matched_node_ids)
     return new_wf
 
 
-def _place_new_nodes(wf: dict[str, Any]) -> None:
-    """For nodes still at (0, 0) — i.e. unmatched by any previous
-    node — pick a position adjacent to the first incoming neighbor.
+def _place_new_nodes(
+    wf: dict[str, Any], matched_node_ids: set[str] | None = None
+) -> None:
+    """For unmatched nodes still at (0, 0), pick a position adjacent
+    to the first incoming neighbor.
     Runs after named/unnamed matching so only genuinely-new nodes are
     affected."""
     nodes = wf.get("nodes") or []
@@ -88,6 +115,8 @@ def _place_new_nodes(wf: dict[str, Any]) -> None:
     edges = wf.get("edges") or []
 
     for node in nodes:
+        if matched_node_ids and node["id"] in matched_node_ids:
+            continue
         pos = node.get("position") or {}
         if pos.get("x") or pos.get("y"):
             continue  # already has a non-origin position

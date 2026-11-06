@@ -10,8 +10,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
-from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.processors.aggregators.llm_context import LLMContext
 
 from api.tests.test_fallback_llm_processor import Stream, chunk, generate
@@ -128,13 +128,13 @@ async def test_cancelled_attempt_does_not_mark_next_request_cancelled(
         original_usage = h.services[0].start_llm_usage_metrics
         h.install(0, Stream(asyncio.Event()))
         h.install(1, Stream(chunks[providers[1]]("Backup answer")))
-        assert await generate(h) == ["Backup answer"]
+        assert "".join(await generate(h)) == "Backup answer"
         assert h.services[0].push_frame == original_push
         assert h.services[0].start_llm_usage_metrics == original_usage
 
         h.downstream.frames.clear()
         h.install(0, Stream(chunks[providers[0]]("Primary recovered")))
-        assert await generate(h) == ["Primary recovered"]
+        assert "".join(await generate(h)) == "Primary recovered"
 
     exported = spans.get_finished_spans()
     assert len(exported) == 3

@@ -49,6 +49,8 @@ def campaign_call(monkeypatch):
         record_call_tags=Mock(),
         cleanup=AsyncMock(),
         finish_tool_calls=AsyncMock(),
+        final_extraction_logs=Mock(return_value={}),
+        final_extraction_metadata=Mock(return_value={}),
     )
     monkeypatch.setattr(
         event_handlers.db_client,
@@ -94,6 +96,36 @@ def campaign_call(monkeypatch):
         funnel=funnel,
         transcript_log_coordinator=transcript_log_coordinator,
         call_events_session=call_events_session,
+    )
+
+
+@pytest.mark.asyncio
+async def test_extraction_snapshot_is_committed_with_completion_before_enqueue(
+    campaign_call,
+):
+    call = campaign_call
+    snapshot = {
+        "conversation": [{"role": "user", "content": "Ada"}],
+        "final_extraction": {"version": 1},
+    }
+    call.engine.final_extraction_logs.return_value = snapshot
+    call.engine.final_extraction_metadata.return_value = {"status": "pending"}
+
+    async def upload(*_args, **_kwargs):
+        update = event_handlers.db_client.update_workflow_run.call_args.kwargs
+        assert update["is_completed"] is True
+        assert update["logs"] == snapshot
+        assert "final_extraction" not in update["gathered_context"]
+        completion = update["extra"]["workflow_completion"]
+        assert completion["status"] == "pending"
+        assert completion["final_extraction"]["status"] == "pending"
+        event_handlers.enqueue_job.assert_not_awaited()
+
+    event_handlers.upload_workflow_run_artifacts.side_effect = upload
+    await call.task.handlers["on_pipeline_finished"](call.task, EndFrame())
+    assert (
+        event_handlers.enqueue_job.call_args.kwargs["_job_id"]
+        == "workflow-completion-88"
     )
 
 
@@ -401,7 +433,7 @@ def test_dograh_workers_cancel_when_a_processor_becomes_permanently_unusable(
         return worker
 
     monkeypatch.setenv("ENABLE_TURN_LOGGING", "false")
-    monkeypatch.setattr(pipeline_builder, "PipelineWorker", capture_worker)
+    monkeypatch.setattr(pipeline_builder, "DograhPipelineWorker", capture_worker)
 
     result = pipeline_builder.create_pipeline_task(object(), workflow_run_id=88)
 

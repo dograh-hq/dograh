@@ -81,7 +81,11 @@ async def response_done(service, status="completed", *, response_id="response-1"
                     output=[],
                     status_details={"error": {"message": "test failure"}},
                     usage=SimpleNamespace(
-                        input_tokens=0, output_tokens=0, total_tokens=0
+                        input_tokens=0,
+                        output_tokens=0,
+                        total_tokens=0,
+                        input_token_details=None,
+                        output_token_details=None,
                     ),
                 ),
             )

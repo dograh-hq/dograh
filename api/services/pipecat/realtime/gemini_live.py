@@ -31,12 +31,16 @@ from loguru import logger
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiLiveJSONSchemaAdapter,
 )
-from api.services.pipecat.realtime.conversation import RealtimeConversationMixin
+from api.services.pipecat.realtime.conversation import (
+    RealtimeConversationMixin,
+    opening_request,
+)
 from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     FunctionCallFromLLM,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.utils.tracing.service_decorators import traced_gemini_live
 
@@ -56,6 +60,10 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     # seeded contexts. Mirrors the non-realtime ``DograhGoogleLLMService`` fix;
     # ``DograhGeminiLiveVertexLLMService`` inherits this via MRO.
     adapter_class = DograhGeminiLiveJSONSchemaAdapter
+
+    @property
+    def opening_input_ready(self) -> bool:
+        return bool(self._session and self._ready_for_realtime_input)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -273,7 +281,12 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
     # runtime via _update_settings, not via init).
     # ------------------------------------------------------------------
 
-    async def _handle_context(self, context: LLMContext | None):
+    @opening_request
+    async def _handle_context(
+        self,
+        context: LLMContext | None,
+        direction: FrameDirection = FrameDirection.DOWNSTREAM,
+    ):
         if context is None:
             logger.warning(f"{self}: received context trigger before context was set")
             return
@@ -290,6 +303,8 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
         else:
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
+            if direction == FrameDirection.UPSTREAM and self._content_awaiting_response:
+                await self._complete_turn()
 
     async def _prepare_context_for_fresh_session(self) -> None:
         """Account for tool results that will be represented in a history seed.
@@ -327,6 +342,7 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
         await self._prepare_context_for_fresh_session()
         await self._create_prerecorded_greeting_response(transcript)
 
+    @opening_request
     async def _create_prerecorded_greeting_response(self, transcript: str | None):
         """Seed the spoken greeting, leaving the turn open for the caller.
 
@@ -347,7 +363,11 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
         adapter = self.get_llm_adapter()
         turns = cast(
             "list[Content | ContentDict]",
-            list(adapter.get_llm_invocation_params(self._context).get("messages", [])),
+            list(
+                (await adapter.get_llm_invocation_params(self._context)).get(
+                    "messages", []
+                )
+            ),
         )
         if transcript:
             turns.append(Content(role="model", parts=[Part(text=transcript)]))
@@ -377,6 +397,7 @@ class DograhGeminiLiveLLMService(RealtimeConversationMixin, GeminiLiveLLMService
 
         self._ready_for_realtime_input = True
 
+    @opening_request
     async def _create_initial_greeting_response(self, greeting_text: str):
         """Ask Gemini Live to speak the configured greeting exactly once."""
         if self._disconnecting:

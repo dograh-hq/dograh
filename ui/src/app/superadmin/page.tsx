@@ -9,14 +9,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from '@/lib/auth';
 import { impersonateAsSuperadmin } from "@/lib/utils";
 
 type ImpersonationTarget = "provider" | "email";
 
+const DEPLOYMENTS = [
+    { value: "default", label: "Default deployment", appUrl: undefined },
+    { value: "eu", label: "Europe (EU) — eu.dograh.com", appUrl: "https://eu.dograh.com" },
+    { value: "in", label: "India (IN) — in.dograh.com", appUrl: "https://in.dograh.com" },
+];
+
 export default function SuperadminPage() {
     const [providerUserId, setProviderUserId] = useState("");
     const [email, setEmail] = useState("");
+    const [deployment, setDeployment] = useState("default");
     const [error, setError] = useState<{ target: ImpersonationTarget; message: string } | null>(null);
     const [loadingTarget, setLoadingTarget] = useState<ImpersonationTarget | null>(null);
     const { user, getAccessToken } = useAuth();
@@ -55,6 +63,7 @@ export default function SuperadminPage() {
                     ? { providerUserId: trimmedValue }
                     : { email: trimmedValue }),
                 redirectPath: '/workflow',
+                appUrl: DEPLOYMENTS.find(({ value }) => value === deployment)?.appUrl,
                 openInNewTab: true,
             });
         } catch (err) {
@@ -80,7 +89,22 @@ export default function SuperadminPage() {
 
     return (
         <PageLayout title="Superadmin Dashboard" description="Manage users and view system-wide data">
-
+            <div className="space-y-2">
+                <Label htmlFor="deployment">Deployment</Label>
+                <Select value={deployment} onValueChange={setDeployment} disabled={loadingTarget !== null}>
+                    <SelectTrigger id="deployment" className="w-full md:w-80" aria-describedby="deployment-description">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {DEPLOYMENTS.map(({ value, label }) => (
+                            <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <p id="deployment-description" className="text-sm text-muted-foreground">
+                    Choose where to open the user&apos;s session. Applies to both impersonation methods below.
+                </p>
+            </div>
             <div className="grid gap-6 md:grid-cols-2">
                 <Card>
                     <CardHeader>

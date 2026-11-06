@@ -68,6 +68,28 @@ describe("model connection editor settings", () => {
         expect(resetDependentFields({ model: "flux" }, schema, "model")).toEqual({ model: "flux", voice: null });
         const settings = { model: "flux", voice: "flux-maeve-en" };
         expect(resetDependentFields(settings, schema, "speed")).toBe(settings);
+
+        const modelOptionsSchema = {
+            properties: {
+                model: { enum: ["bulbul:v4-flash", "bulbul:v3"] },
+                voice: {
+                    default: "shubh_enhi_ads",
+                    reset_on_change: ["model"],
+                    model_options: {
+                        "bulbul:v4-flash": ["shubh_enhi_ads", "shubh_en_narration_gentle"],
+                        "bulbul:v3": ["shubh", "aditya"],
+                    },
+                },
+            },
+        };
+        expect(resetDependentFields({ model: "bulbul:v3", voice: "shubh_enhi_ads" }, modelOptionsSchema, "model")).toEqual({
+            model: "bulbul:v3",
+            voice: "shubh",
+        });
+        expect(resetDependentFields({ model: "bulbul:v4-flash", voice: "shubh" }, modelOptionsSchema, "model")).toEqual({
+            model: "bulbul:v4-flash",
+            voice: "shubh_enhi_ads",
+        });
     });
     it("removes hidden, computed, and credential fields without dropping valid settings", () => {
         const schema = { properties: { ...catalog.services.llm!.openai.settings_schema.properties, output: { readOnly: true } } };

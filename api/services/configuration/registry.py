@@ -57,8 +57,8 @@ from api.services.configuration.options import (
     SARVAM_STT_LANGUAGES_V25,
     SARVAM_STT_MODELS,
     SARVAM_TTS_MODELS,
-    SARVAM_V2_VOICES,
     SARVAM_V3_VOICES,
+    SARVAM_V4_VOICES,
     SMALLEST_TTS_LANGUAGES,
     SMALLEST_TTS_MODELS,
     SMALLEST_TTS_PRO_VOICES,
@@ -123,6 +123,7 @@ class ServiceProviders(str, Enum):
     SMALLEST = "smallest"
     XAI = "xai"
     LMNT = "lmnt"
+    MURF = "murf"
     SPEECHIFY = "speechify"
     SONIOX = "soniox"
 
@@ -184,6 +185,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.SMALLEST,
         ServiceProviders.XAI,
         ServiceProviders.LMNT,
+        ServiceProviders.MURF,
         ServiceProviders.SPEECHIFY,
         ServiceProviders.SONIOX,
     ]
@@ -434,6 +436,7 @@ CARTESIA_PROVIDER = Provider("cartesia", "Cartesia")
 XAI_PROVIDER = Provider("xai", "xAI")
 LMNT_PROVIDER = Provider("lmnt", "LMNT")
 MINIMAX_PROVIDER = Provider("minimax", "MiniMax")
+MURF_PROVIDER = Provider("murf", "Murf")
 SPEECHIFY_PROVIDER = Provider(
     "speechify",
     "Speechify",
@@ -498,11 +501,9 @@ AWS_NOVA_SONIC_PROVIDER = Provider(
 OPENAI_MODELS = [
     "gpt-4.1",
     "gpt-4.1-mini",
-    "gpt-4.1-nano",
     "gpt-5",
     "gpt-5-mini",
     "gpt-5-nano",
-    "gpt-3.5-turbo",
 ]
 
 ATLASCLOUD_API_BASE_URL = "https://api.atlascloud.ai/v1"
@@ -704,6 +705,7 @@ class DograhLLMService(BaseChatLLMConfiguration):
         json_schema_extra={
             "examples": DOGRAH_LLM_MODELS,
             "option_labels": {"default": "default (recommended)"},
+            "allow_custom_input": True,
         },
     )
 
@@ -1382,6 +1384,50 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
         )
 
 
+MURF_TTS_MODELS = ["falcon-2"]
+
+
+@register_tts(provider=MURF_PROVIDER)
+class MurfTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.MURF] = ServiceProviders.MURF
+    model: str = Field(
+        default="falcon-2",
+        json_schema_extra={"examples": MURF_TTS_MODELS, "allow_custom_input": True},
+    )
+    voice: str = Field(
+        default="Will",
+        description=(
+            "Paste a Murf Voice ID from the Voice Library (ex- Will). Explore Voices"
+        ),
+        json_schema_extra={
+            "allow_custom_input": True,
+            "docs_url": "https://murf.ai/api/dashboard?utm_source=dograh",
+            "docs_label": "here",
+        },
+    )
+    locale: str = Field(
+        default="en-US",
+        description=("Must be a locale your chosen voice supports, see the "),
+        json_schema_extra={
+            "allow_custom_input": True,
+            "docs_url": "https://murf.ai/api/dashboard?utm_source=dograh",
+            "docs_label": "Voice Library",
+        },
+    )
+    base_url: str = Field(
+        default="https://global.api.murf.ai",
+        description=(
+            "Uses the nearest server by default. Use regional endpoint for data residency. "
+        ),
+        json_schema_extra={
+            "docs_url": (
+                "https://murf.ai/api/docs/api-reference/text-to-speech/stream"
+            ),
+            "docs_label": "API Reference",
+        },
+    )
+
+
 ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN = r"^eleven_v[34]"
 ELEVENLABS_DIALOGUE_TTS_MODELS = [
     "eleven_v3",
@@ -1610,19 +1656,21 @@ class InworldTTSConfiguration(BaseTTSConfiguration):
 class SarvamTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="bulbul:v2",
+        default="bulbul:v3",
         description="Sarvam TTS model (voice list depends on this).",
         json_schema_extra={"examples": SARVAM_TTS_MODELS},
     )
     voice: str = Field(
-        default="anushka",
+        default="shubh",
         description="Sarvam voice name or custom voice ID.",
         json_schema_extra={
-            "examples": SARVAM_V2_VOICES,
+            "voice_catalog": "dropdown",
+            "examples": SARVAM_V3_VOICES,
             "allow_custom_input": True,
+            "reset_on_change": ["model"],
             "model_options": {
-                "bulbul:v2": SARVAM_V2_VOICES,
                 "bulbul:v3": SARVAM_V3_VOICES,
+                "bulbul:v4-flash": SARVAM_V4_VOICES,
             },
         },
     )
@@ -1637,6 +1685,34 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         le=2.0,
         description="Speech speed multiplier.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_voice_for_model(cls, data):
+        if isinstance(data, dict):
+            model = data.get("model")
+            voice = data.get("voice")
+            if (
+                not voice
+                or not str(voice).strip()
+                or (
+                    voice == "shubh_enhi_ads"
+                    and model in ("bulbul:v3", "bulbul:v3-beta")
+                )
+            ):
+                if model in ("bulbul:v3", "bulbul:v3-beta"):
+                    data["voice"] = "shubh"
+                elif model == "bulbul:v4-flash":
+                    data["voice"] = "shubh_enhi_ads"
+        return data
+
+    @model_validator(mode="after")
+    def _align_default_voice_for_model(self):
+        if self.model in ("bulbul:v3", "bulbul:v3-beta") and (
+            not self.voice or self.voice == "shubh_enhi_ads"
+        ):
+            object.__setattr__(self, "voice", "shubh")
+        return self
 
 
 CAMB_TTS_MODELS = ["mars-flash", "mars-pro", "mars-instruct"]
@@ -1748,6 +1824,15 @@ class MiniMaxTTSConfiguration(BaseTTSConfiguration):
     )
     speed: float = Field(
         default=1.0, ge=0.5, le=2.0, description="Speech speed (0.5 to 2.0)."
+    )
+    volume: float = Field(
+        default=1.0,
+        gt=0.0,
+        le=10.0,
+        description=(
+            "Volume multiplier for generated speech (greater than 0, up to 10). "
+            "1.0 is normal volume."
+        ),
     )
     group_id: str = Field(
         description="MiniMax Group ID (found in your MiniMax dashboard under Account → Group).",
@@ -1964,6 +2049,7 @@ class SpeechifyTTSConfiguration(BaseTTSConfiguration):
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
+        MurfTTSConfiguration,
         GoogleTTSConfiguration,
         OpenAITTSService,
         ElevenlabsTTSConfiguration,

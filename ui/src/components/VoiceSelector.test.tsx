@@ -9,7 +9,7 @@ import { ConfigurationFields } from "./model-connections/ConfigurationFields";
 import { SchemaFields } from "./model-connections/SchemaFields";
 import { selectOption, servicePanel } from "./model-connections/test-helpers";
 import type { ConfigurationSpec, ModelConnectionCatalog, ProviderConnection } from "./model-connections/types";
-import { VoiceSelector } from "./VoiceSelector";
+import { clearVoiceCache, VoiceSelector } from "./VoiceSelector";
 
 const auth = vi.hoisted(() => ({ loading: false, user: { id: "user-1" } }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => auth }));
@@ -21,6 +21,7 @@ const props = { provider: "elevenlabs", providerConnectionUuid: "account-1", mod
 
 beforeEach(() => {
     vi.clearAllMocks();
+    clearVoiceCache();
     auth.loading = false;
     fetchVoices.mockResolvedValue({ data: { provider: "elevenlabs", voices: [sofie] } } as never);
 });
@@ -104,5 +105,72 @@ describe("Provider connection voices", () => {
         fireEvent.click(screen.getByLabelText("Enter Custom Value"));
         await waitFor(() => expect(screen.getByRole("combobox").textContent).toContain("custom-voice"));
         expect(props.onChange).not.toHaveBeenCalled();
+        expect(fetchVoices).toHaveBeenCalledTimes(2);
+    });
+
+    it("renders Sarvam static voices client-side with 0ms load, search, and no refresh button", async () => {
+        function Editor() {
+            const [value, setValue] = useState("shubh_enhi_ads");
+            return <SchemaFields provider="sarvam" providerConnectionUuid="sarvam-conn" role="tts"
+                schema={{ properties: { voice: { type: "string", title: "Voice", voice_catalog: "dropdown", examples: ["shubh_enhi_ads", "aditi_hi_news"], allow_custom_input: true } } }}
+                values={{ voice: value }} onChange={(_, next) => setValue(String(next))} />;
+        }
+        render(<Editor />);
+        const trigger = screen.getByRole("combobox") as HTMLButtonElement;
+        expect(trigger.disabled).toBe(false);
+        expect(trigger.textContent).toContain("Shubh");
+        expect(fetchVoices).not.toHaveBeenCalled();
+
+        fireEvent.click(trigger);
+        expect(screen.getByText("English-Hindi • Ads • shubh_enhi_ads")).toBeDefined();
+        expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+
+        const searchInput = screen.getByPlaceholderText("Search voices...");
+        fireEvent.change(searchInput, { target: { value: "aditi" } });
+        expect(screen.queryByText("English-Hindi • Ads • shubh_enhi_ads")).toBeNull();
+        expect(screen.getByText("Hindi • News • aditi_hi_news")).toBeDefined();
+    });
+
+    it("does not offer static voices when selected model has no model_options entry", async () => {
+        function Editor() {
+            const [value, setValue] = useState("shubh_enhi_ads");
+            return <SchemaFields provider="sarvam" providerConnectionUuid="sarvam-conn" role="tts"
+                schema={{ properties: { voice: { type: "string", title: "Voice", voice_catalog: "dropdown", examples: ["shubh_enhi_ads"], model_options: { "bulbul:v4-flash": ["shubh_enhi_ads"] }, allow_custom_input: true } } }}
+                values={{ model: "bulbul:v2", voice: value }} onChange={(_, next) => setValue(String(next))} />;
+        }
+        render(<Editor />);
+        await waitFor(() => expect(fetchVoices).toHaveBeenCalledWith(expect.objectContaining({ path: { provider: "sarvam" } })));
+    });
+
+    it("refetches voices when connection revision changes or cache is cleared for connection", async () => {
+        const { rerender, unmount } = render(<VoiceSelector {...props} connectionRevision={1} />);
+        await waitFor(() => expect(fetchVoices).toHaveBeenCalledTimes(1));
+
+        // Same revision does not refetch (cache hit)
+        rerender(<VoiceSelector {...props} connectionRevision={1} />);
+        expect(fetchVoices).toHaveBeenCalledTimes(1);
+
+        // Updated connection revision triggers a fresh fetch
+        fetchVoices.mockResolvedValueOnce({ data: { provider: "elevenlabs", voices: [{ voice_id: "new-acc", name: "New Account Voice" }] } } as never);
+        rerender(<VoiceSelector {...props} connectionRevision={2} />);
+        await waitFor(() => expect(fetchVoices).toHaveBeenCalledTimes(2));
+
+        unmount();
+
+        // Remounting at the same revision without clearing hits the cache (no new fetch)
+        const { unmount: unmountAgain } = render(<VoiceSelector {...props} connectionRevision={2} />);
+        expect(fetchVoices).toHaveBeenCalledTimes(2);
+        unmountAgain();
+
+        // Clearing an unrelated connection leaves account-1 cached
+        clearVoiceCache("other-account");
+        const { unmount: unmountThird } = render(<VoiceSelector {...props} connectionRevision={2} />);
+        expect(fetchVoices).toHaveBeenCalledTimes(2);
+        unmountThird();
+
+        // Clearing voice cache for account-1 removes its cached entry and triggers a new fetch on remount
+        clearVoiceCache("account-1");
+        render(<VoiceSelector {...props} connectionRevision={2} />);
+        await waitFor(() => expect(fetchVoices).toHaveBeenCalledTimes(3));
     });
 });

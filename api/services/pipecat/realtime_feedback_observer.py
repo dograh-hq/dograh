@@ -21,15 +21,14 @@ node changes.
 """
 
 import json
-from typing import TYPE_CHECKING, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
 from api.errors.failure import (
-    classify_exception,
-    classify_message,
+    classify_error_frame,
     describe_exception,
-    failure_metadata_for_processor,
     log_failure,
     response_body_detail,
 )
@@ -47,6 +46,7 @@ from api.services.pipecat.realtime_feedback_events import (
 if TYPE_CHECKING:
     from api.services.observability.call_events.recorder import CallEventRecorder
     from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
+    from api.services.pipecat.speech_playback import SpeechPlayback
     from api.services.pipecat.transcript_log_coordinator import (
         TranscriptLogCoordinator,
     )
@@ -116,7 +116,78 @@ class RealtimeFeedbackObserver(BaseObserver):
 
     async def log_speech(self, text: str):
         """Persist speech that is intentionally excluded from assistant context."""
-        await self._append_to_buffer(build_bot_text_event(text=text))
+        from pipecat.utils.text.transforms.spoken_text import SpokenTextTransform
+
+        # Queued announcements can be logged before reaching the TTS service.
+        text = await SpokenTextTransform()(text, "sentence")
+        if text.strip():
+            await self._append_to_buffer(build_bot_text_event(text=text))
+
+    def speech_log_context(self) -> dict:
+        if self._logs_buffer is None:
+            return {}
+        return {
+            "turn": self._logs_buffer.current_turn,
+            "node_id": self._logs_buffer.current_node_id,
+            "node_name": self._logs_buffer.current_node_name,
+        }
+
+    async def log_background_greeting_speech(
+        self,
+        speech: "SpeechPlayback",
+        text: str,
+        started_at: str | None,
+        stopped_at: str | None,
+    ) -> None:
+        if not text or self._logs_buffer is None:
+            return
+        event = build_user_transcription_event(
+            text=text, final=True, timestamp=started_at, end_timestamp=stopped_at
+        )
+        event["payload"]["background_greeting_id"] = speech.id
+        # Group background speech before the greeting in the transcript. Actual
+        # speech times remain in the payload, including their overlap.
+        await self._logs_buffer.append(
+            event,
+            timestamp=speech.first_output_at or speech.finished_at,
+            use_current_node=False,
+            use_current_turn=False,
+            **{
+                key: speech.log_context[key]
+                for key in ("turn", "node_id", "node_name")
+                if key in speech.log_context
+            },
+        )
+
+    async def log_greeting(self, speech: "SpeechPlayback") -> None:
+        if not speech.delivered_text or self._logs_buffer is None:
+            return
+        event = build_bot_text_event(
+            text=speech.delivered_text,
+            timestamp=speech.first_output_at,
+            end_timestamp=speech.finished_at,
+        )
+        event["payload"].update(
+            speech_id=speech.id,
+            outcome=speech.outcome.value,
+            interrupted=speech.outcome.value == "interrupted",
+            played_ms=round(speech.played_seconds * 1000),
+            timing_source=speech.timing_source,
+            **{
+                key: speech.log_context[key]
+                for key in ("pipeline_type", "interruption_mode")
+                if key in speech.log_context
+            },
+        )
+        await self._logs_buffer.append(
+            event,
+            timestamp=speech.first_output_at,
+            use_current_node=False,
+            use_current_turn=False,
+            turn=speech.log_context.get("turn"),
+            node_id=speech.log_context.get("node_id"),
+            node_name=speech.log_context.get("node_name"),
+        )
 
     async def on_push_frame(self, data: FramePushed):
         """Process frames and send relevant ones to the client."""
@@ -280,25 +351,7 @@ class RealtimeFeedbackObserver(BaseObserver):
             # them (e.g. google.genai APIError: code=1008, status=None,
             # message="Your project has been denied access...").
             exc = frame.exception
-            metadata = failure_metadata_for_processor(frame.processor)
-            if exc is not None:
-                failure = classify_exception(
-                    exc,
-                    source=metadata.source,
-                    provider=metadata.provider,
-                    error_owner=metadata.error_owner,
-                )
-            else:
-                failure = classify_message(
-                    frame.error,
-                    source=metadata.source,
-                    provider=metadata.provider,
-                    error_owner=metadata.error_owner,
-                )
-            log_failure(
-                failure,
-                fatal=fatal,
-            )
+            log_failure(classify_error_frame(frame), fatal=fatal)
 
             error_text = frame.error
             if exc is not None:

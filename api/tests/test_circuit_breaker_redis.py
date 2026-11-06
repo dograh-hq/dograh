@@ -173,7 +173,7 @@ async def test_pipeline_failures_pause_campaign_despite_carrier_successes(
     pipeline_breaker, monkeypatch
 ):
     s = pipeline_breaker
-    # Reproduce Glik's 100% threshold, with enough legacy "successes" (busy /
+    # Exercise a 100% failure threshold, with enough legacy "successes" (busy /
     # no-answer) to prevent the old breaker from ever opening.
     legacy_key = f"cb_successes:{s.campaign_id}"
     await s.redis.zadd(legacy_key, {str(i): s.clock.now for i in range(50)})

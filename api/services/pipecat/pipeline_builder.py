@@ -4,6 +4,8 @@ from loguru import logger
 
 from api.services.pipecat.agent_bridge import AGENT_EDGE_EXCLUDED_FRAMES, AgentWorker
 from api.services.pipecat.audio_config import AudioConfig
+from api.services.pipecat.call_audio_buffer import CallAudioBufferProcessor
+from api.services.pipecat.pipeline_worker import DograhPipelineWorker
 from pipecat.observers.base_observer import BaseObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import (
@@ -12,7 +14,7 @@ from pipecat.pipeline.worker import (
     ProcessorUnusablePolicy,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
+from pipecat.processors.filters.spoken_text_processor import SpokenTextProcessor
 from pipecat.utils.run_context import turn_var
 
 
@@ -20,10 +22,10 @@ def create_pipeline_components(audio_config: AudioConfig):
     """Create and return the main pipeline components with proper audio configuration"""
     logger.info(f"Creating pipeline components with audio config: {audio_config}")
 
-    # Use native AudioBufferProcessor for merged audio recording
-    audio_buffer = AudioBufferProcessor(
+    audio_buffer = CallAudioBufferProcessor(
         sample_rate=audio_config.pipeline_sample_rate,
         buffer_size=audio_config.buffer_size_bytes,
+        use_unmixed_audio_for_bot_track=True,
     )
 
     context = LLMContext()
@@ -42,6 +44,7 @@ def build_pipeline(
     pipeline_metrics_aggregator,
     termination_funnel,
     answer_supervisor=None,
+    opening_input=None,
 ):
     """Build the call pipeline: everything that lives for the whole call.
 
@@ -74,6 +77,9 @@ def build_pipeline(
 
     if answer_supervisor is not None:
         processors.append(answer_supervisor)
+
+    if opening_input is not None:
+        processors.append(opening_input)
 
     processors.append(user_context_aggregator)
 
@@ -111,7 +117,7 @@ def build_agent_generation_pipeline(
     processors = [llm, generation_callback_processor]
     if recording_router:
         processors.append(recording_router)
-    processors.append(tts)
+    processors.extend([SpokenTextProcessor(), tts])
     return Pipeline(processors)
 
 
@@ -207,6 +213,7 @@ def build_realtime_pipeline(
     agent_generation_processor,
     pipeline_metrics_aggregator,
     termination_funnel,
+    opening_input=None,
 ):
     """Build a pipeline for realtime (speech-to-speech) LLM services.
 
@@ -219,6 +226,7 @@ def build_realtime_pipeline(
     processors = [
         transport.input(),
         termination_funnel,
+        *([opening_input] if opening_input is not None else []),
         user_context_aggregator,
         call_monitor_processor,
         realtime_llm,
@@ -282,7 +290,7 @@ def create_pipeline_task(
             f"out: {audio_config.transport_out_sample_rate}Hz"
         )
 
-    task = PipelineWorker(
+    task = DograhPipelineWorker(
         pipeline,
         name=name,
         params=pipeline_params,

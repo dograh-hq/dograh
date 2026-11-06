@@ -125,5 +125,12 @@
             },
             "justMyCode": false
         }
+    ],
+    "compounds": [
+        {
+            "name": "API: Uvicorn + Arq (agent builder)",
+            "configurations": ["API: Uvicorn (reload)", "API: Arq worker (watch)"],
+            "stopAll": true
+        }
     ]
 }

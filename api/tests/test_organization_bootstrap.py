@@ -16,6 +16,12 @@ LEASE_OWNER_TOKEN = "lease-owner-token"
 
 
 @pytest.fixture(autouse=True)
+def hosted_deployment(monkeypatch):
+    monkeypatch.setattr(bootstrap, "AUTH_PROVIDER", "stack")
+    monkeypatch.setattr(bootstrap, "DEPLOYMENT_MODE", "saas")
+
+
+@pytest.fixture(autouse=True)
 def state(monkeypatch):
     """Bootstrap sentinel and catalog default; both absent by default.
 
@@ -305,3 +311,36 @@ async def test_unreadable_state_never_fails_authentication(
 
     lease.claim.assert_not_awaited()
     mps.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_oss_signup_still_provisions_legacy_key_and_model_configuration(
+    monkeypatch, lease, mps, catalog, sip
+):
+    monkeypatch.setattr(bootstrap, "AUTH_PROVIDER", "local")
+    monkeypatch.setattr(bootstrap, "DEPLOYMENT_MODE", "oss")
+    assert await bootstrap.ensure_organization_bootstrapped(
+        ORG_ID, created_by=CREATED_BY
+    )
+    mps.assert_awaited_once_with(
+        name=bootstrap.MANAGED_SERVICE_KEY_NAME,
+        description="Auto-generated key for OSS user",
+        organization_id=None,
+        created_by=CREATED_BY,
+        expires_in_days=90,
+    )
+    catalog.assert_awaited_once()
+    assert catalog.await_args.kwargs["credentials"] == {"api_key": MINTED_KEY}
+    sip.assert_awaited_once()
+    lease.complete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_oss_can_mint_managed_key_directly(monkeypatch, mps):
+    monkeypatch.setattr(bootstrap, "AUTH_PROVIDER", "local")
+    monkeypatch.setattr(bootstrap, "DEPLOYMENT_MODE", "oss")
+    assert (
+        await bootstrap.mint_managed_service_key(ORG_ID, created_by=CREATED_BY)
+        == MINTED_KEY
+    )
+    assert mps.await_args.kwargs["organization_id"] is None

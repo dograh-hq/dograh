@@ -776,16 +776,9 @@ async def _handle_telephony_websocket(
             await websocket.close(code=4400, reason="Provider mismatch")
             return
 
-        # Set workflow run state to 'running' before starting the pipeline
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id, state=WorkflowRunState.RUNNING.value
-        )
-
-        logger.info(
-            f"[run {workflow_run_id}] Set workflow run state to 'running' for {provider_type} provider"
-        )
-
-        # Delegate to provider-specific handler
+        # Delegate to provider-specific handler. The run moves to 'running' in
+        # run_pipeline_telephony once the stream starts, not here: some
+        # carriers open this socket while the callee is still ringing.
         await provider.handle_websocket(
             websocket, workflow_id, organization_id, workflow_run_id
         )

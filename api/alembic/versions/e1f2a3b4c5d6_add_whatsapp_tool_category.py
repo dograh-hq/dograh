@@ -1,14 +1,14 @@
 """Add whatsapp tool category.
 
 Revision ID: e1f2a3b4c5d6
-Revises: c82d4f6a9b10
+Revises: 93d7a618f2c4
 """
 
 from alembic import op
 from alembic_postgresql_enum import TableReference
 
 revision = "e1f2a3b4c5d6"
-down_revision = "c82d4f6a9b10"
+down_revision = "93d7a618f2c4"
 branch_labels = None
 depends_on = None
 

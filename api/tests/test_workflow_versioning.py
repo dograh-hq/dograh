@@ -16,7 +16,7 @@ These are DB integration tests using the transactional test session.
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -464,7 +464,7 @@ class TestPublishDraft:
         )
         draft.extra_metadata = {"source": "editor"}
         await async_session.flush()
-        monkeypatch.setattr("api.routes.workflow.capture_event", Mock())
+        monkeypatch.setattr("api.routes.workflow.capture_tenant_event", AsyncMock())
         async with test_client_factory(user) as client:
             published = await client.post(
                 f"/api/v1/workflow/{workflow.id}/publish",

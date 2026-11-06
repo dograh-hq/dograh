@@ -1,7 +1,9 @@
 """The call's routing boundary for replaceable agent workers."""
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import Awaitable, Callable
 
+from api.services.pipecat.pipeline_worker import DograhPipelineWorker
 from pipecat.bus.bridge_processor import BusBridgeProcessor
 from pipecat.bus.messages import BusFrameMessage, BusMessage
 from pipecat.frames.frames import (
@@ -28,7 +30,6 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
-from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 # These must reach both the call processors and the selected agent exactly once.
@@ -71,14 +72,23 @@ class AgentBridgeProcessor(BusBridgeProcessor):
         *,
         selected_visit: Callable[[], str | None],
         allow_inference: Callable[[], bool],
+        generation_ready: Callable[[], bool] = lambda: True,
+        wait_for_generation: Callable[[], Awaitable[bool]] | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self._selected_visit = selected_visit
         self._allow_inference = allow_inference
+        self._generation_ready = generation_ready
+        self._wait_for_generation = wait_for_generation
+        self._pending_inference: asyncio.Task | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await FrameProcessor.process_frame(self, frame, direction)
+        if isinstance(
+            frame, (InterruptionFrame, CancelFrame, EndFrame, LLMContextFrame)
+        ):
+            await self._cancel_pending_inference()
         if isinstance(frame, CALL_FRAMES + TEED_FRAMES):
             await self.push_frame(frame, direction)
             if not isinstance(frame, TEED_FRAMES):
@@ -86,8 +96,22 @@ class AgentBridgeProcessor(BusBridgeProcessor):
         target = self._selected_visit()
         if isinstance(frame, LLMContextFrame) and not self._allow_inference():
             return
-        if isinstance(frame, PipelineFlushFrame) and target is None:
+        if isinstance(frame, PipelineFlushFrame) and (
+            target is None or not self._generation_ready()
+        ):
             await self.push_frame(frame, direction)
+            return
+        if (
+            isinstance(frame, LLMContextFrame)
+            and target is not None
+            and not self._generation_ready()
+            and self._wait_for_generation is not None
+        ):
+            # Context contains all accepted turns. Keep the newest request while
+            # preparation runs, without holding audio or interruptions behind it.
+            self._pending_inference = self.create_task(
+                self._send_when_ready(frame, direction, target)
+            )
             return
         if target is not None:
             await self._bus.send(
@@ -99,6 +123,32 @@ class AgentBridgeProcessor(BusBridgeProcessor):
                 )
             )
 
+    async def _send_when_ready(
+        self, frame: LLMContextFrame, direction: FrameDirection, target: str
+    ) -> None:
+        if (
+            await self._wait_for_generation()
+            and self._selected_visit() == target
+            and self._allow_inference()
+        ):
+            await self._bus.send(
+                BusFrameMessage(
+                    source=self._worker_name,
+                    target=target,
+                    frame=frame,
+                    direction=direction,
+                )
+            )
+
+    async def _cancel_pending_inference(self):
+        if self._pending_inference is not None:
+            await self.cancel_task(self._pending_inference)
+            self._pending_inference = None
+
+    async def cleanup(self):
+        await self._cancel_pending_inference()
+        await super().cleanup()
+
     async def on_bus_message(self, message: BusMessage) -> None:
         if not isinstance(message, BusFrameMessage):
             return
@@ -109,7 +159,7 @@ class AgentBridgeProcessor(BusBridgeProcessor):
         await super().on_bus_message(message)
 
 
-class AgentWorker(PipelineWorker):
+class AgentWorker(DograhPipelineWorker):
     """A child exchanges frames with its call, never with another child."""
 
     def __init__(self, *args, call_worker_name: str, **kwargs):

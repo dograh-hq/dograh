@@ -1,6 +1,7 @@
 """
 MPS Service Key HTTP Client
-This client communicates with the Model Proxy Service (MPS) for service key management.
+This client communicates with the Model Proxy Service (MPS) for service key
+management and managed model requests.
 Service keys are stored and managed entirely in MPS, not in the local database.
 """
 
@@ -11,6 +12,7 @@ from typing import List, Optional
 import httpx
 from fastapi import HTTPException
 from loguru import logger
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from api.constants import (
     DEPLOYMENT_MODE,
@@ -48,7 +50,7 @@ def _log_mps_dependency_failure(
 
 
 class MPSServiceKeyClient:
-    """HTTP client for managing service keys via MPS API."""
+    """HTTP client for service keys and managed model requests via MPS API."""
 
     def __init__(self):
         self.base_url = MPS_API_URL
@@ -795,6 +797,52 @@ class MPSServiceKeyClient:
                 request=response.request,
                 response=response,
             )
+
+    async def create_agent_builder_completion(
+        self,
+        *,
+        service_key: str,
+        messages: list[dict],
+        max_tokens: int,
+        metadata: dict | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict:
+        """Request one billed Agent Builder completion.
+
+        Authenticate with the caller's configured Dograh Service Key. MPS owns
+        model selection, request identity, price snapshot and credit settlement.
+        Return the full response, preserving provider reasoning/tool metadata.
+
+        Transport and HTTP failures propagate to the caller.
+        """
+        headers = {"Authorization": f"Bearer {service_key}"}
+        metadata = {
+            key: value
+            for key, value in (metadata or {}).items()
+            if key not in {"correlation_id", "mps_billing_version"}
+        }
+        # Only W3C trace context; never forward baggage or caller credentials to
+        # another destination. MPS remains responsible for the generation span.
+        TraceContextTextMapPropagator().inject(headers)
+        # Builder-only call. The build stage can generate a full @dograh/sdk
+        # workflow, which can run longer than a chat turn; keep this under the
+        # 300s builder step deadline (service.py) so that stays the outer bound.
+        async with httpx.AsyncClient(timeout=httpx.Timeout(290, connect=10)) as client:
+            response = await client.post(
+                f"{self.base_url.rstrip('/')}/api/v1/agent-builder/chat/completions",
+                headers=headers,
+                json={
+                    "messages": messages,
+                    "stream": False,
+                    "max_tokens": max_tokens,
+                    "tools": tools,
+                    "tool_choice": tool_choice,
+                    "metadata": metadata,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
 
     async def report_platform_usage(
         self,

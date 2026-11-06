@@ -1,4 +1,5 @@
 class FunctionNames:
+    PROCESS_BUILDER_RUN = "process_builder_run"
     RUN_INTEGRATIONS_POST_WORKFLOW_RUN = "run_integrations_post_workflow_run"
     PROCESS_WORKFLOW_COMPLETION = "process_workflow_completion"
     SYNC_CAMPAIGN_SOURCE = "sync_campaign_source"

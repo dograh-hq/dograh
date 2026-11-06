@@ -81,7 +81,7 @@ def test_no_loguru_call_passes_stdlib_logging_keywords():
     offenders = [
         f"{path.relative_to(API_ROOT)}:{line} {keyword}="
         for path in sorted(API_ROOT.rglob("*.py"))
-        if "tests" not in path.parts
+        if "tests" not in path.parts and ".venv" not in path.relative_to(API_ROOT).parts
         for line, keyword in _loguru_calls_with_stdlib_keywords(path)
     ]
     assert offenders == []

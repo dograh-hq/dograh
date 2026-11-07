@@ -52,6 +52,9 @@ from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
 from api.services.workflow.greeting_validation import validate_greeting_recordings
+from api.services.workflow.jinja_validation import (
+    validate_workflow_jinja_templates,
+)
 from api.services.workflow.layout import tidy_positions
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.run_usage_response import (
@@ -75,7 +78,6 @@ from api.services.workflow.workflow_graph import (
     validate_unique_transition_tool_names,
 )
 from api.utils.artifacts import artifact_url
-from api.utils.jinja_engine import validate_jinja_syntax
 from api.utils.recording_artifacts import (
     get_recording_storage_key,
     has_recording_track,
@@ -176,7 +178,7 @@ async def _validate_workflow_definition(
         )
 
     # ----------- Jinja Template Syntax Check ------------
-    errors.extend(_jinja_template_validation_errors(workflow_definition))
+    errors.extend(validate_workflow_jinja_templates(workflow_definition))
 
     errors.extend(
         await validate_workflow_tool_name_collisions(
@@ -269,57 +271,6 @@ def _transition_tool_name_validation_errors(
             transitions.append((edge_id, source, label))
 
     return validate_unique_transition_tool_names(transitions)
-
-
-def _jinja_template_validation_errors(
-    workflow_definition: dict | None,
-) -> list[WorkflowError]:
-    """Validate that prompt, greeting, and extraction fields contain valid Jinja templates."""
-    if not isinstance(workflow_definition, dict):
-        return []
-    nodes = workflow_definition.get("nodes")
-    if not isinstance(nodes, list):
-        return []
-    errors: list[WorkflowError] = []
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        node_id = str(node.get("id") or "")
-        data = node.get("data")
-        if not isinstance(data, dict):
-            continue
-        for field_name in ("prompt", "greeting", "extraction_prompt"):
-            val = data.get(field_name)
-            if isinstance(val, str) and ("{{" in val or "{%" in val):
-                is_valid, err_msg = validate_jinja_syntax(val)
-                if not is_valid:
-                    errors.append(
-                        WorkflowError(
-                            kind=ItemKind.node,
-                            id=node_id,
-                            field=f"data.{field_name}",
-                            message=f"Invalid Jinja template in {field_name}: {err_msg}",
-                        )
-                    )
-        extraction_vars = data.get("extraction_variables")
-        if isinstance(extraction_vars, list):
-            for idx, ev in enumerate(extraction_vars):
-                if isinstance(ev, dict):
-                    ev_prompt = ev.get("prompt")
-                    if isinstance(ev_prompt, str) and (
-                        "{{" in ev_prompt or "{%" in ev_prompt
-                    ):
-                        is_valid, err_msg = validate_jinja_syntax(ev_prompt)
-                        if not is_valid:
-                            errors.append(
-                                WorkflowError(
-                                    kind=ItemKind.node,
-                                    id=node_id,
-                                    field=f"data.extraction_variables[{idx}].prompt",
-                                    message=f"Invalid Jinja template in extraction variable prompt: {err_msg}",
-                                )
-                            )
-    return errors
 
 
 class CallDispositionCodes(BaseModel):
@@ -579,7 +530,7 @@ async def create_workflow(
     if tool_name_errors:
         raise _validation_errors_http_exception(tool_name_errors)
 
-    jinja_errors = _jinja_template_validation_errors(workflow_definition)
+    jinja_errors = validate_workflow_jinja_templates(workflow_definition)
     if jinja_errors:
         raise _validation_errors_http_exception(jinja_errors, status_code=422)
 
@@ -1294,7 +1245,7 @@ async def update_workflow(
                 tool_name_errors,
                 status_code=409,
             )
-        jinja_errors = _jinja_template_validation_errors(workflow_definition)
+        jinja_errors = validate_workflow_jinja_templates(workflow_definition)
         if jinja_errors:
             raise _validation_errors_http_exception(
                 jinja_errors,

@@ -97,6 +97,11 @@ class DograhContext(jinja2.runtime.Context):
             except Exception:  # noqa: BLE001
                 return ""
 
+        if "__hyphen__" in key:
+            raw_key = key.replace("__hyphen__", "-")
+            if raw_key in self.parent:
+                return self.parent[raw_key]
+
         return super().resolve_or_missing(key)
 
 
@@ -246,6 +251,19 @@ def _dograh_safe_range(*args: Any) -> Any:
     return r
 
 
+MAX_SERIALIZABLE_ITEMS = 5000
+MAX_SERIALIZABLE_DEPTH = 10
+
+
+class SafeJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder mapping jinja2.Undefined instances to empty strings without crashing."""
+
+    def default(self, o: Any) -> Any:
+        if isinstance(o, jinja2.Undefined):
+            return ""
+        return super().default(o)
+
+
 def _check_serializable_bounds(obj: Any, max_chars: int) -> None:
     """Pre-scan object to bound scalar encoding and collection size before materializing chunks."""
     if isinstance(obj, (str, bytes)):
@@ -265,13 +283,13 @@ def _check_serializable_bounds(obj: Any, max_chars: int) -> None:
     while stack:
         current, depth = stack.pop()
         items_visited += 1
-        if items_visited > 200:
+        if items_visited > MAX_SERIALIZABLE_ITEMS:
             raise OverflowError(
-                "Collection exceeds maximum allowable serializable item limit (200)."
+                f"Collection exceeds maximum allowable serializable item limit ({MAX_SERIALIZABLE_ITEMS})."
             )
-        if depth > 5:
+        if depth > MAX_SERIALIZABLE_DEPTH:
             raise OverflowError(
-                "Collection nesting exceeds maximum allowable depth limit (5)."
+                f"Collection nesting exceeds maximum allowable depth limit ({MAX_SERIALIZABLE_DEPTH})."
             )
 
         if isinstance(current, (str, bytes)):
@@ -281,11 +299,29 @@ def _check_serializable_bounds(obj: Any, max_chars: int) -> None:
                     f"JSON serialization exceeds maximum allowable size of {max_chars} characters."
                 )
             total_str_chars += s_len
+        elif isinstance(current, jinja2.Undefined):
+            continue
         elif isinstance(current, dict):
+            child_count = len(current) * 2
+            if (
+                child_count > MAX_SERIALIZABLE_ITEMS
+                or items_visited + child_count > MAX_SERIALIZABLE_ITEMS
+            ):
+                raise OverflowError(
+                    f"Collection exceeds maximum allowable serializable item limit ({MAX_SERIALIZABLE_ITEMS})."
+                )
             for k, v in current.items():
                 stack.append((v, depth + 1))
                 stack.append((k, depth + 1))
         elif isinstance(current, (list, tuple, set)):
+            child_count = len(current)
+            if (
+                child_count > MAX_SERIALIZABLE_ITEMS
+                or items_visited + child_count > MAX_SERIALIZABLE_ITEMS
+            ):
+                raise OverflowError(
+                    f"Collection exceeds maximum allowable serializable item limit ({MAX_SERIALIZABLE_ITEMS})."
+                )
             for item in current:
                 stack.append((item, depth + 1))
 
@@ -293,7 +329,7 @@ def _check_serializable_bounds(obj: Any, max_chars: int) -> None:
 def _safe_json_dumps(obj: Any, max_chars: int = MAX_RENDERED_PROMPT_CHARS) -> str:
     """Serialize object to JSON with a strict length ceiling to prevent memory exhaustion."""
     _check_serializable_bounds(obj, max_chars)
-    encoder = json.JSONEncoder()
+    encoder = SafeJSONEncoder()
     chunks: list[str] = []
     total_len = 0
     for chunk in encoder.iterencode(obj):
@@ -382,6 +418,8 @@ def _safe_replace_filter(s: Any, old: Any, new: Any, count: int | None = None) -
 
 def _safe_tojson_filter(val: Any) -> str:
     """Safe tojson filter that strictly enforces MAX_RENDERED_PROMPT_CHARS without exposing override kwargs."""
+    if val is None or isinstance(val, jinja2.Undefined):
+        return ""
     return _safe_json_dumps(val, MAX_RENDERED_PROMPT_CHARS)
 
 
@@ -488,6 +526,25 @@ def preprocess_legacy_template(template_str: str) -> str:
 
     pattern_legacy_filter = r"\{\{\s*([^|}\s]+)\s*\|\s*([a-zA-Z0-9_\-\.\/]+)\s*\}\}"
     result = re.sub(pattern_legacy_filter, _replace_legacy_default, result)
+
+    # 3. Handle unquoted legacy hyphenated variable names (e.g. {{ customer-name }})
+    # to avoid Jinja compiling them as binary subtraction (customer - name)
+    def _replace_hyphenated_identifiers(match: re.Match[str]) -> str:
+        tag_content = match.group(1)
+
+        def _replace_token(token_match: re.Match[str]) -> str:
+            token = token_match.group(0)
+            if (token.startswith('"') and token.endswith('"')) or (
+                token.startswith("'") and token.endswith("'")
+            ):
+                return token
+            return token.replace("-", "__hyphen__")
+
+        pattern = r"(\"[^\"]*\"|'[^']*'|[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)+)"
+        rewritten = re.sub(pattern, _replace_token, tag_content)
+        return f"{{{{ {rewritten} }}}}"
+
+    result = re.sub(r"\{\{([^{}]+?)\}\}", _replace_hyphenated_identifiers, result)
 
     return result
 

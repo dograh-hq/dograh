@@ -141,37 +141,7 @@ def extract_template_variables(text: str) -> Set[str]:
                     continue
                 required.add(node.name)
 
-        # Preserve legacy hyphenated variable names (e.g. {{ customer-name }})
-        # that Jinja parses as binary subtraction expressions
-        legacy_hyphenated_vars: set[str] = set()
-        hyphen_operands: set[str] = set()
-        for match in re.finditer(TEMPLATE_VAR_PATTERN, text):
-            raw_var = match.group(1).strip()
-            filter_part = match.group(2).strip() if match.group(2) else None
-            if (
-                "-" in raw_var
-                and "." not in raw_var
-                and filter_part is None
-                and raw_var not in _SYSTEM_VARIABLES
-                and not is_builtin_variable(raw_var)
-            ):
-                legacy_hyphenated_vars.add(raw_var)
-                for part in raw_var.split("-"):
-                    if part.isidentifier():
-                        hyphen_operands.add(part)
-
-        if legacy_hyphenated_vars:
-            stripped_text = re.sub(
-                TEMPLATE_VAR_PATTERN,
-                lambda m: "" if "-" in m.group(1) else m.group(0),
-                text,
-            )
-            for operand in hyphen_operands:
-                if not re.search(r"\b" + re.escape(operand) + r"\b", stripped_text):
-                    required.discard(operand)
-            required.update(legacy_hyphenated_vars)
-
-        return required
+        return {v.replace("__hyphen__", "-") for v in required}
     except Exception:  # noqa: BLE001
         # Fallback to legacy regex extraction if template is malformed or in legacy syntax
         variables: Set[str] = set()

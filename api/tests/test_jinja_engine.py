@@ -434,3 +434,19 @@ def test_collection_multiplication_bounds_and_streaming_json_serialization():
         render_jinja_string(
             "{{ items | tojson(9999999) }}", {"items": [1, 2]}, raise_on_error=True
         )
+
+
+def test_compact_json_list_with_if_block():
+    """Verify that a list of 50 objects with multiple fields renders cleanly with if blocks without overflowing."""
+    items = [{"id": i, "name": f"item_{i}"} for i in range(50)]
+    template = "{% if is_vip %}VIP{% else %}Standard{% endif %} Items: {{ items }}"
+    res = render_jinja_string(template, {"is_vip": True, "items": items})
+    assert "VIP Items: [" in res
+    assert "item_49" in res
+
+
+def test_missing_crm_field_tojson_does_not_crash():
+    """Verify that undefined CRM fields passed to tojson safely resolve without TypeError or fallback."""
+    template = "CRM: {{ missing_crm_field | tojson }}"
+    res = render_jinja_string(template, {})
+    assert res == "CRM: "

@@ -134,8 +134,12 @@ def test_extract_template_variables_excludes_jinja_locals():
         "{% for name in names %}{{ name }}{% endfor %}Hi {{ name | default('there') }}"
     ) == {"names"}
 
-    # Legacy hyphenated variables are preserved as required contact fields
+    # Legacy hyphenated variables are preserved as required contact fields without prose or quoted-string collisions
     assert extract_template_variables("Hello {{ customer-name }}") == {"customer-name"}
     assert extract_template_variables(
         "Hello {{ customer }} and {{ customer-name }}"
     ) == {"customer", "customer-name"}
+    assert extract_template_variables("{{ name }}: {{ 'follow-up' }}") == {"name"}
+    assert extract_template_variables("Your customer: {{ customer-name }}") == {
+        "customer-name"
+    }

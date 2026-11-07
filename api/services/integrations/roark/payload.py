@@ -249,15 +249,38 @@ def build_transcript(
     return _fill_missing_turn_ends(entries)
 
 
+# A turn of either side, between a synthesizer measurement and the agent text
+# being timed, means the measurement belongs to an earlier utterance. Only final
+# user transcriptions are persisted, so the type alone is the boundary.
+_TURN_BOUNDARY_TYPES = frozenset(
+    {
+        RealtimeFeedbackType.BOT_TEXT.value,
+        RealtimeFeedbackType.USER_TRANSCRIPTION.value,
+    }
+)
+
+
 def _preceding_tts_start(events: list[dict[str, Any]], index: int) -> datetime | None:
-    """The most recent text-to-speech first-byte before ``index``.
+    """The text-to-speech first-byte of the utterance logged at ``index``.
 
     `rtf-ttfb-metric` with ``kind="tts"`` is emitted when the synthesizer
     produced the first audio of an utterance, so it marks where that utterance
     begins in the recording.
+
+    The walk back stops at the nearest turn boundary, so a measurement is only
+    read as this utterance's onset while nothing else was said in between.
+    Speech Dograh queues itself (a transition message, a tool message, a
+    recorded announcement) is persisted with no onset and never produces a
+    measurement of its own: a recording has no synthesizer at all, and queued
+    text is logged before it reaches one. Unbounded, the walk reached whichever
+    reply was synthesized last and moved those words back to it, ahead of every
+    turn that had happened since.
     """
     for event in reversed(events[:index]):
-        if event.get("type") != RealtimeFeedbackType.TTFB_METRIC.value:
+        event_type = event.get("type")
+        if event_type in _TURN_BOUNDARY_TYPES:
+            return None
+        if event_type != RealtimeFeedbackType.TTFB_METRIC.value:
             continue
         if (event.get("payload") or {}).get("kind") != "tts":
             continue

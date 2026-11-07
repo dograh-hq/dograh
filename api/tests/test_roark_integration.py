@@ -621,6 +621,41 @@ def test_the_tts_fallback_only_looks_backwards():
     assert [entry["startOffsetMs"] for entry in entries] == [1000, 6000]
 
 
+def test_queued_speech_is_not_moved_back_to_an_earlier_reply():
+    """Speech Dograh queues itself is persisted with no onset and produces no
+    synthesizer measurement: a recorded announcement has no synthesizer, and
+    queued text is logged before it reaches one. Reading the last measurement
+    on the call as its onset moved a recorded announcement from 20s back to the
+    2s reply, ahead of the customer turn in between."""
+    events = [
+        _tts_first_byte(2.0),
+        _logged_turn("rtf-bot-text", "Let me check that.", 4.5),
+        _logged_turn(
+            "rtf-user-transcription", "Sure.", 9.0, speech_start=8.0, speech_end=9.0
+        ),
+        # The recorded announcement: logged at 20s, no onset, no measurement.
+        _logged_turn("rtf-bot-text", "This call may be recorded.", 20.0),
+    ]
+
+    entries = build_transcript(events, T0)
+
+    assert [entry["startOffsetMs"] for entry in entries] == [2000, 8000, 20000]
+
+
+def test_the_tts_fallback_stops_at_an_intervening_agent_turn():
+    """Two queued messages in a row: the first one's measurement is not the
+    second one's onset."""
+    events = [
+        _tts_first_byte(1.0),
+        _logged_turn("rtf-bot-text", "First.", 4.0),
+        _logged_turn("rtf-bot-text", "Second.", 9.0),
+    ]
+
+    entries = build_transcript(events, T0)
+
+    assert [entry["startOffsetMs"] for entry in entries] == [1000, 9000]
+
+
 def test_a_turn_with_no_end_reaches_the_next_turn():
     events = [
         _logged_turn("rtf-bot-text", "Hi.", 1.0, speech_start=1.0),

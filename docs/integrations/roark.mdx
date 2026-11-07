@@ -124,9 +124,17 @@ Because that token is the whole of the access control, the address has to be HTT
 Which address that is follows the deployment's usual resolution: `BACKEND_API_ENDPOINT` if you set it, otherwise `PUBLIC_BASE_URL`, otherwise `http://localhost:8000`. A standard single-host install sets only `PUBLIC_BASE_URL`, so that is normally the value to look at. Two configurations export:
 
 - **A public deployment whose canonical origin is HTTPS.** Point `PUBLIC_BASE_URL` at an `https://` URL. [Custom domain](/deployment/custom-domain) sets this up for you, certificate included.
-- **A laptop or private-network deployment with the tunnel up.** The resolved origin is local, so Dograh prefers the tunnel's URL, which is HTTPS.
+- **A laptop or private-network deployment with the tunnel up.** The resolved origin is local, so Dograh prefers the tunnel's URL, which is HTTPS. Object storage needs its own public address as well, see below.
 
 What does not work is a tunnel alongside a public `http://` origin. The tunnel is only consulted when the resolved origin is local or private, so a public `http://` one is handed to Roark as configured and refused, tunnel or no tunnel.
+
+### Object storage needs its own address
+
+The download URL does not carry the audio. It answers `302` with the address of whatever object storage holds the recording, and Roark follows that redirect when it downloads. So both hops have to be reachable, and they are configured separately.
+
+On a remote install this is already handled: `MINIO_PUBLIC_ENDPOINT` derives from `PUBLIC_BASE_URL` and nginx proxies `/voice-audio/` to MinIO, so storage is published on the same HTTPS origin as the API. On AWS S3 there is nothing to configure either, since S3 signs public HTTPS URLs itself.
+
+A tunnel deployment is the one that needs attention. The tunnel forwards to the API only, and `MINIO_PUBLIC_ENDPOINT` keeps its `http://localhost:9000` default, so `localhost` in the redirect means Roark's own machine. Dograh refuses that before exporting, recording `recording_storage_not_public` with the storage host, because the POST would otherwise succeed and the download fail silently hours later. Point `MINIO_PUBLIC_ENDPOINT` (or `PUBLIC_BASE_URL`, which it derives from) at an address Roark can reach over HTTPS; a plain-HTTP one is refused as `recording_storage_not_https`, since the audio would cross the network in the clear on that hop.
 
 ## Re-running an export
 
@@ -138,6 +146,7 @@ The ID carries a fingerprint of the install as well as the run id, so two Dograh
 
 - **A call with no recording is not exported.** Roark ingests a call around its audio, so a run that produced none is skipped and recorded as `missing_recording`. A recording URL whose host is local or private is refused the same way, as `recording_url_not_public`; that is a reachability check on the address, not a fetch, so a public host that happens to be unroutable is not caught.
 - **The recording address must be HTTPS.** The download URL carries the run's non-expiring access token, so a plain-HTTP address is refused as `recording_url_not_https` rather than exported under it. See [Reachability](#reachability).
+- **Object storage must be publicly reachable over HTTPS too.** The download URL redirects to it rather than serving the bytes, so a local or plain-HTTP storage address is refused as `recording_storage_not_public` or `recording_storage_not_https`. See [Object storage needs its own address](#object-storage-needs-its-own-address).
 - **Text chat runs are not exported.** They have no audio, and Roark models a chat as a separate resource.
 - **The export is not retried.** A refusal is recorded in the run's annotations with Roark's message; publish the fix and the next call exports normally.
 - **Mono only.** Dograh keeps separate agent and caller tracks, but sends the mixed recording, so Roark separates speakers itself rather than reading them off channels.

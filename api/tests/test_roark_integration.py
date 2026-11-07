@@ -20,6 +20,7 @@ from api.services.configuration.masking import (
     mask_workflow_definition,
     merge_workflow_api_keys,
 )
+from api.enums import StorageBackend
 from api.services.integrations.base import IntegrationCompletionContext
 from api.services.integrations.registry import (
     get_node_registration,
@@ -34,6 +35,7 @@ from api.services.integrations.roark.completion import (
     build_recording_url,
     describe_validation_failure,
     insecure_recording_scheme,
+    redirect_storage_address,
     run_completion,
     unreachable_recording_host,
 )
@@ -145,6 +147,7 @@ def _workflow_run(**overrides):
         campaign_id=None,
         created_at=T0 - timedelta(seconds=5),
         recording_url="recordings/4242.wav",
+        storage_backend=StorageBackend.MINIO.value,
         initial_context={"phone_number": "+14155551234", "direction": "outbound"},
         gathered_context={
             # The shape a real dispositioned call has: `call_status` is the
@@ -175,17 +178,25 @@ def _completion_context(workflow_run=None, public_token="tok-123"):
 
 @pytest.fixture(autouse=True)
 def _public_backend_endpoint():
-    """Resolve a public HTTPS backend for every test in this file.
+    """Shape every test in this file like a deployment that can export.
 
-    The test environment sets `BACKEND_API_ENDPOINT` to localhost over plain
-    HTTP, which the export refuses twice over: Roark cannot fetch a recording
-    from a private address, and it will not be handed the run's access token
-    without TLS. The tests about reachability patch this themselves and those
-    patches win.
+    The test environment serves both the API and object storage from localhost
+    over plain HTTP, and the export refuses each of those twice over: Roark
+    cannot fetch from a private address, and neither the run's access token nor
+    the audio is handed over without TLS. Storage matters as well as the API
+    because the download route answers 302 with the storage address rather than
+    serving the bytes. The tests about reachability patch these themselves and
+    those patches win.
     """
-    with patch(
-        "api.services.integrations.roark.completion.get_backend_endpoints",
-        AsyncMock(return_value=("https://dograh.example", "wss://dograh.example")),
+    with (
+        patch(
+            "api.services.integrations.roark.completion.get_backend_endpoints",
+            AsyncMock(return_value=("https://dograh.example", "wss://dograh.example")),
+        ),
+        patch(
+            "api.services.integrations.roark.completion.MINIO_PUBLIC_ENDPOINT",
+            "https://dograh.example",
+        ),
     ):
         yield
 
@@ -1015,6 +1026,49 @@ def test_insecure_recording_scheme(url, expected):
     assert insecure_recording_scheme(url) == expected
 
 
+@pytest.mark.parametrize(
+    ("backend", "minio", "s3_endpoint", "expected"),
+    [
+        # MinIO serves the bytes itself, so its public address is what Roark is
+        # redirected to.
+        (
+            StorageBackend.MINIO.value,
+            "http://localhost:9000",
+            None,
+            "http://localhost:9000",
+        ),
+        (
+            StorageBackend.MINIO.value,
+            "https://dograh.example",
+            None,
+            "https://dograh.example",
+        ),
+        # AWS signs public HTTPS URLs, so there is nothing to check.
+        (StorageBackend.S3.value, "http://localhost:9000", None, None),
+        # Unless object storage was pointed somewhere other than AWS, which is
+        # how an S3-compatible store on the host gets here.
+        (
+            StorageBackend.S3.value,
+            None,
+            "http://localhost:9100",
+            "http://localhost:9100",
+        ),
+        (None, "http://localhost:9000", None, None),
+    ],
+)
+def test_redirect_storage_address(backend, minio, s3_endpoint, expected):
+    with (
+        patch(
+            "api.services.integrations.roark.completion.MINIO_PUBLIC_ENDPOINT", minio
+        ),
+        patch(
+            "api.services.integrations.roark.completion.S3_ENDPOINT_URL", s3_endpoint
+        ),
+    ):
+        run = _workflow_run(storage_backend=backend)
+        assert redirect_storage_address(run) == expected
+
+
 # ───────────────────────────── completion handler ─────────────────────────
 
 
@@ -1155,6 +1209,68 @@ async def test_completion_refuses_to_hand_roark_a_plaintext_recording_url():
         "recording_scheme": "http",
     }
     delivery.assert_not_awaited()
+
+
+async def test_completion_refuses_a_recording_whose_redirect_roark_cannot_reach():
+    """The download route does not serve the bytes, it 302s to object storage,
+    and that address is configured separately from the API's. A tunnel
+    deployment publishes the API over HTTPS and leaves MinIO on localhost, so a
+    recording URL that passes every check on itself still sends Roark to its
+    own machine."""
+    delivery = AsyncMock()
+    with (
+        patch(
+            "api.services.integrations.roark.completion.MINIO_PUBLIC_ENDPOINT",
+            "http://localhost:9000",
+        ),
+        patch("api.services.integrations.roark.completion.create_call", delivery),
+    ):
+        results = await run_completion([_roark_node()], _completion_context())
+
+    assert results["roark_roark-1"] == {
+        "error": "recording_storage_not_public",
+        "storage_host": "localhost:9000",
+    }
+    delivery.assert_not_awaited()
+
+
+async def test_completion_refuses_a_plaintext_storage_redirect():
+    """Public but unencrypted: the audio would cross the network in the clear
+    on the hop Roark makes after the redirect."""
+    delivery = AsyncMock()
+    with (
+        patch(
+            "api.services.integrations.roark.completion.MINIO_PUBLIC_ENDPOINT",
+            "http://storage.dograh.example",
+        ),
+        patch("api.services.integrations.roark.completion.create_call", delivery),
+    ):
+        results = await run_completion([_roark_node()], _completion_context())
+
+    assert results["roark_roark-1"] == {
+        "error": "recording_storage_not_https",
+        "storage_scheme": "http",
+    }
+    delivery.assert_not_awaited()
+
+
+async def test_completion_exports_when_storage_is_s3():
+    """S3 signs public HTTPS URLs, so the redirect needs no check and a
+    localhost MinIO setting left over in the environment must not block it."""
+    delivery = AsyncMock(return_value={"status": "delivered", "status_code": 200})
+    context = _completion_context(
+        _workflow_run(storage_backend=StorageBackend.S3.value)
+    )
+    with (
+        patch(
+            "api.services.integrations.roark.completion.MINIO_PUBLIC_ENDPOINT",
+            "http://localhost:9000",
+        ),
+        patch("api.services.integrations.roark.completion.create_call", delivery),
+    ):
+        results = await run_completion([_roark_node()], context)
+
+    assert results["roark_roark-1"]["status"] == "delivered"
 
 
 async def test_completion_reports_a_missing_recording():

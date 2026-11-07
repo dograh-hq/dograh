@@ -6,7 +6,13 @@ from urllib.parse import urlsplit
 
 from loguru import logger
 
-from api.constants import BACKEND_API_ENDPOINT, ROARK_BASE_URL
+from api.constants import (
+    BACKEND_API_ENDPOINT,
+    MINIO_PUBLIC_ENDPOINT,
+    ROARK_BASE_URL,
+    S3_ENDPOINT_URL,
+)
+from api.enums import StorageBackend
 from api.services.integrations.base import IntegrationCompletionContext
 from api.utils.common import get_backend_endpoints, is_local_or_private_url
 
@@ -121,6 +127,37 @@ def insecure_recording_scheme(recording_url: str) -> str | None:
     return scheme or "(none)"
 
 
+def redirect_storage_address(workflow_run: Any) -> str | None:
+    """The storage address the download route would send Roark on to.
+
+    The public download route does not serve the bytes: it answers 302 with the
+    storage backend's own URL. That address is configured separately from the
+    API's, so passing the two checks above says nothing about it. A tunnel
+    deployment is the case that diverges: the API is published over HTTPS while
+    `MINIO_PUBLIC_ENDPOINT` keeps its `http://localhost:9000` default, and
+    `localhost` in a URL Roark fetches is Roark's own machine.
+
+    Roark follows the redirect when it downloads, long after the POST, so this
+    is the same silent failure `unreachable_recording_host` exists to refuse: a
+    call in Roark that can never be transcribed. Only the configured address is
+    read, never a signed URL: building one would construct a storage client
+    (which creates the MinIO bucket and rewrites its policy) for a string this
+    does not need, and a presigned URL is not what Roark is given anyway.
+
+    None when there is nothing to check, which covers AWS S3 without a custom
+    endpoint: it signs public HTTPS URLs by construction.
+    """
+    backend = getattr(workflow_run, "storage_backend", None)
+    if backend == StorageBackend.MINIO.value:
+        return MINIO_PUBLIC_ENDPOINT or None
+    if backend == StorageBackend.S3.value:
+        # Only set to put object storage somewhere other than AWS, which is how
+        # an S3-compatible store (MinIO, rustfs) reachable only on the host gets
+        # here. Unset means AWS signs the URL and its host is public HTTPS.
+        return S3_ENDPOINT_URL or None
+    return None
+
+
 def describe_validation_failure(exc: Exception) -> str:
     """Why a node failed validation, without quoting what it contained.
 
@@ -150,6 +187,7 @@ async def run_completion(
 ) -> dict[str, Any]:
     results: dict[str, Any] = {}
     recording_url = await build_recording_url(context)
+    storage_address = redirect_storage_address(context.workflow_run)
     mode = getattr(context.workflow_run, "mode", None)
 
     for node in nodes:
@@ -227,6 +265,38 @@ async def run_completion(
                 "recording_scheme": insecure_scheme,
             }
             continue
+
+        if storage_address:
+            unreachable_storage = unreachable_recording_host(storage_address)
+            if unreachable_storage:
+                logger.warning(
+                    f"Roark node '{roark_data.name}' (#{node_id}) skipped: the "
+                    f"recording URL redirects to object storage at "
+                    f"'{unreachable_storage}', which Roark cannot reach. Set "
+                    f"MINIO_PUBLIC_ENDPOINT (or PUBLIC_BASE_URL, which it derives "
+                    f"from) to the public address object storage is served on."
+                )
+                results[result_key] = {
+                    "error": "recording_storage_not_public",
+                    "storage_host": unreachable_storage,
+                }
+                continue
+
+            insecure_storage = insecure_recording_scheme(storage_address)
+            if insecure_storage:
+                logger.warning(
+                    f"Roark node '{roark_data.name}' (#{node_id}) skipped: the "
+                    f"recording URL redirects to object storage over "
+                    f"'{insecure_storage}', putting the audio on the wire in the "
+                    f"clear. Serve object storage over HTTPS "
+                    f"(MINIO_PUBLIC_ENDPOINT, or PUBLIC_BASE_URL which it derives "
+                    f"from)."
+                )
+                results[result_key] = {
+                    "error": "recording_storage_not_https",
+                    "storage_scheme": insecure_storage,
+                }
+                continue
 
         payload = build_call_payload(
             workflow_run=context.workflow_run,

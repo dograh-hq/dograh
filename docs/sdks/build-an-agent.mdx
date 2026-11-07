@@ -71,6 +71,8 @@ await client.saveWorkflow(123, wf);
 ```
 </CodeGroup>
 
+In Python, `save_workflow` writes a draft; call `validate_workflow`, then `publish_workflow`, before it serves calls. `publish_workflow` takes an optional body with `version_name` and `change_description`. In TypeScript, use `saveWorkflow`, `validateWorkflow`, and `publishWorkflow` with that same optional body. See `examples/python/publish_agent_and_campaign.py` and `examples/typescript/publish_agent_and_campaign.ts`.
+
 ## Edit an existing agent
 
 Load an agent into an editable `Workflow`, mutate it, then save:

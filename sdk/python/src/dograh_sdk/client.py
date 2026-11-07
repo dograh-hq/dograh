@@ -131,6 +131,15 @@ class DograhClient(_GeneratedClient):
     # ── low-level ──────────────────────────────────────────────────
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        # httpx treats json=None as "no body". A required nullable body must
+        # still send the JSON literal null, with an application/json content
+        # type. Callers that want to omit the body leave `json` unset.
+        if "json" in kwargs and kwargs["json"] is None:
+            kwargs.pop("json")
+            headers = dict(kwargs.pop("headers", None) or {})
+            headers["Content-Type"] = "application/json"
+            kwargs["headers"] = headers
+            kwargs["content"] = b"null"
         resp = self._http.request(method, path, **kwargs)
         if resp.status_code >= 400:
             try:

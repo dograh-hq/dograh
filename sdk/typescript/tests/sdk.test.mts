@@ -415,6 +415,35 @@ describe("DograhClient", () => {
         assert.equal(calls, 1);
     });
 
+    it("sends JSON null for an explicit null body and omits an absent body", async () => {
+        const calls: { body?: string; headers?: Record<string, string> }[] = [];
+        const stubFetch: typeof fetch = async (_input, init) => {
+            calls.push({
+                body: init?.body as string | undefined,
+                headers: init?.headers as Record<string, string> | undefined,
+            });
+            return new Response(JSON.stringify({ id: 1 }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+            });
+        };
+        const c = new DograhClient({
+            baseUrl: "http://api.example",
+            apiKey: "k",
+            fetch: stubFetch,
+        });
+        await c.publishWorkflow(1, { body: null });
+        await c.publishWorkflow(1);
+        await c.publishWorkflow(1, { body: { version_name: "v1" } });
+
+        assert.equal(calls[0]?.body, "null");
+        assert.equal(calls[0]?.headers?.["Content-Type"], "application/json");
+        assert.equal(calls[1]?.body, undefined);
+        assert.equal(calls[1]?.headers?.["Content-Type"], undefined);
+        assert.equal(calls[2]?.body, JSON.stringify({ version_name: "v1" }));
+        assert.equal(calls[2]?.headers?.["Content-Type"], "application/json");
+    });
+
     it("ApiError constructor stores statusCode and body", () => {
         const err = new ApiError(500, "boom", { detail: "oops" });
         assert.equal(err.statusCode, 500);

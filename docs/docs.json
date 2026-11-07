@@ -121,6 +121,7 @@
               "integrations/telephony/vobiz",
               "integrations/telephony/whatsapp",
               "integrations/telephony/asterisk-ari",
+              "integrations/telephony/bitcall",
               "integrations/telephony/vicidial",
               "integrations/telephony/webhooks",
               "integrations/telephony/agent-stream",

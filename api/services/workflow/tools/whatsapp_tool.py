@@ -79,20 +79,48 @@ async def execute_whatsapp_tool(
 
     if requested_template_id and templates:
         req_str = str(requested_template_id).strip().lower()
-        target_template = next(
-            (
-                t
-                for idx, t in enumerate(templates)
-                if str(t.get("id", "")).strip().lower() == req_str
-                or str(idx + 1) == req_str
-                or str(t.get("template_name", "")).strip().lower() == req_str
-                or str(t.get("name", "")).strip().lower() == req_str
-            ),
-            None,
-        )
 
-    if not target_template and templates:
-        target_template = templates[0]
+        # 1. Match exact IDs across all templates (id, template_id, template_name)
+        for t in templates:
+            t_id = str(t.get("id", "")).strip().lower()
+            t_meta_id = str(t.get("template_id", "")).strip().lower()
+            t_meta_name = str(t.get("template_name", "")).strip().lower()
+            if req_str in (t_id, t_meta_id, t_meta_name) and (t_id or t_meta_id or t_meta_name):
+                target_template = t
+                break
+
+        # 2. Match 1-based index alias across all templates
+        if not target_template:
+            for idx, t in enumerate(templates):
+                if str(idx + 1) == req_str:
+                    target_template = t
+                    break
+
+        # 3. Match display name alias across all templates
+        if not target_template:
+            for t in templates:
+                t_display_name = str(t.get("name", "")).strip().lower()
+                if t_display_name and t_display_name == req_str:
+                    target_template = t
+                    break
+
+        if not target_template:
+            err_msg = (
+                f"Unknown WhatsApp template selection: '{requested_template_id}'. "
+                "Please select a valid template."
+            )
+            logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
+            return {"status": "error", "error": err_msg}
+    elif not requested_template_id and templates:
+        if len(templates) == 1:
+            target_template = templates[0]
+        else:
+            err_msg = (
+                "Multiple WhatsApp templates are configured, but no 'template_id' "
+                "was specified in the tool call."
+            )
+            logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
+            return {"status": "error", "error": err_msg}
 
     if target_template:
         template_name = target_template.get("template_name")

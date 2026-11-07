@@ -404,7 +404,7 @@ async def test_create_whatsapp_tool_enforces_single_active_tool_per_org():
             "api.services.tool_management.db_client.create_tool",
             AsyncMock(return_value=mock_created_tool),
         ),
-        patch("api.services.tool_management.capture_event"),
+        patch("api.services.tool_management.capture_tenant_event"),
     ):
         tool_resp = await create_tool_for_user(request, user)
         assert tool_resp.category == "whatsapp"
@@ -1069,6 +1069,144 @@ async def test_execute_whatsapp_tool_ordinary_variable_does_not_fall_back_to_par
         assert res["status"] == "error"
         assert "Missing required parameter 'order_id'" in res["error"]
         mock_provider.send_template_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_execute_whatsapp_tool_exact_id_precedence_over_array_index_and_display_name():
+    """Exact template IDs across all templates take precedence over 1-based index or display name aliases."""
+    config = {
+        "execution_mode": "sync",
+        "templates": [
+            {
+                "id": "order_status",
+                "name": "Order Status Check",
+                "template_name": "order_status_v1",
+            },
+            {
+                "id": "1",
+                "name": "Welcome Notice",
+                "template_name": "welcome_template_v2",
+            },
+        ],
+    }
+    tool = MockTool("WhatsApp Precedence Tool", config)
+    mock_provider = AsyncMock()
+    mock_provider.send_template_message = AsyncMock(
+        return_value={"messages": [{"id": "wamid.EXACT_ID_1"}]}
+    )
+    context = {"called_number": "+15551234567", "call_direction": "outbound"}
+
+    with (
+        patch(
+            "api.services.workflow.tools.whatsapp_tool.db_client.list_telephony_configurations_by_provider",
+            AsyncMock(return_value=[MagicMock(id=1)]),
+        ),
+        patch(
+            "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
+            AsyncMock(return_value=mock_provider),
+        ),
+    ):
+        # Requesting template_id="1" must match the second template whose exact id is "1",
+        # NOT the first template at 1-based index 1.
+        res = await execute_whatsapp_tool(
+            tool=tool,
+            arguments={"template_id": "1"},
+            call_context_vars=context,
+            organization_id=1,
+        )
+        assert res["status"] == "delivered"
+        mock_provider.send_template_message.assert_awaited_once_with(
+            to_number="15551234567",
+            template_name="welcome_template_v2",
+            language_code="en_US",
+            parameters=[],
+            from_phone_number_id=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_execute_whatsapp_tool_unknown_template_selection_returns_error():
+    """Requesting an unknown template_id returns a clear error instead of silently defaulting to the first template."""
+    config = {
+        "execution_mode": "sync",
+        "templates": [
+            {
+                "id": "order_status",
+                "name": "Order Status",
+                "template_name": "order_status_v1",
+            },
+            {
+                "id": "shipping_update",
+                "name": "Shipping Update",
+                "template_name": "shipping_update_v1",
+            },
+        ],
+    }
+    tool = MockTool("WhatsApp Multi Tool", config)
+    mock_provider = AsyncMock()
+    context = {"called_number": "+15551234567", "call_direction": "outbound"}
+
+    with (
+        patch(
+            "api.services.workflow.tools.whatsapp_tool.db_client.list_telephony_configurations_by_provider",
+            AsyncMock(return_value=[MagicMock(id=1)]),
+        ),
+        patch(
+            "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
+            AsyncMock(return_value=mock_provider),
+        ),
+    ):
+        res = await execute_whatsapp_tool(
+            tool=tool,
+            arguments={"template_id": "nonexistent_template"},
+            call_context_vars=context,
+            organization_id=1,
+        )
+        assert res["status"] == "error"
+        assert "Unknown WhatsApp template selection: 'nonexistent_template'" in res["error"]
+        mock_provider.send_template_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_execute_whatsapp_tool_multiple_templates_missing_template_id_returns_error():
+    """When multiple templates are configured and no template_id is passed, return an error."""
+    config = {
+        "execution_mode": "sync",
+        "templates": [
+            {
+                "id": "welcome",
+                "template_name": "welcome_v1",
+            },
+            {
+                "id": "goodbye",
+                "template_name": "goodbye_v1",
+            },
+        ],
+    }
+    tool = MockTool("WhatsApp Multi Tool", config)
+    mock_provider = AsyncMock()
+    context = {"called_number": "+15551234567", "call_direction": "outbound"}
+
+    with (
+        patch(
+            "api.services.workflow.tools.whatsapp_tool.db_client.list_telephony_configurations_by_provider",
+            AsyncMock(return_value=[MagicMock(id=1)]),
+        ),
+        patch(
+            "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
+            AsyncMock(return_value=mock_provider),
+        ),
+    ):
+        res = await execute_whatsapp_tool(
+            tool=tool,
+            arguments={},
+            call_context_vars=context,
+            organization_id=1,
+        )
+        assert res["status"] == "error"
+        assert "Multiple WhatsApp templates are configured, but no 'template_id' was specified" in res["error"]
+        mock_provider.send_template_message.assert_not_called()
+
 
 
 

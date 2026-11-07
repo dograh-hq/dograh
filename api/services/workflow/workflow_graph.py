@@ -72,8 +72,9 @@ def extract_template_variables(text: str) -> Set[str]:
 
     # Attempt Jinja AST parsing to accurately exclude local loop/set variables
     try:
-        from api.utils.jinja_engine import get_jinja_env, preprocess_legacy_template
         from jinja2 import meta, nodes
+
+        from api.utils.jinja_engine import get_jinja_env, preprocess_legacy_template
 
         preprocessed = preprocess_legacy_template(text)
         env = get_jinja_env()

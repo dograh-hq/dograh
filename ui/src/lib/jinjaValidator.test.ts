@@ -64,6 +64,29 @@ describe("validateJinjaSyntax", () => {
         expect(result.error).toBeNull();
     });
 
+    it("returns valid for tuple loop unpacking with and without parentheses", () => {
+        const parenthesized = `
+            {% for (k, v) in pairs %}
+                {{ k }}: {{ v }}
+            {% endfor %}
+        `;
+        const resParen = validateJinjaSyntax(parenthesized);
+        expect(resParen.isValid).toBe(true);
+        expect(resParen.error).toBeNull();
+
+        const withSpaces = "{% for ( k , v ) in pairs %}{{ k }}{% endfor %}";
+        expect(validateJinjaSyntax(withSpaces).isValid).toBe(true);
+
+        const unparenthesized = `
+            {% for k, v in pairs %}
+                {{ k }}: {{ v }}
+            {% endfor %}
+        `;
+        const resUnparen = validateJinjaSyntax(unparenthesized);
+        expect(resUnparen.isValid).toBe(true);
+        expect(resUnparen.error).toBeNull();
+    });
+
     it("returns invalid for mismatched tags (for closed with endif)", () => {
         const template = `
             {% for order in orders %}

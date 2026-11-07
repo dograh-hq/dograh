@@ -51,7 +51,7 @@ function validateBlockExpression(tag: string, expr: string): string | null {
         if (!trimmed) {
             return "Missing loop expression in '{% for %}'";
         }
-        if (!/^[A-Za-z_][A-Za-z0-9_]*(\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*\s+in\s+/.test(trimmed)) {
+        if (!/^(?:\(\s*[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*\s*,?\s*\)|[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s+in\s+/.test(trimmed)) {
             return `Invalid loop syntax '{% for ${trimmed} %}'. Expected format: '{% for item in items %}'`;
         }
         const rangeMatch = trimmed.match(/\brange\s*\(\s*(\d+)\s*\)/);

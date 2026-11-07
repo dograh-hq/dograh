@@ -100,18 +100,35 @@ class DograhContext(jinja2.runtime.Context):
         return super().resolve_or_missing(key)
 
 
+MAX_RENDERED_PROMPT_CHARS = 65_536  # 64 KB memory bomb ceiling
+
+
 def _safe_mul(a: Any, b: Any) -> Any:
     """Multiplication operator that neutralizes memory bomb string/list amplification."""
-    if isinstance(a, (str, list, tuple, bytes)) and isinstance(b, int):
+    if isinstance(a, (str, bytes)) and isinstance(b, int):
         if b < 0:
             return a * b
         if len(a) * b > MAX_RENDERED_PROMPT_CHARS or b > 500:
             raise OverflowError("Multiplication factor/size exceeds allowable limit.")
-    if isinstance(b, (str, list, tuple, bytes)) and isinstance(a, int):
+    if isinstance(b, (str, bytes)) and isinstance(a, int):
         if a < 0:
             return a * b
         if len(b) * a > MAX_RENDERED_PROMPT_CHARS or a > 500:
             raise OverflowError("Multiplication factor/size exceeds allowable limit.")
+    if isinstance(a, (list, tuple)) and isinstance(b, int):
+        if b < 0:
+            return a * b
+        if b > 50 or len(a) * b > 50:
+            raise OverflowError(
+                "Collection multiplication factor/size exceeds allowable limit (50)."
+            )
+    if isinstance(b, (list, tuple)) and isinstance(a, int):
+        if a < 0:
+            return a * b
+        if a > 50 or len(b) * a > 50:
+            raise OverflowError(
+                "Collection multiplication factor/size exceeds allowable limit (50)."
+            )
     return a * b
 
 
@@ -229,12 +246,28 @@ def _dograh_safe_range(*args: Any) -> Any:
     return r
 
 
+def _safe_json_dumps(obj: Any, max_chars: int = MAX_RENDERED_PROMPT_CHARS) -> str:
+    """Serialize object to JSON with a strict length ceiling to prevent memory exhaustion."""
+    encoder = json.JSONEncoder()
+    chunks: list[str] = []
+    total_len = 0
+    for chunk in encoder.iterencode(obj):
+        chunk_len = len(chunk)
+        if total_len + chunk_len > max_chars:
+            raise OverflowError(
+                f"JSON serialization exceeds maximum allowable size of {max_chars} characters."
+            )
+        chunks.append(chunk)
+        total_len += chunk_len
+    return "".join(chunks)
+
+
 def _dograh_finalize(obj: Any) -> Any:
     """Format None as empty string and collections as JSON matching legacy prompt semantics."""
     if obj is None or isinstance(obj, jinja2.Undefined):
         return ""
-    if isinstance(obj, (dict, list)):
-        return json.dumps(obj)
+    if isinstance(obj, (dict, list, tuple)):
+        return _safe_json_dumps(obj)
     return obj
 
 
@@ -316,7 +349,7 @@ def create_jinja_environment() -> DograhSandboxedEnvironment:
     env.filters["fallback"] = _custom_fallback_filter
     env.filters["default"] = _custom_default_filter
     env.filters["replace"] = _safe_replace_filter
-    env.filters["tojson"] = lambda v: json.dumps(v)
+    env.filters["tojson"] = _safe_json_dumps
     return env
 
 
@@ -407,9 +440,6 @@ def preprocess_legacy_template(template_str: str) -> str:
     result = re.sub(pattern_legacy_filter, _replace_legacy_default, result)
 
     return result
-
-
-MAX_RENDERED_PROMPT_CHARS = 65_536  # 64 KB memory bomb ceiling
 
 
 def validate_jinja_syntax(template_str: str) -> tuple[bool, str | None]:
@@ -596,13 +626,20 @@ def validate_jinja_syntax(template_str: str) -> tuple[bool, str | None]:
                     f"Accessing system attribute via item subscript '{arg.value}' is not permitted.",
                 )
 
-        # 8. Block memory bomb string multiplication (> 500)
+        # 8. Block memory bomb string multiplication (> 500) and collection multiplication (> 50)
         for mul_node in parsed.find_all(jinja2.nodes.Mul):
             left_const = isinstance(mul_node.left, jinja2.nodes.Const)
             right_const = isinstance(mul_node.right, jinja2.nodes.Const)
+            left_list_tuple = isinstance(
+                mul_node.left, (jinja2.nodes.List, jinja2.nodes.Tuple)
+            )
+            right_list_tuple = isinstance(
+                mul_node.right, (jinja2.nodes.List, jinja2.nodes.Tuple)
+            )
+
             if left_const and right_const:
                 if (
-                    isinstance(mul_node.left.value, (str, list, tuple))
+                    isinstance(mul_node.left.value, (str, bytes))
                     and isinstance(mul_node.right.value, int)
                     and mul_node.right.value > 500
                 ):
@@ -611,7 +648,7 @@ def validate_jinja_syntax(template_str: str) -> tuple[bool, str | None]:
                         "Multiplication factor exceeds maximum allowable limit of 500.",
                     )
                 if (
-                    isinstance(mul_node.right.value, (str, list, tuple))
+                    isinstance(mul_node.right.value, (str, bytes))
                     and isinstance(mul_node.left.value, int)
                     and mul_node.left.value > 500
                 ):
@@ -619,6 +656,58 @@ def validate_jinja_syntax(template_str: str) -> tuple[bool, str | None]:
                         False,
                         "Multiplication factor exceeds maximum allowable limit of 500.",
                     )
+                if (
+                    isinstance(mul_node.left.value, (list, tuple))
+                    and isinstance(mul_node.right.value, int)
+                    and (
+                        mul_node.right.value > 50
+                        or len(mul_node.left.value) * mul_node.right.value > 50
+                    )
+                ):
+                    return (
+                        False,
+                        "Collection multiplication factor/size exceeds maximum allowable limit of 50.",
+                    )
+                if (
+                    isinstance(mul_node.right.value, (list, tuple))
+                    and isinstance(mul_node.left.value, int)
+                    and (
+                        mul_node.left.value > 50
+                        or len(mul_node.right.value) * mul_node.left.value > 50
+                    )
+                ):
+                    return (
+                        False,
+                        "Collection multiplication factor/size exceeds maximum allowable limit of 50.",
+                    )
+
+            if (
+                left_list_tuple
+                and right_const
+                and isinstance(mul_node.right.value, int)
+                and (
+                    mul_node.right.value > 50
+                    or len(mul_node.left.items) * mul_node.right.value > 50
+                )
+            ):
+                return (
+                    False,
+                    "Collection multiplication factor/size exceeds maximum allowable limit of 50.",
+                )
+
+            if (
+                right_list_tuple
+                and left_const
+                and isinstance(mul_node.left.value, int)
+                and (
+                    mul_node.left.value > 50
+                    or len(mul_node.right.items) * mul_node.left.value > 50
+                )
+            ):
+                return (
+                    False,
+                    "Collection multiplication factor/size exceeds maximum allowable limit of 50.",
+                )
 
         return True, None
     except TemplateSyntaxError as e:
@@ -686,7 +775,7 @@ def render_jinja_string(
             f"Jinja template error in live render: {e}. Falling back to raw string."
         )
         return template_str
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         if raise_on_error:
             raise
         logger.error(

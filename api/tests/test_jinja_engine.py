@@ -390,3 +390,36 @@ def test_security_error_reraised_when_raise_on_error_true():
     malicious = "{{ [].__class__.__mro__ }}"
     with pytest.raises(SecurityError):
         render_jinja_string(malicious, {}, raise_on_error=True)
+
+
+def test_collection_multiplication_bounds_and_streaming_json_serialization():
+    """Verify that collection multiplication is bounded to 50 and JSON output streaming prevents memory exhaustion."""
+    # 1. Collection multiplication capped in sandbox
+    with pytest.raises(OverflowError, match="Collection multiplication"):
+        render_jinja_string("{{ [1] * 100 }}", {}, raise_on_error=True)
+
+    with pytest.raises(OverflowError, match="Collection multiplication"):
+        render_jinja_string("{{ ([1] * 30) * 30 }}", {}, raise_on_error=True)
+
+    # 2. Collection multiplication capped at save-time AST validation
+    is_valid, err = validate_jinja_syntax("{{ [1] * 100 }}")
+    assert not is_valid
+    assert err is not None
+    assert "Collection multiplication factor" in err
+
+    # 3. Streaming JSON serialization prevents allocating oversized JSON strings
+    # Create large list in context that exceeds MAX_RENDERED_PROMPT_CHARS (64 KB)
+    large_list = ["A" * 1000] * 70  # 70 KB > 64 KB
+    with pytest.raises(OverflowError, match="JSON serialization exceeds maximum"):
+        render_jinja_string("{{ items }}", {"items": large_list}, raise_on_error=True)
+
+    with pytest.raises(OverflowError, match="JSON serialization exceeds maximum"):
+        render_jinja_string(
+            "{{ items | tojson }}", {"items": large_list}, raise_on_error=True
+        )
+
+    # In live telephony (raise_on_error=False), gracefully falls back without crashing worker
+    fallback_result = render_jinja_string(
+        "{{ items }}", {"items": large_list}, raise_on_error=False
+    )
+    assert fallback_result == "{{ items }}"

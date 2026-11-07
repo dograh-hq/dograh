@@ -1285,3 +1285,48 @@ async def test_execute_whatsapp_tool_multiple_templates_missing_template_id_retu
             in res["error"]
         )
         mock_provider.send_template_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_execute_whatsapp_tool_null_template_id_cannot_match_none_string():
+    """A template with template_id=None must not match a request for template_id='none'."""
+    config = {
+        "execution_mode": "sync",
+        "templates": [
+            {
+                "id": "tpl_1",
+                "name": "First Template",
+                "template_name": "first_tpl",
+                "template_id": None,
+            },
+            {
+                "id": "tpl_2",
+                "name": "Second Template",
+                "template_name": "second_tpl",
+                "template_id": None,
+            },
+        ],
+    }
+    tool = MockTool("WhatsApp Null Tool", config)
+    mock_provider = AsyncMock()
+    context = {"called_number": "+15551234567", "call_direction": "outbound"}
+
+    with (
+        patch(
+            "api.services.workflow.tools.whatsapp_tool.db_client.list_telephony_configurations_by_provider",
+            AsyncMock(return_value=[MagicMock(id=1)]),
+        ),
+        patch(
+            "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
+            AsyncMock(return_value=mock_provider),
+        ),
+    ):
+        res = await execute_whatsapp_tool(
+            tool=tool,
+            arguments={"template_id": "none"},
+            call_context_vars=context,
+            organization_id=1,
+        )
+        assert res["status"] == "error"
+        assert "Unknown WhatsApp template selection: 'none'" in res["error"]
+        mock_provider.send_template_message.assert_not_called()

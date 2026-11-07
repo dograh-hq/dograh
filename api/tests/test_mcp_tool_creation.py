@@ -154,6 +154,7 @@ async def test_mcp_create_tool_schema_includes_validation_and_llm_hints():
         "native",
         "integration",
         "mcp",
+        "whatsapp",
     ]
     assert http_config["properties"]["method"]["enum"] == [
         "GET",

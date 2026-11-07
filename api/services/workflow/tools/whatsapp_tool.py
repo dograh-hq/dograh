@@ -86,24 +86,30 @@ async def execute_whatsapp_tool(
 
         # 1. Match exact configured template 'id' across all templates
         for t in templates:
-            t_id = str(t.get("id", "")).strip().lower()
-            if t_id and t_id == req_str:
+            raw_id = t.get("id")
+            if raw_id is not None and str(raw_id).strip().lower() == req_str:
                 target_template = t
                 break
 
         # 2. Match exact Meta 'template_id' across all templates
         if not target_template:
             for t in templates:
-                t_meta_id = str(t.get("template_id", "")).strip().lower()
-                if t_meta_id and t_meta_id == req_str:
+                raw_meta_id = t.get("template_id")
+                if (
+                    raw_meta_id is not None
+                    and str(raw_meta_id).strip().lower() == req_str
+                ):
                     target_template = t
                     break
 
         # 3. Match exact Meta 'template_name' across all templates
         if not target_template:
             for t in templates:
-                t_meta_name = str(t.get("template_name", "")).strip().lower()
-                if t_meta_name and t_meta_name == req_str:
+                raw_meta_name = t.get("template_name")
+                if (
+                    raw_meta_name is not None
+                    and str(raw_meta_name).strip().lower() == req_str
+                ):
                     target_template = t
                     break
 
@@ -117,8 +123,8 @@ async def execute_whatsapp_tool(
         # 5. Match display name alias across all templates
         if not target_template:
             for t in templates:
-                t_display_name = str(t.get("name", "")).strip().lower()
-                if t_display_name and t_display_name == req_str:
+                raw_name = t.get("name")
+                if raw_name is not None and str(raw_name).strip().lower() == req_str:
                     target_template = t
                     break
 

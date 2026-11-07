@@ -72,9 +72,8 @@ def extract_template_variables(text: str) -> Set[str]:
 
     # Attempt Jinja AST parsing to accurately exclude local loop/set variables
     try:
-        from jinja2 import meta, nodes
-
         from api.utils.jinja_engine import get_jinja_env, preprocess_legacy_template
+        from jinja2 import meta, nodes
 
         preprocessed = preprocess_legacy_template(text)
         env = get_jinja_env()
@@ -97,10 +96,12 @@ def extract_template_variables(text: str) -> Set[str]:
         # Identify Name node occurrences protected by default/fallback filter
         protected_by_filter: set[int] = set()
         for f in ast.find_all(nodes.Filter):
-            if f.name in ("default", "fallback", "d") and isinstance(
-                f.node, nodes.Name
-            ):
-                protected_by_filter.add(id(f.node))
+            if f.name in ("default", "fallback", "d"):
+                target = f.node
+                while isinstance(target, nodes.Filter):
+                    target = target.node
+                if isinstance(target, nodes.Name):
+                    protected_by_filter.add(id(target))
 
         # Identify Name node occurrences that are roots of nested attribute access (e.g. user.address or gathered_context.city)
         nested_root_nodes: set[int] = set()
@@ -111,12 +112,64 @@ def extract_template_variables(text: str) -> Set[str]:
             if isinstance(curr, nodes.Name):
                 nested_root_nodes.add(id(curr))
 
+        # Collect Name nodes that are local loop targets to prevent shadowing external variables
+        def _extract_target_names(target_node: nodes.Node) -> set[str]:
+            names: set[str] = set()
+            if isinstance(target_node, nodes.Name):
+                names.add(target_node.name)
+            elif isinstance(target_node, (nodes.Tuple, nodes.List)):
+                for item in target_node.items:
+                    names.update(_extract_target_names(item))
+            return names
+
+        local_scoped_node_ids: set[int] = set()
+        for for_node in ast.find_all(nodes.For):
+            targets = _extract_target_names(for_node.target)
+            for child in for_node.body:
+                for child_node in child.find_all(nodes.Name):
+                    if child_node.name in targets:
+                        local_scoped_node_ids.add(id(child_node))
+
         required: set[str] = set()
         for node in ast.find_all(nodes.Name):
             if node.name in candidates and node.ctx == "load":
-                if id(node) in protected_by_filter or id(node) in nested_root_nodes:
+                if (
+                    id(node) in protected_by_filter
+                    or id(node) in nested_root_nodes
+                    or id(node) in local_scoped_node_ids
+                ):
                     continue
                 required.add(node.name)
+
+        # Preserve legacy hyphenated variable names (e.g. {{ customer-name }})
+        # that Jinja parses as binary subtraction expressions
+        legacy_hyphenated_vars: set[str] = set()
+        hyphen_operands: set[str] = set()
+        for match in re.finditer(TEMPLATE_VAR_PATTERN, text):
+            raw_var = match.group(1).strip()
+            filter_part = match.group(2).strip() if match.group(2) else None
+            if (
+                "-" in raw_var
+                and "." not in raw_var
+                and filter_part is None
+                and raw_var not in _SYSTEM_VARIABLES
+                and not is_builtin_variable(raw_var)
+            ):
+                legacy_hyphenated_vars.add(raw_var)
+                for part in raw_var.split("-"):
+                    if part.isidentifier():
+                        hyphen_operands.add(part)
+
+        if legacy_hyphenated_vars:
+            stripped_text = re.sub(
+                TEMPLATE_VAR_PATTERN,
+                lambda m: "" if "-" in m.group(1) else m.group(0),
+                text,
+            )
+            for operand in hyphen_operands:
+                if not re.search(r"\b" + re.escape(operand) + r"\b", stripped_text):
+                    required.discard(operand)
+            required.update(legacy_hyphenated_vars)
 
         return required
     except Exception:  # noqa: BLE001

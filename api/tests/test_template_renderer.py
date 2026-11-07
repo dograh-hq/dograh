@@ -121,3 +121,21 @@ def test_extract_template_variables_excludes_jinja_locals():
         extract_template_variables("{{ user.address }} {{ gathered_context.city }}")
         == set()
     )
+
+    # Chained filters with default/fallback are optional
+    assert extract_template_variables("{{ name | upper | default('there') }}") == set()
+    assert (
+        extract_template_variables("{{ name | trim | lower | default('there') }}")
+        == set()
+    )
+
+    # Loop-local reference shadowing external defaulted name does not leak into required variables
+    assert extract_template_variables(
+        "{% for name in names %}{{ name }}{% endfor %}Hi {{ name | default('there') }}"
+    ) == {"names"}
+
+    # Legacy hyphenated variables are preserved as required contact fields
+    assert extract_template_variables("Hello {{ customer-name }}") == {"customer-name"}
+    assert extract_template_variables(
+        "Hello {{ customer }} and {{ customer-name }}"
+    ) == {"customer", "customer-name"}

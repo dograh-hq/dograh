@@ -246,8 +246,53 @@ def _dograh_safe_range(*args: Any) -> Any:
     return r
 
 
+def _check_serializable_bounds(obj: Any, max_chars: int) -> None:
+    """Pre-scan object to bound scalar encoding and collection size before materializing chunks."""
+    if isinstance(obj, (str, bytes)):
+        if len(obj) > max_chars:
+            raise OverflowError(
+                f"JSON serialization exceeds maximum allowable size of {max_chars} characters."
+            )
+        return
+
+    if not isinstance(obj, (dict, list, tuple, set)):
+        return
+
+    stack: list[tuple[Any, int]] = [(obj, 0)]
+    items_visited = 0
+    total_str_chars = 0
+
+    while stack:
+        current, depth = stack.pop()
+        items_visited += 1
+        if items_visited > 200:
+            raise OverflowError(
+                "Collection exceeds maximum allowable serializable item limit (200)."
+            )
+        if depth > 5:
+            raise OverflowError(
+                "Collection nesting exceeds maximum allowable depth limit (5)."
+            )
+
+        if isinstance(current, (str, bytes)):
+            s_len = len(current)
+            if s_len > max_chars or total_str_chars + s_len > max_chars:
+                raise OverflowError(
+                    f"JSON serialization exceeds maximum allowable size of {max_chars} characters."
+                )
+            total_str_chars += s_len
+        elif isinstance(current, dict):
+            for k, v in current.items():
+                stack.append((v, depth + 1))
+                stack.append((k, depth + 1))
+        elif isinstance(current, (list, tuple, set)):
+            for item in current:
+                stack.append((item, depth + 1))
+
+
 def _safe_json_dumps(obj: Any, max_chars: int = MAX_RENDERED_PROMPT_CHARS) -> str:
     """Serialize object to JSON with a strict length ceiling to prevent memory exhaustion."""
+    _check_serializable_bounds(obj, max_chars)
     encoder = json.JSONEncoder()
     chunks: list[str] = []
     total_len = 0
@@ -335,6 +380,11 @@ def _safe_replace_filter(s: Any, old: Any, new: Any, count: int | None = None) -
     return s_str.replace(old_str, new_str, -1 if count is None else count)
 
 
+def _safe_tojson_filter(val: Any) -> str:
+    """Safe tojson filter that strictly enforces MAX_RENDERED_PROMPT_CHARS without exposing override kwargs."""
+    return _safe_json_dumps(val, MAX_RENDERED_PROMPT_CHARS)
+
+
 def create_jinja_environment() -> DograhSandboxedEnvironment:
     """Instantiate and configure the Dograh Jinja2 sandboxed environment."""
     env = DograhSandboxedEnvironment(
@@ -349,7 +399,7 @@ def create_jinja_environment() -> DograhSandboxedEnvironment:
     env.filters["fallback"] = _custom_fallback_filter
     env.filters["default"] = _custom_default_filter
     env.filters["replace"] = _safe_replace_filter
-    env.filters["tojson"] = _safe_json_dumps
+    env.filters["tojson"] = _safe_tojson_filter
     return env
 
 

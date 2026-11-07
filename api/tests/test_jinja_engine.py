@@ -423,3 +423,14 @@ def test_collection_multiplication_bounds_and_streaming_json_serialization():
         "{{ items }}", {"items": large_list}, raise_on_error=False
     )
     assert fallback_result == "{{ items }}"
+
+    # 4. Scalar upfront check prevents materializing giant chunks
+    huge_scalar = {"bio": "A" * 70_000}
+    with pytest.raises(OverflowError, match="JSON serialization exceeds maximum"):
+        render_jinja_string("{{ data }}", {"data": huge_scalar}, raise_on_error=True)
+
+    # 5. tojson filter does not allow overriding max_chars limit from template
+    with pytest.raises(TypeError):
+        render_jinja_string(
+            "{{ items | tojson(9999999) }}", {"items": [1, 2]}, raise_on_error=True
+        )

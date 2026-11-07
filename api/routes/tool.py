@@ -486,8 +486,14 @@ async def unarchive_tool(
                 detail="An active WhatsApp Messaging tool already exists for this organization. You can configure multiple templates within that tool.",
             )
 
-        raw_def = tool_to_restore.definition if isinstance(tool_to_restore.definition, dict) else {}
-        config = raw_def.get("config", {}) if isinstance(raw_def.get("config"), dict) else {}
+        raw_def = (
+            tool_to_restore.definition
+            if isinstance(tool_to_restore.definition, dict)
+            else {}
+        )
+        config = (
+            raw_def.get("config", {}) if isinstance(raw_def.get("config"), dict) else {}
+        )
         pinned_cfg_id = config.get("telephony_configuration_id")
         if pinned_cfg_id is not None:
             pinned_cfg = await db_client.get_telephony_configuration_for_org(

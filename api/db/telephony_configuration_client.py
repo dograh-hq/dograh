@@ -377,8 +377,7 @@ class TelephonyConfigurationClient(BaseDBClient):
 
             if row.provider == "whatsapp":
                 tool_ref = await session.execute(
-                    select(ToolModel)
-                    .where(
+                    select(ToolModel).where(
                         ToolModel.organization_id == organization_id,
                         ToolModel.category == ToolCategory.WHATSAPP.value,
                         ToolModel.status == ToolStatus.ACTIVE.value,

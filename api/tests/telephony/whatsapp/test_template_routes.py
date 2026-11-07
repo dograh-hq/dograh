@@ -72,9 +72,7 @@ class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
                 AsyncMock(return_value=[]),
             ),
         ):
-            res = await list_whatsapp_templates_for_config(
-                config_id=10, user=self.user
-            )
+            res = await list_whatsapp_templates_for_config(config_id=10, user=self.user)
 
         self.assertEqual(res.config_id, 10)
         self.assertEqual(res.waba_id, "test_waba_123")
@@ -99,9 +97,7 @@ class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
             ),
             self.assertRaises(HTTPException) as ctx,
         ):
-            await list_whatsapp_templates_for_config(
-                config_id=10, user=self.user
-            )
+            await list_whatsapp_templates_for_config(config_id=10, user=self.user)
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("not a WhatsApp provider", ctx.exception.detail)
 
@@ -171,7 +167,9 @@ class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
         mock_provider = MagicMock()
         mock_provider.list_message_templates = AsyncMock(return_value=[])
         # Provider listing fails, triggering DB fallback
-        mock_provider.list_provider_phone_numbers = AsyncMock(side_effect=RuntimeError("Provider unreachable"))
+        mock_provider.list_provider_phone_numbers = AsyncMock(
+            side_effect=RuntimeError("Provider unreachable")
+        )
 
         mock_db_num = MagicMock()
         mock_db_num.address = "+15559876"
@@ -215,7 +213,9 @@ class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
             ),
             patch(
                 "api.routes.organization.get_telephony_provider_by_id",
-                AsyncMock(side_effect=MetaOAuthError("(#190) Error validating access token")),
+                AsyncMock(
+                    side_effect=MetaOAuthError("(#190) Error validating access token")
+                ),
             ),
             self.assertRaises(HTTPException) as ctx,
         ):
@@ -224,7 +224,9 @@ class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 502)
         self.assertIn("Authentication failed with Meta Graph API", ctx.exception.detail)
 
-    async def test_list_templates_provider_loop_failure_does_not_duplicate_phone_numbers(self):
+    async def test_list_templates_provider_loop_failure_does_not_duplicate_phone_numbers(
+        self,
+    ):
         cfg = MagicMock(spec=TelephonyConfigurationModel)
         cfg.id = 10
         cfg.provider = "whatsapp"
@@ -237,19 +239,26 @@ class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
                 raise RuntimeError("Corrupt metadata payload mid-loop")
 
         valid_item = MagicMock()
-        valid_item.metadata = {"phone_number_id": "num_prov_1", "verified_name": "Prov Num 1"}
+        valid_item.metadata = {
+            "phone_number_id": "num_prov_1",
+            "verified_name": "Prov Num 1",
+        }
         valid_item.external_id = None
         valid_item.address = "+15551111"
         valid_item.label = "Prov Num 1"
 
         mock_provider = MagicMock()
         mock_provider.list_message_templates = AsyncMock(return_value=[])
-        mock_provider.list_provider_phone_numbers = AsyncMock(return_value=[valid_item, BadItem()])
+        mock_provider.list_provider_phone_numbers = AsyncMock(
+            return_value=[valid_item, BadItem()]
+        )
 
         mock_db_num = MagicMock()
         mock_db_num.address = "+15552222"
         mock_db_num.label = "DB Num"
-        mock_db_num.extra_metadata = {"provider": {"phone_number_id": "num_db_1", "verified_name": "DB Num"}}
+        mock_db_num.extra_metadata = {
+            "provider": {"phone_number_id": "num_db_1", "verified_name": "DB Num"}
+        }
 
         with (
             patch(
@@ -271,5 +280,3 @@ class TestWhatsAppTemplateRoutes(IsolatedAsyncioTestCase):
         self.assertEqual(len(res.phone_numbers), 1)
         self.assertEqual(res.phone_numbers[0].phone_number_id, "num_db_1")
         self.assertEqual(res.phone_numbers[0].display_phone_number, "+15552222")
-
-

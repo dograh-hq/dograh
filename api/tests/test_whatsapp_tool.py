@@ -373,7 +373,9 @@ async def test_create_whatsapp_tool_enforces_single_active_tool_per_org():
         with pytest.raises(ToolManagementError) as exc_info:
             await create_tool_for_user(request, user)
         assert exc_info.value.error_code == "whatsapp_telephony_not_configured"
-        assert "WhatsApp is not configured in Telephony settings" in exc_info.value.message
+        assert (
+            "WhatsApp is not configured in Telephony settings" in exc_info.value.message
+        )
 
     # 3. When WhatsApp telephony configuration exists, creation proceeds
     now = datetime.now(UTC)
@@ -438,7 +440,9 @@ async def test_unarchive_whatsapp_tool_enforces_single_active_tool_per_org():
         with pytest.raises(HTTPException) as exc_info:
             await unarchive_tool("archived-wa", user)
         assert exc_info.value.status_code == 400
-        assert "An active WhatsApp Messaging tool already exists" in exc_info.value.detail
+        assert (
+            "An active WhatsApp Messaging tool already exists" in exc_info.value.detail
+        )
 
     # 2. When WhatsApp telephony configuration is deleted/missing, unarchive is refused
     with (
@@ -458,7 +462,10 @@ async def test_unarchive_whatsapp_tool_enforces_single_active_tool_per_org():
         with pytest.raises(HTTPException) as exc_info:
             await unarchive_tool("archived-wa", user)
         assert exc_info.value.status_code == 400
-        assert "Cannot unarchive WhatsApp tool because WhatsApp is not configured in Telephony settings" in exc_info.value.detail
+        assert (
+            "Cannot unarchive WhatsApp tool because WhatsApp is not configured in Telephony settings"
+            in exc_info.value.detail
+        )
 
     # 3. When telephony config exists and no active whatsapp tool exists, unarchive succeeds
     now = datetime.now(UTC)
@@ -527,13 +534,18 @@ async def test_delete_telephony_configuration_blocks_when_active_whatsapp_tool_e
     mock_tool_result = MagicMock()
     mock_tool_result.scalars.return_value.all.return_value = [mock_active_tool]
 
-    mock_session.execute = AsyncMock(side_effect=[mock_campaign_result, mock_tool_result])
+    mock_session.execute = AsyncMock(
+        side_effect=[mock_campaign_result, mock_tool_result]
+    )
 
     with patch.object(client, "async_session", return_value=mock_session):
         mock_session.__aenter__.return_value = mock_session
         with pytest.raises(TelephonyConfigurationInUseError) as exc_info:
             await client.delete_telephony_configuration(55, 10)
-        assert "Telephony configuration is in use by active tool 'Send WhatsApp Message'" in str(exc_info.value)
+        assert (
+            "Telephony configuration is in use by active tool 'Send WhatsApp Message'"
+            in str(exc_info.value)
+        )
         assert "Please archive or delete the tool first" in str(exc_info.value)
 
     # 2. When active WhatsApp tool has no pinned telephony_configuration_id (None), deletion must also be blocked
@@ -543,19 +555,26 @@ async def test_delete_telephony_configuration_blocks_when_active_whatsapp_tool_e
 
     mock_unpinned_result = MagicMock()
     mock_unpinned_result.scalars.return_value.all.return_value = [mock_unpinned_tool]
-    mock_session.execute = AsyncMock(side_effect=[mock_campaign_result, mock_unpinned_result])
+    mock_session.execute = AsyncMock(
+        side_effect=[mock_campaign_result, mock_unpinned_result]
+    )
 
     with patch.object(client, "async_session", return_value=mock_session):
         mock_session.__aenter__.return_value = mock_session
         with pytest.raises(TelephonyConfigurationInUseError) as exc_info:
             await client.delete_telephony_configuration(55, 10)
-        assert "Telephony configuration is in use by active tool 'Unpinned WhatsApp Tool'" in str(exc_info.value)
+        assert (
+            "Telephony configuration is in use by active tool 'Unpinned WhatsApp Tool'"
+            in str(exc_info.value)
+        )
 
     # 3. When no active WhatsApp tool exists, deletion proceeds
     mock_tool_result_empty = MagicMock()
     mock_tool_result_empty.scalars.return_value.all.return_value = []
 
-    mock_session.execute = AsyncMock(side_effect=[mock_campaign_result, mock_tool_result_empty])
+    mock_session.execute = AsyncMock(
+        side_effect=[mock_campaign_result, mock_tool_result_empty]
+    )
     mock_session.delete = AsyncMock()
     mock_session.commit = AsyncMock()
 
@@ -899,6 +918,7 @@ async def test_execute_whatsapp_tool_lead_phone_respects_call_direction():
 
 def test_whatsapp_variable_mappings_reject_duplicate_names():
     from pydantic import ValidationError
+
     from api.schemas.tool import WhatsAppTemplateConfig
 
     with pytest.raises(ValidationError) as exc_info:
@@ -1003,7 +1023,7 @@ async def test_execute_whatsapp_tool_outbound_with_only_to_aligns_recipient_and_
     context_outbound_to = {
         "call_direction": "outbound",
         "caller_number": "+15550001111",  # Business caller ID
-        "to": "+15558883333",              # Destination lead phone
+        "to": "+15558883333",  # Destination lead phone
     }
     with patch(
         "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
@@ -1125,6 +1145,59 @@ async def test_execute_whatsapp_tool_exact_id_precedence_over_array_index_and_di
 
 
 @pytest.mark.asyncio
+async def test_execute_whatsapp_tool_configured_id_precedence_over_template_name():
+    """Configured 'id' across all templates takes precedence over an earlier template's 'template_name'."""
+    config = {
+        "execution_mode": "sync",
+        "templates": [
+            {
+                "id": "promo_1",
+                "name": "Promo Offer",
+                "template_name": "welcome_notice",
+            },
+            {
+                "id": "welcome_notice",
+                "name": "Welcome Notice Actual",
+                "template_name": "actual_welcome_template",
+            },
+        ],
+    }
+    tool = MockTool("WhatsApp ID Precedence Tool", config)
+    mock_provider = AsyncMock()
+    mock_provider.send_template_message = AsyncMock(
+        return_value={"messages": [{"id": "wamid.ID_PRECEDENCE"}]}
+    )
+    context = {"called_number": "+15551234567", "call_direction": "outbound"}
+
+    with (
+        patch(
+            "api.services.workflow.tools.whatsapp_tool.db_client.list_telephony_configurations_by_provider",
+            AsyncMock(return_value=[MagicMock(id=1)]),
+        ),
+        patch(
+            "api.services.workflow.tools.whatsapp_tool.get_telephony_provider_by_id",
+            AsyncMock(return_value=mock_provider),
+        ),
+    ):
+        # Requesting "welcome_notice" matches template 2 whose id is "welcome_notice",
+        # NOT template 1 whose template_name is "welcome_notice".
+        res = await execute_whatsapp_tool(
+            tool=tool,
+            arguments={"template_id": "welcome_notice"},
+            call_context_vars=context,
+            organization_id=1,
+        )
+        assert res["status"] == "delivered"
+        mock_provider.send_template_message.assert_awaited_once_with(
+            to_number="15551234567",
+            template_name="actual_welcome_template",
+            language_code="en_US",
+            parameters=[],
+            from_phone_number_id=None,
+        )
+
+
+@pytest.mark.asyncio
 async def test_execute_whatsapp_tool_unknown_template_selection_returns_error():
     """Requesting an unknown template_id returns a clear error instead of silently defaulting to the first template."""
     config = {
@@ -1163,7 +1236,10 @@ async def test_execute_whatsapp_tool_unknown_template_selection_returns_error():
             organization_id=1,
         )
         assert res["status"] == "error"
-        assert "Unknown WhatsApp template selection: 'nonexistent_template'" in res["error"]
+        assert (
+            "Unknown WhatsApp template selection: 'nonexistent_template'"
+            in res["error"]
+        )
         mock_provider.send_template_message.assert_not_called()
 
 
@@ -1204,10 +1280,8 @@ async def test_execute_whatsapp_tool_multiple_templates_missing_template_id_retu
             organization_id=1,
         )
         assert res["status"] == "error"
-        assert "Multiple WhatsApp templates are configured, but no 'template_id' was specified" in res["error"]
+        assert (
+            "Multiple WhatsApp templates are configured, but no 'template_id' was specified"
+            in res["error"]
+        )
         mock_provider.send_template_message.assert_not_called()
-
-
-
-
-

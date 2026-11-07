@@ -1285,7 +1285,9 @@ async def list_whatsapp_templates_for_config(
                 p_meta = p.metadata if isinstance(p.metadata, dict) else {}
                 provider_numbers.append(
                     WhatsAppPhoneNumberItem(
-                        phone_number_id=p_meta.get("phone_number_id") or p.external_id or p.address,
+                        phone_number_id=p_meta.get("phone_number_id")
+                        or p.external_id
+                        or p.address,
                         display_phone_number=p.address,
                         verified_name=p_meta.get("verified_name") or p.label,
                     )
@@ -1296,7 +1298,11 @@ async def list_whatsapp_templates_for_config(
             db_numbers = await db_client.list_phone_numbers_for_config(config_id)
             for n in db_numbers:
                 extra = n.extra_metadata if isinstance(n.extra_metadata, dict) else {}
-                prov_meta = extra.get("provider") if isinstance(extra.get("provider"), dict) else {}
+                prov_meta = (
+                    extra.get("provider")
+                    if isinstance(extra.get("provider"), dict)
+                    else {}
+                )
                 phone_numbers.append(
                     WhatsAppPhoneNumberItem(
                         phone_number_id=prov_meta.get("phone_number_id") or n.address,
@@ -1331,9 +1337,7 @@ async def list_whatsapp_templates_for_config(
             or "unauthorized" in err_str.lower()
         ):
             safe_detail = "Failed to fetch WhatsApp templates: Authentication failed with Meta Graph API"
-        raise HTTPException(
-            status_code=502, detail=safe_detail
-        ) from e
+        raise HTTPException(status_code=502, detail=safe_detail) from e
 
 
 @router.get(

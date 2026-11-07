@@ -390,15 +390,15 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
                         {
                             "type": "BODY",
                             "text": "Hi {{1}}, your flight {{2}} is at {{3}}.",
-                            "example": {
-                                "body_text": [["Alice", "UA100", "5:00 PM"]]
-                            },
+                            "example": {"body_text": [["Alice", "UA100", "5:00 PM"]]},
                         }
                     ],
                 }
             ]
         }
-        session = _DummySession({f"/{WABA}/message_templates": (200, templates_payload)})
+        session = _DummySession(
+            {f"/{WABA}/message_templates": (200, templates_payload)}
+        )
         with patch("aiohttp.ClientSession", return_value=session):
             templates = await _provider().list_message_templates()
 
@@ -419,9 +419,16 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             tpl["variables"][2],
-            {"index": 3, "name": "variable_3", "example": "5:00 PM", "component": "body"},
+            {
+                "index": 3,
+                "name": "variable_3",
+                "example": "5:00 PM",
+                "component": "body",
+            },
         )
-        self.assertEqual(session.requests[0][2]["params"], {"limit": 100, "status": "APPROVED"})
+        self.assertEqual(
+            session.requests[0][2]["params"], {"limit": 100, "status": "APPROVED"}
+        )
 
     async def test_send_template_message_formats_payload_and_strips_plus(self):
         phone_item = {
@@ -432,10 +439,12 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         listing_payload = {"data": [phone_item], "paging": {}}
         send_payload = {"messages": [{"id": "wamid.HBg123"}]}
 
-        session = _DummySession({
-            f"/{WABA}/phone_numbers": (200, listing_payload),
-            "/phone_999/messages": (200, send_payload),
-        })
+        session = _DummySession(
+            {
+                f"/{WABA}/phone_numbers": (200, listing_payload),
+                "/phone_999/messages": (200, send_payload),
+            }
+        )
         with patch("aiohttp.ClientSession", return_value=session):
             res = await _provider().send_template_message(
                 to_number="+1 (555) 123-4567",
@@ -446,7 +455,9 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
 
         self.assertEqual(res, send_payload)
         # Verify the POST request sent to Meta
-        send_req = [r for r in session.requests if r[1].endswith("/phone_999/messages")][0]
+        send_req = [
+            r for r in session.requests if r[1].endswith("/phone_999/messages")
+        ][0]
         self.assertEqual(send_req[0], "post")
         json_sent = send_req[2]["json"]
         self.assertEqual(json_sent["to"], "15551234567")
@@ -455,7 +466,10 @@ class TestWhatsAppProvider(IsolatedAsyncioTestCase):
         self.assertEqual(json_sent["template"]["language"]["code"], "en_US")
         self.assertEqual(
             json_sent["template"]["components"][0]["parameters"],
-            [{"type": "text", "text": "John Doe"}, {"type": "text", "text": "Tomorrow 3pm"}],
+            [
+                {"type": "text", "text": "John Doe"},
+                {"type": "text", "text": "Tomorrow 3pm"},
+            ],
         )
 
     async def test_send_template_message_invalid_recipient_raises(self):

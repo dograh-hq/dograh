@@ -69,34 +69,52 @@ async def execute_whatsapp_tool(
                 "template_name": config.get("template_name"),
                 "language_code": config.get("language_code", "en_US"),
                 "from_phone_number_id": config.get("from_phone_number_id"),
-                "fallback_recipient_phone_number": config.get("fallback_recipient_phone_number"),
+                "fallback_recipient_phone_number": config.get(
+                    "fallback_recipient_phone_number"
+                ),
                 "variable_mappings": config.get("variable_mappings") or [],
             }
         ]
 
     target_template: dict[str, Any] | None = None
-    requested_template_id = arguments.get("template_id") or arguments.get("template_name")
+    requested_template_id = arguments.get("template_id") or arguments.get(
+        "template_name"
+    )
 
     if requested_template_id and templates:
         req_str = str(requested_template_id).strip().lower()
 
-        # 1. Match exact IDs across all templates (id, template_id, template_name)
+        # 1. Match exact configured template 'id' across all templates
         for t in templates:
             t_id = str(t.get("id", "")).strip().lower()
-            t_meta_id = str(t.get("template_id", "")).strip().lower()
-            t_meta_name = str(t.get("template_name", "")).strip().lower()
-            if req_str in (t_id, t_meta_id, t_meta_name) and (t_id or t_meta_id or t_meta_name):
+            if t_id and t_id == req_str:
                 target_template = t
                 break
 
-        # 2. Match 1-based index alias across all templates
+        # 2. Match exact Meta 'template_id' across all templates
+        if not target_template:
+            for t in templates:
+                t_meta_id = str(t.get("template_id", "")).strip().lower()
+                if t_meta_id and t_meta_id == req_str:
+                    target_template = t
+                    break
+
+        # 3. Match exact Meta 'template_name' across all templates
+        if not target_template:
+            for t in templates:
+                t_meta_name = str(t.get("template_name", "")).strip().lower()
+                if t_meta_name and t_meta_name == req_str:
+                    target_template = t
+                    break
+
+        # 4. Match 1-based index alias across all templates
         if not target_template:
             for idx, t in enumerate(templates):
                 if str(idx + 1) == req_str:
                     target_template = t
                     break
 
-        # 3. Match display name alias across all templates
+        # 5. Match display name alias across all templates
         if not target_template:
             for t in templates:
                 t_display_name = str(t.get("name", "")).strip().lower()
@@ -168,7 +186,11 @@ async def execute_whatsapp_tool(
     if not clean_recipient:
         # Check configured template fallback or tool fallback recipient phone number
         fallback_recipient = (
-            (target_template.get("fallback_recipient_phone_number") if target_template else None)
+            (
+                target_template.get("fallback_recipient_phone_number")
+                if target_template
+                else None
+            )
             or config.get("fallback_recipient_phone_number")
             or config.get("test_recipient_phone_number")
         )
@@ -203,8 +225,15 @@ async def execute_whatsapp_tool(
                 elif fallback_val is not None and str(fallback_val).strip():
                     param_list.append(str(fallback_val).strip())
                 else:
-                    if param_name in ("template_id", "template_name", "recipient_phone_number", "parameters"):
-                        llm_arg_val = arguments.get(f"param_{param_name}") or arguments.get(f"var_{param_name}", "")
+                    if param_name in (
+                        "template_id",
+                        "template_name",
+                        "recipient_phone_number",
+                        "parameters",
+                    ):
+                        llm_arg_val = arguments.get(
+                            f"param_{param_name}"
+                        ) or arguments.get(f"var_{param_name}", "")
                     else:
                         llm_arg_val = arguments.get(param_name)
                     if str(llm_arg_val or "").strip():
@@ -252,8 +281,15 @@ async def execute_whatsapp_tool(
                     logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
                     return {"status": "error", "error": err_msg}
             else:  # "llm"
-                if param_name in ("template_id", "template_name", "recipient_phone_number", "parameters"):
-                    llm_arg_val = arguments.get(f"param_{param_name}") or arguments.get(f"var_{param_name}", "")
+                if param_name in (
+                    "template_id",
+                    "template_name",
+                    "recipient_phone_number",
+                    "parameters",
+                ):
+                    llm_arg_val = arguments.get(f"param_{param_name}") or arguments.get(
+                        f"var_{param_name}", ""
+                    )
                 else:
                     llm_arg_val = arguments.get(param_name)
                 if str(llm_arg_val or "").strip():
@@ -265,7 +301,9 @@ async def execute_whatsapp_tool(
                     logger.warning(f"WhatsApp tool '{tool.name}': {err_msg}")
                     return {"status": "error", "error": err_msg}
     elif "parameters" in arguments and isinstance(arguments["parameters"], list):
-        param_list = [str(p if str(p).strip() else "-") for p in arguments["parameters"]]
+        param_list = [
+            str(p if str(p).strip() else "-") for p in arguments["parameters"]
+        ]
 
     # 4. Resolve WhatsApp Provider Instance
     if not organization_id:
@@ -300,7 +338,9 @@ async def execute_whatsapp_tool(
 
     execution_mode = config.get("execution_mode", "async")
 
-    masked_recipient = f"...{clean_recipient[-4:]}" if len(clean_recipient) >= 4 else "***"
+    masked_recipient = (
+        f"...{clean_recipient[-4:]}" if len(clean_recipient) >= 4 else "***"
+    )
     logger.info(
         f"Executing WhatsApp tool '{tool.name}' ({execution_mode}) -> "
         f"template '{template_name}' from {from_phone_number_id or 'default'} to {masked_recipient} param_count={len(param_list)}"

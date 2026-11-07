@@ -174,9 +174,7 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
             template_choices = [
                 str(t.get("id") or (idx + 1)) for idx, t in enumerate(templates)
             ]
-            template_desc_lines = [
-                "The WhatsApp template choice to send (1, 2, ...):"
-            ]
+            template_desc_lines = ["The WhatsApp template choice to send (1, 2, ...):"]
             for idx, t in enumerate(templates):
                 tid = str(t.get("id") or (idx + 1))
                 name = t.get("name") or t.get("template_name") or f"Template {idx + 1}"
@@ -192,7 +190,11 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
             required.append("template_id")
         elif len(templates) == 1:
             tid = str(templates[0].get("id") or "1")
-            name = templates[0].get("name") or templates[0].get("template_name") or "Template 1"
+            name = (
+                templates[0].get("name")
+                or templates[0].get("template_name")
+                or "Template 1"
+            )
             desc = templates[0].get("description")
             desc_str = f" ({desc})" if desc else ""
             properties["template_id"] = {
@@ -226,7 +228,9 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
                             t_id = t.get("id") or t.get("template_name")
                             param_desc = f"{param_desc} (for template '{t_id}')"
                         if param_name in all_llm_vars:
-                            all_llm_vars[param_name] = f"{all_llm_vars[param_name]}; {param_desc}"
+                            all_llm_vars[param_name] = (
+                                f"{all_llm_vars[param_name]}; {param_desc}"
+                            )
                         else:
                             all_llm_vars[param_name] = param_desc
                     elif source == "context":
@@ -239,13 +243,20 @@ def tool_to_function_schema(tool: Any) -> dict[str, Any]:
                                 t_id = t.get("id") or t.get("template_name")
                                 param_desc = f"{param_desc} (for template '{t_id}')"
                             if param_name in all_context_fallback_vars:
-                                all_context_fallback_vars[param_name] = f"{all_context_fallback_vars[param_name]}; {param_desc}"
+                                all_context_fallback_vars[param_name] = (
+                                    f"{all_context_fallback_vars[param_name]}; {param_desc}"
+                                )
                             else:
                                 all_context_fallback_vars[param_name] = param_desc
             else:
                 has_free_parameters = True
 
-        reserved_param_names = {"template_id", "template_name", "recipient_phone_number", "parameters"}
+        reserved_param_names = {
+            "template_id",
+            "template_name",
+            "recipient_phone_number",
+            "parameters",
+        }
 
         for p_name, p_desc in all_llm_vars.items():
             final_name = f"param_{p_name}" if p_name in reserved_param_names else p_name

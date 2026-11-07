@@ -39,11 +39,11 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
-from api.services.workflow.tools.whatsapp_tool import execute_whatsapp_tool
 from api.services.workflow.tools.transfer_resolver import (
     TransferResolutionError,
     resolve_transfer_config,
 )
+from api.services.workflow.tools.whatsapp_tool import execute_whatsapp_tool
 from api.services.workflow.transfer_introduction import prepare_transfer_introduction
 from api.utils.template_renderer import render_template
 

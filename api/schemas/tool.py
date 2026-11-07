@@ -807,8 +807,15 @@ class WhatsAppTemplateConfig(BaseModel):
             )
         names = [m.name.strip() for m in mappings if m.name and m.name.strip()]
         if len(names) != len(set(names)):
-            raise ValueError("Duplicate variable mapping names are not allowed within a template.")
-        reserved_names = {"template_id", "template_name", "recipient_phone_number", "parameters"}
+            raise ValueError(
+                "Duplicate variable mapping names are not allowed within a template."
+            )
+        reserved_names = {
+            "template_id",
+            "template_name",
+            "recipient_phone_number",
+            "parameters",
+        }
         for m in mappings:
             if m.name and m.name.strip().lower() in reserved_names:
                 raise ValueError(
@@ -857,8 +864,12 @@ class WhatsAppToolConfig(BaseModel):
     @classmethod
     def migrate_legacy_single_template(cls, data: Any) -> Any:
         if isinstance(data, dict):
-            if data.get("test_recipient_phone_number") and not data.get("fallback_recipient_phone_number"):
-                data["fallback_recipient_phone_number"] = data["test_recipient_phone_number"]
+            if data.get("test_recipient_phone_number") and not data.get(
+                "fallback_recipient_phone_number"
+            ):
+                data["fallback_recipient_phone_number"] = data[
+                    "test_recipient_phone_number"
+                ]
             if not data.get("templates") and data.get("template_name"):
                 t_name = data.get("template_name")
                 data["templates"] = [
@@ -870,7 +881,9 @@ class WhatsAppToolConfig(BaseModel):
                         "template_id": data.get("template_id"),
                         "language_code": data.get("language_code") or "en_US",
                         "from_phone_number_id": data.get("from_phone_number_id"),
-                        "fallback_recipient_phone_number": data.get("fallback_recipient_phone_number"),
+                        "fallback_recipient_phone_number": data.get(
+                            "fallback_recipient_phone_number"
+                        ),
                         "variable_mappings": data.get("variable_mappings") or [],
                     }
                 ]

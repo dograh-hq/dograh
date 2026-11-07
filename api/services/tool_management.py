@@ -176,7 +176,10 @@ async def validate_tool_references(
                 )
             deterministic_config = sorted(
                 wa_configs,
-                key=lambda c: (not bool(getattr(c, "is_default_outbound", False)), getattr(c, "id", 0)),
+                key=lambda c: (
+                    not bool(getattr(c, "is_default_outbound", False)),
+                    getattr(c, "id", 0),
+                ),
             )[0]
             if not isinstance(definition.get("config"), dict):
                 definition["config"] = {}

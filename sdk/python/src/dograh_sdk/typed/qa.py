@@ -16,11 +16,12 @@ from dograh_sdk.typed._base import TypedNode
 @dataclass(kw_only=True)
 class Qa(TypedNode):
     """
-    Run LLM quality analysis on the call transcript.  LLM hint: Runs an LLM
-    quality review on the call transcript after completion. Per-node
-    analysis splits the conversation by node and evaluates each segment
-    against the configured system prompt. Sampling, minimum duration, and
-    voicemail filters are supported.
+    Run LLM quality analysis on the call transcript.
+
+    LLM hint: Runs an LLM quality review on the call transcript after
+    completion. Per-node analysis splits the conversation by node and
+    evaluates each segment against the configured system prompt. Sampling,
+    minimum duration, and voicemail filters are supported.
     """
 
     type: ClassVar[str] = 'qa'

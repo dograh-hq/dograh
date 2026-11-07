@@ -16,6 +16,10 @@ from pipecat.utils.context.llm_context_summarization import (
 )
 from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
+from api.services.pipecat.integration_context import (
+    IntegrationContextMessage,
+    without_integration_context,
+)
 from api.services.pipecat.tracing_config import ensure_tracing
 from api.services.workflow.agent_handoff_context import (
     ConversationSummaryMessage,
@@ -87,10 +91,14 @@ class ContextSummarizationManager:
                     "Skipping context summarization because its engine state is incomplete"
                 )
                 return
-            # The inherited transcript stays intact across node transitions.
-            # Only this agent's own conversation is eligible for compaction.
+            # The inherited transcript stays intact across node transitions, and
+            # per-turn integration knowledge stays out of the summary so saving and
+            # exporting can still leave it out. Only this agent's own conversation
+            # is eligible for compaction.
             messages = [
-                m for m in context.messages if not isinstance(m, HandoffMessage)
+                m
+                for m in without_integration_context(context.messages)
+                if not isinstance(m, HandoffMessage)
             ]
             # Not worth summarizing if context is small
             if len(messages) <= 6:
@@ -163,7 +171,17 @@ class ContextSummarizationManager:
             current_messages = [
                 m for m in context.messages if not isinstance(m, HandoffMessage)
             ]
-            recent_messages = current_messages[last_index + 1 :]
+            # last_index counts the summarized messages, which leave out the
+            # integration knowledge; that message is kept where it is.
+            recent_messages = []
+            position = 0
+            for message in current_messages:
+                if isinstance(message, IntegrationContextMessage):
+                    recent_messages.append(message)
+                    continue
+                if position > last_index:
+                    recent_messages.append(message)
+                position += 1
 
             summary = ConversationSummaryMessage(
                 config.summary_message_template.format(summary=summary_text)

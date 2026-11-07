@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 
 from loguru import logger
@@ -127,7 +127,20 @@ def insecure_recording_scheme(recording_url: str) -> str | None:
     return scheme or "(none)"
 
 
-def redirect_storage_address(workflow_run: Any) -> str | None:
+class StorageRedirect(NamedTuple):
+    """Where the download route sends Roark, and what to change if it cannot go.
+
+    `setting` is carried alongside `address` because the refusal has to name a
+    knob that moves the value it refused: object storage is configured per
+    backend, and naming MinIO's settings to an S3-compatible deployment sends
+    the operator to change something that has no effect on it.
+    """
+
+    address: str
+    setting: str
+
+
+def redirect_storage_address(workflow_run: Any) -> StorageRedirect | None:
     """The storage address the download route would send Roark on to.
 
     The public download route does not serve the bytes: it answers 302 with the
@@ -147,14 +160,19 @@ def redirect_storage_address(workflow_run: Any) -> str | None:
     None when there is nothing to check, which covers AWS S3 without a custom
     endpoint: it signs public HTTPS URLs by construction.
     """
+
     backend = getattr(workflow_run, "storage_backend", None)
-    if backend == StorageBackend.MINIO.value:
-        return MINIO_PUBLIC_ENDPOINT or None
-    if backend == StorageBackend.S3.value:
-        # Only set to put object storage somewhere other than AWS, which is how
-        # an S3-compatible store (MinIO, rustfs) reachable only on the host gets
-        # here. Unset means AWS signs the URL and its host is public HTTPS.
-        return S3_ENDPOINT_URL or None
+    if backend == StorageBackend.MINIO.value and MINIO_PUBLIC_ENDPOINT:
+        return StorageRedirect(
+            MINIO_PUBLIC_ENDPOINT,
+            "MINIO_PUBLIC_ENDPOINT (or PUBLIC_BASE_URL, which it derives from)",
+        )
+    # `S3_ENDPOINT_URL` is only set to put object storage somewhere other than
+    # AWS, which is how an S3-compatible store (MinIO, rustfs) reachable only on
+    # the host gets here. Unset means AWS signs the URL and its host is public
+    # HTTPS, so there is nothing to check.
+    if backend == StorageBackend.S3.value and S3_ENDPOINT_URL:
+        return StorageRedirect(S3_ENDPOINT_URL, "S3_ENDPOINT_URL")
     return None
 
 
@@ -187,7 +205,7 @@ async def run_completion(
 ) -> dict[str, Any]:
     results: dict[str, Any] = {}
     recording_url = await build_recording_url(context)
-    storage_address = redirect_storage_address(context.workflow_run)
+    storage_redirect = redirect_storage_address(context.workflow_run)
     mode = getattr(context.workflow_run, "mode", None)
 
     for node in nodes:
@@ -266,15 +284,15 @@ async def run_completion(
             }
             continue
 
-        if storage_address:
-            unreachable_storage = unreachable_recording_host(storage_address)
+        if storage_redirect:
+            unreachable_storage = unreachable_recording_host(storage_redirect.address)
             if unreachable_storage:
                 logger.warning(
                     f"Roark node '{roark_data.name}' (#{node_id}) skipped: the "
                     f"recording URL redirects to object storage at "
                     f"'{unreachable_storage}', which Roark cannot reach. Set "
-                    f"MINIO_PUBLIC_ENDPOINT (or PUBLIC_BASE_URL, which it derives "
-                    f"from) to the public address object storage is served on."
+                    f"{storage_redirect.setting} to a public HTTPS address that "
+                    f"serves the recordings themselves."
                 )
                 results[result_key] = {
                     "error": "recording_storage_not_public",
@@ -282,15 +300,13 @@ async def run_completion(
                 }
                 continue
 
-            insecure_storage = insecure_recording_scheme(storage_address)
+            insecure_storage = insecure_recording_scheme(storage_redirect.address)
             if insecure_storage:
                 logger.warning(
                     f"Roark node '{roark_data.name}' (#{node_id}) skipped: the "
                     f"recording URL redirects to object storage over "
                     f"'{insecure_storage}', putting the audio on the wire in the "
-                    f"clear. Serve object storage over HTTPS "
-                    f"(MINIO_PUBLIC_ENDPOINT, or PUBLIC_BASE_URL which it derives "
-                    f"from)."
+                    f"clear. Set {storage_redirect.setting} to an HTTPS address."
                 )
                 results[result_key] = {
                     "error": "recording_storage_not_https",

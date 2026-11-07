@@ -1026,8 +1026,11 @@ def test_insecure_recording_scheme(url, expected):
     assert insecure_recording_scheme(url) == expected
 
 
+_MINIO_SETTING = "MINIO_PUBLIC_ENDPOINT (or PUBLIC_BASE_URL, which it derives from)"
+
+
 @pytest.mark.parametrize(
-    ("backend", "minio", "s3_endpoint", "expected"),
+    ("backend", "minio", "s3_endpoint", "expected", "setting"),
     [
         # MinIO serves the bytes itself, so its public address is what Roark is
         # redirected to.
@@ -1036,27 +1039,32 @@ def test_insecure_recording_scheme(url, expected):
             "http://localhost:9000",
             None,
             "http://localhost:9000",
+            _MINIO_SETTING,
         ),
         (
             StorageBackend.MINIO.value,
             "https://dograh.example",
             None,
             "https://dograh.example",
+            _MINIO_SETTING,
         ),
-        # AWS signs public HTTPS URLs, so there is nothing to check.
-        (StorageBackend.S3.value, "http://localhost:9000", None, None),
+        # AWS signs public HTTPS URLs, so there is nothing to check. A localhost
+        # MinIO setting left over in the environment is not S3's address.
+        (StorageBackend.S3.value, "http://localhost:9000", None, None, None),
         # Unless object storage was pointed somewhere other than AWS, which is
-        # how an S3-compatible store on the host gets here.
+        # how an S3-compatible store on the host gets here. Its address comes
+        # from S3_ENDPOINT_URL, and so does the setting the refusal names.
         (
             StorageBackend.S3.value,
-            None,
+            "https://dograh.example",
             "http://localhost:9100",
             "http://localhost:9100",
+            "S3_ENDPOINT_URL",
         ),
-        (None, "http://localhost:9000", None, None),
+        (None, "http://localhost:9000", None, None, None),
     ],
 )
-def test_redirect_storage_address(backend, minio, s3_endpoint, expected):
+def test_redirect_storage_address(backend, minio, s3_endpoint, expected, setting):
     with (
         patch(
             "api.services.integrations.roark.completion.MINIO_PUBLIC_ENDPOINT", minio
@@ -1065,8 +1073,13 @@ def test_redirect_storage_address(backend, minio, s3_endpoint, expected):
             "api.services.integrations.roark.completion.S3_ENDPOINT_URL", s3_endpoint
         ),
     ):
-        run = _workflow_run(storage_backend=backend)
-        assert redirect_storage_address(run) == expected
+        redirect = redirect_storage_address(_workflow_run(storage_backend=backend))
+
+    assert (redirect.address if redirect else None) == expected
+    if expected is not None:
+        # The refusal quotes this, so it has to name the setting that moves the
+        # address it refused rather than whichever backend came first.
+        assert redirect.setting == setting
 
 
 # ───────────────────────────── completion handler ─────────────────────────
@@ -1266,11 +1279,38 @@ async def test_completion_exports_when_storage_is_s3():
             "api.services.integrations.roark.completion.MINIO_PUBLIC_ENDPOINT",
             "http://localhost:9000",
         ),
+        # Pinned rather than inherited: a custom endpoint in the environment
+        # would make this assert the S3-compatible refusal instead of AWS.
+        patch("api.services.integrations.roark.completion.S3_ENDPOINT_URL", None),
         patch("api.services.integrations.roark.completion.create_call", delivery),
     ):
         results = await run_completion([_roark_node()], context)
 
     assert results["roark_roark-1"]["status"] == "delivered"
+
+
+async def test_completion_names_the_s3_endpoint_when_that_is_what_redirects():
+    """An S3-compatible store reachable only on the host is refused like any
+    other, and the annotation has to send the operator to the setting that
+    moves it: MinIO's settings do not affect S3's endpoint."""
+    delivery = AsyncMock()
+    context = _completion_context(
+        _workflow_run(storage_backend=StorageBackend.S3.value)
+    )
+    with (
+        patch(
+            "api.services.integrations.roark.completion.S3_ENDPOINT_URL",
+            "http://localhost:9100",
+        ),
+        patch("api.services.integrations.roark.completion.create_call", delivery),
+    ):
+        results = await run_completion([_roark_node()], context)
+
+    assert results["roark_roark-1"] == {
+        "error": "recording_storage_not_public",
+        "storage_host": "localhost:9100",
+    }
+    delivery.assert_not_awaited()
 
 
 async def test_completion_reports_a_missing_recording():

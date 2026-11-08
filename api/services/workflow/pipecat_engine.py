@@ -180,7 +180,11 @@ class PipecatEngine:
             worker=task,
             is_realtime=is_realtime,
             entered_at=time.time(),
-            prompt_variables=prompt_variables or PromptVariablesConfiguration(),
+            prompt_variables=(
+                PromptVariablesConfiguration()
+                if is_realtime
+                else prompt_variables or PromptVariablesConfiguration()
+            ),
         )
         self._active_agent.greeting_override = (call_context_vars or {}).get(
             GREETING_OVERRIDE_CONTEXT_KEY
@@ -1049,8 +1053,11 @@ class PipecatEngine:
             )
 
     async def _prewarm_reachable_prompts(self, agent, node, manager) -> None:
-        try:
-            for target in node.out.values():
+        for target in node.out.values():
+            if target.id in agent.prompt_prewarm_nodes:
+                continue
+            agent.prompt_prewarm_nodes.add(target.id)
+            try:
                 prompt = compose_system_prompt_for_node(
                     node=target,
                     workflow=agent.workflow,
@@ -1066,8 +1073,13 @@ class PipecatEngine:
                     system_instruction=prompt.text,
                     tools=ToolsSchema(standard_tools=functions),
                 )
-        except Exception:
-            logger.warning("Reachable-node prompt prewarm unavailable")
+            except Exception as error:
+                agent.prompt_prewarm_nodes.discard(target.id)
+                # Provider/tool exceptions can contain credentials or prompt
+                # values. Keep diagnostics scoped and avoid raw exception text.
+                logger.bind(node_id=target.id, error_type=type(error).__name__).warning(
+                    "Reachable-node prompt prewarm unavailable"
+                )
 
     async def _setup_llm_context(self, node: Node) -> None:
         agent = self.active_agent

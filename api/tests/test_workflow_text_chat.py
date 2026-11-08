@@ -33,6 +33,93 @@ from api.tests.support.model_catalog import seed_default_model_configuration
 from pipecat.tests import MockLLMService
 
 
+@pytest.mark.asyncio
+async def test_text_chat_persists_prompt_cache_events_across_turns(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    from pipecat.frames.frames import MetricsFrame
+
+    from api.services.pipecat.gemini_prompt_cache import PromptCacheMetricsData
+
+    class CacheReportingLLM(MockLLMService):
+        def __init__(self, mode):
+            super().__init__(
+                mock_chunks=self.create_text_chunks("Hello."), chunk_delay=0
+            )
+            self.cache_mode = mode
+
+        async def get_chat_completions(self, context):
+            await self.push_frame(
+                MetricsFrame(
+                    data=[
+                        PromptCacheMetricsData(
+                            processor="test-llm",
+                            model="test-model",
+                            node_id="start",
+                            cache_mode=self.cache_mode,
+                        )
+                    ]
+                )
+            )
+            return await super().get_chat_completions(context)
+
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition={
+            "nodes": [
+                {
+                    "id": "start",
+                    "type": "startCall",
+                    "position": {"x": 0, "y": 0},
+                    "data": {
+                        "name": "Start",
+                        "prompt": "Be helpful.",
+                        "is_start": True,
+                        "add_global_prompt": False,
+                    },
+                }
+            ],
+            "edges": [],
+        },
+        suffix="cache-events",
+    )
+    modes = ["inline_not_ready", "explicit", "inline_fallback"]
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=[CacheReportingLLM(mode) for mode in modes],
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+        ):
+            response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions", json={}
+            )
+            assert response.status_code == 200
+            session = response.json()
+            for text in ("Hello", "And now?"):
+                response = await client.post(
+                    f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{session['workflow_run_id']}/messages",
+                    json={"text": text, "expected_revision": session["revision"]},
+                )
+                assert response.status_code == 200
+                session = response.json()
+    run = await db_session.get_workflow_run(
+        session["workflow_run_id"], organization_id=user.selected_organization_id
+    )
+    assert [event["cache_mode"] for event in run.usage_info["prompt_cache"]] == modes
+    assert [
+        turn["usage"]["prompt_cache"][0]["cache_mode"]
+        for turn in session["session_data"]["turns"]
+    ] == modes
+
+
 def _log_texts(logs: dict | None, event_type: str) -> list[str]:
     events = (logs or {}).get("realtime_feedback_events") or []
     return [

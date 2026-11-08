@@ -163,7 +163,10 @@ class ContextSummarizationManager:
             # Snapshot current messages at apply-time (not request-time)
             # to preserve anything added while the summary was generating
             inherited = [m for m in context.messages if isinstance(m, HandoffMessage)]
-            pinned = [m for m in context.messages if isinstance(m, CallContextMessage)]
+            pinned_values = {}
+            for message in context.messages:
+                if isinstance(message, CallContextMessage):
+                    pinned_values.update(message.values)
             current_messages = [
                 m
                 for m in context.messages
@@ -188,7 +191,8 @@ class ContextSummarizationManager:
             new_messages = []
             if first_system_msg:
                 new_messages.append(first_system_msg)
-            new_messages.extend(pinned)
+            if pinned_values:
+                new_messages.append(CallContextMessage(pinned_values))
             new_messages.extend(inherited)
             new_messages.append(summary)
             new_messages.extend(recent_messages)

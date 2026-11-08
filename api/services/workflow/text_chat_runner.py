@@ -366,6 +366,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
                     "function_name": frame.function_name,
                     "tool_call_id": frame.tool_call_id,
                     "arguments": dict(frame.arguments or {}),
+                    "group_id": frame.group_id,
                 },
             )
         elif isinstance(frame, FunctionCallResultFrame):
@@ -412,6 +413,11 @@ def _merge_usage_info(
             + int(value.get("cache_creation_input_tokens") or 0),
         }
     merged["llm"] = merged_llm
+
+    if "prompt_cache" in merged or "prompt_cache" in delta:
+        merged["prompt_cache"] = list(merged.get("prompt_cache") or []) + list(
+            delta.get("prompt_cache") or []
+        )
 
     for section in ("tts", "stt"):
         merged_section = dict(merged.get(section) or {})

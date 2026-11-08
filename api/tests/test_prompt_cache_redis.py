@@ -17,7 +17,7 @@ import pytest
 from google.genai.types import CachedContent, CachedContentUsageMetadata
 from redis.asyncio import Redis
 
-from api.services.pipecat.prompt_cache import _STORE, CacheSpec, PromptCacheRegistry
+from api.services.pipecat.prompt_cache import CacheSpec, PromptCacheRegistry
 
 pytestmark = pytest.mark.skipif(
     os.getenv("DOGRAH_TEST_PROMPT_CACHE_REDIS") != "1",
@@ -90,27 +90,23 @@ async def test_cross_worker_single_flight_refresh_and_rejection_fencing():
         assert caches.update.await_count == 1
 
         old = entries[0]
-        lease = uuid.uuid4().hex
-        await redis.set(spec.key + ":lock", lease, ex=30)
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def delayed_refresh(**kwargs):
+            started.set()
+            await asyncio.wait_for(release.wait(), timeout=2)
+            return await refresh(**kwargs)
+
+        caches.update.side_effect = delayed_refresh
+        await redis.hset(spec.key, "expires", str(time.time() + 100))
+        workers[0].local.clear()
+        refresh_task = asyncio.create_task(workers[0]._ensure(spec, client))
+        await asyncio.wait_for(started.wait(), timeout=2)
         await workers[0].invalidate(spec, old)
-        # A refresh that completed after rejection must not restore the cache.
-        assert (
-            await redis.eval(
-                _STORE,
-                3,
-                spec.key + ":lock",
-                spec.key,
-                spec.key + ":rejected:" + old.name.rsplit("/", 1)[-1],
-                lease,
-                old.name,
-                old.expires,
-                old.tokens,
-                "test",
-                3600,
-            )
-            == 0
-        )
-        await redis.delete(spec.key + ":lock")
+        release.set()
+        await asyncio.wait_for(refresh_task, timeout=2)
+        # Exercise _ensure's real store path after a racing rejection.
+        assert not await redis.exists(spec.key)
         for worker in workers:
             worker.local.clear()
         await workers[0]._ensure(spec, client)

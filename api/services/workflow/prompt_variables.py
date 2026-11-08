@@ -220,6 +220,8 @@ def update_call_context(
     values: dict[str, str],
 ) -> None:
     """Insert the first metadata turn; append only changes on later updates."""
+    if not values:
+        return
     previous: dict[str, str] = {}
     existing = [
         message for message in messages if isinstance(message, CallContextMessage)

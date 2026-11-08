@@ -275,7 +275,6 @@ class WorkflowRunClient(BaseDBClient):
             result = await session.execute(
                 select(WorkflowRunModel)
                 .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
-                .options(selectinload(WorkflowRunModel.definition))
                 .where(
                     WorkflowModel.organization_id == organization_id,
                     WorkflowRunModel.workflow_id == workflow_id,

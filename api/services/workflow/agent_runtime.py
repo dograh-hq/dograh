@@ -115,6 +115,7 @@ class AgentRuntime:
         default_factory=PromptVariablesConfiguration
     )
     mcp_sessions: dict[str, Any] = field(default_factory=dict)
+    prompt_prewarm_nodes: set[str] = field(default_factory=set, repr=False)
     tool_tasks: set[asyncio.Task] = field(default_factory=set, repr=False)
     _tool_execution_owner: ToolExecutionOwner | None = field(
         default=None, init=False, repr=False

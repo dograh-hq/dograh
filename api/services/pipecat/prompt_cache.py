@@ -158,21 +158,22 @@ class PromptCacheRegistry:
 
     def prewarm(
         self, spec: CacheSpec, client, *, credentials=None, recreate=False
-    ) -> None:
+    ) -> asyncio.Task | None:
         if cache_disabled() or self._closed:
-            return
+            return None
         if spec.key in self.tasks:
             if recreate:
                 self.tasks[spec.key].add_done_callback(
                     lambda _: self.prewarm(spec, client, credentials=credentials)
                 )
-            return
+            return self.tasks[spec.key]
         task = asyncio.create_task(
             self._ensure(spec, client, credentials=credentials),
             name=f"prompt-cache:{spec.display_name}",
         )
         self.tasks[spec.key] = task
         task.add_done_callback(lambda done: self.tasks.pop(spec.key, None))
+        return task
 
     async def invalidate(self, spec: CacheSpec, entry: CacheEntry) -> None:
         self.local.pop(spec.key, None)
@@ -250,9 +251,14 @@ class PromptCacheRegistry:
                     # Recover after a Redis eviction/restart. Google display names
                     # aren't unique, so the distributed lease also covers listing.
                     resource = None
-                    async for candidate in await client.aio.caches.list(
-                        config={"page_size": 100}
-                    ):
+                    candidates = aiter(
+                        await client.aio.caches.list(config={"page_size": 100})
+                    )
+                    # Recovery is best effort; never scan a whole shared project.
+                    for _ in range(100):
+                        candidate = await anext(candidates, None)
+                        if candidate is None:
+                            break
                         if (
                             candidate.display_name != spec.display_name
                             or not candidate.expire_time
@@ -322,7 +328,8 @@ class PromptCacheRegistry:
                 word in message
                 for word in ("not supported", "unsupported", "does not support")
             ):
-                reason, delay, marker = "unsupported", 3600, spec.model_key
+                # Unsupported tools/configs do not disable other node specs.
+                reason, delay = "unsupported", 3600
             if "entry" in locals() and entry and rejected_cached_content(error):
                 await self.invalidate(spec, entry)
             try:

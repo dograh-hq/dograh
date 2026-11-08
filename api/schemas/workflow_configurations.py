@@ -133,6 +133,11 @@ class PromptVariablesConfiguration(BaseModel):
     call_context_note: str | None = Field(default=None, max_length=10000)
     include_weekday: bool = True
 
+    @field_validator("call_context_note", mode="before")
+    @classmethod
+    def _blank_note_uses_default(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
+
 
 class WorkflowConfigurationDefaults(BaseModel):
     model_config = ConfigDict(extra="allow")

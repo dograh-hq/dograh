@@ -116,6 +116,53 @@ async def chunks(error=None, after=False):
 
 
 @pytest.mark.asyncio
+async def test_failed_cached_request_does_not_emit_cache_hit(monkeypatch):
+    llm, _ = service(monkeypatch)
+    llm._client.aio.models.generate_content_stream.return_value = chunks(
+        client_error(429, "Quota exceeded")
+    )
+    with pytest.raises(ClientError):
+        async for _ in await llm._stream_content(
+            LLMContext([{"role": "user", "content": "Hi"}])
+        ):
+            pass
+    llm.push_frame.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cold_recovery_scans_at_most_one_page_before_creating():
+    scanned = []
+
+    async def entries():
+        for index in range(1000):
+            scanned.append(index)
+            yield CachedContent(
+                name=f"cachedContents/{index}", display_name="unrelated"
+            )
+
+    redis = SimpleNamespace(
+        exists=AsyncMock(return_value=0),
+        hgetall=AsyncMock(return_value={}),
+        set=AsyncMock(return_value=True),
+        eval=AsyncMock(return_value=1),
+    )
+    caches = SimpleNamespace(
+        list=AsyncMock(return_value=entries()),
+        create=AsyncMock(
+            return_value=CachedContent(
+                name="cachedContents/new",
+                expire_time=datetime.now(UTC) + timedelta(hours=1),
+            )
+        ),
+    )
+    await PromptCacheRegistry(redis)._ensure(
+        spec(), SimpleNamespace(aio=SimpleNamespace(caches=caches))
+    )
+    assert len(scanned) == 100
+    caches.create.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_cached_request_strips_only_static_fields_and_side_inference_stays_inline(
     monkeypatch,
 ):
@@ -261,7 +308,14 @@ async def test_missing_spec_does_not_retry_noncache_errors(monkeypatch):
             "too_small",
             3600,
         ),
-        (400, "Caching is not supported for this model", "model", "unsupported", 3600),
+        (
+            400,
+            "Caching is not supported for this model",
+            "backoff",
+            "unsupported",
+            3600,
+        ),
+        (400, "Tool config is not supported", "backoff", "unsupported", 3600),
         (429, "Quota exceeded", "backoff", "error", 60),
     ],
 )
@@ -281,6 +335,9 @@ async def test_creation_failure_backoff(
         spec().model_key if marker == "model" else spec().key + ":backoff",
         reason,
         ex=delay,
+    )
+    assert not any(
+        call.args[0] == spec().model_key for call in redis.set.await_args_list
     )
 
 

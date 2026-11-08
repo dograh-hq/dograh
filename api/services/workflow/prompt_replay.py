@@ -34,6 +34,7 @@ from api.services.configuration.model_connections import resolve_model_configura
 from api.services.gen_ai.json_parser import parse_llm_json
 from api.services.pipecat.pipeline_worker import DograhPipelineWorker
 from api.services.pipecat.service_factory import create_llm_service
+from api.services.pipecat.usage_metrics import gross_prompt_tokens
 from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.final_extraction import _close_llm
@@ -62,7 +63,12 @@ def _timestamp(value, fallback):
 
 
 def reconstruct_replay_turns(run, graph):
-    """Reconstruct turns from speech and tool events, without future outcomes."""
+    """Reconstruct individual model replies, including requests after tool results.
+
+    LLM timing events delimit recorded requests. Tool group IDs also distinguish
+    sequential execution within one reply from separate model requests. Older
+    logs without either use completed tool batches as approximate boundaries.
+    """
     history, items = [], []
     node_id = graph.start_node_id
     clock = (
@@ -70,12 +76,31 @@ def reconstruct_replay_turns(run, graph):
         if run.created_at.tzinfo is None
         else run.created_at
     )
+    events = (run.logs or {}).get("realtime_feedback_events", [])
+    has_request_boundaries = any(
+        event.get("type") == "rtf-ttfb-metric"
+        and (event.get("payload") or {}).get("kind", "llm") == "llm"
+        for event in events
+    )
     pending, current = False, None
-    for event in (run.logs or {}).get("realtime_feedback_events", []):
+    tool_message, tool_group = None, None
+    pending_tools = {}
+    received_tool_result = False
+
+    def next_request():
+        nonlocal pending, current, tool_message, tool_group, received_tool_result
+        pending, current = bool(history), None
+        tool_message, tool_group = None, None
+        received_tool_result = False
+
+    for event in events:
         kind, payload = event.get("type"), event.get("payload") or {}
+        clock = _timestamp(event.get("timestamp"), clock)
         if kind in {"rtf-node-transition", "node_transition"}:
             node_id = payload.get("node_id") or event.get("node_id") or node_id
-            clock = _timestamp(event.get("timestamp"), clock)
+            continue
+        if kind == "rtf-ttfb-metric" and payload.get("kind", "llm") == "llm":
+            next_request()
             continue
         if (
             kind == "rtf-user-transcription"
@@ -83,11 +108,22 @@ def reconstruct_replay_turns(run, graph):
             and payload.get("text")
         ):
             history.append({"role": "user", "content": payload["text"]})
-            pending, current = True, None
+            next_request()
         elif kind in {"rtf-bot-text", "rtf-function-call-start"}:
+            group = payload.get("group_id")
+            if kind == "rtf-function-call-start":
+                if (group and tool_group and group != tool_group) or (
+                    received_tool_result
+                    and not pending_tools
+                    and not has_request_boundaries
+                    and not (group and group == tool_group)
+                ):
+                    next_request()
+            elif received_tool_result and not pending_tools:
+                next_request()
             if pending:
                 selected = event.get("node_id") or node_id
-                if selected in graph.nodes:
+                if selected in graph.nodes and not pending_tools:
                     current = {
                         "run_id": run.id,
                         "node_id": selected,
@@ -105,21 +141,24 @@ def reconstruct_replay_turns(run, graph):
             elif kind == "rtf-function-call-start":
                 name = payload.get("function_name", "")
                 args = payload.get("arguments") or {}
-                call_id = payload.get("tool_call_id") or f"replay-{len(history)}"
-                history.append(
-                    {
+                call_id = (
+                    payload.get("tool_call_id")
+                    or f"replay-{len(history)}-{len(pending_tools)}"
+                )
+                pending_tools[call_id] = name
+                if tool_message is None:
+                    tool_message = {
                         "role": "assistant",
                         "content": "",
-                        "tool_calls": [
-                            {
-                                "id": call_id,
-                                "type": "function",
-                                "function": {
-                                    "name": name,
-                                    "arguments": json.dumps(args),
-                                },
-                            }
-                        ],
+                        "tool_calls": [],
+                    }
+                    history.append(tool_message)
+                tool_group = group or tool_group
+                tool_message["tool_calls"].append(
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": name, "arguments": json.dumps(args)},
                     }
                 )
                 if current:
@@ -127,6 +166,18 @@ def reconstruct_replay_turns(run, graph):
                         {"name": name, "arguments": args}
                     )
         elif kind == "rtf-function-call-end":
+            call_id = payload.get("tool_call_id")
+            if not call_id:
+                matching = [
+                    key
+                    for key, name in pending_tools.items()
+                    if name == payload.get("function_name")
+                ]
+                call_id = matching[0] if len(matching) == 1 else None
+            if call_id not in pending_tools:
+                continue
+            pending_tools.pop(call_id)
+            received_tool_result = True
             result = payload.get("result")
             # Feedback events store str(result); restore dictionary/list results
             # to the JSON content shape the runtime aggregator uses.
@@ -140,7 +191,7 @@ def reconstruct_replay_turns(run, graph):
             history.append(
                 {
                     "role": "tool",
-                    "tool_call_id": payload.get("tool_call_id", ""),
+                    "tool_call_id": call_id,
                     "content": result
                     if isinstance(result, str)
                     else json.dumps(result),
@@ -168,6 +219,8 @@ class ReplayCapture(FrameProcessor):
             if self.result["ttft_seconds"] is None:
                 self.result["ttft_seconds"] = time.monotonic() - self.started
         elif isinstance(frame, FunctionCallsFromLLMInfoFrame):
+            if frame.function_calls and self.result["ttft_seconds"] is None:
+                self.result["ttft_seconds"] = time.monotonic() - self.started
             self.result["tool_calls"].extend(
                 {"name": call.function_name, "arguments": call.arguments}
                 for call in frame.function_calls
@@ -223,16 +276,7 @@ def replay_sample_metrics(results):
         for index in range(2):
             samples = [row[mode][index] for row in results]
             good = [sample for sample in samples if not sample["error"]]
-            prompt_tokens = sum(
-                max(
-                    0,
-                    sample["usage"]["total_tokens"]
-                    - sample["usage"].get("completion_tokens", 0),
-                )
-                if "total_tokens" in sample["usage"]
-                else sample["usage"].get("prompt_tokens", 0)
-                for sample in good
-            )
+            prompt_tokens = sum(gross_prompt_tokens(sample["usage"]) for sample in good)
             cached_tokens = sum(
                 sample["usage"].get("cache_read_input_tokens", 0) for sample in good
             )
@@ -302,46 +346,46 @@ async def compare_recent_prompts(
 
     async def sample(item, mode):
         async with semaphore:
-            node = graph.nodes[item["node_id"]]
-            layout = config.model_copy(update={"mode": mode})
-            with template_clock(item["clock"]):
-                prompt = compose_system_prompt_for_node(
-                    node=node,
-                    workflow=graph,
-                    format_prompt=lambda text: render_template(text, item["initial"]),
-                    has_recordings=has_recordings,
-                    prompt_variables=layout,
-                )
-                messages = deepcopy(item["history"])
-                if mode == "call_context":
-                    values = resolve_call_variables(
-                        prompt_templates(graph),
-                        call_variable_context(item["initial"], {}),
-                        include_weekday=layout.include_weekday,
-                    )
-                    messages.insert(0, CallContextMessage(values))
-            llm = create_llm_service(replay_config, spoken_output=False)
+            llm = None
             try:
+                node = graph.nodes[item["node_id"]]
+                layout = config.model_copy(update={"mode": mode})
+                with template_clock(item["clock"]):
+                    prompt = compose_system_prompt_for_node(
+                        node=node,
+                        workflow=graph,
+                        format_prompt=lambda text: render_template(
+                            text, item["initial"]
+                        ),
+                        has_recordings=has_recordings,
+                        prompt_variables=layout,
+                    )
+                    messages = deepcopy(item["history"])
+                    if mode == "call_context":
+                        values = resolve_call_variables(
+                            prompt_templates(graph),
+                            call_variable_context(item["initial"], {}),
+                            include_weekday=layout.include_weekday,
+                        )
+                        if values:
+                            messages.insert(0, CallContextMessage(values))
+                llm = create_llm_service(replay_config, spoken_output=False)
                 await llm._update_settings(
                     LLMSettings(system_instruction=prompt.text, max_tokens=2048)
                 )
                 tools = ToolsSchema(standard_tools=functions[node.id])
                 if mode == "call_context" and hasattr(llm, "configure_prompt_cache"):
-                    from api.services.pipecat.prompt_cache import (
-                        get_prompt_cache_registry,
-                    )
-
                     llm.configure_prompt_cache(
                         organization_id=organization_id,
                         workflow_id=workflow_id,
                         node_id=node.id,
                         enabled=True,
                     )
-                    llm.prewarm_prompt_cache(
+                    tasks = llm.prewarm_prompt_cache(
                         node_id=node.id, system_instruction=prompt.text, tools=tools
                     )
                     await asyncio.gather(
-                        *list(get_prompt_cache_registry().tasks.values()),
+                        *(asyncio.shield(task) for task in tasks),
                         return_exceptions=True,
                     )
                 return await run_replay_inference(
@@ -357,7 +401,8 @@ async def compare_recent_prompts(
                     "ttft_seconds": None,
                 }
             finally:
-                await _close_llm(llm)
+                if llm is not None:
+                    await _close_llm(llm)
 
     results = []
     # Keep the two layouts interleaved; two independent samples measure the
@@ -384,7 +429,12 @@ async def compare_recent_prompts(
         for row in results
         if all(not s["error"] for key in ("inline", "call_context") for s in row[key])
     ]
-    judge = create_llm_service(replay_config, spoken_output=False)
+    judge = None
+    if valid:
+        try:
+            judge = create_llm_service(replay_config, spoken_output=False)
+        except Exception:
+            logger.warning("Prompt replay judge unavailable")
     judge_schema = {
         "type": "object",
         "properties": {
@@ -396,6 +446,8 @@ async def compare_recent_prompts(
     }
 
     async def judge_pair(row, left, right):
+        if judge is None:
+            return None
         a, b = row[left[0]][left[1]], row[right[0]][right[1]]
         if not a["text"].strip() or not b["text"].strip():
             return None
@@ -468,7 +520,8 @@ async def compare_recent_prompts(
                 else None,
             }
     finally:
-        await _close_llm(judge)
+        if judge is not None:
+            await _close_llm(judge)
 
     def agreement(left, right):
         return (
@@ -494,7 +547,7 @@ async def compare_recent_prompts(
         ),
         "notices": [
             "Optimized samples use the same automatic cache policy as live calls. Provider cache storage charges may apply.",
-            "History is reconstructed from recorded events using the selected definition and current tools. Historical extracted-variable snapshots are unavailable; final call outcomes are excluded.",
+            "History is reconstructed from recorded events using the selected definition and current tools. Historical extracted-variable snapshots are unavailable; final call outcomes are excluded. Older logs without LLM timing or tool-group metadata use approximate tool-batch request boundaries.",
             "Action agreement compares tool selection versus speech. Semantic scores use the configured model to judge spoken pairs; inspect paired replies and arguments before enabling.",
             "Each turn runs twice per layout with a 2,048-token output cap, followed by up to three judge requests. Tools are observed and never executed.",
         ],

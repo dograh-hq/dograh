@@ -60,6 +60,7 @@ from api.services.workflow.errors import ItemKind, WorkflowError
 from api.services.workflow.greeting_validation import validate_greeting_recordings
 from api.services.workflow.layout import tidy_positions
 from api.services.workflow.prompt_preview import (
+    PromptPreviewGraphError,
     build_prompt_preview,
     prewarm_published_prompts,
 )
@@ -904,7 +905,7 @@ async def preview_workflow_prompts(
             gathered_values=gathered,
             workflow_definition=request.workflow_definition,
         )
-    except (ValueError, KeyError) as error:
+    except PromptPreviewGraphError as error:
         raise HTTPException(
             status_code=422,
             detail="Complete the workflow graph before previewing prompts",

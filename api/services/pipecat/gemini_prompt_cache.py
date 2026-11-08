@@ -75,16 +75,18 @@ class GeminiPromptCacheMixin:
 
     def prewarm_prompt_cache(
         self, *, node_id: str, system_instruction: str, tools
-    ) -> None:
+    ) -> list:
         if cache_disabled():
-            return
+            return []
         spec = self.prompt_cache_spec_for_node(
             node_id=node_id, system_instruction=system_instruction, tools=tools
         )
         if spec:
-            get_prompt_cache_registry().prewarm(
+            task = get_prompt_cache_registry().prewarm(
                 spec, self._client, credentials=getattr(self, "_credentials", None)
             )
+            return [task] if task is not None else []
+        return []
 
     async def _cache_metric(self, mode, node_id):
         try:
@@ -197,7 +199,7 @@ class GeminiPromptCacheMixin:
                             reported = True
                         yield chunk
             finally:
-                if not reported:
+                if not reported and mode != "explicit":
                     await self._cache_metric(mode, spec.node_id)
 
         return iterate()

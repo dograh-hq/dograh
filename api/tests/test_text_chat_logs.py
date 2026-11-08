@@ -67,6 +67,7 @@ def test_build_text_chat_realtime_feedback_events_uses_visible_branch_and_dedupe
                         "payload": {
                             "function_name": "lookup_contact",
                             "tool_call_id": "tool-1",
+                            "group_id": "generation-1",
                         },
                     },
                     {
@@ -120,6 +121,7 @@ def test_build_text_chat_realtime_feedback_events_uses_visible_branch_and_dedupe
     assert events[0]["payload"]["node_name"] == "Start"
     assert events[2]["payload"]["text"] == "Find Abhishek"
     assert events[4]["payload"]["result"] == "{'contact_id': 42}"
+    assert events[3]["payload"]["group_id"] == "generation-1"
     assert all(
         event.get("payload", {}).get("error") != "Should be hidden after rewind"
         for event in events

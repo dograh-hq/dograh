@@ -9,6 +9,7 @@ from loguru import logger
 from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 
 from api.db import db_client
+from api.enums import ToolCategory
 from api.schemas.prompt_preview import NodePromptPreview, PromptPreviewResponse
 from api.schemas.workflow_configurations import PromptVariablesConfiguration
 from api.services.configuration.model_connections import resolve_model_configuration
@@ -40,6 +41,27 @@ async def preview_node_functions(node, organization_id):
     return await compose_functions_for_node(node=node, custom_tool_schemas=schemas)
 
 
+class PromptPreviewGraphError(ValueError):
+    """The supplied graph cannot be composed for a preview."""
+
+
+async def _nodes_requiring_live_tools(graph, organization_id):
+    ids = {
+        tool_id for node in graph.nodes.values() for tool_id in node.tool_uuids or []
+    }
+    if not ids:
+        return set()
+    tools = await db_client.get_tools_by_uuids(list(ids), organization_id)
+    mcp_ids = {
+        tool.tool_uuid for tool in tools if tool.category == ToolCategory.MCP.value
+    }
+    return {
+        node.id
+        for node in graph.nodes.values()
+        if mcp_ids.intersection(node.tool_uuids or [])
+    }
+
+
 def token_estimate(text: str) -> int:
     # Deliberately labelled an estimate. Provider tokenization and overhead vary;
     # only a successful cache creation decides whether a node is eligible.
@@ -55,9 +77,16 @@ async def build_prompt_preview(
     gathered_values=None,
     workflow_definition=None,
 ):
-    graph = WorkflowGraph(
-        ReactFlowDTO.model_validate(workflow_definition or definition.workflow_json)
-    )
+    try:
+        graph = WorkflowGraph(
+            ReactFlowDTO.model_validate(workflow_definition or definition.workflow_json)
+        )
+    except (ValueError, KeyError) as error:
+        logger.bind(
+            error_type=type(error).__name__, organization_id=organization_id
+        ).warning("Prompt preview graph validation failed")
+        raise PromptPreviewGraphError("Incomplete workflow graph") from error
+    live_tool_nodes = await _nodes_requiring_live_tools(graph, organization_id)
     initial = (
         sample_values
         if sample_values is not None
@@ -68,7 +97,9 @@ async def build_prompt_preview(
         prompt_templates(graph), context, include_weekday=config.include_weekday
     )
     call_context = (
-        CallContextMessage(values)["content"] if config.mode == "call_context" else None
+        CallContextMessage(values)["content"]
+        if config.mode == "call_context" and values
+        else None
     )
     has_recordings = await db_client.has_active_recordings(organization_id)
     notices = [
@@ -165,7 +196,9 @@ async def build_prompt_preview(
                     ),
                 )
             )
-            if cache_service:
+            if node.id in live_tool_nodes:
+                nodes[-1].cache_status = "requires_live_tools"
+            elif cache_service:
                 from api.services.pipecat.prompt_cache import get_prompt_cache_registry
 
                 cache_service.configure_prompt_cache(
@@ -182,13 +215,13 @@ async def build_prompt_preview(
                 if spec:
                     from google.genai.types import CreateCachedContentConfig
 
-                    nodes[-1].tools = (
+                    cache_tools = (
                         CreateCachedContentConfig(tools=spec.tools)
                         .model_dump(mode="json", exclude_none=True)
                         .get("tools", [])
                     )
                     nodes[-1].static_tokens_estimate = token_estimate(
-                        prompt.text + json.dumps(nodes[-1].tools)
+                        prompt.text + json.dumps(cache_tools)
                     )
                     status, tokens = await get_prompt_cache_registry().status(spec)
                     nodes[-1].cache_status = status
@@ -197,9 +230,9 @@ async def build_prompt_preview(
     finally:
         if cache_service:
             await cache_service.cleanup()
-    if any(node.tool_uuids for node in graph.nodes.values()):
+    if live_tool_nodes:
         notices.append(
-            "If you use MCP tools, their live declarations are resolved at call startup and may add tokens to this preview."
+            "MCP tool schemas require a live call. Affected nodes have incomplete tool/token previews and are prewarmed only at call startup."
         )
     return PromptPreviewResponse(
         nodes=nodes,
@@ -220,10 +253,7 @@ async def prewarm_published_prompts(*, organization_id, workflow_id, definition)
     )
     if config.mode != "call_context":
         return
-    from api.services.pipecat.prompt_cache import (
-        cache_disabled,
-        get_prompt_cache_registry,
-    )
+    from api.services.pipecat.prompt_cache import cache_disabled
     from api.services.pipecat.service_factory import create_llm_service
 
     if cache_disabled():
@@ -240,9 +270,15 @@ async def prewarm_published_prompts(*, organization_id, workflow_id, definition)
         if not hasattr(llm, "configure_prompt_cache"):
             return
         graph = WorkflowGraph(ReactFlowDTO.model_validate(definition.workflow_json))
+        live_tool_nodes = await _nodes_requiring_live_tools(graph, organization_id)
+        tasks = []
         has_recordings = await db_client.has_active_recordings(organization_id)
         for node in graph.nodes.values():
-            if node.id == graph.global_node_id or node.prompt is None:
+            if (
+                node.id == graph.global_node_id
+                or node.prompt is None
+                or node.id in live_tool_nodes
+            ):
                 continue
             prompt = compose_system_prompt_for_node(
                 node=node,
@@ -258,13 +294,15 @@ async def prewarm_published_prompts(*, organization_id, workflow_id, definition)
                 node_id=node.id,
                 enabled=True,
             )
-            llm.prewarm_prompt_cache(
-                node_id=node.id,
-                system_instruction=prompt.text,
-                tools=ToolsSchema(standard_tools=functions),
+            tasks.extend(
+                llm.prewarm_prompt_cache(
+                    node_id=node.id,
+                    system_instruction=prompt.text,
+                    tools=ToolsSchema(standard_tools=functions),
+                )
             )
         await asyncio.gather(
-            *list(get_prompt_cache_registry().tasks.values()), return_exceptions=True
+            *(asyncio.shield(task) for task in tasks), return_exceptions=True
         )
     except Exception:
         logger.bind(workflow_id=workflow_id, organization_id=organization_id).warning(

@@ -71,6 +71,7 @@ def build_function_call_start_event(
     function_name: str | None,
     tool_call_id: str | None,
     arguments: dict[str, Any] | None = None,
+    group_id: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "function_name": function_name,
@@ -78,6 +79,8 @@ def build_function_call_start_event(
     }
     if arguments is not None:
         payload["arguments"] = arguments
+    if group_id is not None:
+        payload["group_id"] = group_id
     return {
         "type": RealtimeFeedbackType.FUNCTION_CALL_START.value,
         "payload": payload,

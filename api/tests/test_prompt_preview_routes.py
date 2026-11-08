@@ -95,9 +95,36 @@ async def test_preview_uses_runtime_google_schema_and_cache_identity(monkeypatch
     assert result.explicit_cache_available
     assert result.nodes[0].cache_status == "ready"
     assert result.nodes[0].static_tokens_estimate == 6000
-    assert result.nodes[0].tools[0]["function_declarations"]
+    assert set(result.nodes[0].tools[0]) == {"name", "description", "parameters"}
+    assert result.nodes[0].tools[0]["name"]
     assert all(
         call.args[0].organization_id == 7 and call.args[0].workflow_id == 12
         for call in registry.status.call_args_list
     )
     registry.prewarm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_preview_only_translates_graph_errors_to_422(monkeypatch):
+    from api.services.workflow.prompt_preview import PromptPreviewGraphError
+
+    monkeypatch.setattr(
+        routes.db_client,
+        "get_workflow",
+        AsyncMock(return_value=SimpleNamespace(released_definition=object())),
+    )
+    monkeypatch.setattr(
+        routes.db_client, "get_draft_version", AsyncMock(return_value=None)
+    )
+    build = AsyncMock(side_effect=PromptPreviewGraphError("bad graph"))
+    monkeypatch.setattr(routes, "build_prompt_preview", build)
+    with pytest.raises(HTTPException) as error:
+        await routes.preview_workflow_prompts(
+            12, PromptPreviewRequest(), SimpleNamespace(selected_organization_id=7)
+        )
+    assert error.value.status_code == 422
+    build.side_effect = ValueError("client configuration failed")
+    with pytest.raises(ValueError, match="client configuration"):
+        await routes.preview_workflow_prompts(
+            12, PromptPreviewRequest(), SimpleNamespace(selected_organization_id=7)
+        )

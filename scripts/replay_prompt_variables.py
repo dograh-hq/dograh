@@ -47,6 +47,7 @@ async def main():
     config = PromptVariablesConfiguration.model_validate(
         (definition.workflow_configurations or {}).get("prompt_variables") or {}
     )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     try:
         result = await compare_recent_prompts(
             organization_id=args.organization_id,
@@ -57,7 +58,9 @@ async def main():
             max_turns=args.max_turns,
             concurrency=args.concurrency,
         )
-        args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2))
+        args.output.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         print(f"Wrote {len(result['turns'])} paired turns to {args.output}")
     finally:
         await close_prompt_cache()

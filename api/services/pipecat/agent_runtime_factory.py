@@ -271,8 +271,12 @@ class AgentRuntimeFactory:
 
         # Recognition stays on the shared call pipeline for every visit.
         call_config = self._run_model_configuration or user_config
-        runtime.prompt_variables = PromptVariablesConfiguration.model_validate(
-            run_configs.get("prompt_variables") or {}
+        runtime.prompt_variables = (
+            PromptVariablesConfiguration()
+            if runtime.is_realtime
+            else PromptVariablesConfiguration.model_validate(
+                run_configs.get("prompt_variables") or {}
+            )
         )
         runtime.llm = llm
         runtime.inference_llm = llm

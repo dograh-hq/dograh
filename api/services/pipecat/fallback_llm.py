@@ -97,11 +97,13 @@ class FallbackLLMProcessor(LLMService):
             if configure:
                 configure(**kwargs)
 
-    def prewarm_prompt_cache(self, **kwargs) -> None:
+    def prewarm_prompt_cache(self, **kwargs) -> list:
+        tasks = []
         for service in self._services:
             prewarm = getattr(service, "prewarm_prompt_cache", None)
             if prewarm:
-                prewarm(**kwargs)
+                tasks.extend(prewarm(**kwargs))
+        return tasks
 
     def __init__(
         self,

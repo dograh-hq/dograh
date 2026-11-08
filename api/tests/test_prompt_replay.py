@@ -4,6 +4,13 @@ from types import SimpleNamespace
 import pytest
 from pipecat.processors.aggregators.llm_context import LLMContext
 
+from api.services.pipecat.realtime_feedback_events import (
+    build_bot_text_event,
+    build_function_call_end_event,
+    build_function_call_start_event,
+    build_ttfb_metric_event,
+    build_user_transcription_event,
+)
 from api.services.workflow.prompt_replay import (
     reconstruct_replay_turns,
     replay_sample_metrics,
@@ -42,6 +49,7 @@ async def test_replay_observes_tools_without_executing_them():
     assert result["tool_calls"] == [
         {"name": "charge_customer", "arguments": {"amount": 100}}
     ]
+    assert result["ttft_seconds"] is not None
 
 
 def test_reconstruction_excludes_future_context_and_keeps_greeting():
@@ -85,6 +93,137 @@ def test_replay_clock_preserves_timezone_and_weekday():
     assert rendered == "2026-11-07 00:30:00 CET Saturday"
     assert values["current_weekday_Europe/Rome"] == "Saturday"
     assert values["current_weekday"] == "Saturday"
+
+
+def _reconstruct_events(events):
+    return reconstruct_replay_turns(
+        SimpleNamespace(
+            id=1,
+            created_at=datetime(2026, 11, 7, tzinfo=UTC),
+            initial_context={},
+            logs={"realtime_feedback_events": events},
+        ),
+        SimpleNamespace(start_node_id="n", nodes={"n": object(), "next": object()}),
+    )
+
+
+def _llm_boundary():
+    return build_ttfb_metric_event(
+        ttfb_seconds=0.2, processor="GoogleLLMService", model="test", kind="llm"
+    )
+
+
+def test_reconstruction_advances_clock_between_same_node_requests():
+    items = _reconstruct_events(
+        [
+            {
+                "type": "rtf-user-transcription",
+                "timestamp": "2026-11-07T10:00:00Z",
+                "payload": {"text": "Hello"},
+            },
+            build_bot_text_event(text="Hi"),
+            {
+                "type": "rtf-user-transcription",
+                "timestamp": "2026-11-07T11:00:00Z",
+                "payload": {"text": "Now?"},
+            },
+            build_bot_text_event(text="Yes"),
+        ]
+    )
+    assert items[0]["clock"].hour == 10
+    assert items[1]["clock"].hour == 11
+
+
+@pytest.mark.parametrize("boundaries", ["timing", "groups", "legacy"])
+def test_reconstruction_splits_tool_round_trips_and_replays_recorded_results(
+    boundaries,
+):
+    events = [build_user_transcription_event(text="Cancel my booking", final=True)]
+    for index, name in enumerate(("lookup", "cancel")):
+        if boundaries == "timing":
+            events.append(_llm_boundary())
+        events.extend(
+            [
+                build_function_call_start_event(
+                    function_name=name,
+                    tool_call_id=f"tool-{index}",
+                    arguments={"booking": 42},
+                    group_id=f"group-{index}" if boundaries == "groups" else None,
+                ),
+                build_function_call_end_event(
+                    function_name=name,
+                    tool_call_id=f"tool-{index}",
+                    result={"ok": True},
+                ),
+            ]
+        )
+        if index == 0:
+            events.append(
+                {"type": "rtf-node-transition", "payload": {"node_id": "next"}}
+            )
+    if boundaries == "timing":
+        events.append(_llm_boundary())
+    events.append(build_bot_text_event(text="Cancelled."))
+    items = _reconstruct_events(events)
+    assert len(items) == 3
+    assert [item["node_id"] for item in items] == ["n", "next", "next"]
+    assert items[0]["expected"]["tool_calls"] == [
+        {"name": "lookup", "arguments": {"booking": 42}}
+    ]
+    assert items[1]["expected"]["tool_calls"] == [
+        {"name": "cancel", "arguments": {"booking": 42}}
+    ]
+    assert items[2]["expected"] == {"text": "Cancelled.", "tool_calls": []}
+    assert items[0]["history"] == [{"role": "user", "content": "Cancel my booking"}]
+    assert items[1]["history"][-1] == {
+        "role": "tool",
+        "tool_call_id": "tool-0",
+        "content": '{"ok": true}',
+    }
+    assert items[2]["history"][-1]["tool_call_id"] == "tool-1"
+    assert "Cancelled." not in str(items[2]["history"])
+
+
+@pytest.mark.parametrize("boundaries", ["timing", "groups"])
+def test_reconstruction_keeps_sequential_execution_of_one_tool_group_together(
+    boundaries,
+):
+    events = [build_user_transcription_event(text="Check both", final=True)]
+    if boundaries == "timing":
+        events.append(_llm_boundary())
+    for name in ("first", "second"):
+        events.extend(
+            [
+                build_function_call_start_event(
+                    function_name=name,
+                    tool_call_id=name,
+                    arguments={},
+                    group_id="same-request" if boundaries == "groups" else None,
+                ),
+                build_function_call_end_event(
+                    function_name=name, tool_call_id=name, result={"ok": True}
+                ),
+            ]
+        )
+    if boundaries == "timing":
+        events.append(_llm_boundary())
+    events.append(build_bot_text_event(text="Both checked."))
+    items = _reconstruct_events(events)
+    assert len(items) == 2
+    assert [call["name"] for call in items[0]["expected"]["tool_calls"]] == [
+        "first",
+        "second",
+    ]
+    history = items[1]["history"]
+    assert [message["role"] for message in history] == [
+        "user",
+        "assistant",
+        "tool",
+        "tool",
+    ]
+    assert [call["id"] for call in history[1]["tool_calls"]] == ["first", "second"]
+    assert [message["tool_call_id"] for message in history[2:]] == ["first", "second"]
+    assert len(items[0]["history"]) == 1
 
 
 def test_sample_metrics_use_gross_input_and_exclude_failed_requests():

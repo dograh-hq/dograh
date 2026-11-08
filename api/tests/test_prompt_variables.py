@@ -20,7 +20,9 @@ from api.services.workflow.pipecat_engine_context_summarizer import (
     ContextSummarizationManager,
 )
 from api.services.workflow.prompt_variables import (
+    DEFAULT_CALL_CONTEXT_NOTE,
     CallContextMessage,
+    call_context_note,
     resolve_call_variables,
     update_call_context,
 )
@@ -234,7 +236,7 @@ async def test_answer_gate_does_not_discard_call_metadata():
 
 @pytest.mark.asyncio
 async def test_compaction_pins_metadata_and_preserves_concurrent_updates():
-    messages = [CallContextMessage({"city": ""})] + [
+    messages = [CallContextMessage({"city": "", "name": "Ada"})] + [
         {"role": "user", "content": str(i)} for i in range(8)
     ]
     context = LLMContext(messages)
@@ -256,9 +258,23 @@ async def test_compaction_pins_metadata_and_preserves_concurrent_updates():
         _get_otel_context=lambda: None,
     )
     await ContextSummarizationManager(engine)._summarize_context_in_background()
-    assert context.messages[0].values == {"city": ""}
-    assert context.messages[1].values == {"city": "Rome"}
+    assert context.messages[0].values == {"city": "Rome", "name": "Ada"}
+    assert sum(isinstance(m, CallContextMessage) for m in context.messages) == 1
     assert context.messages[-1]["content"] == "new speech"
+
+
+@pytest.mark.parametrize("note", [None, "", " \n\t"])
+def test_blank_call_context_note_uses_default(note):
+    assert (
+        call_context_note(PromptVariablesConfiguration(call_context_note=note))
+        == DEFAULT_CALL_CONTEXT_NOTE
+    )
+
+
+def test_no_metadata_message_when_there_are_no_variables():
+    messages = [{"role": "assistant", "content": "Hello"}]
+    update_call_context(messages, {})
+    assert len(messages) == 1
 
 
 def test_text_chat_checkpoint_preserves_metadata_identity():

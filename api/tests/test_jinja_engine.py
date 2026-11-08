@@ -493,7 +493,8 @@ def test_arithmetic_subtraction_vs_hyphenated_identifiers():
 
 
 def test_extract_template_variables_literal_hyphen_marker():
-    """Verify that literal customer__hyphen__name is not falsely decoded to customer-name."""
+    """Verify that literal customer__hyphen__name is not falsely decoded to customer-name,
+    and plain text labels in prompts do not distort variable extraction."""
     from api.services.workflow.workflow_graph import extract_template_variables
 
     # 1. Hyphenated legacy variable
@@ -503,3 +504,11 @@ def test_extract_template_variables_literal_hyphen_marker():
     # 2. Literal variable with __hyphen__ in its actual name
     vars2 = extract_template_variables("Hello {{ customer__hyphen__name }}")
     assert vars2 == {"customer__hyphen__name"}
+
+    # 3. Prompt label containing customer__hyphen__name prose while referencing {{ customer-name }}
+    vars3 = extract_template_variables("customer__hyphen__name: {{ customer-name }}")
+    assert vars3 == {"customer-name"}
+
+    # 4. Prompt label containing customer-name prose while referencing {{ customer__hyphen__name }}
+    vars4 = extract_template_variables("customer-name: {{ customer__hyphen__name }}")
+    assert vars4 == {"customer__hyphen__name"}

@@ -126,7 +126,7 @@ def validate_workflow_jinja_templates(
                 speech,
                 ItemKind.edge,
                 edge_id,
-                "transition_speech",
+                "data.transition_speech",
                 "edge transition speech",
             )
             if err:

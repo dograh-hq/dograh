@@ -502,15 +502,16 @@ def _prepare_context(
     return enriched
 
 
-def preprocess_legacy_template(template_str: str) -> str:
-    """Rewrite Dograh legacy template syntax into valid Jinja2 syntax.
+def preprocess_legacy_template_with_symbols(
+    template_str: str,
+) -> tuple[str, dict[str, str]]:
+    """Rewrite Dograh legacy template syntax into valid Jinja2 syntax and track rewritten symbol mappings.
 
-    Handles:
-    - {{ var | fallback:val }} -> {{ var | fallback('val') }}
-    - {{ var | val }} (legacy single-token fallback) -> {{ var | default('val') }}
+    Returns:
+        tuple[str, dict[str, str]]: (preprocessed_template, alias_to_original_map)
     """
     if not template_str or "{{" not in template_str:
-        return template_str
+        return template_str, {}
 
     # 0. Handle timezone slashes in clock variables (e.g. current_time_America/New_York)
     # to avoid Jinja interpreting '/' as a division operator
@@ -549,6 +550,9 @@ def preprocess_legacy_template(template_str: str) -> str:
     # to avoid Jinja compiling them as binary subtraction (customer - name).
     # Tokenize strings with escape awareness and restrict hyphenated segments to valid
     # identifier starts ([A-Za-z_]) so arithmetic like {{ total-1 }} is preserved.
+    # Maintain an explicit symbol table mapping {alias: original} for precise downstream recovery.
+    alias_to_original: dict[str, str] = {}
+
     def _replace_hyphenated_identifiers(match: re.Match[str]) -> str:
         tag_content = match.group(1)
 
@@ -558,7 +562,9 @@ def preprocess_legacy_template(template_str: str) -> str:
                 token.startswith("'") and token.endswith("'")
             ):
                 return token
-            return token.replace("-", "__hyphen__")
+            alias = token.replace("-", "__hyphen__")
+            alias_to_original[alias] = token
+            return alias
 
         pattern = r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z_][A-Za-z0-9_]*)+)'
         rewritten = re.sub(pattern, _replace_token, tag_content)
@@ -566,7 +572,13 @@ def preprocess_legacy_template(template_str: str) -> str:
 
     result = re.sub(r"\{\{([^{}]+?)\}\}", _replace_hyphenated_identifiers, result)
 
-    return result
+    return result, alias_to_original
+
+
+def preprocess_legacy_template(template_str: str) -> str:
+    """Rewrite Dograh legacy template syntax into valid Jinja2 syntax."""
+    rewritten, _ = preprocess_legacy_template_with_symbols(template_str)
+    return rewritten
 
 
 def validate_jinja_syntax(template_str: str) -> tuple[bool, str | None]:

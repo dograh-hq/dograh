@@ -74,9 +74,12 @@ def extract_template_variables(text: str) -> Set[str]:
     try:
         from jinja2 import meta, nodes
 
-        from api.utils.jinja_engine import get_jinja_env, preprocess_legacy_template
+        from api.utils.jinja_engine import (
+            get_jinja_env,
+            preprocess_legacy_template_with_symbols,
+        )
 
-        preprocessed = preprocess_legacy_template(text)
+        preprocessed, alias_to_original = preprocess_legacy_template_with_symbols(text)
         env = get_jinja_env()
         ast = env.parse(preprocessed)
 
@@ -142,17 +145,7 @@ def extract_template_variables(text: str) -> Set[str]:
                     continue
                 required.add(node.name)
 
-        decoded_required: set[str] = set()
-        for v in required:
-            if "__hyphen__" in v:
-                dashed = v.replace("__hyphen__", "-")
-                if dashed in text and v not in text:
-                    decoded_required.add(dashed)
-                else:
-                    decoded_required.add(v)
-            else:
-                decoded_required.add(v)
-        return decoded_required
+        return {alias_to_original.get(v, v) for v in required}
     except Exception:  # noqa: BLE001
         # Fallback to legacy regex extraction if template is malformed or in legacy syntax
         variables: Set[str] = set()

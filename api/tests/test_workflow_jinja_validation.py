@@ -114,5 +114,5 @@ def test_validate_workflow_jinja_templates_rejects_unsafe_and_invalid():
 
     # 7. edge transition speech: syntax error
     assert errors[6]["id"] == "edge-1"
-    assert errors[6]["field"] == "transition_speech"
+    assert errors[6]["field"] == "data.transition_speech"
     assert "Line 1" in errors[6]["message"]

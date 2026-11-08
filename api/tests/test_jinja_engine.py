@@ -450,3 +450,56 @@ def test_missing_crm_field_tojson_does_not_crash():
     template = "CRM: {{ missing_crm_field | tojson }}"
     res = render_jinja_string(template, {})
     assert res == "CRM: "
+
+
+def test_tojson_preserves_none_as_null():
+    """Verify that explicit None passed to tojson serializes as null, while Undefined serializes as empty."""
+    template = "Val: {{ val | tojson }} | Missing: {{ missing | tojson }}"
+    res = render_jinja_string(template, {"val": None})
+    assert res == "Val: null | Missing: "
+
+
+def test_dotted_path_hyphenated_keys_resolution():
+    """Verify that dotted access on nested dicts with hyphenated keys resolves correctly."""
+    context = {
+        "initial_context": {
+            "customer-name": "Alice",
+            "order-id": 12345,
+        },
+        "crm": {
+            "user-profile": {
+                "first-name": "Bob",
+            }
+        },
+    }
+    template = "Name: {{ initial_context.customer-name }}, Order: {{ initial_context.order-id }}, First: {{ crm.user-profile.first-name }}"
+    res = render_jinja_string(template, context)
+    assert res == "Name: Alice, Order: 12345, First: Bob"
+
+
+def test_escaped_quotes_inside_string_literals():
+    """Verify that escaped quotes inside string literals do not corrupt identifiers or preprocessing."""
+    template = r"""Quote: {{ "a-b\"c-d" }} | Single: {{ 'x-y\'z' }}"""
+    res = render_jinja_string(template, {})
+    assert 'Quote: a-b"c-d' in res
+    assert "Single: x-y'z" in res
+
+
+def test_arithmetic_subtraction_vs_hyphenated_identifiers():
+    """Verify that numeric subtraction like {{ total-1 }} remains arithmetic while {{ total-count }} resolves variable."""
+    template = "{{ total-1 }} | {{ total - 1 }} | {{ total-count }}"
+    res = render_jinja_string(template, {"total": 10, "total-count": 5})
+    assert res == "9 | 9 | 5"
+
+
+def test_extract_template_variables_literal_hyphen_marker():
+    """Verify that literal customer__hyphen__name is not falsely decoded to customer-name."""
+    from api.services.workflow.workflow_graph import extract_template_variables
+
+    # 1. Hyphenated legacy variable
+    vars1 = extract_template_variables("Hello {{ customer-name }}")
+    assert vars1 == {"customer-name"}
+
+    # 2. Literal variable with __hyphen__ in its actual name
+    vars2 = extract_template_variables("Hello {{ customer__hyphen__name }}")
+    assert vars2 == {"customer__hyphen__name"}

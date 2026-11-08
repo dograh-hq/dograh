@@ -142,7 +142,17 @@ def extract_template_variables(text: str) -> Set[str]:
                     continue
                 required.add(node.name)
 
-        return {v.replace("__hyphen__", "-") for v in required}
+        decoded_required: set[str] = set()
+        for v in required:
+            if "__hyphen__" in v:
+                dashed = v.replace("__hyphen__", "-")
+                if dashed in text and v not in text:
+                    decoded_required.add(dashed)
+                else:
+                    decoded_required.add(v)
+            else:
+                decoded_required.add(v)
+        return decoded_required
     except Exception:  # noqa: BLE001
         # Fallback to legacy regex extraction if template is malformed or in legacy syntax
         variables: Set[str] = set()

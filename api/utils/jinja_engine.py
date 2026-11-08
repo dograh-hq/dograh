@@ -175,6 +175,24 @@ class DograhSandboxedEnvironment(ImmutableSandboxedEnvironment):
             return False
         return super().is_safe_callable(obj)
 
+    def getattr(self, obj: Any, attribute: str) -> Any:
+        if isinstance(attribute, str) and "__hyphen__" in attribute:
+            raw_attr = attribute.replace("__hyphen__", "-")
+            if isinstance(obj, dict):
+                if raw_attr in obj:
+                    return obj[raw_attr]
+            elif hasattr(obj, raw_attr):
+                return super().getattr(obj, raw_attr)
+        return super().getattr(obj, attribute)
+
+    def getitem(self, obj: Any, argument: Any) -> Any:
+        if isinstance(argument, str) and "__hyphen__" in argument:
+            raw_arg = argument.replace("__hyphen__", "-")
+            if isinstance(obj, dict):
+                if raw_arg in obj:
+                    return obj[raw_arg]
+        return super().getitem(obj, argument)
+
     def call(self, __context: Any, __obj: Any, *args: Any, **kwargs: Any) -> Any:
         # 1. Resolve loop range() without mutating context or leaking function repr into {{ range }}
         if (
@@ -418,7 +436,7 @@ def _safe_replace_filter(s: Any, old: Any, new: Any, count: int | None = None) -
 
 def _safe_tojson_filter(val: Any) -> str:
     """Safe tojson filter that strictly enforces MAX_RENDERED_PROMPT_CHARS without exposing override kwargs."""
-    if val is None or isinstance(val, jinja2.Undefined):
+    if isinstance(val, jinja2.Undefined):
         return ""
     return _safe_json_dumps(val, MAX_RENDERED_PROMPT_CHARS)
 
@@ -528,7 +546,9 @@ def preprocess_legacy_template(template_str: str) -> str:
     result = re.sub(pattern_legacy_filter, _replace_legacy_default, result)
 
     # 3. Handle unquoted legacy hyphenated variable names (e.g. {{ customer-name }})
-    # to avoid Jinja compiling them as binary subtraction (customer - name)
+    # to avoid Jinja compiling them as binary subtraction (customer - name).
+    # Tokenize strings with escape awareness and restrict hyphenated segments to valid
+    # identifier starts ([A-Za-z_]) so arithmetic like {{ total-1 }} is preserved.
     def _replace_hyphenated_identifiers(match: re.Match[str]) -> str:
         tag_content = match.group(1)
 
@@ -540,7 +560,7 @@ def preprocess_legacy_template(template_str: str) -> str:
                 return token
             return token.replace("-", "__hyphen__")
 
-        pattern = r"(\"[^\"]*\"|'[^']*'|[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)+)"
+        pattern = r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z_][A-Za-z0-9_]*)+)'
         rewritten = re.sub(pattern, _replace_token, tag_content)
         return f"{{{{ {rewritten} }}}}"
 

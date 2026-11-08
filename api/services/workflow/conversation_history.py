@@ -8,6 +8,8 @@ from typing import Any
 
 from pipecat.processors.aggregators.llm_context import LLMContext
 
+from api.services.workflow.prompt_variables import CallContextMessage
+
 _TOOL_RESPONSE_STRIP_KEYS = {"status", "status_code"}
 _TOOL_MESSAGE_MAX_CHARS = 2000
 _TRANSITION_RESPONSE = '{"status": "done"}'
@@ -89,6 +91,8 @@ def _format_tool_response(raw_content: str, tool_name: str) -> str | None:
 
 def _get_role_and_content(message: Any) -> tuple[str | None, str | None]:
     """Return a normalized role and textual content from a context message."""
+    if isinstance(message, CallContextMessage):
+        return None, None
     if isinstance(message, dict):
         role = message.get("role")
         content = message.get("content")

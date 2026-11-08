@@ -21,6 +21,7 @@ from api.services.workflow.agent_handoff_context import (
     ConversationSummaryMessage,
     HandoffMessage,
 )
+from api.services.workflow.prompt_variables import CallContextMessage
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -90,7 +91,9 @@ class ContextSummarizationManager:
             # The inherited transcript stays intact across node transitions.
             # Only this agent's own conversation is eligible for compaction.
             messages = [
-                m for m in context.messages if not isinstance(m, HandoffMessage)
+                m
+                for m in context.messages
+                if not isinstance(m, (HandoffMessage, CallContextMessage))
             ]
             # Not worth summarizing if context is small
             if len(messages) <= 6:
@@ -160,8 +163,11 @@ class ContextSummarizationManager:
             # Snapshot current messages at apply-time (not request-time)
             # to preserve anything added while the summary was generating
             inherited = [m for m in context.messages if isinstance(m, HandoffMessage)]
+            pinned = [m for m in context.messages if isinstance(m, CallContextMessage)]
             current_messages = [
-                m for m in context.messages if not isinstance(m, HandoffMessage)
+                m
+                for m in context.messages
+                if not isinstance(m, (HandoffMessage, CallContextMessage))
             ]
             recent_messages = current_messages[last_index + 1 :]
 
@@ -182,6 +188,7 @@ class ContextSummarizationManager:
             new_messages = []
             if first_system_msg:
                 new_messages.append(first_system_msg)
+            new_messages.extend(pinned)
             new_messages.extend(inherited)
             new_messages.append(summary)
             new_messages.extend(recent_messages)

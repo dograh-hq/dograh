@@ -40,7 +40,10 @@ from pipecat.utils.run_context import set_current_org_id
 from api.db import db_client
 from api.enums import WorkflowRunMode, WorkflowRunState
 from api.errors.failure import classify_error_frame, log_failure
-from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
+from api.schemas.workflow_configurations import (
+    PromptVariablesConfiguration,
+    WorkflowConfigurationDefaults,
+)
 from api.services.configuration.registry import ServiceProviders
 from api.services.configuration.run_model_configuration import (
     apply_pre_call_model_overrides,
@@ -72,6 +75,7 @@ from api.services.workflow.pipecat_engine import (
     FINAL_EXTRACTION_TIMEOUT_SECONDS,
     PipecatEngine,
 )
+from api.services.workflow.prompt_variables import CallContextMessage
 from api.services.workflow.workflow_graph import WorkflowGraph
 
 TEXT_CHAT_CHECKPOINT_VERSION = 1
@@ -104,6 +108,9 @@ def _serialize_text_chat_checkpoint_messages(messages: list[Any]) -> list[Any]:
     )
     if not isinstance(encoded_messages, list):
         raise TypeError("Pipecat LLMContext serializer returned an unexpected shape")
+    for index, original in enumerate(messages):
+        if isinstance(original, CallContextMessage):
+            encoded_messages[index] = {"dograh_call_context_values": original.values}
     return encoded_messages
 
 
@@ -117,7 +124,12 @@ def _deserialize_text_chat_checkpoint_messages(messages: list[Any]) -> list[Any]
     )
     if not isinstance(restored_context, LLMContext):
         raise TypeError("Pipecat LLMContext deserializer returned an unexpected type")
-    return restored_context.get_messages()
+    return [
+        CallContextMessage(message["dograh_call_context_values"])
+        if isinstance(message, dict) and "dograh_call_context_values" in message
+        else message
+        for message in restored_context.get_messages()
+    ]
 
 
 def text_chat_trace_id(workflow_run_id: int) -> str:
@@ -698,11 +710,16 @@ async def execute_text_chat_pending_turn(
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
+        prompt_variables=PromptVariablesConfiguration.model_validate(
+            run_configs.get("prompt_variables") or {}
+        ),
         call_dispositions=call_dispositions,
         # Each text turn owns a short-lived pipeline. Complete extraction before
         # leaving a node so teardown cannot discard the result before checkpointing.
         run_transition_variable_extraction_in_background=False,
     )
+    engine.active_agent.workflow_id = workflow.id
+    engine.active_agent.definition_id = run_definition.id
     engine._gathered_context = dict(base_checkpoint["gathered_context"])
     capture_processor = _TextChatCaptureProcessor(
         response_window, context, engine, on_event=on_event

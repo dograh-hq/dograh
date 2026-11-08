@@ -21,6 +21,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.schemas.workflow_configurations import PromptVariablesConfiguration
 from api.services.configuration.model_connections import ResolvedModelConfiguration
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.agent_generation_processor import (
@@ -270,6 +271,9 @@ class AgentRuntimeFactory:
 
         # Recognition stays on the shared call pipeline for every visit.
         call_config = self._run_model_configuration or user_config
+        runtime.prompt_variables = PromptVariablesConfiguration.model_validate(
+            run_configs.get("prompt_variables") or {}
+        )
         runtime.llm = llm
         runtime.inference_llm = llm
         runtime.variable_extraction_llm = variable_extraction_llm

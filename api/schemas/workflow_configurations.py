@@ -122,9 +122,24 @@ class AmbientNoiseConfigurationDefaults(BaseModel):
     volume: float = 0.3
 
 
+class PromptVariablesConfiguration(BaseModel):
+    mode: Literal["inline", "call_context"] = Field(
+        default="inline",
+        description=(
+            "Enable prompt caching optimization with call_context. Dograh manages "
+            "explicit caching automatically for eligible providers and models."
+        ),
+    )
+    call_context_note: str | None = Field(default=None, max_length=10000)
+    include_weekday: bool = True
+
+
 class WorkflowConfigurationDefaults(BaseModel):
     model_config = ConfigDict(extra="allow")
     model_configuration_override: ModelConfigurationOverride | None = None
+    prompt_variables: PromptVariablesConfiguration = Field(
+        default_factory=PromptVariablesConfiguration
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -133,7 +148,11 @@ class WorkflowConfigurationDefaults(BaseModel):
         # keys the user never configured; dropping them lets the field
         # defaults apply instead of failing validation.
         if isinstance(data, dict):
-            return {k: v for k, v in data.items() if v is not None}
+            # The former explicit-cache switch is no longer a workflow policy.
+            # Preserve the layout opt-in; discard the retired field on save.
+            return {
+                k: v for k, v in data.items() if v is not None and k != "prompt_caching"
+            }
         return data
 
     ambient_noise_configuration: AmbientNoiseConfigurationDefaults = Field(

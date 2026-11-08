@@ -1509,7 +1509,7 @@ export function WorkflowSettingsSections({
                             )}
 
                             {show("dictionary") && <DictionarySection dictionary={dictionary} onSave={saveDictionary} />}
-                            {show("prompt-caching") && <PromptCachingSection workflowId={workflowId} workflowConfigurations={resolved} templateContextVariables={templateContextVariables} onSave={value => saveWorkflowConfigurations(value, workflowName)} />}
+                            {show("prompt-caching") && <PromptCachingSection workflowConfigurations={resolved} onSave={value => saveWorkflowConfigurations(value, workflowName)} />}
 
                             {show("voicemail") && (
                                 <VoicemailSection

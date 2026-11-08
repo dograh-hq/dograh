@@ -73,7 +73,11 @@ class DograhContext(jinja2.runtime.Context):
             return datetime.now(ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M:%S %Z")
 
         if key.startswith(f"{_CURRENT_TIME_PREFIX}_"):
-            tz_name = key[len(_CURRENT_TIME_PREFIX) + 1 :].replace("__slash__", "/")
+            tz_name = (
+                key[len(_CURRENT_TIME_PREFIX) + 1 :]
+                .replace("__slash__", "/")
+                .replace("__hyphen__", "-")
+            )
             if tz_name not in _AVAILABLE_ZONES:
                 return ""
             try:
@@ -89,7 +93,11 @@ class DograhContext(jinja2.runtime.Context):
             return datetime.now(ZoneInfo(tz_name)).strftime("%A")
 
         if key.startswith(f"{_CURRENT_WEEKDAY_PREFIX}_"):
-            tz_name = key[len(_CURRENT_WEEKDAY_PREFIX) + 1 :].replace("__slash__", "/")
+            tz_name = (
+                key[len(_CURRENT_WEEKDAY_PREFIX) + 1 :]
+                .replace("__slash__", "/")
+                .replace("__hyphen__", "-")
+            )
             if tz_name not in _AVAILABLE_ZONES:
                 return ""
             try:
@@ -472,9 +480,9 @@ def get_jinja_env() -> DograhSandboxedEnvironment:
 
 
 def _extract_tz_from_str(template_str: str) -> str | None:
-    match = re.search(r"\{\{\s*current_time_([A-Za-z0-9_\/]+)", template_str)
+    match = re.search(r"\{\{\s*current_time_([A-Za-z0-9_\/\-]+)", template_str)
     if match:
-        tz = match.group(1).replace("__slash__", "/")
+        tz = match.group(1).replace("__slash__", "/").replace("__hyphen__", "-")
         if tz in _AVAILABLE_ZONES:
             return tz
     return None
@@ -550,7 +558,8 @@ def preprocess_legacy_template_with_symbols(
     # to avoid Jinja compiling them as binary subtraction (customer - name).
     # Tokenize strings with escape awareness and restrict hyphenated segments to valid
     # identifier starts ([A-Za-z_]) so arithmetic like {{ total-1 }} is preserved.
-    # Maintain an explicit symbol table mapping {alias: original} for precise downstream recovery.
+    # Maintain an explicit symbol table mapping {alias: original} for root-level variables,
+    # keeping nested field renames (.customer-name) separate from top-level variables.
     alias_to_original: dict[str, str] = {}
 
     def _replace_hyphenated_identifiers(match: re.Match[str]) -> str:
@@ -562,11 +571,20 @@ def preprocess_legacy_template_with_symbols(
                 token.startswith("'") and token.endswith("'")
             ):
                 return token
-            alias = token.replace("-", "__hyphen__")
-            alias_to_original[alias] = token
-            return alias
 
-        pattern = r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z_][A-Za-z0-9_]*)+)'
+            is_nested = token_match.group(2) == "."
+            raw_identifier = token_match.group(3)
+            alias = raw_identifier.replace("-", "__hyphen__")
+
+            if not is_nested and not (
+                raw_identifier.startswith("current_time_")
+                or raw_identifier.startswith("current_weekday_")
+            ):
+                alias_to_original[alias] = raw_identifier
+
+            return f".{alias}" if is_nested else alias
+
+        pattern = r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|(\.)?([A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z_][A-Za-z0-9_]*)+))'
         rewritten = re.sub(pattern, _replace_token, tag_content)
         return f"{{{{ {rewritten} }}}}"
 

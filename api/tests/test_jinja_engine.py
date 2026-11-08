@@ -512,3 +512,19 @@ def test_extract_template_variables_literal_hyphen_marker():
     # 4. Prompt label containing customer-name prose while referencing {{ customer__hyphen__name }}
     vars4 = extract_template_variables("customer-name: {{ customer__hyphen__name }}")
     assert vars4 == {"customer__hyphen__name"}
+
+    # 5. Nested field with hyphens does not pollute root symbol map
+    vars5 = extract_template_variables(
+        "{{ customer__hyphen__name }} {{ crm.customer-name }}"
+    )
+    assert vars5 == {"customer__hyphen__name"}
+
+
+def test_clock_variables_with_hyphenated_iana_timezones():
+    """Verify that clock variables with hyphenated IANA timezones (e.g. America/Port-au-Prince) render accurately."""
+    res = render_jinja_string(
+        "Time: {{ current_time_America/Port-au-Prince }} | Day: {{ current_weekday_America/Port-au-Prince }}"
+    )
+    assert "Time: 20" in res
+    assert "Day: " in res
+    assert "EST" in res or "EDT" in res

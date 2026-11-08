@@ -530,5 +530,34 @@ def test_clock_variables_with_hyphenated_iana_timezones():
         "Time: {{ current_time_America/Port-au-Prince }} | Day: {{ current_weekday_America/Port-au-Prince }}"
     )
     assert "Time: 20" in res
-    assert "Day: " in res
     assert "EST" in res or "EDT" in res
+    weekday = res.split("Day: ")[1]
+    assert weekday in {
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    }
+
+
+def test_arithmetic_precedence_and_chained_subtraction():
+    """Verify that Jinja arithmetic with operators and chained numbers preserves standard evaluation order."""
+    from api.services.workflow.workflow_graph import extract_template_variables
+
+    # 1. Multiplication precedence in math expression: total - (1 * 2) = 8
+    res_mult = render_jinja_string("{{ total-1*2 }}", {"total": 10})
+    assert res_mult == "8"
+    assert extract_template_variables("{{ total-1*2 }}") == {"total"}
+
+    # 2. Chained subtraction: (total - 1) - 2 = 7
+    res_chain = render_jinja_string("{{ total-1-2 }}", {"total": 10})
+    assert res_chain == "7"
+    assert extract_template_variables("{{ total-1-2 }}") == {"total"}
+
+    # 3. Numeric hyphenated variable still preserved
+    res_cust = render_jinja_string("{{ customer-123 }}", {"customer-123": "Alice"})
+    assert res_cust == "Alice"
+    assert extract_template_variables("{{ customer-123 }}") == {"customer-123"}

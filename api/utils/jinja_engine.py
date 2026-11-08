@@ -578,6 +578,18 @@ def preprocess_legacy_template_with_symbols(
     def _replace_hyphenated_identifiers(match: re.Match[str]) -> str:
         tag_content = match.group(1)
 
+        # If tag_content contains arithmetic operators (*, +, /, %, //, **) outside quotes,
+        # or chained numeric subtractions like total-1-2, it is a math expression,
+        # not a legacy hyphenated variable. Preserve Jinja arithmetic.
+        stripped_expr = re.sub(
+            r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\')', "", tag_content
+        )
+        expr_before_pipe = stripped_expr.split("|")[0]
+        if any(op in expr_before_pipe for op in ("*", "+", "/", "%", "**", "//")):
+            return match.group(0)
+        if re.search(r"-\s*\d+\s*-\s*\d+", expr_before_pipe):
+            return match.group(0)
+
         def _replace_token(token_match: re.Match[str]) -> str:
             token = token_match.group(0)
             if (token.startswith('"') and token.endswith('"')) or (
@@ -589,9 +601,8 @@ def preprocess_legacy_template_with_symbols(
             raw_identifier = token_match.group(3)
             alias = raw_identifier.replace("-", "__hyphen__")
 
-            if not is_nested and not (
-                raw_identifier.startswith("current_time_")
-                or raw_identifier.startswith("current_weekday_")
+            if not is_nested and not raw_identifier.startswith(
+                ("current_time_", "current_weekday_")
             ):
                 alias_to_original[alias] = raw_identifier
 

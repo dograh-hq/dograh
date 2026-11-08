@@ -15,7 +15,7 @@ Both tools move the caller somewhere else, but they are not interchangeable.
 |---|---|---|
 | Destination | Another Dograh agent, by `workflow_id` | A phone number or SIP endpoint |
 | Who answers | A Dograh agent | A human, queue, or external phone system |
-| Context | A labeled transcript of the previous agents' conversation | Optional spoken introduction on Twilio; otherwise no conversation context is passed |
+| Context | A labeled transcript of the previous agents' conversation | Optional spoken introduction on Twilio and Telnyx; otherwise no conversation context is passed |
 | Availability | Any cascade call, including web calls | Telephony only (Twilio, Telnyx, Asterisk ARI) |
 
 If the caller should end up talking to a person, use Call Transfer. If they should end up talking to another one of your agents, use this tool.

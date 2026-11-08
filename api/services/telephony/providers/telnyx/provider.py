@@ -809,6 +809,8 @@ class TelnyxProvider(TelephonyProvider):
             "webhook_url": webhook_url,
             "webhook_url_method": "POST",
         }
+        # The clip URL lives on the TransferContext; Telnyx's dial API rejects unknown keys.
+        kwargs.pop("introduction_audio_url", None)
         payload.update(kwargs)
 
         endpoint = f"{self.TELNYX_API_BASE}/calls"
@@ -858,6 +860,19 @@ class TelnyxProvider(TelephonyProvider):
 
     def supports_transfers(self) -> bool:
         return True
+
+    def supports_transfer_introduction(self) -> bool:
+        return True
+
+    async def end_transfer_leg(self, call_control_id: str) -> None:
+        """Best-effort hangup of one leg when a transfer with an introduction is abandoned."""
+        from api.services.telephony.providers.telnyx.strategies import (
+            TelnyxHangupStrategy,
+        )
+
+        await TelnyxHangupStrategy().execute_hangup(
+            {"call_control_id": call_control_id, "api_key": self.api_key}
+        )
 
     async def create_conference(
         self, seed_call_control_id: str, name: str

@@ -14,6 +14,11 @@ from api.db import db_client
 from api.services.telephony import ws_auth
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import get_telephony_provider_for_run
+from api.services.telephony.providers.telnyx.introduction import (
+    caller_left,
+    leg_finished,
+    play_introduction,
+)
 from api.services.telephony.providers.telnyx.provider import (
     TelnyxProvider,
     normalize_event_type,
@@ -43,6 +48,7 @@ _INFORMATIONAL_EVENT_TYPES = frozenset(
     {
         "streaming.started",
         "streaming.stopped",
+        "call.playback.started",
         "call.recording.saved",
         "call.recording.error",
         "call.recording.transcription.saved",
@@ -187,6 +193,14 @@ async def handle_telnyx_events(
     #
     # Event names are Telnyx's documented Call Control callbacks; there is no
     # call.recording.started in that catalog.
+    if event_type in ("call.playback.ended", "call.hangup"):
+        await _handle_introduction_caller_event(
+            event_type, data.get("payload", {}).get("call_control_id", ""), provider
+        )
+    if event_type == "call.playback.ended":
+        # Only transfer introductions play audio by command on this leg.
+        return {"status": "success"}
+
     if event_type in _INFORMATIONAL_EVENT_TYPES:
         logger.debug(
             f"[run {workflow_run_id}] Telnyx informational event: {event_type}"
@@ -247,13 +261,25 @@ async def handle_telnyx_transfer_result(transfer_id: str, request: Request):
     call_control_id = payload.get("call_control_id", "")
 
     # Pre-answer events carry no outcome — wait for answered/hangup.
-    if event_type in ("call.initiated", "call.bridging", "streaming.started"):
+    if event_type in (
+        "call.initiated",
+        "call.bridging",
+        "streaming.started",
+        "call.playback.started",
+    ):
         return {"status": "pending"}
 
     call_transfer_manager = await get_call_transfer_manager()
     transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
     original_call_sid = transfer_context.original_call_sid if transfer_context else ""
     conference_name = transfer_context.conference_name if transfer_context else None
+
+    if transfer_context and transfer_context.introduction_audio_url:
+        handled = await _handle_introduction_destination_event(
+            call_transfer_manager, transfer_context, event_type, call_control_id
+        )
+        if handled is not None:
+            return handled
 
     if event_type == "call.answered":
         # Seed the conference now with the destination's live call_control_id
@@ -429,3 +455,65 @@ async def _hangup_caller_leg(transfer_context: TransferContext) -> None:
             "api_key": provider.api_key,
         }
     )
+
+
+async def _handle_introduction_destination_event(
+    manager, transfer: TransferContext, event_type: str, call_control_id: str
+) -> dict | None:
+    """Destination leg of a transfer with an introduction. None falls through to the plain flow."""
+    if event_type == "call.answered":
+        provider = await _resolve_telnyx_provider(transfer)
+        if not provider:
+            return None
+        transfer.call_sid = call_control_id
+        await manager.store_transfer_context(transfer)
+        outcome = await manager.publish_transfer_event(
+            TransferEvent(
+                type=TransferEventType.DESTINATION_ANSWERED,
+                transfer_id=transfer.transfer_id,
+                original_call_sid=transfer.original_call_sid,
+                transfer_call_sid=call_control_id,
+                conference_name=transfer.conference_name,
+                status="success",
+                action="destination_answered",
+                message="Destination answered, playing the introduction.",
+            )
+        )
+        if outcome and outcome.type != TransferEventType.DESTINATION_ANSWERED:
+            # A late answer after a timeout or caller hangup must not revive the transfer.
+            await provider.end_transfer_leg(call_control_id)
+            return {"status": "success"}
+        if not await play_introduction(
+            provider.api_key, call_control_id, transfer.introduction_audio_url
+        ):
+            await leg_finished(manager, transfer, provider, "destination")
+        return {"status": "success"}
+
+    if event_type == "call.playback.ended":
+        provider = await _resolve_telnyx_provider(transfer)
+        if provider:
+            await leg_finished(manager, transfer, provider, "destination")
+        return {"status": "success"}
+
+    if event_type == "call.hangup" and not transfer.conference_id:
+        previous = await manager.get_transfer_result(transfer.transfer_id)
+        if previous and previous.type == TransferEventType.DESTINATION_ANSWERED:
+            # Hung up during the introduction, after the caller already left the agent.
+            await _hangup_caller_leg(transfer)
+            await manager.remove_transfer_context(transfer.transfer_id)
+            return {"status": "success"}
+    return None
+
+
+async def _handle_introduction_caller_event(
+    event_type: str, call_control_id: str, provider
+) -> None:
+    """Caller leg of a transfer with an introduction, before both parties are bridged."""
+    manager = await get_call_transfer_manager()
+    transfer = await manager.find_transfer_context_for_call(call_control_id)
+    if not transfer or not transfer.introduction_audio_url or transfer.conference_id:
+        return
+    if event_type == "call.playback.ended":
+        await leg_finished(manager, transfer, provider, "caller")
+    elif event_type == "call.hangup":
+        await caller_left(manager, transfer, provider)

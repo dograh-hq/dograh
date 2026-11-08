@@ -110,6 +110,19 @@ class DograhContext(jinja2.runtime.Context):
             if raw_key in self.parent:
                 return self.parent[raw_key]
 
+            # If raw hyphenated key is not in context, check for arithmetic subtraction
+            # between context variable and a numeric literal (e.g. {{ total-1 }} where context has {"total": 10})
+            parts = raw_key.split("-")
+            if len(parts) == 2:
+                left_str, right_str = parts[0].strip(), parts[1].strip()
+                left_val = self.parent.get(left_str)
+                if isinstance(left_val, (int, float)):
+                    if right_str.isdigit():
+                        return left_val - int(right_str)
+                    right_val = self.parent.get(right_str)
+                    if isinstance(right_val, (int, float)):
+                        return left_val - right_val
+
         return super().resolve_or_missing(key)
 
 
@@ -584,7 +597,7 @@ def preprocess_legacy_template_with_symbols(
 
             return f".{alias}" if is_nested else alias
 
-        pattern = r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|(\.)?([A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z_][A-Za-z0-9_]*)+))'
+        pattern = r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|(\.)?([A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)+))'
         rewritten = re.sub(pattern, _replace_token, tag_content)
         return f"{{{{ {rewritten} }}}}"
 

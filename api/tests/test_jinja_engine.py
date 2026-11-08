@@ -519,6 +519,10 @@ def test_extract_template_variables_literal_hyphen_marker():
     )
     assert vars5 == {"customer__hyphen__name"}
 
+    # 6. Numeric hyphenated keys (e.g. customer-123, phone-1) are preserved
+    vars6 = extract_template_variables("Call {{ customer-123 }} at {{ phone-1 }}")
+    assert vars6 == {"customer-123", "phone-1"}
+
 
 def test_clock_variables_with_hyphenated_iana_timezones():
     """Verify that clock variables with hyphenated IANA timezones (e.g. America/Port-au-Prince) render accurately."""

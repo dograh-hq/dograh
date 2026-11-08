@@ -4,6 +4,7 @@ Uses the Telnyx Call Control API v2 for outbound calling with
 inline WebSocket media streaming.
 """
 
+import asyncio
 import base64
 import binascii
 import json
@@ -53,6 +54,9 @@ def _get_header(headers: Dict[str, str], name: str) -> str:
         if key.lower() == name:
             return value
     return ""
+
+
+TRANSFER_LEG_HANGUP_TIMEOUT_SECONDS = 5
 
 
 class TelnyxProvider(TelephonyProvider):
@@ -870,9 +874,16 @@ class TelnyxProvider(TelephonyProvider):
             TelnyxHangupStrategy,
         )
 
-        await TelnyxHangupStrategy().execute_hangup(
-            {"call_control_id": call_control_id, "api_key": self.api_key}
-        )
+        try:
+            # Runs inline in webhook handlers, so a slow Telnyx must not stall them.
+            await asyncio.wait_for(
+                TelnyxHangupStrategy().execute_hangup(
+                    {"call_control_id": call_control_id, "api_key": self.api_key}
+                ),
+                timeout=TRANSFER_LEG_HANGUP_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning("Telnyx transfer leg hangup timed out")
 
     async def create_conference(
         self, seed_call_control_id: str, name: str

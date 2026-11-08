@@ -95,17 +95,16 @@ class TelnyxConferenceStrategy(TransferStrategy):
         from api.services.telephony.providers.telnyx.introduction import (
             leg_finished,
             play_introduction,
-        )
-        from api.services.telephony.providers.telnyx.routes import (
-            _resolve_telnyx_provider,
+            resolve_transfer_provider,
         )
 
         if await play_introduction(
             api_key, caller_call_control_id, transfer_context.introduction_audio_url
         ):
             return True
-        provider = await _resolve_telnyx_provider(transfer_context)
+        provider = await resolve_transfer_provider(transfer_context)
         if not provider:
+            await self._cleanup_transfer_context(transfer_context.transfer_id)
             return False
         await leg_finished(
             await get_call_transfer_manager(), transfer_context, provider, "caller"

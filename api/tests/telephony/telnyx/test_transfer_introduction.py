@@ -353,8 +353,11 @@ async def test_end_transfer_leg_gives_up_after_its_timeout():
             "TRANSFER_LEG_HANGUP_TIMEOUT_SECONDS",
             0.01,
         ),
+        patch("api.services.telephony.providers.telnyx.provider.logger") as log,
     ):
         await asyncio.wait_for(provider.end_transfer_leg("dest-leg"), timeout=1)
+
+    assert "dest-leg" in log.warning.call_args.args
 
 
 @pytest.mark.asyncio

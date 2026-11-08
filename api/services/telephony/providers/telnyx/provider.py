@@ -883,7 +883,11 @@ class TelnyxProvider(TelephonyProvider):
                 timeout=TRANSFER_LEG_HANGUP_TIMEOUT_SECONDS,
             )
         except TimeoutError:
-            logger.warning("Telnyx transfer leg hangup timed out")
+            # The context is dropped after this, so the id is the only way to find the leg.
+            logger.warning(
+                "Telnyx transfer leg hangup timed out call_control_id={}",
+                call_control_id,
+            )
 
     async def create_conference(
         self, seed_call_control_id: str, name: str

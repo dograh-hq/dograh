@@ -15,6 +15,8 @@ from api.schemas.workflow_configurations import PromptVariablesConfiguration
 from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
 from api.services.workflow.prompt_variables import (
     call_context_note,
+    call_context_prompt,
+    call_variable_names,
     clock_source_labels,
     prompt_templates,
 )
@@ -83,11 +85,13 @@ def compose_system_prompt_for_node(
     """
     source_labels = {}
     if prompt_variables and prompt_variables.mode == "call_context":
+        templates = prompt_templates(workflow)
+        names = call_variable_names(templates)
 
         def format_prompt(text):
-            return text.replace("\\n", "\n") if text else text
+            return call_context_prompt(text, names)
 
-        source_labels = clock_source_labels(prompt_templates(workflow))
+        source_labels = clock_source_labels(templates)
     global_prompt = ""
     if workflow.global_node_id and node.add_global_prompt:
         global_node = workflow.nodes[workflow.global_node_id]

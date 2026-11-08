@@ -20,7 +20,6 @@ from api.services.workflow.pipecat_engine_context_composer import (
 from api.services.workflow.pipecat_engine_custom_tools import load_tool_schemas
 from api.services.workflow.prompt_variables import (
     DEFAULT_CALL_CONTEXT_NOTE,
-    ITALIAN_CALL_CONTEXT_NOTE,
     CallContextMessage,
     call_variable_context,
     prompt_templates,
@@ -211,7 +210,6 @@ async def build_prompt_preview(
         minimum_tokens=minimum,
         notices=notices,
         default_note=DEFAULT_CALL_CONTEXT_NOTE,
-        italian_note=ITALIAN_CALL_CONTEXT_NOTE,
     )
 
 

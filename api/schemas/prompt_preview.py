@@ -35,7 +35,6 @@ class PromptPreviewResponse(BaseModel):
     minimum_tokens: int | None = None
     notices: list[str]
     default_note: str
-    italian_note: str
 
 
 class PromptReplayRequest(BaseModel):

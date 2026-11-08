@@ -4027,10 +4027,6 @@ export type PromptPreviewResponse = {
      * Default Note
      */
     default_note: string;
-    /**
-     * Italian Note
-     */
-    italian_note: string;
 };
 
 /**

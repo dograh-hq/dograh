@@ -53,7 +53,8 @@ def test_inline_is_unchanged_and_call_context_is_static():
     assert compose("Ada") == "Global Ada\n\nHello Ada\nUnknown"
     config = PromptVariablesConfiguration(mode="call_context")
     assert compose("Ada", config) == compose("Bob", config)
-    assert "{{missing | fallback:Unknown}}" in compose("Ada", config)
+    assert "{{missing}}" in compose("Ada", config)
+    assert "Unknown" not in compose("Ada", config)
 
 
 def test_complete_expressions_and_nested_paths_keep_renderer_semantics():
@@ -67,8 +68,8 @@ def test_complete_expressions_and_nested_paths_keep_renderer_semantics():
     }
     values = resolve_call_variables([("n", template)], context)
     assert values == {
-        "name | fallback:Alice": "Alice",
-        "name | fallback:Bob": "Bob",
+        "name__fallback_1": "Alice",
+        "name__fallback_2": "Bob",
         "initial_context.city": "Rome",
         "gathered_context.zip": "00100",
         "missing": "",
@@ -76,6 +77,89 @@ def test_complete_expressions_and_nested_paths_keep_renderer_semantics():
         "flag": "False",
         "obj": '{"a": 1}',
     }
+
+
+@pytest.mark.parametrize("fallback", ["Smith", "fallback:Smith"])
+@pytest.mark.parametrize(
+    "value,expected",
+    [(None, "Smith"), ("", "Smith"), ("Lee", "Lee"), (0, "0"), (False, "False")],
+)
+def test_defaults_are_resolved_in_context_and_removed_from_prompt(
+    fallback, value, expected
+):
+    node = SimpleNamespace(
+        id="n",
+        prompt="Name: {{first_name}} {{last_name}} {{middle_name | " + fallback + "}}",
+        add_global_prompt=False,
+    )
+    workflow = SimpleNamespace(global_node_id=None, nodes={"n": node})
+    context = {"first_name": "Ada", "last_name": "Jones", "middle_name": value}
+    prompt = compose_system_prompt_for_node(
+        node=node,
+        workflow=workflow,
+        format_prompt=lambda text: render_template(text, context),
+        has_recordings=False,
+        prompt_variables=PromptVariablesConfiguration(mode="call_context"),
+    ).text
+    values = resolve_call_variables([("n", node.prompt)], context)
+    assert prompt.startswith("Name: {{first_name}} {{last_name}} {{middle_name}}\n\n")
+    assert "Smith" not in prompt and " | " not in prompt
+    assert values == {
+        "first_name": "Ada",
+        "last_name": "Jones",
+        "middle_name": expected,
+    }
+    assert render_template(prompt.split("\n\n")[0], values) == render_template(
+        node.prompt, context
+    )
+    assert CallContextMessage(values)["content"] == (
+        '<call_context>\nfirst_name: "Ada"\nlast_name: "Jones"\n'
+        f'middle_name: "{expected}"\n</call_context>'
+    )
+
+
+def test_conflicting_defaults_keep_distinct_names_across_global_and_node_prompts():
+    global_node = SimpleNamespace(
+        id="global", prompt="{{name}} {{name | Alice}} {{name__fallback_1}}"
+    )
+    node = SimpleNamespace(
+        id="n",
+        prompt="{{name | fallback:Bob}} {{name | Alice}}",
+        add_global_prompt=True,
+    )
+    nodes = {"global": global_node, "n": node}
+    templates = [(key, node.prompt) for key, node in nodes.items()]
+    context = {"name__fallback_1": "Original variable"}
+    values = resolve_call_variables(templates, context)
+    assert values == {
+        "name": "",
+        "name__fallback_2": "Alice",
+        "name__fallback_1": "Original variable",
+        "name__fallback_3": "Bob",
+    }
+    prompt = compose_system_prompt_for_node(
+        node=node,
+        workflow=SimpleNamespace(global_node_id="global", nodes=nodes),
+        format_prompt=lambda text: text,
+        has_recordings=False,
+        prompt_variables=PromptVariablesConfiguration(mode="call_context"),
+    ).text
+    assert " | " not in prompt
+    assert "Alice" not in prompt and "Bob" not in prompt
+    assert render_template(prompt.split("\n\n## CALL VARIABLES")[0], values) == (
+        render_template(global_node.prompt, context)
+        + "\n\n"
+        + render_template(node.prompt, context)
+    )
+    assert resolve_call_variables(list(reversed(templates)), context) == values
+    updated = resolve_call_variables(templates, {**context, "name": "Ada"})
+    assert set(updated) == set(values)
+    assert (
+        updated["name"]
+        == updated["name__fallback_2"]
+        == updated["name__fallback_3"]
+        == "Ada"
+    )
 
 
 def test_metadata_updates_do_not_become_caller_speech():
@@ -94,7 +178,7 @@ def test_metadata_updates_do_not_become_caller_speech():
     assert (
         "Rome" not in build_handoff_snapshot(context, source_agent_name="A").transcript
     )
-    context.add_message({"role": "user", "content": "<contesto_chiamata> real speech"})
+    context.add_message({"role": "user", "content": "<call_context> real speech"})
     assert has_user_turns(context)
     assert len(normalize_conversation(context)) == 2
 
@@ -232,7 +316,9 @@ async def test_engine_updates_values_after_extraction_without_changing_system(
     from pipecat.tests import MockLLMService
 
     node = three_node_workflow.nodes[three_node_workflow.start_node_id]
-    node.prompt = "Hello {{customer_name}}; city {{gathered_context.city}}"
+    node.prompt = (
+        "Hello {{customer_name}}; city {{gathered_context.city | Unknown city}}"
+    )
     llm = MockLLMService(mock_chunks=[])
     engine = PipecatEngine(
         llm=llm,
@@ -247,6 +333,8 @@ async def test_engine_updates_values_after_extraction_without_changing_system(
     prompt = engine.active_agent.system_prompt
     assert "{{customer_name}}" in prompt and "Ada" not in prompt
     assert engine.context.messages[0].values["customer_name"] == "Ada"
+    assert "{{gathered_context.city}}" in prompt and "Unknown city" not in prompt
+    assert engine.context.messages[0].values["gathered_context.city"] == "Unknown city"
     engine.record_context({"city": "Rome"})
     assert engine.context.messages[-1].values == {"gathered_context.city": "Rome"}
     assert engine.active_agent.system_prompt == prompt

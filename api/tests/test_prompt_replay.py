@@ -231,21 +231,26 @@ def test_reconstruction_keeps_sequential_execution_of_one_tool_group_together(
 def test_reconstruction_recovers_after_missing_tool_result(boundary, completed_sibling):
     events = [build_user_transcription_event(text="Check my booking", final=True)]
     if completed_sibling:
-        events.extend(
-            [
-                build_function_call_start_event(
-                    function_name="lookup", tool_call_id="done", group_id="first"
-                ),
-                build_function_call_end_event(
-                    function_name="lookup", tool_call_id="done", result={"found": True}
-                ),
-            ]
+        events.append(
+            build_function_call_start_event(
+                function_name="lookup",
+                tool_call_id="done",
+                group_id="first" if boundary == "groups" else None,
+            )
         )
     events.append(
         build_function_call_start_event(
-            function_name="slow_lookup", tool_call_id="orphan", group_id="first"
+            function_name="slow_lookup",
+            tool_call_id="orphan",
+            group_id="first" if boundary == "groups" else None,
         )
     )
+    if completed_sibling:
+        events.append(
+            build_function_call_end_event(
+                function_name="lookup", tool_call_id="done", result={"found": True}
+            )
+        )
     if boundary == "timing":
         events.append(_llm_boundary())
     elif boundary == "user":
@@ -253,7 +258,9 @@ def test_reconstruction_recovers_after_missing_tool_result(boundary, completed_s
     events.extend(
         [
             build_function_call_start_event(
-                function_name="retry", tool_call_id="retry", group_id="second"
+                function_name="retry",
+                tool_call_id="retry",
+                group_id="second" if boundary == "groups" else None,
             ),
             # A late result for the abandoned request must not become an
             # unmatched tool response in the reconstructed conversation.

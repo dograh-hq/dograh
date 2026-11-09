@@ -548,9 +548,11 @@ def read_conversation(
 
     from .service import present
 
-    messages = present(SimpleNamespace(values=state, tasks=[], config={}), "history")[
-        "messages"
-    ]
+    # present() reads snapshot.next for can_continue; this fake snapshot needs it
+    # even though read_conversation only uses the returned messages.
+    messages = present(
+        SimpleNamespace(values=state, tasks=[], config={}, next=()), "history"
+    )["messages"]
     content = json.dumps(messages)
     end = min(offset + limit, len(content))
     return {

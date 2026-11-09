@@ -127,6 +127,22 @@ async def test_unavailable_tools_are_rejected_even_if_the_model_calls_them():
     assert not (await graph.aget_state(config)).values.get("files")
 
 
+def test_read_conversation_executes_against_its_fake_snapshot():
+    # read_conversation builds a bare SimpleNamespace for present(), which reads
+    # snapshot.next; without it the tool crashed the builder step in prod (503).
+    from api.services.workflow.builder_runtime.agent import read_conversation
+
+    state = {
+        "messages": [
+            HumanMessage(content="hello there", id="1"),
+            AIMessage(content="hi back", id="2"),
+        ]
+    }
+    out = read_conversation.invoke({"state": state})
+    messages = json.loads(out["content"])
+    assert [m["content"] for m in messages] == ["hello there", "hi back"]
+
+
 @pytest.mark.asyncio
 async def test_large_tool_results_remain_readable_without_file_tools():
     model = ScriptedModel(

@@ -196,7 +196,7 @@ async def build_prompt_preview(
                     ),
                 )
             )
-            if node.id in live_tool_nodes:
+            if cache_service and node.id in live_tool_nodes:
                 nodes[-1].cache_status = "requires_live_tools"
             elif cache_service:
                 from api.services.pipecat.prompt_cache import get_prompt_cache_registry
@@ -231,9 +231,10 @@ async def build_prompt_preview(
         if cache_service:
             await cache_service.cleanup()
     if live_tool_nodes:
-        notices.append(
-            "MCP tool schemas require a live call. Affected nodes have incomplete tool/token previews and are prewarmed only at call startup."
-        )
+        notice = "MCP tool schemas require a live call. Affected nodes have incomplete tool/token previews."
+        if cache_service:
+            notice += " Their caches are prewarmed only at call startup."
+        notices.append(notice)
     return PromptPreviewResponse(
         nodes=nodes,
         call_context=call_context,

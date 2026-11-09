@@ -26,6 +26,10 @@ def gross_prompt_tokens(usage: dict) -> int:
     Anthropic reports prompt_tokens net of cached tokens, unlike Google/OpenAI.
     A total_tokens value includes both and avoids double counting cache reads.
     """
-    if usage.get("total_tokens") is not None:
-        return max(0, usage["total_tokens"] - (usage.get("completion_tokens") or 0))
-    return usage.get("prompt_tokens") or 0
+    # Some legacy records use zero for an unavailable total. A missing or
+    # inconsistent total must never erase the input tokens actually reported.
+    return max(
+        0,
+        usage.get("prompt_tokens") or 0,
+        (usage.get("total_tokens") or 0) - (usage.get("completion_tokens") or 0),
+    )

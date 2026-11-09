@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException
@@ -102,6 +102,71 @@ async def test_preview_uses_runtime_google_schema_and_cache_identity(monkeypatch
         for call in registry.status.call_args_list
     )
     registry.prewarm.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["google", "google_vertex", "openai"])
+@pytest.mark.parametrize("mode", ["inline", "call_context"])
+async def test_mcp_preview_only_reports_prewarming_for_eligible_caching(
+    monkeypatch, provider, mode
+):
+    from copy import deepcopy
+
+    from api.enums import ToolCategory
+    from api.schemas.workflow_configurations import PromptVariablesConfiguration
+    from api.services.workflow import prompt_preview
+    from api.tests.conftest import DEFAULT_WORKFLOW_DEFINITION
+
+    effective = Mock(
+        llm=SimpleNamespace(provider=provider, model="test-model"), is_realtime=False
+    )
+    monkeypatch.setattr(
+        prompt_preview,
+        "resolve_model_configuration",
+        AsyncMock(return_value=SimpleNamespace(effective=effective)),
+    )
+    monkeypatch.setattr(
+        prompt_preview.db_client, "has_active_recordings", AsyncMock(return_value=False)
+    )
+    tool_id = "00000000-0000-0000-0000-000000000001"
+    lookup = AsyncMock(
+        side_effect=lambda ids, organization_id: (
+            [
+                SimpleNamespace(
+                    tool_uuid=tool_id, name="Test MCP", category=ToolCategory.MCP.value
+                )
+            ]
+            if tool_id in ids
+            else []
+        )
+    )
+    monkeypatch.setattr(prompt_preview.db_client, "get_tools_by_uuids", lookup)
+    service = Mock(
+        cleanup=AsyncMock(), prompt_cache_spec_for_node=Mock(return_value=None)
+    )
+    factory = Mock(return_value=service)
+    monkeypatch.setattr(
+        "api.services.pipecat.service_factory.create_llm_service", factory
+    )
+    graph = deepcopy(DEFAULT_WORKFLOW_DEFINITION)
+    graph["nodes"][0]["data"]["tool_uuids"] = [tool_id]
+    result = await prompt_preview.build_prompt_preview(
+        definition=SimpleNamespace(
+            workflow_id=12,
+            workflow_json=graph,
+            workflow_configurations={},
+            template_context_variables={},
+        ),
+        organization_id=7,
+        config=PromptVariablesConfiguration(mode=mode),
+    )
+    eligible = provider in {"google", "google_vertex"} and mode == "call_context"
+    assert result.nodes[0].cache_status == ("requires_live_tools" if eligible else None)
+    assert any("incomplete tool/token previews" in notice for notice in result.notices)
+    assert any("prewarmed" in notice for notice in result.notices) == eligible
+    assert factory.called == eligible
+    assert service.cleanup.await_count == int(eligible)
+    assert all(call.args[1] == 7 for call in lookup.call_args_list)
 
 
 @pytest.mark.asyncio

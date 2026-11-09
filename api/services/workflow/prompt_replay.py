@@ -89,6 +89,17 @@ def reconstruct_replay_turns(run, graph):
 
     def next_request():
         nonlocal pending, current, tool_message, tool_group, received_tool_result
+        if pending_tools and tool_message is not None:
+            # An interrupted request may never log its tool results. Drop only
+            # unmatched calls so later samples retain valid provider history.
+            tool_message["tool_calls"] = [
+                call
+                for call in tool_message["tool_calls"]
+                if call["id"] not in pending_tools
+            ]
+            if not tool_message["tool_calls"]:
+                history.remove(tool_message)
+        pending_tools.clear()
         pending, current = bool(history), None
         tool_message, tool_group = None, None
         received_tool_result = False

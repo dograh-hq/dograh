@@ -226,6 +226,70 @@ def test_reconstruction_keeps_sequential_execution_of_one_tool_group_together(
     assert len(items[0]["history"]) == 1
 
 
+@pytest.mark.parametrize("boundary", ["timing", "groups", "user"])
+@pytest.mark.parametrize("completed_sibling", [False, True])
+def test_reconstruction_recovers_after_missing_tool_result(boundary, completed_sibling):
+    events = [build_user_transcription_event(text="Check my booking", final=True)]
+    if completed_sibling:
+        events.extend(
+            [
+                build_function_call_start_event(
+                    function_name="lookup", tool_call_id="done", group_id="first"
+                ),
+                build_function_call_end_event(
+                    function_name="lookup", tool_call_id="done", result={"found": True}
+                ),
+            ]
+        )
+    events.append(
+        build_function_call_start_event(
+            function_name="slow_lookup", tool_call_id="orphan", group_id="first"
+        )
+    )
+    if boundary == "timing":
+        events.append(_llm_boundary())
+    elif boundary == "user":
+        events.append(build_user_transcription_event(text="Try again", final=True))
+    events.extend(
+        [
+            build_function_call_start_event(
+                function_name="retry", tool_call_id="retry", group_id="second"
+            ),
+            # A late result for the abandoned request must not become an
+            # unmatched tool response in the reconstructed conversation.
+            build_function_call_end_event(
+                function_name="slow_lookup", tool_call_id="orphan", result="late"
+            ),
+            build_function_call_end_event(
+                function_name="retry", tool_call_id="retry", result={"found": True}
+            ),
+            build_bot_text_event(text="Found it."),
+        ]
+    )
+    items = _reconstruct_events(events)
+    assert len(items) == 3
+    assert items[1]["expected"]["tool_calls"] == [{"name": "retry", "arguments": {}}]
+    assert items[2]["expected"]["text"] == "Found it."
+    for item in items[1:]:
+        calls = [
+            call["id"]
+            for message in item["history"]
+            for call in message.get("tool_calls", [])
+        ]
+        results = [
+            message["tool_call_id"]
+            for message in item["history"]
+            if message["role"] == "tool"
+        ]
+        assert "orphan" not in calls
+        assert ("done" in calls) == completed_sibling
+        assert calls == results
+        assert all(
+            message.get("content") or message.get("tool_calls")
+            for message in item["history"]
+        )
+
+
 def test_sample_metrics_use_gross_input_and_exclude_failed_requests():
     good = {
         "text": "Hello",

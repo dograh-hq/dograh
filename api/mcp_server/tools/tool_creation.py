@@ -23,7 +23,7 @@ async def create_tool(request: CreateToolRequest) -> dict[str, Any]:
     The request schema is the same `CreateToolRequest` used by the REST API
     and generated SDKs, and it is authoritative for the tool categories you
     can create: `http_api`, `end_call`, `transfer_call`, `transfer_agent`,
-    `calculator`, and `mcp`. Read the `definition` union rather than this
+    `calculator`, `mcp`, and `whatsapp`. Read the `definition` union rather than this
     list if the two ever disagree.
 
     `transfer_agent` hands the live call to another Dograh agent by
@@ -47,6 +47,10 @@ async def create_tool(request: CreateToolRequest) -> dict[str, Any]:
     - `destination_not_found` — a `transfer_agent` tool's `workflow_id` is
       not an agent in this organization; confirm the id with `list_workflows`.
     - `organization_required` — the API key user has no selected organization.
+    - `whatsapp_telephony_not_configured` — WhatsApp telephony provider is not
+      configured in this organization.
+    - `whatsapp_tool_already_exists` — an active WhatsApp tool already exists
+      for this organization.
     - `create_failed` — unexpected persistence or backend failure; retry once,
       then surface the error.
     """

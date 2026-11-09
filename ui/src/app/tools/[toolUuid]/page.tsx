@@ -18,6 +18,8 @@ import type {
     TransferAgentConfig,
     TransferCallConfig,
     UpdateToolRequest,
+    WhatsAppTemplateConfig,
+    WhatsAppToolConfig as WhatsAppToolConfigType,
 } from "@/client/types.gen";
 import {
     CredentialSelector,
@@ -78,6 +80,7 @@ import {
     type TransferAgentWorkflowOption,
     TransferCallToolConfig,
     type TransferGreetingMode,
+    WhatsAppToolConfig,
 } from "./components";
 
 function normalizeParameterType(value: string | null | undefined): ParameterType {
@@ -193,6 +196,12 @@ export default function ToolDetailPage() {
     const [mcpUrl, setMcpUrl] = useState("");
     const [mcpCredentialUuid, setMcpCredentialUuid] = useState("");
     const [mcpToolsFilter, setMcpToolsFilter] = useState("");
+
+    // WhatsApp form state
+    const [whatsAppExecutionMode, setWhatsAppExecutionMode] = useState<"async" | "sync">("async");
+    const [whatsAppTelephonyConfigId, setWhatsAppTelephonyConfigId] = useState<number | null>(null);
+    const [whatsAppFallbackRecipientPhone, setWhatsAppFallbackRecipientPhone] = useState("");
+    const [whatsAppTemplates, setWhatsAppTemplates] = useState<WhatsAppTemplateConfig[]>([]);
 
     // Org-level recordings for audio dropdowns
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
@@ -337,6 +346,41 @@ export default function ToolDetailPage() {
                 setMcpUrl("");
                 setMcpCredentialUuid("");
                 setMcpToolsFilter("");
+            }
+        } else if (tool.category === "whatsapp") {
+            const config = tool.definition?.config as WhatsAppToolConfigType | undefined;
+            if (config) {
+                setWhatsAppExecutionMode((config.execution_mode as "async" | "sync") ?? "async");
+                setWhatsAppTelephonyConfigId(config.telephony_configuration_id ?? null);
+                setWhatsAppFallbackRecipientPhone(
+                    config.fallback_recipient_phone_number ||
+                    config.test_recipient_phone_number ||
+                    ""
+                );
+                if (config.templates && config.templates.length > 0) {
+                    setWhatsAppTemplates(config.templates);
+                } else if ((config as Record<string, unknown>).template_name) {
+                    const legacy = config as Record<string, unknown>;
+                    setWhatsAppTemplates([
+                        {
+                            id: (legacy.template_name as string) || "default_template",
+                            name: (legacy.template_name as string) || "Default Template",
+                            description: "",
+                            template_name: (legacy.template_name as string) || "",
+                            template_id: (legacy.template_id as string) || null,
+                            language_code: (legacy.language_code as string) || "en_US",
+                            from_phone_number_id: (legacy.from_phone_number_id as string) || null,
+                            variable_mappings: (legacy.variable_mappings as WhatsAppTemplateConfig["variable_mappings"]) ?? [],
+                        },
+                    ]);
+                } else {
+                    setWhatsAppTemplates([]);
+                }
+            } else {
+                setWhatsAppExecutionMode("async");
+                setWhatsAppTelephonyConfigId(null);
+                setWhatsAppFallbackRecipientPhone("");
+                setWhatsAppTemplates([]);
             }
         } else {
             // Populate HTTP API specific fields
@@ -567,7 +611,38 @@ export default function ToolDetailPage() {
                 setError("MCP server URL must start with http:// or https://");
                 return;
             }
-        } else if (tool.category !== "end_call") {
+        } else if (tool.category === "whatsapp") {
+            if (whatsAppTemplates.length === 0) {
+                setError("At least one WhatsApp template must be configured");
+                return;
+            }
+            // Validate WhatsApp templates
+            for (let i = 0; i < whatsAppTemplates.length; i++) {
+                const tpl = whatsAppTemplates[i];
+                if (!tpl.name?.trim()) {
+                    setError(`Template #${i + 1} must have a name`);
+                    return;
+                }
+                if (!tpl.template_name) {
+                    setError(`Template #${i + 1} (${tpl.name}) must have an approved Meta template selected`);
+                    return;
+                }
+                for (const v of tpl.variable_mappings || []) {
+                    if (!v.name?.trim()) {
+                        setError(`Template #${i + 1} (${tpl.name}): Variable {{${v.index}}} must have a parameter name`);
+                        return;
+                    }
+                    if (v.source === "context" && !v.value?.trim()) {
+                        setError(`Template #${i + 1} (${tpl.name}): Variable {{${v.index}}} requires a context path (e.g. {{initial_context.lead_name}})`);
+                        return;
+                    }
+                    if ((v.source === "static" || v.source === "literal") && !v.value?.trim()) {
+                        setError(`Template #${i + 1} (${tpl.name}): Variable {{${v.index}}} requires a fixed text value`);
+                        return;
+                    }
+                }
+            }
+        } else if (tool.category === "http_api") {
             // Validate URL for HTTP API tools
             const urlValidation = validateUrl(url);
             if (!urlValidation.valid) {
@@ -732,6 +807,23 @@ export default function ToolDetailPage() {
                             ? { introduction: transferAgentIntroduction.trim() }
                             : {}),
                     }, controlMessages),
+                };
+            } else if (tool.category === "whatsapp") {
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: {
+                        schema_version: 1,
+                        type: "whatsapp",
+                        messages: serializeToolMessages(messages),
+                        config: {
+                            execution_mode: whatsAppExecutionMode || "async",
+                            telephony_configuration_id: whatsAppTelephonyConfigId || null,
+                            fallback_recipient_phone_number: whatsAppFallbackRecipientPhone.trim() || null,
+                            test_recipient_phone_number: whatsAppFallbackRecipientPhone.trim() || null,
+                            templates: whatsAppTemplates,
+                        },
+                    } as UpdateToolRequest["definition"],
                 };
             } else {
                 // Build HTTP API request body
@@ -916,6 +1008,7 @@ const data = await response.json();`;
     const isTransferAgentTool = tool.category === "transfer_agent";
     const isBuiltinTool = tool.category === "calculator";
     const isMcpTool = tool.category === "mcp";
+    const isWhatsAppTool = tool.category === "whatsapp";
     const isHttpApiTool = tool.category === "http_api";
     const hasUnsavedHttpChanges =
         isHttpApiTool &&
@@ -1153,6 +1246,21 @@ const data = await response.json();`;
                             </div>
                         </CardContent>
                     </Card>
+                ) : isWhatsAppTool ? (
+                    <WhatsAppToolConfig
+                        name={name}
+                        onNameChange={setName}
+                        description={description}
+                        onDescriptionChange={setDescription}
+                        executionMode={whatsAppExecutionMode}
+                        onExecutionModeChange={setWhatsAppExecutionMode}
+                        fallbackRecipientPhone={whatsAppFallbackRecipientPhone}
+                        onFallbackRecipientPhoneChange={setWhatsAppFallbackRecipientPhone}
+                        templates={whatsAppTemplates}
+                        onTemplatesChange={setWhatsAppTemplates}
+                        telephonyConfigId={whatsAppTelephonyConfigId}
+                        onTelephonyConfigIdChange={setWhatsAppTelephonyConfigId}
+                    />
                 ) : (
                     <HttpApiToolConfig
                         name={name}

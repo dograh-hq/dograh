@@ -32,6 +32,7 @@ from api.services.workflow.agent_handoff_context import (
     complete_handoff_message,
 )
 from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.prompt_variables import CallContextMessage
 
 
 def _agent(*providers):
@@ -72,6 +73,13 @@ def test_handoff_transcripts_and_summaries_are_not_searched_for():
     assert last_user_text([handoff]) == ""
     assert last_user_text([_user("Refunds?"), summary]) == ""
     assert last_user_text([handoff, summary, _user("Refunds?")]) == "Refunds?"
+
+
+def test_call_context_is_not_searched_for():
+    call_context = CallContextMessage({"customer_name": "Ada"})
+
+    assert last_user_text([_user("Refunds?"), call_context]) == "Refunds?"
+    assert last_user_text([call_context]) == ""
 
 
 async def test_knowledge_follows_the_user_message_as_a_developer_message():

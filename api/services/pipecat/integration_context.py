@@ -18,6 +18,7 @@ from api.services.workflow.agent_handoff_context import (
     ConversationSummaryMessage,
     HandoffMessage,
 )
+from api.services.workflow.prompt_variables import CallContextMessage
 from pipecat.frames.frames import Frame, LLMContextFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
@@ -42,11 +43,14 @@ def without_integration_context(messages: list[Any]) -> list[Any]:
 def last_user_text(messages: list[Any]) -> str:
     """What the caller said last, or an empty string.
 
-    Handoff transcripts and conversation summaries are user messages that
-    the caller did not say, so they are never searched for.
+    Call context, handoff transcripts and summaries are user messages
+    the caller did not say, so they are never searched for. A handoff
+    or a summary ends the search, as the caller has not spoken since it.
     """
     for message in reversed(messages):
         if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        if isinstance(message, CallContextMessage):
             continue
         if isinstance(message, (HandoffMessage, ConversationSummaryMessage)):
             return ""

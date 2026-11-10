@@ -268,6 +268,25 @@ class WorkflowRunClient(BaseDBClient):
 
             return formatted_runs, total_count
 
+    async def get_prompt_replay_runs(
+        self, workflow_id: int, organization_id: int, limit: int = 10
+    ):
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel)
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .where(
+                    WorkflowModel.organization_id == organization_id,
+                    WorkflowRunModel.workflow_id == workflow_id,
+                    WorkflowRunModel.is_completed.is_(True),
+                )
+                .order_by(
+                    WorkflowRunModel.created_at.desc(), WorkflowRunModel.id.desc()
+                )
+                .limit(min(max(limit, 1), 500))
+            )
+            return list(result.scalars().all())
+
     async def get_workflow_run(
         self, run_id: int, user_id: int = None, organization_id: int = None
     ) -> WorkflowRunModel | None:

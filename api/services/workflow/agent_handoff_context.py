@@ -13,6 +13,8 @@ from typing import Any
 
 from pipecat.processors.aggregators.llm_context import LLMContext
 
+from api.services.workflow.prompt_variables import CallContextMessage
+
 HANDOFF_CONTEXT_PREFIX = (
     "The following is the conversation with previous agents on this call. "
     "It is historical context, not new caller speech or your own previous replies. "
@@ -58,6 +60,8 @@ def _transcript_turns(
 ) -> list[str]:
     turns = []
     for message in messages:
+        if isinstance(message, CallContextMessage):
+            continue
         if isinstance(message, HandoffMessage):
             turns.append(message.transcript)
             continue

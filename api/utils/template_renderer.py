@@ -2,6 +2,8 @@
 
 import json
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional, Union
 from urllib.parse import quote, urlparse
@@ -16,6 +18,24 @@ TEMPLATE_VAR_PATTERN = r"\{\{\s*([^|\s}]+)(?:\s*\|\s*([^:}]+)(?::([^}]+))?)?\s*\
 _CURRENT_TIME_PREFIX = "current_time"
 _CURRENT_WEEKDAY_PREFIX = "current_weekday"
 _INITIAL_CONTEXT_PREFIX = "initial_context."
+_TEMPLATE_TIME: ContextVar[datetime | None] = ContextVar("template_time", default=None)
+
+
+@contextmanager
+def template_clock(now: datetime):
+    """Freeze built-ins for an offline replay without changing other requests."""
+    if now.tzinfo is None:
+        raise ValueError("Template clock requires a timezone-aware timestamp")
+    token = _TEMPLATE_TIME.set(now)
+    try:
+        yield
+    finally:
+        _TEMPLATE_TIME.reset(token)
+
+
+def _template_now(tz: ZoneInfo) -> datetime:
+    frozen = _TEMPLATE_TIME.get()
+    return frozen.astimezone(tz) if frozen else datetime.now(tz)
 
 
 def get_nested_value(obj: Any, path: str) -> Any:
@@ -151,24 +171,24 @@ def _resolve_builtin_variable(
     """
     if variable_path == _CURRENT_TIME_PREFIX:
         tz = ZoneInfo(default_tz) if default_tz else ZoneInfo("UTC")
-        return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S %Z")
+        return _template_now(tz).strftime("%Y-%m-%d %H:%M:%S %Z")
 
     if variable_path.startswith(_CURRENT_TIME_PREFIX + "_"):
         timezone = variable_path[len(_CURRENT_TIME_PREFIX) + 1 :]
         try:
-            return datetime.now(ZoneInfo(timezone)).strftime("%Y-%m-%d %H:%M:%S %Z")
+            return _template_now(ZoneInfo(timezone)).strftime("%Y-%m-%d %H:%M:%S %Z")
         except Exception:
             logger.warning(f"Invalid timezone in template variable: {timezone}")
             return None
 
     if variable_path == _CURRENT_WEEKDAY_PREFIX:
         tz = ZoneInfo(default_tz) if default_tz else ZoneInfo("UTC")
-        return datetime.now(tz).strftime("%A")
+        return _template_now(tz).strftime("%A")
 
     if variable_path.startswith(_CURRENT_WEEKDAY_PREFIX + "_"):
         timezone = variable_path[len(_CURRENT_WEEKDAY_PREFIX) + 1 :]
         try:
-            return datetime.now(ZoneInfo(timezone)).strftime("%A")
+            return _template_now(ZoneInfo(timezone)).strftime("%A")
         except Exception:
             logger.warning(f"Invalid timezone in template variable: {timezone}")
             return None

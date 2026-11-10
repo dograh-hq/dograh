@@ -23,7 +23,9 @@ from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMMessagesAppendFrame,
+    TextFrame,
     TranscriptionFrame,
+    TTSAudioRawFrame,
     UserSpeakingFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
@@ -36,8 +38,9 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
+from pipecat.processors.filters.identity_filter import IdentityFilter
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.tests.mock_transport import MockTransport
+from pipecat.tests.mock_transport import MockOutputTransport, MockTransport
 from pipecat.transports.base_transport import TransportParams
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
@@ -49,6 +52,7 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.enums import EndTaskReason
 from pipecat.utils.time import time_now_iso8601
 
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow import pipecat_engine_callbacks
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
@@ -485,3 +489,180 @@ async def test_cleanup_awaits_farewell_cancellation(farewell_engine, started):
     assert not engine.is_call_disposed()
     engine.perform_final_variable_extraction.assert_not_awaited()
     engine.call_worker.queue_frame.assert_not_awaited()
+
+
+FAREWELL_TEXT = "Goodbye, have a good day."
+
+
+class FakeRealtimeLLM(FrameProcessor):
+    """Answers a prompt like a realtime provider: the request returns at once
+    and the audio arrives later on the provider's receive task. Once teardown
+    reaches it the connection is closed and undelivered audio is lost."""
+
+    def __init__(self, sample_rate=16000):
+        super().__init__()
+        self.sample_rate = sample_rate
+        self.deliver = asyncio.Event()
+        self.closed = False
+        self.audio_sent = 0
+        self.receive_task = None
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, LLMMessagesAppendFrame) and frame.run_llm:
+            self.receive_task = self.create_task(self._receive(), "fake-realtime-rx")
+            return
+        if isinstance(frame, EndFrame):
+            self.closed = True
+        await self.push_frame(frame, direction)
+
+    async def _receive(self):
+        await self.deliver.wait()
+        await self.push_frame(LLMFullResponseStartFrame())
+        for _ in range(3):
+            if self.closed:
+                return
+            await self.push_frame(
+                TTSAudioRawFrame(
+                    b"\x01\x00" * (self.sample_rate // 25), self.sample_rate, 1
+                )
+            )
+            self.audio_sent += 1
+            await asyncio.sleep(0)
+        await self.push_frame(LLMFullResponseEndFrame())
+
+
+class FakeCascadedLLM(FrameProcessor):
+    """Answers a prompt with a text response, in pipeline order, for TTS."""
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, LLMMessagesAppendFrame) and frame.run_llm:
+            await self.push_frame(LLMFullResponseStartFrame())
+            await self.push_frame(TextFrame(FAREWELL_TEXT))
+            await self.push_frame(LLMFullResponseEndFrame())
+            return
+        await self.push_frame(frame, direction)
+
+
+class CountingOutput(MockOutputTransport):
+    def __init__(self, sample_rate=16000):
+        super().__init__(
+            params=TransportParams(
+                audio_out_enabled=True,
+                audio_out_sample_rate=sample_rate,
+                audio_out_end_silence_secs=0,
+            )
+        )
+        self.audio_written = 0
+        self.audio_at_end = None
+
+    async def write_audio_frame(self, frame):
+        self.audio_written += 1
+        return await super().write_audio_frame(frame)
+
+    async def process_frame(self, frame, direction):
+        if isinstance(frame, EndFrame):
+            self.audio_at_end = self.audio_written
+        await super().process_frame(frame, direction)
+
+
+async def run_idle_farewell_pipeline(workflow, llm, *processors, is_realtime):
+    """Drive the second idle timeout through a running call pipeline."""
+    entry = IdentityFilter()
+    output = CountingOutput()
+    engine = PipecatEngine(
+        workflow=workflow,
+        call_context_vars={},
+        llm=llm,
+        is_realtime=is_realtime,
+    )
+    engine.active_agent.current_node = workflow.nodes["agent"]
+    engine.perform_final_variable_extraction = AsyncMock()
+    worker = PipelineWorker(
+        Pipeline([entry, llm, *processors, output]), enable_rtvi=False
+    )
+    engine.call_worker = worker
+    engine.set_transport_output(output)
+    ready = asyncio.Event()
+    ended = []
+
+    @worker.event_handler("on_pipeline_started")
+    async def started(*_):
+        ready.set()
+
+    @worker.event_handler("on_pipeline_finished")
+    async def finished(_worker, frame):
+        ended.append((frame, output.audio_written))
+
+    runner = asyncio.create_task(run_pipeline_worker(worker))
+    try:
+        await asyncio.wait_for(ready.wait(), 3)
+        await pipecat_engine_callbacks.handle_user_idle(engine, entry, 2)
+        return SimpleNamespace(engine=engine, output=output, runner=runner, ended=ended)
+    except BaseException:
+        runner.cancel()
+        await asyncio.gather(runner, return_exceptions=True)
+        raise
+
+
+@pytest.mark.asyncio
+async def test_realtime_idle_farewell_plays_before_pipeline_teardown(
+    three_node_workflow_no_variable_extraction,
+):
+    llm = FakeRealtimeLLM()
+    call = await run_idle_farewell_pipeline(
+        three_node_workflow_no_variable_extraction, llm, is_realtime=True
+    )
+    try:
+        # The append request has returned and no audio exists yet: the call
+        # must still be open, or teardown would close the provider first.
+        await asyncio.sleep(0.05)
+        assert not call.runner.done()
+        assert not call.engine.is_call_disposed()
+        assert not llm.closed
+
+        llm.deliver.set()
+        await asyncio.wait_for(call.runner, 5)
+
+        assert llm.audio_sent == 3
+        assert call.output.audio_written >= 3
+        assert call.output.audio_at_end == call.output.audio_written
+        frame, written = call.ended[0]
+        assert isinstance(frame, EndFrame)
+        assert frame.reason == IDLE_REASON
+        assert written == call.output.audio_written
+        assert call.engine._gathered_context["call_status"] == IDLE_REASON
+    finally:
+        llm.deliver.set()
+        if not call.runner.done():
+            call.runner.cancel()
+        await asyncio.gather(call.runner, return_exceptions=True)
+        await call.engine.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_cascaded_idle_farewell_plays_before_pipeline_teardown(
+    three_node_workflow_no_variable_extraction,
+):
+    llm = FakeCascadedLLM()
+    tts = MockTTSService(mock_audio_duration_ms=120, frame_delay=0)
+    call = await run_idle_farewell_pipeline(
+        three_node_workflow_no_variable_extraction, llm, tts, is_realtime=False
+    )
+    try:
+        await asyncio.wait_for(call.runner, 5)
+
+        assert call.output.audio_written > 0
+        assert call.output.audio_at_end == call.output.audio_written
+        frame, written = call.ended[0]
+        assert isinstance(frame, EndFrame)
+        assert frame.reason == IDLE_REASON
+        assert written == call.output.audio_written
+        call.engine.perform_final_variable_extraction.assert_awaited_once()
+        assert call.engine._gathered_context["call_status"] == IDLE_REASON
+    finally:
+        if not call.runner.done():
+            call.runner.cancel()
+        await asyncio.gather(call.runner, return_exceptions=True)
+        await call.engine.cleanup()

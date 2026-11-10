@@ -1093,6 +1093,77 @@ class UltravoxRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
 
 
+# Gemini Live automatic activity detection (server-side VAD) settings, shared
+# by the Google AI Studio and Vertex AI realtime configurations so both
+# speech-to-speech paths expose the same turn-taking knobs. Every field
+# defaults to None, which keeps Google's server defaults and leaves existing
+# deployments unchanged.
+GEMINI_LIVE_VAD_SENSITIVITIES = ["HIGH", "LOW"]
+GEMINI_LIVE_VAD_DOCS_URL = (
+    "https://ai.google.dev/gemini-api/docs/live-guide#automatic-vad-configuration"
+)
+GeminiLiveVADSensitivity = Literal["HIGH", "LOW"]
+
+
+def _gemini_live_start_of_speech_sensitivity_field():
+    return Field(
+        default=None,
+        description=(
+            "How readily Gemini decides the user has started speaking. HIGH "
+            "picks up speech sooner (and more noise); LOW waits for clearer "
+            "speech. Leave blank to use Google's default."
+        ),
+        json_schema_extra={
+            "examples": GEMINI_LIVE_VAD_SENSITIVITIES,
+            "docs_url": GEMINI_LIVE_VAD_DOCS_URL,
+            "docs_label": "Automatic VAD configuration",
+        },
+    )
+
+
+def _gemini_live_end_of_speech_sensitivity_field():
+    return Field(
+        default=None,
+        description=(
+            "How readily Gemini decides the user has stopped speaking. HIGH "
+            "commits the turn sooner, which helps short utterances such as "
+            "'Hello?' get a reply; LOW tolerates longer pauses mid-sentence. "
+            "Leave blank to use Google's default."
+        ),
+        json_schema_extra={
+            "examples": GEMINI_LIVE_VAD_SENSITIVITIES,
+            "docs_url": GEMINI_LIVE_VAD_DOCS_URL,
+            "docs_label": "Automatic VAD configuration",
+        },
+    )
+
+
+def _gemini_live_prefix_padding_ms_field():
+    return Field(
+        default=None,
+        ge=0,
+        le=10000,
+        description=(
+            "Milliseconds of speech required before start-of-speech is "
+            "committed. Lower values react faster to short utterances; higher "
+            "values filter out brief noise. Leave blank to use Google's default."
+        ),
+    )
+
+
+def _gemini_live_silence_duration_ms_field():
+    return Field(
+        default=None,
+        ge=0,
+        le=10000,
+        description=(
+            "Milliseconds of silence after which the user's turn is considered "
+            "finished. Lower values make the agent respond sooner after the "
+            "caller stops talking. Leave blank to use Google's default."
+        ),
+    )
+
+
 @register_service(ServiceType.REALTIME, provider=GOOGLE_PROVIDER)
 class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.GOOGLE_REALTIME] = (
@@ -1122,6 +1193,14 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": True,
         },
     )
+    start_of_speech_sensitivity: GeminiLiveVADSensitivity | None = (
+        _gemini_live_start_of_speech_sensitivity_field()
+    )
+    end_of_speech_sensitivity: GeminiLiveVADSensitivity | None = (
+        _gemini_live_end_of_speech_sensitivity_field()
+    )
+    prefix_padding_ms: int | None = _gemini_live_prefix_padding_ms_field()
+    silence_duration_ms: int | None = _gemini_live_silence_duration_ms_field()
 
 
 @register_service(ServiceType.REALTIME, provider=GOOGLE_VERTEX_PROVIDER)
@@ -1153,6 +1232,14 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": True,
         },
     )
+    start_of_speech_sensitivity: GeminiLiveVADSensitivity | None = (
+        _gemini_live_start_of_speech_sensitivity_field()
+    )
+    end_of_speech_sensitivity: GeminiLiveVADSensitivity | None = (
+        _gemini_live_end_of_speech_sensitivity_field()
+    )
+    prefix_padding_ms: int | None = _gemini_live_prefix_padding_ms_field()
+    silence_duration_ms: int | None = _gemini_live_silence_duration_ms_field()
     project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
     location: str = Field(
         default=GOOGLE_VERTEX_DEFAULT_LOCATION,

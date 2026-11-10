@@ -15,8 +15,9 @@ TEMPERATURE_DESCRIPTION = (
     "Leave blank to use the provider default."
 )
 
-# The factory currently enables reasoning for the GPT-5 family. Temperature
-# is unsupported in that mode, as well as on o-series models.
+# The factory's GPT-5 branch sends a reasoning effort and no sampling
+# settings, so temperature is not offered for that family. o-series models
+# do not support it at all.
 # https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.4
 OPENAI_REASONING_RULE = {
     "pattern": r"(^|/)(gpt-5|o[134](?:-|$))",

@@ -37,7 +37,7 @@ class _Response:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("deployment_mode", ["oss", "saas"])
-async def test_chat_completion_owns_transport_and_managed_protocol(
+async def test_agent_builder_completion_owns_billing_and_model_selection(
     monkeypatch, deployment_mode
 ):
     requests = []
@@ -65,10 +65,7 @@ async def test_chat_completion_owns_transport_and_managed_protocol(
         assert request.headers["Authorization"] == "Bearer org-service-key"
         assert "X-Secret-Key" not in request.headers
         assert "X-Organization-Id" not in request.headers
-        if request.url.path == "/api/v1/service-keys/correlation-id/self":
-            assert json.loads(request.content) == {"deployment_id": DEPLOYMENT_ID}
-            return httpx.Response(200, json={"correlation_id": "minted-correlation"})
-        assert request.url.path == "/api/v1/llm/chat/completions"
+        assert request.url.path == "/api/v1/agent-builder/chat/completions"
         assert request.extensions["timeout"] == {
             "connect": 10,
             "read": 290,
@@ -97,9 +94,8 @@ async def test_chat_completion_owns_transport_and_managed_protocol(
         "mps_billing_version": "1",
     }
 
-    result = await client.create_chat_completion(
+    result = await client.create_agent_builder_completion(
         service_key="org-service-key",
-        model="workflow_builder",
         messages=messages,
         max_tokens=8000,
         tools=tools,
@@ -107,9 +103,8 @@ async def test_chat_completion_owns_transport_and_managed_protocol(
         metadata=metadata,
     )
     assert result == response_body
-    assert len(requests) == 2
+    assert len(requests) == 1
     assert json.loads(requests[-1].content) == {
-        "model": "workflow_builder",
         "messages": messages,
         "max_tokens": 8000,
         "tools": tools,
@@ -117,24 +112,22 @@ async def test_chat_completion_owns_transport_and_managed_protocol(
         "stream": False,
         "metadata": {
             "usage_context": "workflow_builder",
-            "correlation_id": "minted-correlation",
-            "mps_billing_version": "2",
         },
     }
     assert metadata["correlation_id"] == "untrusted"  # Caller input is not mutated.
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("correlation_response", [{}, {"correlation_id": " "}, None])
-async def test_chat_completion_stops_when_correlation_is_missing(
-    monkeypatch, correlation_response
+@pytest.mark.parametrize("status", [403, 503])
+async def test_chat_completion_propagates_billing_failure_without_fallback(
+    monkeypatch, status
 ):
     requests = []
 
     def handle(request):
         requests.append(request)
-        assert request.url.path == "/api/v1/service-keys/correlation-id/self"
-        return httpx.Response(200, content=json.dumps(correlation_response))
+        assert request.url.path == "/api/v1/agent-builder/chat/completions"
+        return httpx.Response(status, json={"detail": "Billing unavailable"})
 
     actual_client = httpx.AsyncClient
     monkeypatch.setattr(
@@ -142,13 +135,13 @@ async def test_chat_completion_stops_when_correlation_is_missing(
         "AsyncClient",
         lambda **kwargs: actual_client(transport=httpx.MockTransport(handle), **kwargs),
     )
-    with pytest.raises(MPSUnavailableError):
-        await MPSServiceKeyClient().create_chat_completion(
+    with pytest.raises(httpx.HTTPStatusError) as error:
+        await MPSServiceKeyClient().create_agent_builder_completion(
             service_key="org-service-key",
-            model="workflow_builder",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=8000,
         )
+    assert error.value.response.status_code == status
     assert len(requests) == 1
 
 

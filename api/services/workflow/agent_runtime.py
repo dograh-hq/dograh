@@ -48,6 +48,7 @@ from pipecat.services.llm_service import (
 )
 
 from api.schemas.tool import ToolMessages
+from api.schemas.workflow_configurations import PromptVariablesConfiguration
 from api.services.workflow.tool_execution import ToolExecutionOwner
 
 if TYPE_CHECKING:
@@ -112,7 +113,11 @@ class AgentRuntime:
     system_prompt: str = ""
     # Integration context providers for the current node, run before each user turn.
     context_providers: list[Any] = field(default_factory=list)
+    prompt_variables: PromptVariablesConfiguration = field(
+        default_factory=PromptVariablesConfiguration
+    )
     mcp_sessions: dict[str, Any] = field(default_factory=dict)
+    prompt_prewarm_nodes: set[str] = field(default_factory=set, repr=False)
     tool_tasks: set[asyncio.Task] = field(default_factory=set, repr=False)
     _tool_execution_owner: ToolExecutionOwner | None = field(
         default=None, init=False, repr=False

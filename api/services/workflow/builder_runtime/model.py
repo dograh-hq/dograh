@@ -33,7 +33,9 @@ async def _completion_with_retry(**kwargs):
     # Only inference is retried here; tool mutations have separate durable receipts.
     for attempt in range(3):
         try:
-            return await mps_service_key_client.create_chat_completion(**kwargs)
+            return await mps_service_key_client.create_agent_builder_completion(
+                **kwargs
+            )
         except (httpx.HTTPError, MPSUnavailableError) as exc:
             status = extract_http_status(exc)
             transient = isinstance(exc, httpx.TransportError) or status in {
@@ -50,7 +52,7 @@ async def _completion_with_retry(**kwargs):
 
 
 class BuilderChatModel(BaseChatModel):
-    # A tier, never a concrete provider/model. MPS resolves metadata.usage_context.
+    # A tracing label. MPS's Agent Builder endpoint owns model selection.
     model_name: str = BUILDER_USAGE_CONTEXT
     max_output_tokens: int = 32000
     organization_id: int
@@ -92,7 +94,6 @@ class BuilderChatModel(BaseChatModel):
         try:
             response = await _completion_with_retry(
                 service_key=api_key,
-                model=self.model_name,
                 messages=wire,
                 # Reasoning models (gpt-5, o-series, R1, …) count their
                 # reasoning tokens against this budget, so a small cap starves
@@ -119,15 +120,10 @@ class BuilderChatModel(BaseChatModel):
             )
         except (httpx.HTTPError, MPSUnavailableError) as exc:
             failure = classify_exception(exc, source=ErrorSource.LLM, provider="dograh")
-            if isinstance(exc, MPSUnavailableError) and exc.status_code is None:
-                # This client raises MPSUnavailableError when the successful
-                # correlation response lacks an ID; the connection did succeed.
-                failure.code = "dograh-invalid-response"
-                failure.retryable = None
             log_failure(
                 failure,
                 organization_id=self.organization_id,
-                operation="workflow_builder.create_chat_completion",
+                operation="workflow_builder.create_agent_builder_completion",
                 **builder_trace_metadata(),
             )
             # Keep the shared code/status, but never expose upstream response

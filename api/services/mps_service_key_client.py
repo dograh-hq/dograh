@@ -798,35 +798,30 @@ class MPSServiceKeyClient:
                 response=response,
             )
 
-    async def create_chat_completion(
+    async def create_agent_builder_completion(
         self,
         *,
         service_key: str,
-        model: str,
         messages: list[dict],
         max_tokens: int,
         metadata: dict | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> dict:
-        """Request a non-streaming managed completion outside a workflow run.
+        """Request one billed Agent Builder completion.
 
-        Authenticate with the caller's configured Dograh Service Key. Mint a
-        correlation with that same key and attach the billing v2 protocol here,
-        so callers only supply model inputs and application usage metadata.
+        Authenticate with the caller's configured Dograh Service Key. MPS owns
+        model selection, request identity, price snapshot and credit settlement.
         Return the full response, preserving provider reasoning/tool metadata.
 
-        Transport and HTTP failures propagate to the caller. Missing correlation
-        data raises MPSUnavailableError; inference never falls back without it.
+        Transport and HTTP failures propagate to the caller.
         """
-        minted = await self.create_correlation_id(service_key=service_key)
-        correlation_id = (
-            minted.get("correlation_id") if isinstance(minted, dict) else None
-        )
-        if not isinstance(correlation_id, str) or not correlation_id.strip():
-            raise MPSUnavailableError("create_chat_completion")
-
         headers = {"Authorization": f"Bearer {service_key}"}
+        metadata = {
+            key: value
+            for key, value in (metadata or {}).items()
+            if key not in {"correlation_id", "mps_billing_version"}
+        }
         # Only W3C trace context; never forward baggage or caller credentials to
         # another destination. MPS remains responsible for the generation span.
         TraceContextTextMapPropagator().inject(headers)
@@ -835,20 +830,15 @@ class MPSServiceKeyClient:
         # 300s builder step deadline (service.py) so that stays the outer bound.
         async with httpx.AsyncClient(timeout=httpx.Timeout(290, connect=10)) as client:
             response = await client.post(
-                f"{self.base_url.rstrip('/')}/api/v1/llm/chat/completions",
+                f"{self.base_url.rstrip('/')}/api/v1/agent-builder/chat/completions",
                 headers=headers,
                 json={
-                    "model": model,
                     "messages": messages,
                     "stream": False,
                     "max_tokens": max_tokens,
                     "tools": tools,
                     "tool_choice": tool_choice,
-                    "metadata": {
-                        **(metadata or {}),
-                        "correlation_id": correlation_id,
-                        "mps_billing_version": "2",
-                    },
+                    "metadata": metadata,
                 },
             )
             response.raise_for_status()

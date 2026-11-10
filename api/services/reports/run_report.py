@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any, List, Optional
 
 from api.db import db_client
+from api.services.pipecat.usage_metrics import gross_prompt_tokens, llm_usage_entries
 from api.utils.artifacts import artifact_url
 
 
@@ -47,6 +48,7 @@ def build_run_report_csv(runs: List[Any]) -> io.StringIO:
         "Call Tags",
         "Transcript URL",
         "Recording URL",
+        "LLM Cached Input (%)",
     ]
     writer.writerow(pre_headers + extracted_var_keys + post_headers)
 
@@ -80,6 +82,14 @@ def build_run_report_csv(runs: List[Any]) -> io.StringIO:
             artifact_url(run.public_access_token, "transcript") or "",
             artifact_url(run.public_access_token, "recording") or "",
         ]
+        llm_usage = llm_usage_entries(usage.get("llm"))
+        prompt_tokens = sum(gross_prompt_tokens(item) for item in llm_usage)
+        cached_tokens = sum(
+            item.get("cache_read_input_tokens") or 0 for item in llm_usage
+        )
+        post_values.append(
+            round(100 * cached_tokens / prompt_tokens, 2) if prompt_tokens else ""
+        )
 
         writer.writerow(pre_values + extracted_values + post_values)
 

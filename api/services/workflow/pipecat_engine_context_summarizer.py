@@ -25,6 +25,7 @@ from api.services.workflow.agent_handoff_context import (
     ConversationSummaryMessage,
     HandoffMessage,
 )
+from api.services.workflow.prompt_variables import CallContextMessage
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -98,7 +99,7 @@ class ContextSummarizationManager:
             messages = [
                 m
                 for m in without_integration_context(context.messages)
-                if not isinstance(m, HandoffMessage)
+                if not isinstance(m, (HandoffMessage, CallContextMessage))
             ]
             # Not worth summarizing if context is small
             if len(messages) <= 6:
@@ -168,8 +169,14 @@ class ContextSummarizationManager:
             # Snapshot current messages at apply-time (not request-time)
             # to preserve anything added while the summary was generating
             inherited = [m for m in context.messages if isinstance(m, HandoffMessage)]
+            pinned_values = {}
+            for message in context.messages:
+                if isinstance(message, CallContextMessage):
+                    pinned_values.update(message.values)
             current_messages = [
-                m for m in context.messages if not isinstance(m, HandoffMessage)
+                m
+                for m in context.messages
+                if not isinstance(m, (HandoffMessage, CallContextMessage))
             ]
             # last_index counts the summarized messages, which leave out the
             # integration knowledge; that message is kept where it is.
@@ -200,6 +207,8 @@ class ContextSummarizationManager:
             new_messages = []
             if first_system_msg:
                 new_messages.append(first_system_msg)
+            if pinned_values:
+                new_messages.append(CallContextMessage(pinned_values))
             new_messages.extend(inherited)
             new_messages.append(summary)
             new_messages.extend(recent_messages)

@@ -255,7 +255,7 @@ async def test_model_repair_discards_entire_malformed_tool_batch(monkeypatch):
     }
     monkeypatch.setattr(
         adapter.mps_service_key_client,
-        "create_chat_completion",
+        "create_agent_builder_completion",
         AsyncMock(return_value=response),
     )
     reply = await adapter.BuilderChatModel(organization_id=7, user_id="3").ainvoke(
@@ -280,7 +280,7 @@ async def test_output_limit_and_transient_inference_recovery(monkeypatch):
     }
     complete = AsyncMock(side_effect=[httpx.ConnectError("unavailable"), response])
     monkeypatch.setattr(
-        adapter.mps_service_key_client, "create_chat_completion", complete
+        adapter.mps_service_key_client, "create_agent_builder_completion", complete
     )
     monkeypatch.setattr(adapter.asyncio, "sleep", AsyncMock())
     reply = await adapter.BuilderChatModel(organization_id=7, user_id="3").ainvoke(

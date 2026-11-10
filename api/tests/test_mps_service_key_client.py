@@ -36,6 +36,157 @@ class _Response:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("deployment_mode", ["oss", "saas"])
+async def test_agent_builder_completion_owns_billing_and_model_selection(
+    monkeypatch, deployment_mode
+):
+    requests = []
+    response_body = {
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "reasoning_content": "Provider reasoning",
+                    "tool_calls": [
+                        {
+                            "id": "call-1",
+                            "provider_specific_fields": {"signature": "signature"},
+                        }
+                    ],
+                }
+            }
+        ],
+        "usage": {"total_tokens": 42},
+    }
+
+    def handle(request):
+        requests.append(request)
+        assert request.url.host == "mps.example"
+        assert request.headers["Authorization"] == "Bearer org-service-key"
+        assert "X-Secret-Key" not in request.headers
+        assert "X-Organization-Id" not in request.headers
+        assert request.url.path == "/api/v1/agent-builder/chat/completions"
+        assert request.extensions["timeout"] == {
+            "connect": 10,
+            "read": 290,
+            "write": 290,
+            "pool": 290,
+        }
+        return httpx.Response(200, json=response_body)
+
+    actual_client = httpx.AsyncClient
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", deployment_mode)
+    monkeypatch.setattr(
+        mps_client_module, "DOGRAH_MPS_SECRET_KEY", "control-plane-secret"
+    )
+    monkeypatch.setattr(
+        mps_client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: actual_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    client = MPSServiceKeyClient()
+    client.base_url = "https://mps.example"
+    messages = [{"role": "user", "content": "Hello"}]
+    tools = [{"type": "function", "function": {"name": "list_node_types"}}]
+    metadata = {
+        "usage_context": "workflow_builder",
+        "correlation_id": "untrusted",
+        "mps_billing_version": "1",
+    }
+
+    result = await client.create_agent_builder_completion(
+        service_key="org-service-key",
+        messages=messages,
+        max_tokens=8000,
+        tools=tools,
+        tool_choice="auto",
+        metadata=metadata,
+    )
+    assert result == response_body
+    assert len(requests) == 1
+    assert json.loads(requests[-1].content) == {
+        "messages": messages,
+        "max_tokens": 8000,
+        "tools": tools,
+        "tool_choice": "auto",
+        "stream": False,
+        "metadata": {
+            "usage_context": "workflow_builder",
+        },
+    }
+    assert metadata["correlation_id"] == "untrusted"  # Caller input is not mutated.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [403, 503])
+async def test_chat_completion_propagates_billing_failure_without_fallback(
+    monkeypatch, status
+):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert request.url.path == "/api/v1/agent-builder/chat/completions"
+        return httpx.Response(status, json={"detail": "Billing unavailable"})
+
+    actual_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        mps_client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: actual_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    with pytest.raises(httpx.HTTPStatusError) as error:
+        await MPSServiceKeyClient().create_agent_builder_completion(
+            service_key="org-service-key",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=8000,
+        )
+    assert error.value.response.status_code == status
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_invoice_calls_name_the_team_and_acting_user(monkeypatch):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        if request.url.path.endswith("/pdf"):
+            return httpx.Response(200, content=b"%PDF-1.4")
+        return httpx.Response(200, json={"payments": []})
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        mps_client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: async_client(
+            transport=httpx.MockTransport(handle),
+            **kwargs,
+        ),
+    )
+    monkeypatch.setattr(mps_client_module, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(mps_client_module, "DOGRAH_MPS_SECRET_KEY", "mps-secret")
+    client = MPSServiceKeyClient()
+
+    payments = await client.list_payments(organization_id=42, created_by="stack-user")
+    pdf = await client.get_invoice_pdf(
+        organization_id=42, payment_order_id=200, created_by="stack-user"
+    )
+
+    assert payments == {"payments": []}
+    assert pdf.content == b"%PDF-1.4"
+    assert [request.url.path for request in requests] == [
+        f"/api/v1/billing/teams/{TEAM_ID}/payments",
+        f"/api/v1/billing/teams/{TEAM_ID}/invoices/200/pdf",
+    ]
+    for request in requests:
+        assert request.method == "GET"
+        assert request.headers["X-Stack-Team-Id"] == TEAM_ID
+        assert request.headers["X-Created-By"] == "stack-user"
+        assert request.headers["X-Secret-Key"] == "mps-secret"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("entry_type", [None, "purchase", "credit"])
 async def test_credit_ledger_forwards_filters_with_organization_auth(
     monkeypatch, entry_type

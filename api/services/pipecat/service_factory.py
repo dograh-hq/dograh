@@ -35,11 +35,13 @@ from api.services.pipecat.fallback_llm import FallbackLLMProcessor, FallbackRout
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
+from api.services.pipecat.gemini_prompt_cache import GeminiPromptCacheMixin
 from api.services.pipecat.gemini_spoken_tool_calls import GeminiSpokenToolCallMixin
 from api.services.pipecat.google_credentials import (
     get_google_credentials,
     prepare_google_credentials,
 )
+from api.services.pipecat.murf_tts import MurfTTSService
 from api.services.pipecat.openai_spoken_tool_calls import OpenAISpokenToolCallMixin
 from api.services.pipecat.spoken_tool_calls import SpokenToolCallMixin
 from api.utils.url_security import validate_user_configured_service_url
@@ -143,7 +145,6 @@ from pipecat.services.stt_service import STTService, STTSettings
 from pipecat.services.tts_service import TextAggregationMode
 from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
 from pipecat.transcriptions.language import Language
-from pipecat.utils.text.spoken_text_filter import SpokenTextFilter
 from pipecat.utils.types import NOT_GIVEN, NotGiven
 
 if TYPE_CHECKING:
@@ -261,6 +262,29 @@ def _resolve_elevenlabs_stt_language(
         return language_code
 
 
+MURF_STREAM_PATH = "/v1/speech/stream-input"
+MURF_DEFAULT_BASE_URL = "https://global.api.murf.ai"
+
+
+def _murf_websocket_url(base_url: str | None) -> str:
+    """Normalize a Murf API host or URL to the streaming WebSocket endpoint."""
+    base_url = (base_url or MURF_DEFAULT_BASE_URL).strip()
+    parsed = urlparse(base_url)
+    if not parsed.netloc:
+        return base_url.rstrip("/")
+
+    websocket_scheme = {
+        "http": "ws",
+        "https": "wss",
+    }.get(parsed.scheme, parsed.scheme or "wss")
+    path = parsed.path.rstrip("/")
+    if not path:
+        path = MURF_STREAM_PATH
+    elif not path.endswith("/speech/stream-input"):
+        path = f"{path}{MURF_STREAM_PATH}"
+    return urlunparse(parsed._replace(scheme=websocket_scheme, path=path))
+
+
 def _elevenlabs_websocket_url(base_url: str) -> str:
     """Normalize an ElevenLabs API base URL for WebSocket clients."""
     base_url = base_url.strip()
@@ -342,11 +366,15 @@ class SpeachesLLMService(OpenAISpokenToolCallMixin, BaseSpeachesLLMService):
     """Speaches streaming service with spoken-tool recovery."""
 
 
-class DograhGoogleLLMService(GeminiSpokenToolCallMixin, GoogleLLMService):
+class DograhGoogleLLMService(
+    GeminiPromptCacheMixin, GeminiSpokenToolCallMixin, GoogleLLMService
+):
     adapter_class = DograhGeminiJSONSchemaAdapter
 
 
-class DograhGoogleVertexLLMService(GeminiSpokenToolCallMixin, GoogleVertexLLMService):
+class DograhGoogleVertexLLMService(
+    GeminiPromptCacheMixin, GeminiSpokenToolCallMixin, GoogleVertexLLMService
+):
     """Vertex text service with Dograh schemas and nonblocking authentication."""
 
     adapter_class = DograhGeminiJSONSchemaAdapter
@@ -891,8 +919,6 @@ def create_tts_service(
         + (f", endpoint={deepgram_base_url}" if deepgram_base_url else "")
     )
 
-    # Create function call filter to prevent TTS from speaking function call tags
-    spoken_text_filter = SpokenTextFilter()
     if is_deepgram:
         voice = user_config.tts.voice
         speed = getattr(user_config.tts, "speed", None)
@@ -906,12 +932,9 @@ def create_tts_service(
                     speed=speed,
                     expressivity=getattr(user_config.tts, "expressivity", None),
                 ),
-                # Flux can take raw LLM tokens, but the function-tag filter only
-                # matches a complete tag, so text is aggregated into sentences
-                # first like every other TTS service here.
+                # Keep sentence aggregation consistent with the other TTS services.
                 text_aggregation_mode=TextAggregationMode.SENTENCE,
-                text_filters=[spoken_text_filter],
-                skip_aggregator_types=["recording_router", "recording"],
+                skip_text_types=["recording_router", "recording"],
                 silence_time_s=1.0,
             )
         return DeepgramTTSService(
@@ -919,8 +942,7 @@ def create_tts_service(
             # Wants wss://host with no path; it appends /v1/speak itself.
             base_url=_deepgram_websocket_url(deepgram_base_url),
             settings=DeepgramTTSSettings(voice=voice, speed=speed),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
@@ -933,8 +955,7 @@ def create_tts_service(
             api_key=user_config.tts.api_key,
             sample_rate=OPENAI_SAMPLE_RATE,
             settings=OpenAITTSSettings(model=user_config.tts.model),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
             **kwargs,
         )
@@ -958,8 +979,7 @@ def create_tts_service(
             credentials=credentials,
             location=location,
             settings=GoogleTTSSettings(**settings_kwargs),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.ELEVENLABS.value:
@@ -994,8 +1014,7 @@ def create_tts_service(
             api_key=user_config.tts.api_key,
             url=elevenlabs_url,
             settings=tts_settings,
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.CARTESIA.value:
@@ -1022,8 +1041,7 @@ def create_tts_service(
                     else {}
                 ),
             ),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.INWORLD.value:
@@ -1041,8 +1059,7 @@ def create_tts_service(
                 speaking_rate=speed,
                 delivery_mode=delivery_mode,
             ),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.DOGRAH.value:
@@ -1057,8 +1074,7 @@ def create_tts_service(
                 voice=user_config.tts.voice,
                 speed=user_config.tts.speed,
             ),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.CAMB.value:
@@ -1070,8 +1086,7 @@ def create_tts_service(
             api_key=user_config.tts.api_key,
             voice_id=voice_id,
             model=user_config.tts.model,
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
         )
         # Set language directly as BCP-47 code (bypasses Language enum conversion)
         tts._settings.language = language
@@ -1086,8 +1101,7 @@ def create_tts_service(
                 voice=user_config.tts.voice,
                 speed=user_config.tts.speed,
             ),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.RIME.value:
@@ -1111,8 +1125,7 @@ def create_tts_service(
         return RimeTTSService(
             api_key=user_config.tts.api_key,
             settings=RimeTTSSettings(**settings_kwargs),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.SARVAM.value:
@@ -1154,8 +1167,7 @@ def create_tts_service(
         return SarvamTTSService(
             api_key=user_config.tts.api_key,
             settings=SarvamTTSSettings(**settings_kwargs),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.MINIMAX.value:
@@ -1196,8 +1208,7 @@ def create_tts_service(
                 speed=speed,
                 volume=getattr(user_config.tts, "volume", 1.0),
             ),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.AZURE_SPEECH.value:
@@ -1217,8 +1228,7 @@ def create_tts_service(
             api_key=user_config.tts.api_key,
             region=region,
             settings=AzureTTSSettings(**settings_kwargs),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.SMALLEST.value:
@@ -1239,8 +1249,7 @@ def create_tts_service(
         return SmallestTTSService(
             api_key=user_config.tts.api_key,
             settings=settings_kwargs,
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.XAI.value:
@@ -1259,8 +1268,7 @@ def create_tts_service(
                 voice=voice,
                 language=pipecat_language,
             ),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.LMNT.value:
@@ -1310,8 +1318,33 @@ def create_tts_service(
                 model=model,
                 language=language,
             ),
-            text_filters=[spoken_text_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.MURF.value:
+        voice = getattr(user_config.tts, "voice", None) or "Will"
+        model = getattr(user_config.tts, "model", None) or "falcon-2"
+        locale = getattr(user_config.tts, "locale", None) or "en-US"
+        base_url = getattr(user_config.tts, "base_url", None)
+        _validate_runtime_service_url(base_url or MURF_DEFAULT_BASE_URL, "base_url")
+        sample_rate = audio_config.transport_out_sample_rate
+        return MurfTTSService(
+            api_key=user_config.tts.api_key,
+            url=_murf_websocket_url(base_url),
+            sample_rate=sample_rate,
+            params=MurfTTSService.InputParams(
+                voice_id=voice,
+                model=model,
+                multi_native_locale=locale,
+                sample_rate=sample_rate,
+                format="PCM",
+                channel_type="MONO",
+                # Pipeline already sends sentence-sized chunks; don't re-buffer
+                # on Murf's side (plugin defaults are 40 / 300ms).
+                min_buffer_size=2,
+                max_buffer_delay_in_ms=0,
+            ),
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     else:
@@ -1331,6 +1364,20 @@ def _migrate_deprecated_google_model(model: str) -> str:
         )
         return migrated
     return model
+
+
+# The first GPT-5 releases accept "minimal" but reject "none". Later releases
+# reverse that, and on Chat Completions they accept function tools only with
+# "none". Omitting the field does not help, because some releases default to
+# an effort that rejects tools. Workflow transitions are sent as tools, so
+# every newer release has to send "none".
+_GPT5_MINIMAL_EFFORT_MODEL = re.compile(r"gpt-5(?:-mini|-nano)?(?:-\d{4}-\d{2}-\d{2})?")
+
+
+def _gpt5_reasoning_effort(model: str) -> str:
+    """Lowest reasoning effort the model accepts alongside function tools."""
+    base = model.rsplit("/", 1)[-1]
+    return "minimal" if _GPT5_MINIMAL_EFFORT_MODEL.fullmatch(base) else "none"
 
 
 @_report_service_factory_failures(ErrorSource.LLM, provider_argument=0)
@@ -1409,7 +1456,10 @@ def create_llm_service_from_provider(
                 api_key=api_key,
                 settings=OpenAILLMSettings(
                     model=model,
-                    extra={"reasoning_effort": "minimal", "verbosity": "low"},
+                    extra={
+                        "reasoning_effort": _gpt5_reasoning_effort(model),
+                        "verbosity": "low",
+                    },
                 ),
                 **kwargs,
             )
@@ -1491,6 +1541,7 @@ def create_llm_service_from_provider(
             json.dumps([provider, connection], sort_keys=True).encode()
         ).hexdigest()
         adapter.signature_settings = service._settings
+        service.prompt_cache_scope = adapter.signature_scope
         return service
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:

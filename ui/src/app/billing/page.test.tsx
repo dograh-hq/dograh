@@ -43,6 +43,28 @@ beforeEach(() => {
 });
 
 describe("billing ledger filters", () => {
+    it("shows each Agent Builder charge with request quantity and small-credit precision", async () => {
+        mocks.getCredits.mockResolvedValue({ data: {
+            ...response.data,
+            total_count: 2, total_pages: 1,
+            ledger_entries: [
+                { id: 2, entry_type: "debit", origin: "agent_builder", metric_code: "agent_builder",
+                    billable_quantity: 1, quantity_unit: "request", credits_delta: -0.002,
+                    balance_after: 49.997, created_at: "2026-11-05T19:00:00Z" },
+                { id: 1, entry_type: "debit", origin: "agent_builder", metric_code: "agent_builder",
+                    billable_quantity: 1, quantity_unit: "request", credits_delta: -0.001,
+                    balance_after: 49.999, created_at: "2026-11-05T18:00:00Z" },
+            ],
+        } });
+        render(<BillingPage />);
+        await screen.findByText("-0.001");
+        expect(screen.getByText("-0.002")).toBeTruthy();
+        expect(screen.getAllByText("1 request")).toHaveLength(2);
+        const rows = screen.getAllByRole("row").filter(row => row.textContent?.includes("Agent Builder"));
+        expect(rows).toHaveLength(2);
+        expect(rows[0].querySelector("td")?.textContent).not.toBe(rows[1].querySelector("td")?.textContent);
+    });
+
     it("waits for auth and defaults to all activity for all time", async () => {
         mocks.auth.loading = true;
         const view = render(<BillingPage />);
@@ -112,6 +134,12 @@ describe("billing ledger filters", () => {
         render(<BillingPage />);
         await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Invalid billing date range or timezone"));
         expect(screen.queryByText("No entries match these filters.")).toBeNull();
+    });
+
+    it("links to the invoices page", async () => {
+        render(<BillingPage />);
+        await screen.findByText("Credit Ledger");
+        expect(screen.getByRole("link", { name: "Invoices" }).getAttribute("href")).toBe("/billing/invoices");
     });
 
     it("preserves the OSS credit view without ledger filters", async () => {

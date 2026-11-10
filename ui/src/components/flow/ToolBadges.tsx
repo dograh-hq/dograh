@@ -1,42 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
-import type { ToolResponse } from "@/client/types.gen";
 import { Badge } from "@/components/ui/badge";
 
 interface ToolBadgesProps {
     toolUuids: string[];
-    onStaleUuidsDetected?: (staleUuids: string[]) => void;
     mcpToolFilters?: Record<string, string[]>;
 }
 
-export function ToolBadges({ toolUuids, onStaleUuidsDetected, mcpToolFilters }: ToolBadgesProps) {
+export function ToolBadges({ toolUuids, mcpToolFilters }: ToolBadgesProps) {
     const { tools } = useWorkflow();
-    const [selectedTools, setSelectedTools] = useState<ToolResponse[]>([]);
-
-    const processTools = useCallback((toolsData: ToolResponse[]) => {
-        const filtered = toolsData.filter(tool => toolUuids.includes(tool.tool_uuid));
-        setSelectedTools(filtered);
-
-        // Detect stale UUIDs - this only runs when we have loaded data (not undefined)
-        if (onStaleUuidsDetected) {
-            const validUuids = new Set(toolsData.map(tool => tool.tool_uuid));
-            const staleUuids = toolUuids.filter(uuid => !validUuids.has(uuid));
-            if (staleUuids.length > 0) {
-                onStaleUuidsDetected(staleUuids);
-            }
-        }
-    }, [toolUuids, onStaleUuidsDetected]);
-
-    useEffect(() => {
-        if (toolUuids.length > 0 && tools !== undefined) {
-            processTools(tools);
-        } else if (toolUuids.length === 0) {
-            setSelectedTools([]);
-        }
-    }, [toolUuids, tools, processTools]);
+    const toolsByUuid = new Map(tools?.map(tool => [tool.tool_uuid, tool]));
 
     // Show loading while data hasn't loaded yet
     if (tools === undefined && toolUuids.length > 0) {
@@ -51,7 +25,13 @@ export function ToolBadges({ toolUuids, onStaleUuidsDetected, mcpToolFilters }: 
 
     return (
         <div className="flex flex-wrap gap-1">
-            {selectedTools.map((tool) => {
+            {toolUuids.map((uuid) => {
+                const tool = toolsByUuid.get(uuid);
+                // The catalog can lag behind builder saves. Missing metadata
+                // must never remove a binding from the workflow.
+                if (!tool) {
+                    return <Badge key={uuid} variant="outline" className="text-xs" title={uuid}>Tool unavailable</Badge>;
+                }
                 const isMcp = tool.category === "mcp";
                 const enabledFns = isMcp ? (mcpToolFilters?.[tool.tool_uuid] ?? []) : [];
 

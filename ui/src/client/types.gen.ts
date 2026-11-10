@@ -289,6 +289,50 @@ export type BatchRecordingUploadResponseSchema = {
 };
 
 /**
+ * BillingPaymentResponse
+ */
+export type BillingPaymentResponse = {
+    /**
+     * Payment Order Id
+     */
+    payment_order_id: number;
+    /**
+     * Paid At
+     */
+    paid_at: string;
+    /**
+     * Amount Minor
+     */
+    amount_minor: number;
+    /**
+     * Currency
+     */
+    currency: string;
+    /**
+     * Gateway Payment Id
+     */
+    gateway_payment_id?: string | null;
+    /**
+     * Invoice Number
+     */
+    invoice_number?: string | null;
+    /**
+     * Invoice Status
+     */
+    invoice_status: 'issued' | 'pending' | 'unavailable';
+};
+
+/**
+ * BillingPaymentsResponse
+ */
+export type BillingPaymentsResponse = {
+    /**
+     * Payments
+     */
+    payments: Array<BillingPaymentResponse>;
+};
+
+/**
  * Body_transcribe_audio_api_v1_workflow_recordings_transcribe_post
  */
 export type BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost = {
@@ -300,6 +344,282 @@ export type BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost = {
      * Language
      */
     language?: string;
+};
+
+/**
+ * BuilderCancelResponse
+ */
+export type BuilderCancelResponse = {
+    /**
+     * Cancel Requested
+     */
+    cancel_requested: boolean;
+};
+
+/**
+ * BuilderInterrupt
+ */
+export type BuilderInterrupt = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Kind
+     */
+    kind: 'questions' | 'plan_approval' | 'mcp' | 'tool_approval';
+    brief?: CallBrief | null;
+    /**
+     * Brief Revision
+     */
+    brief_revision?: number | null;
+    /**
+     * Questions
+     */
+    questions?: Array<BuilderQuestion>;
+    /**
+     * Tool Name
+     */
+    tool_name?: string | null;
+    /**
+     * Arguments
+     */
+    arguments?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Operation
+     */
+    operation?: 'create' | 'update' | null;
+    /**
+     * Tool
+     */
+    tool?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Tool Uuid
+     */
+    tool_uuid?: string | null;
+    /**
+     * Plain Language
+     */
+    plain_language?: string | null;
+    /**
+     * Used By Count
+     */
+    used_by_count?: number | null;
+};
+
+/**
+ * BuilderMessage
+ */
+export type BuilderMessage = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Role
+     */
+    role: 'user' | 'assistant';
+    /**
+     * Content
+     */
+    content: string;
+};
+
+/**
+ * BuilderPlanApproval
+ */
+export type BuilderPlanApproval = {
+    /**
+     * Brief Revision
+     */
+    brief_revision: number;
+    /**
+     * Decision
+     */
+    decision: 'approve' | 'revise';
+    /**
+     * Feedback
+     */
+    feedback?: string;
+    /**
+     * Interrupt Id
+     */
+    interrupt_id: string;
+};
+
+/**
+ * BuilderProposal
+ */
+export type BuilderProposal = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Workflow
+     */
+    workflow: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * BuilderQuestion
+ */
+export type BuilderQuestion = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Kind
+     */
+    kind: 'single' | 'multiple' | 'text';
+    /**
+     * Options
+     */
+    options?: Array<string>;
+    /**
+     * Allow Custom
+     */
+    allow_custom?: boolean;
+};
+
+/**
+ * BuilderSaveRequest
+ */
+export type BuilderSaveRequest = {
+    /**
+     * Checkpoint
+     */
+    checkpoint: string;
+    /**
+     * Workflow Id
+     */
+    workflow_id?: number | null;
+};
+
+/**
+ * BuilderSaveResponse
+ */
+export type BuilderSaveResponse = {
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+};
+
+/**
+ * BuilderSession
+ */
+export type BuilderSession = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Workflow Id
+     */
+    workflow_id?: number | null;
+    /**
+     * Workflow Revision
+     */
+    workflow_revision?: string | null;
+    /**
+     * Checkpoint
+     */
+    checkpoint?: string | null;
+    /**
+     * Messages
+     */
+    messages?: Array<BuilderMessage>;
+    /**
+     * Pending
+     */
+    pending?: Array<BuilderInterrupt>;
+    proposal?: BuilderProposal | null;
+    /**
+     * Can Continue
+     */
+    can_continue?: boolean;
+    /**
+     * Model
+     */
+    model?: string | null;
+    /**
+     * Active Run Id
+     */
+    active_run_id?: string | null;
+    /**
+     * Run Status
+     */
+    run_status?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | null;
+};
+
+/**
+ * BuilderToolApproval
+ */
+export type BuilderToolApproval = {
+    /**
+     * Decision
+     */
+    decision: 'approve' | 'deny';
+    /**
+     * Feedback
+     */
+    feedback?: string;
+    /**
+     * Interrupt Id
+     */
+    interrupt_id: string;
+};
+
+/**
+ * BuilderTurnRequest
+ */
+export type BuilderTurnRequest = {
+    /**
+     * Request Id
+     */
+    request_id: string;
+    /**
+     * Workflow Id
+     */
+    workflow_id?: number | null;
+    /**
+     * Checkpoint
+     */
+    checkpoint?: string | null;
+    /**
+     * Message
+     */
+    message?: string | null;
+    /**
+     * Answers
+     */
+    answers?: {
+        [key: string]: {
+            [key: string]: Array<string>;
+        };
+    } | null;
+    approval?: BuilderPlanApproval | null;
+    tool_approval?: BuilderToolApproval | null;
 };
 
 /**
@@ -326,6 +646,48 @@ export type CalculatorToolDefinition = {
      * Tool type.
      */
     type: 'calculator';
+};
+
+/**
+ * CallBrief
+ */
+export type CallBrief = {
+    /**
+     * Goal
+     *
+     * One sentence: what a successful call achieves and for whom.
+     */
+    goal: string;
+    /**
+     * Direction
+     *
+     * Whether the agent receives calls, places them, or both.
+     */
+    direction: 'inbound' | 'outbound' | 'both';
+    /**
+     * Information To Collect
+     *
+     * Each fact the agent must capture from the caller, in the customer's words, for example 'preferred appointment date'.
+     */
+    information_to_collect?: Array<string>;
+    /**
+     * Business Rules
+     *
+     * Policies only the customer can supply: eligibility, hours, what to do on refusal, wrong person, or out-of-scope requests. State any required data lookup or update here as what happens and when.
+     */
+    business_rules?: Array<string>;
+    /**
+     * Success Criteria
+     *
+     * Observable outcomes that mark the call as successful.
+     */
+    success_criteria: Array<string>;
+    /**
+     * Assumptions
+     *
+     * Optional or deferred details resolved with a sensible default, stated so the customer can correct them.
+     */
+    assumptions?: Array<string>;
 };
 
 /**
@@ -2971,6 +3333,50 @@ export type NodeExample = {
 };
 
 /**
+ * NodePromptPreview
+ */
+export type NodePromptPreview = {
+    /**
+     * Node Id
+     */
+    node_id: string;
+    /**
+     * Node Name
+     */
+    node_name: string;
+    /**
+     * System Prompt
+     */
+    system_prompt: string;
+    /**
+     * Tools
+     */
+    tools: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Variables
+     */
+    variables: Array<string>;
+    /**
+     * Unresolved Variables
+     */
+    unresolved_variables: Array<string>;
+    /**
+     * Static Tokens Estimate
+     */
+    static_tokens_estimate: number;
+    /**
+     * Per Call Tokens Estimate
+     */
+    per_call_tokens_estimate: number;
+    /**
+     * Cache Status
+     */
+    cache_status?: string | null;
+};
+
+/**
  * NodeSpec
  *
  * Single source of truth for a node type.
@@ -3560,6 +3966,154 @@ export type ProcessDocumentRequestSchema = {
      * Retrieval mode: 'chunked' for vector search or 'full_document' for full text retrieval
      */
     retrieval_mode?: string;
+};
+
+/**
+ * PromptPreviewRequest
+ */
+export type PromptPreviewRequest = {
+    prompt_variables?: PromptVariablesConfiguration;
+    /**
+     * Sample Values
+     */
+    sample_values?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Sample Run Id
+     */
+    sample_run_id?: number | null;
+    /**
+     * Workflow Definition
+     */
+    workflow_definition?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * PromptPreviewResponse
+ */
+export type PromptPreviewResponse = {
+    /**
+     * Nodes
+     */
+    nodes: Array<NodePromptPreview>;
+    /**
+     * Call Context
+     */
+    call_context: string | null;
+    /**
+     * Provider
+     */
+    provider: string | null;
+    /**
+     * Model
+     */
+    model: string | null;
+    /**
+     * Explicit Cache Available
+     */
+    explicit_cache_available: boolean;
+    /**
+     * Minimum Tokens
+     */
+    minimum_tokens?: number | null;
+    /**
+     * Notices
+     */
+    notices: Array<string>;
+    /**
+     * Default Note
+     */
+    default_note: string;
+};
+
+/**
+ * PromptReplayRequest
+ */
+export type PromptReplayRequest = {
+    prompt_variables?: PromptVariablesConfiguration;
+    /**
+     * Limit
+     */
+    limit?: number;
+    /**
+     * Max Turns
+     */
+    max_turns?: number;
+};
+
+/**
+ * PromptReplayResponse
+ */
+export type PromptReplayResponse = {
+    /**
+     * Turns
+     */
+    turns: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Valid Turns
+     */
+    valid_turns: number;
+    /**
+     * Failed Turns
+     */
+    failed_turns: number;
+    /**
+     * Action Agreement
+     */
+    action_agreement: number | null;
+    /**
+     * Inline Noise Agreement
+     */
+    inline_noise_agreement: number | null;
+    /**
+     * Call Context Noise Agreement
+     */
+    call_context_noise_agreement: number | null;
+    /**
+     * Notices
+     */
+    notices: Array<string>;
+    /**
+     * Semantic Agreement
+     */
+    semantic_agreement: {
+        [key: string]: {
+            [key: string]: number | number | null;
+        };
+    };
+    /**
+     * Sample Metrics
+     */
+    sample_metrics: {
+        [key: string]: {
+            [key: string]: number | number | null;
+        };
+    };
+};
+
+/**
+ * PromptVariablesConfiguration
+ */
+export type PromptVariablesConfiguration = {
+    /**
+     * Mode
+     *
+     * Enable prompt caching optimization with call_context. Dograh manages explicit caching automatically for eligible providers and models.
+     */
+    mode?: 'inline' | 'call_context';
+    /**
+     * Call Context Note
+     */
+    call_context_note?: string | null;
+    /**
+     * Include Weekday
+     */
+    include_weekday?: boolean;
 };
 
 /**
@@ -6586,6 +7140,7 @@ export type WidgetTexts = {
  */
 export type WorkflowConfigurationDefaults = {
     model_configuration_override?: ModelConfigurationOverride | null;
+    prompt_variables?: PromptVariablesConfiguration;
     ambient_noise_configuration?: AmbientNoiseConfigurationDefaults;
     /**
      * Max Call Duration
@@ -6686,6 +7241,64 @@ export type WorkflowError = {
 };
 
 /**
+ * WorkflowLayoutEdge
+ */
+export type WorkflowLayoutEdge = {
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Target
+     */
+    target: string;
+};
+
+/**
+ * WorkflowLayoutNode
+ */
+export type WorkflowLayoutNode = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Type
+     */
+    type: string;
+};
+
+/**
+ * WorkflowLayoutRequest
+ *
+ * An unsaved canvas, reduced to what the layout needs.
+ */
+export type WorkflowLayoutRequest = {
+    /**
+     * Nodes
+     */
+    nodes: Array<WorkflowLayoutNode>;
+    /**
+     * Edges
+     */
+    edges: Array<WorkflowLayoutEdge>;
+    /**
+     * Rankdir
+     */
+    rankdir?: 'TB' | 'LR';
+};
+
+/**
+ * WorkflowLayoutResponse
+ */
+export type WorkflowLayoutResponse = {
+    /**
+     * Positions
+     */
+    positions: Array<WorkflowNodePosition>;
+};
+
+/**
  * WorkflowListResponse
  *
  * Lightweight response for workflow listings (excludes large fields).
@@ -6719,6 +7332,24 @@ export type WorkflowListResponse = {
      * Workflow Uuid
      */
     workflow_uuid?: string | null;
+};
+
+/**
+ * WorkflowNodePosition
+ */
+export type WorkflowNodePosition = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * X
+     */
+    x: number;
+    /**
+     * Y
+     */
+    y: number;
 };
 
 /**
@@ -8057,6 +8688,326 @@ export type GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses = {
 
 export type GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponse = GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses[keyof GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses];
 
+export type OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/workflow/{workflow_id}/session';
+};
+
+export type OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostError = OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostErrors[keyof OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostErrors];
+
+export type OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuilderSession;
+};
+
+export type OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostResponse = OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostResponses[keyof OpenWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPostResponses];
+
+export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/{session_id}';
+};
+
+export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetError = GetBuilderSessionApiV1WorkflowBuilderSessionIdGetErrors[keyof GetBuilderSessionApiV1WorkflowBuilderSessionIdGetErrors];
+
+export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuilderSession;
+};
+
+export type GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponse = GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses[keyof GetBuilderSessionApiV1WorkflowBuilderSessionIdGetResponses];
+
+export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostData = {
+    body: BuilderTurnRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/{session_id}/turn';
+};
+
+export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostError = SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostErrors[keyof SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostErrors];
+
+export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: string;
+};
+
+export type SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponse = SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponses[keyof SendBuilderTurnApiV1WorkflowBuilderSessionIdTurnPostResponses];
+
+export type GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Last-Event-Id
+         */
+        'last-event-id'?: string | null;
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: {
+        /**
+         * After
+         */
+        after?: number;
+    };
+    url: '/api/v1/workflow/builder/{session_id}/runs/{run_id}/events';
+};
+
+export type GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetError = GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetErrors[keyof GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetErrors];
+
+export type GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: string;
+};
+
+export type GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetResponse = GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetResponses[keyof GetBuilderRunEventsApiV1WorkflowBuilderSessionIdRunsRunIdEventsGetResponses];
+
+export type CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+        /**
+         * Run Id
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/{session_id}/runs/{run_id}/cancel';
+};
+
+export type CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostError = CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostErrors[keyof CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostErrors];
+
+export type CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuilderCancelResponse;
+};
+
+export type CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostResponse = CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostResponses[keyof CancelBuilderRunApiV1WorkflowBuilderSessionIdRunsRunIdCancelPostResponses];
+
+export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostData = {
+    body: BuilderSaveRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Session Id
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow/builder/{session_id}/save';
+};
+
+export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostError = SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostErrors[keyof SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostErrors];
+
+export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuilderSaveResponse;
+};
+
+export type SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponse = SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses[keyof SaveBuilderSessionApiV1WorkflowBuilderSessionIdSavePostResponses];
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostData = {
+    body: WorkflowLayoutRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/workflow/layout';
+};
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostError = LayoutWorkflowApiV1WorkflowLayoutPostErrors[keyof LayoutWorkflowApiV1WorkflowLayoutPostErrors];
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowLayoutResponse;
+};
+
+export type LayoutWorkflowApiV1WorkflowLayoutPostResponse = LayoutWorkflowApiV1WorkflowLayoutPostResponses[keyof LayoutWorkflowApiV1WorkflowLayoutPostResponses];
+
 export type ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostData = {
     body?: never;
     headers?: {
@@ -8309,6 +9260,94 @@ export type GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponses = {
 };
 
 export type GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponse = GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponses[keyof GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponses];
+
+export type PreviewWorkflowPromptsApiV1WorkflowWorkflowIdPromptPreviewPostData = {
+    body: PromptPreviewRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/prompt-preview';
+};
+
+export type PreviewWorkflowPromptsApiV1WorkflowWorkflowIdPromptPreviewPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PreviewWorkflowPromptsApiV1WorkflowWorkflowIdPromptPreviewPostError = PreviewWorkflowPromptsApiV1WorkflowWorkflowIdPromptPreviewPostErrors[keyof PreviewWorkflowPromptsApiV1WorkflowWorkflowIdPromptPreviewPostErrors];
+
+export type PreviewWorkflowPromptsApiV1WorkflowWorkflowIdPromptPreviewPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PromptPreviewResponse;
+};
+
+export type PreviewWorkflowPromptsApiV1WorkflowWorkflowIdPromptPreviewPostResponse = PreviewWorkflowPromptsApiV1WorkflowWorkflowIdPromptPreviewPostResponses[keyof PreviewWorkflowPromptsApiV1WorkflowWorkflowIdPromptPreviewPostResponses];
+
+export type ReplayWorkflowPromptsApiV1WorkflowWorkflowIdPromptReplayPostData = {
+    body: PromptReplayRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/prompt-replay';
+};
+
+export type ReplayWorkflowPromptsApiV1WorkflowWorkflowIdPromptReplayPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ReplayWorkflowPromptsApiV1WorkflowWorkflowIdPromptReplayPostError = ReplayWorkflowPromptsApiV1WorkflowWorkflowIdPromptReplayPostErrors[keyof ReplayWorkflowPromptsApiV1WorkflowWorkflowIdPromptReplayPostErrors];
+
+export type ReplayWorkflowPromptsApiV1WorkflowWorkflowIdPromptReplayPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PromptReplayResponse;
+};
+
+export type ReplayWorkflowPromptsApiV1WorkflowWorkflowIdPromptReplayPostResponse = ReplayWorkflowPromptsApiV1WorkflowWorkflowIdPromptReplayPostResponses[keyof ReplayWorkflowPromptsApiV1WorkflowWorkflowIdPromptReplayPostResponses];
 
 export type GetWorkflowVersionSummariesApiV1WorkflowWorkflowIdVersionSummariesGetData = {
     body?: never;
@@ -13556,6 +14595,89 @@ export type CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseU
 };
 
 export type CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponse = CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponses[keyof CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponses];
+
+export type GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/billing/payments';
+};
+
+export type GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetError = GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetErrors[keyof GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetErrors];
+
+export type GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: BillingPaymentsResponse;
+};
+
+export type GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetResponse = GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetResponses[keyof GetBillingPaymentsApiV1OrganizationsBillingPaymentsGetResponses];
+
+export type DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Payment Order Id
+         */
+        payment_order_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/billing/invoices/{payment_order_id}/pdf';
+};
+
+export type DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetError = DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetErrors[keyof DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetErrors];
+
+export type DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: Blob | File;
+};
+
+export type DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetResponse = DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetResponses[keyof DownloadBillingInvoiceApiV1OrganizationsBillingInvoicesPaymentOrderIdPdfGetResponses];
 
 export type GetUsageHistoryApiV1OrganizationsUsageRunsGetData = {
     body?: never;

@@ -12,7 +12,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
-from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.utils.enums import EndTaskReason
@@ -129,84 +129,17 @@ class CustomToolManager:
         return await self._engine._get_organization_id()
 
     async def get_tool_schemas(
-        self,
-        tool_uuids: list[str],
-        mcp_tool_filters: Optional[dict[str, list[str]]] = None,
+        self, tool_uuids: list[str], mcp_tool_filters=None
     ) -> list[FunctionSchema]:
-        """Fetch custom tools and convert them to function schemas.
-
-        Args:
-            tool_uuids: List of tool UUIDs to fetch
-            mcp_tool_filters: Optional per-node filter mapping tool_uuid → list of
-                raw MCP tool names to expose. None (default) exposes all tools.
-                Empty dict or entry with [] suppresses all tools for that uuid.
-
-        Returns:
-            List of FunctionSchema objects for LLM
-        """
         organization_id = await self.get_organization_id()
         if not organization_id:
-            logger.warning("Cannot fetch custom tools: organization_id not available")
             return []
-
-        try:
-            tools = await db_client.get_tools_by_uuids(tool_uuids, organization_id)
-
-            schemas: list[FunctionSchema] = []
-            for tool in tools:
-                if tool.category == ToolCategory.CALCULATOR.value:
-                    # Built-in calculator: return pre-defined schemas
-                    for tool_def in get_calculator_tools():
-                        func = tool_def["function"]
-                        schemas.append(
-                            get_function_schema(
-                                func["name"],
-                                func["description"],
-                                properties=func["parameters"]["properties"],
-                                required=func["parameters"]["required"],
-                            )
-                        )
-                    continue
-
-                if tool.category == ToolCategory.MCP.value:
-                    session = self._agent.mcp_sessions.get(tool.tool_uuid)
-                    if session is None or not session.available:
-                        logger.warning(
-                            f"MCP tool '{tool.name}' ({tool.tool_uuid}) "
-                            f"unavailable; skipping"
-                        )
-                        continue
-                    allowed = (
-                        None
-                        if mcp_tool_filters is None
-                        else set(mcp_tool_filters.get(tool.tool_uuid, []))
-                    )
-                    schemas.extend(session.function_schemas(allowed))
-                    continue
-
-                raw_schema = tool_to_function_schema(tool)
-                function_name = raw_schema["function"]["name"]
-
-                # Convert to FunctionSchema object for compatibility with update_llm_context
-                func_schema = get_function_schema(
-                    function_name,
-                    raw_schema["function"]["description"],
-                    properties=raw_schema["function"]["parameters"].get(
-                        "properties", {}
-                    ),
-                    required=raw_schema["function"]["parameters"].get("required", []),
-                )
-                schemas.append(func_schema)
-
-            logger.debug(
-                f"Loaded {len(schemas)} custom tools for node: "
-                f"{[s.name for s in schemas]}"
-            )
-            return schemas
-
-        except Exception as e:
-            logger.error(f"Failed to fetch custom tools: {e}")
-            return []
+        return await load_tool_schemas(
+            organization_id,
+            tool_uuids,
+            mcp_sessions=self._agent.mcp_sessions,
+            mcp_tool_filters=mcp_tool_filters,
+        )
 
     async def register_handlers(
         self,
@@ -1146,3 +1079,68 @@ class CustomToolManager:
             # Unknown action, treat as generic success
             logger.warning(f"Unknown transfer action: {action}, treating as success")
             await function_call_params.result_callback(result)
+
+
+async def load_tool_schemas(
+    organization_id: int,
+    tool_uuids: list[str],
+    *,
+    mcp_sessions=None,
+    mcp_tool_filters=None,
+) -> list[FunctionSchema]:
+    """Load organization-scoped tool declarations for runtime, preview and prewarm."""
+    try:
+        tools = await db_client.get_tools_by_uuids(tool_uuids, organization_id)
+
+        schemas: list[FunctionSchema] = []
+        for tool in tools:
+            if tool.category == ToolCategory.CALCULATOR.value:
+                # Built-in calculator: return pre-defined schemas
+                for tool_def in get_calculator_tools():
+                    func = tool_def["function"]
+                    schemas.append(
+                        get_function_schema(
+                            func["name"],
+                            func["description"],
+                            properties=func["parameters"]["properties"],
+                            required=func["parameters"]["required"],
+                        )
+                    )
+                continue
+
+            if tool.category == ToolCategory.MCP.value:
+                session = (mcp_sessions or {}).get(tool.tool_uuid)
+                if session is None or not session.available:
+                    logger.warning(
+                        f"MCP tool '{tool.name}' ({tool.tool_uuid}) "
+                        f"unavailable; skipping"
+                    )
+                    continue
+                allowed = (
+                    None
+                    if mcp_tool_filters is None
+                    else set(mcp_tool_filters.get(tool.tool_uuid, []))
+                )
+                schemas.extend(session.function_schemas(allowed))
+                continue
+
+            raw_schema = tool_to_function_schema(tool)
+            function_name = raw_schema["function"]["name"]
+
+            # Convert to FunctionSchema object for compatibility with update_llm_context
+            func_schema = get_function_schema(
+                function_name,
+                raw_schema["function"]["description"],
+                properties=raw_schema["function"]["parameters"].get("properties", {}),
+                required=raw_schema["function"]["parameters"].get("required", []),
+            )
+            schemas.append(func_schema)
+
+        logger.debug(
+            f"Loaded {len(schemas)} custom tools for node: {[s.name for s in schemas]}"
+        )
+        return schemas
+
+    except Exception as e:
+        logger.error(f"Failed to fetch custom tools: {e}")
+        return []

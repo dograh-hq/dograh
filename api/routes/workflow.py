@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from httpx import HTTPStatusError, RequestError
 from loguru import logger
@@ -22,7 +22,18 @@ from api.enums import (
     WorkflowRunMode,
     WorkflowStatus,
 )
-from api.schemas.workflow import WorkflowRunResponseSchema
+from api.mcp_server.ts_bridge import TsBridgeError
+from api.schemas.prompt_preview import (
+    PromptPreviewRequest,
+    PromptPreviewResponse,
+    PromptReplayRequest,
+    PromptReplayResponse,
+)
+from api.schemas.workflow import (
+    WorkflowLayoutRequest,
+    WorkflowLayoutResponse,
+    WorkflowRunResponseSchema,
+)
 from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
@@ -47,6 +58,12 @@ from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
 from api.services.workflow.greeting_validation import validate_greeting_recordings
+from api.services.workflow.layout import tidy_positions
+from api.services.workflow.prompt_preview import (
+    PromptPreviewGraphError,
+    build_prompt_preview,
+    prewarm_published_prompts,
+)
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.run_usage_response import (
     format_public_cost_info,
@@ -398,6 +415,24 @@ class CreateWorkflowTemplateRequest(BaseModel):
     call_type: Literal[CallType.INBOUND.value, CallType.OUTBOUND.value]
     use_case: str
     activity_description: str
+
+
+@router.post("/layout", response_model=WorkflowLayoutResponse)
+async def layout_workflow(
+    payload: WorkflowLayoutRequest, user: UserModel = Depends(get_user)
+):
+    """Tidy Up positions for an unsaved canvas, using the same layout applied
+    when an agent is first created. Nothing is persisted."""
+    try:
+        positions = await tidy_positions(
+            [node.model_dump() for node in payload.nodes],
+            [edge.model_dump() for edge in payload.edges],
+            rankdir=payload.rankdir,
+        )
+    except TsBridgeError as exc:
+        logger.warning(f"Tidy Up layout failed: {exc}")
+        raise HTTPException(503, "Layout is unavailable right now. Try again.")
+    return WorkflowLayoutResponse(positions=positions)
 
 
 @router.post("/{workflow_id}/validate")
@@ -839,6 +874,71 @@ async def get_workflow(
     }
 
 
+@router.post("/{workflow_id}/prompt-preview", response_model=PromptPreviewResponse)
+async def preview_workflow_prompts(
+    workflow_id: int,
+    request: PromptPreviewRequest,
+    user: UserModel = Depends(get_user),
+):
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    definition = (
+        await db_client.get_draft_version(workflow_id) or workflow.released_definition
+    )
+    values, gathered = request.sample_values, None
+    if request.sample_run_id is not None:
+        run = await db_client.get_workflow_run(
+            request.sample_run_id, organization_id=user.selected_organization_id
+        )
+        if run is None or run.workflow_id != workflow_id:
+            raise HTTPException(status_code=404, detail="Workflow run not found")
+        values, gathered = run.initial_context or {}, run.gathered_context or {}
+    try:
+        return await build_prompt_preview(
+            definition=definition,
+            organization_id=user.selected_organization_id,
+            config=request.prompt_variables,
+            sample_values=values,
+            gathered_values=gathered,
+            workflow_definition=request.workflow_definition,
+        )
+    except PromptPreviewGraphError as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Complete the workflow graph before previewing prompts",
+        ) from error
+
+
+@router.post("/{workflow_id}/prompt-replay", response_model=PromptReplayResponse)
+async def replay_workflow_prompts(
+    workflow_id: int, request: PromptReplayRequest, user: UserModel = Depends(get_user)
+):
+    from api.services.workflow.prompt_replay import compare_recent_prompts
+
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    definition = (
+        await db_client.get_draft_version(workflow_id) or workflow.released_definition
+    )
+    try:
+        return await compare_recent_prompts(
+            organization_id=user.selected_organization_id,
+            workflow_id=workflow_id,
+            definition=definition,
+            config=request.prompt_variables,
+            limit=request.limit,
+            max_turns=request.max_turns,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 class WorkflowVersionSummaryResponse(BaseModel):
     id: int
     version_number: int | None
@@ -939,6 +1039,7 @@ async def publish_workflow(
     workflow_id: int,
     request: PublishWorkflowRequest | None = None,
     user: UserModel = Depends(get_user),
+    background_tasks: BackgroundTasks = None,
 ):
     """Publish the current draft version of a workflow.
 
@@ -996,6 +1097,14 @@ async def publish_workflow(
             "version_number": published.version_number,
         },
     )
+
+    if background_tasks is not None:
+        background_tasks.add_task(
+            prewarm_published_prompts,
+            organization_id=user.selected_organization_id,
+            workflow_id=workflow_id,
+            definition=published,
+        )
 
     return {
         "id": published.id,

@@ -14,6 +14,7 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     CancelFrame,
     EndFrame,
+    ErrorFrame,
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
     LLMAssistantPushAggregationFrame,
@@ -38,7 +39,11 @@ from pipecat.utils.run_context import set_current_org_id
 
 from api.db import db_client
 from api.enums import WorkflowRunMode, WorkflowRunState
-from api.schemas.workflow_configurations import WorkflowConfigurationDefaults
+from api.errors.failure import classify_error_frame, log_failure
+from api.schemas.workflow_configurations import (
+    PromptVariablesConfiguration,
+    WorkflowConfigurationDefaults,
+)
 from api.services.configuration.registry import ServiceProviders
 from api.services.configuration.run_model_configuration import (
     apply_pre_call_model_overrides,
@@ -54,6 +59,7 @@ from api.services.pipecat.service_factory import (
     create_llm_service,
     get_llm_runtime_configuration,
 )
+from api.services.pipecat.termination_funnel_processor import is_terminal_error
 from api.services.pipecat.tracing_config import (
     build_remote_parent_context,
     get_trace_url,
@@ -69,6 +75,7 @@ from api.services.workflow.pipecat_engine import (
     FINAL_EXTRACTION_TIMEOUT_SECONDS,
     PipecatEngine,
 )
+from api.services.workflow.prompt_variables import CallContextMessage
 from api.services.workflow.workflow_graph import WorkflowGraph
 
 TEXT_CHAT_CHECKPOINT_VERSION = 1
@@ -101,6 +108,9 @@ def _serialize_text_chat_checkpoint_messages(messages: list[Any]) -> list[Any]:
     )
     if not isinstance(encoded_messages, list):
         raise TypeError("Pipecat LLMContext serializer returned an unexpected shape")
+    for index, original in enumerate(messages):
+        if isinstance(original, CallContextMessage):
+            encoded_messages[index] = {"dograh_call_context_values": original.values}
     return encoded_messages
 
 
@@ -114,7 +124,12 @@ def _deserialize_text_chat_checkpoint_messages(messages: list[Any]) -> list[Any]
     )
     if not isinstance(restored_context, LLMContext):
         raise TypeError("Pipecat LLMContext deserializer returned an unexpected type")
-    return restored_context.get_messages()
+    return [
+        CallContextMessage(message["dograh_call_context_values"])
+        if isinstance(message, dict) and "dograh_call_context_values" in message
+        else message
+        for message in restored_context.get_messages()
+    ]
 
 
 def text_chat_trace_id(workflow_run_id: int) -> str:
@@ -351,6 +366,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
                     "function_name": frame.function_name,
                     "tool_call_id": frame.tool_call_id,
                     "arguments": dict(frame.arguments or {}),
+                    "group_id": frame.group_id,
                 },
             )
         elif isinstance(frame, FunctionCallResultFrame):
@@ -397,6 +413,11 @@ def _merge_usage_info(
             + int(value.get("cache_creation_input_tokens") or 0),
         }
     merged["llm"] = merged_llm
+
+    if "prompt_cache" in merged or "prompt_cache" in delta:
+        merged["prompt_cache"] = list(merged.get("prompt_cache") or []) + list(
+            delta.get("prompt_cache") or []
+        )
 
     for section in ("tts", "stt"):
         merged_section = dict(merged.get(section) or {})
@@ -695,11 +716,16 @@ async def execute_text_chat_pending_turn(
         embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
+        prompt_variables=PromptVariablesConfiguration.model_validate(
+            run_configs.get("prompt_variables") or {}
+        ),
         call_dispositions=call_dispositions,
         # Each text turn owns a short-lived pipeline. Complete extraction before
         # leaving a node so teardown cannot discard the result before checkpointing.
         run_transition_variable_extraction_in_background=False,
     )
+    engine.active_agent.workflow_id = workflow.id
+    engine.active_agent.definition_id = run_definition.id
     engine._gathered_context = dict(base_checkpoint["gathered_context"])
     capture_processor = _TextChatCaptureProcessor(
         response_window, context, engine, on_event=on_event
@@ -752,6 +778,16 @@ async def execute_text_chat_pending_turn(
         conversation_type="text",
         additional_span_attributes=trace_span_attributes,
     )
+
+    @task.event_handler("on_pipeline_error")
+    async def on_pipeline_error(_task, frame):
+        # Voice calls classify errors in RealtimeFeedbackObserver, which text
+        # chat does not attach. Without this, a provider rejecting the
+        # customer's own key shows up only as the worker's untagged
+        # "can no longer do its job".
+        if isinstance(frame, ErrorFrame):
+            log_failure(classify_error_frame(frame), fatal=is_terminal_error(frame))
+
     runner_task = asyncio.create_task(run_pipeline_worker(task))
 
     engine.call_worker = task

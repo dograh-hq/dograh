@@ -286,13 +286,14 @@ async def test_neighbor_prewarm_continues_after_failure_and_reuses_success(monke
     load_tools = AsyncMock(return_value=[])
     monkeypatch.setattr(pipecat_engine, "compose_functions_for_node", load_tools)
     agent = SimpleNamespace(
-        workflow=object(),
+        workflow=SimpleNamespace(nodes={}),
+        is_realtime=False,
         prompt_variables=PromptVariablesConfiguration(mode="call_context"),
         prompt_prewarm_nodes=set(),
         llm=SimpleNamespace(prewarm_prompt_cache=Mock(return_value=[])),
     )
     node = SimpleNamespace(
-        out={key: SimpleNamespace(id=key) for key in ("bad", "good")}
+        out={key: SimpleNamespace(id=key, is_end=False) for key in ("bad", "good")}
     )
     engine = SimpleNamespace(_format_prompt=lambda value: value, _has_recordings=False)
     await PipecatEngine._prewarm_reachable_prompts(engine, agent, node, None)

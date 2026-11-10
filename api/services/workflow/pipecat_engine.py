@@ -40,6 +40,7 @@ from api.schemas.workflow_configurations import (
     PromptVariablesConfiguration,
 )
 from api.services.integrations import (
+    IntegrationTool,
     create_integration_context_providers,
     create_integration_tools,
 )
@@ -122,6 +123,26 @@ CALL_STATUS_CONTEXT_KEY = "call_status"
 # p50 1.4s / p90 4.0s / max 21.3s, so this cuts off the tail and nothing else.
 FINAL_EXTRACTION_TIMEOUT_SECONDS = 10.0
 INITIAL_AGENT_STARTUP_TIMEOUT_SECONDS = 20.0
+
+
+def _integration_tools(agent, node, functions) -> list[IntegrationTool]:
+    """Integration tools for a node, skipping names its own functions already use."""
+    if node.is_end:
+        return []
+    return create_integration_tools(
+        agent.workflow,
+        realtime=agent.is_realtime,
+        reserved_names={schema.name for schema in functions},
+    )
+
+
+def _integration_tool_schema(tool: IntegrationTool):
+    return get_function_schema(
+        tool.name,
+        tool.description,
+        properties=tool.properties,
+        required=list(tool.required),
+    )
 
 
 @dataclass(frozen=True)
@@ -1016,30 +1037,14 @@ class PipecatEngine:
             node=node,
             custom_tool_manager=manager,
         )
-        agent.context_providers = []
-        if not node.is_end:
-            # Registered after the node's own functions, and skipped on a name
-            # clash, so an integration can never replace a workflow's function.
-            for tool in create_integration_tools(
-                agent.workflow,
-                realtime=agent.is_realtime,
-                reserved_names={schema.name for schema in functions},
-            ):
-                agent.llm.register_function(
-                    tool.name, agent.bind_tool(self, tool.handler)
-                )
-                functions.append(
-                    get_function_schema(
-                        tool.name,
-                        tool.description,
-                        properties=tool.properties,
-                        required=list(tool.required),
-                    )
-                )
-            if not agent.is_realtime:
-                agent.context_providers = create_integration_context_providers(
-                    agent.workflow
-                )
+        for tool in _integration_tools(agent, node, functions):
+            agent.llm.register_function(tool.name, agent.bind_tool(self, tool.handler))
+            functions.append(_integration_tool_schema(tool))
+        agent.context_providers = (
+            create_integration_context_providers(agent.workflow)
+            if not node.is_end and not agent.is_realtime
+            else []
+        )
         agent.tools = ToolsSchema(standard_tools=functions)
         agent.system_prompt = prompt.text
         configure_cache = getattr(agent.llm, "configure_prompt_cache", None)
@@ -1098,6 +1103,8 @@ class PipecatEngine:
                 functions = await compose_functions_for_node(
                     node=target, custom_tool_manager=manager
                 )
+                tools = _integration_tools(agent, target, functions)
+                functions.extend(_integration_tool_schema(tool) for tool in tools)
                 agent.llm.prewarm_prompt_cache(
                     node_id=target.id,
                     system_instruction=prompt.text,

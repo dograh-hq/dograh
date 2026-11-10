@@ -6,6 +6,7 @@ Covers the generic path, independent of any concrete integration:
 - PipecatEngine registers integration tools on Start Call and Agent nodes,
   using the graph of the agent that owns the node, and skips End Call nodes
 - PipecatEngine sets context providers on conversational nodes only
+- prompt prewarm for reachable nodes sends the same integration tools
 """
 
 from __future__ import annotations
@@ -142,3 +143,21 @@ async def test_engine_sets_context_providers_on_conversational_nodes(
 
         await engine._prepare_node(agent, three_node_workflow.nodes["end"])
         assert agent.context_providers == []
+
+
+async def test_reachable_node_prewarm_includes_integration_tools(three_node_workflow):
+    llm = Mock()
+    engine = PipecatEngine(workflow=three_node_workflow, llm=llm, call_context_vars={})
+    agent = engine.active_agent
+
+    with patch(
+        "api.services.workflow.pipecat_engine.create_integration_tools",
+        return_value=[_tool()],
+    ):
+        await engine._prewarm_reachable_prompts(
+            agent, three_node_workflow.nodes["start"], None
+        )
+
+    llm.register_function.assert_not_called()
+    tools = llm.prewarm_prompt_cache.call_args.kwargs["tools"].standard_tools
+    assert "lookup_order" in {tool.name for tool in tools}

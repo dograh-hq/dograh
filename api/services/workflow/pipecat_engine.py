@@ -1948,9 +1948,8 @@ class PipecatEngine:
                 # and `_shutdown_task` before extraction / `queue_frame`, so
                 # a later retry is a no-op and the user stays muted unless
                 # those are cleared and a terminal frame still goes out.
-                logger.error(
-                    f"Idle farewell termination failed: {e}",
-                    exc_info=True,
+                logger.opt(exception=True).error(
+                    "Idle farewell termination failed: {}", e
                 )
                 self._call_disposed = False
                 self._shutdown_task = None

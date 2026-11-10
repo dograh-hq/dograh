@@ -1,10 +1,13 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from google.auth.credentials import AnonymousCredentials
 from google.genai.types import EndSensitivity, StartSensitivity
 from pydantic import ValidationError
 
+from api.services.configuration import model_connections
 from api.services.configuration.registry import (
     GoogleRealtimeLLMConfiguration,
     GoogleVertexRealtimeLLMConfiguration,
@@ -201,17 +204,71 @@ def test_gemini_vertex_passes_vad_params_to_settings(anonymous_vertex_credential
     assert vad.silence_duration_ms == 300
 
 
-def test_gemini_vertex_vad_params_survive_workflow_override(
-    anonymous_vertex_credentials,
+async def test_gemini_vertex_vad_params_survive_workflow_override(
+    anonymous_vertex_credentials, monkeypatch
 ):
-    # Workflow-level model_configuration_v2_override uses model_copy(update=...).
-    base = GoogleVertexRealtimeLLMConfiguration(**VERTEX_REQUIRED)
-    overridden = base.model_copy(
-        update={"end_of_speech_sensitivity": "HIGH", "silence_duration_ms": 250}
+    # Go through the real override path: the organization default is patched
+    # by a workflow override via resolve_model_configuration and
+    # _apply_model_patch, and the effective realtime config feeds the factory.
+    row = SimpleNamespace(
+        uuid=str(uuid4()),
+        provider="google_vertex",
+        credentials={"api_key": "secret"},
+        connection_settings={"project_id": "test-proj"},
+        revision=1,
+        organization_id=1,
+        is_active=True,
     )
-    service = create_realtime_llm_service(DummyUserConfig(overridden), _audio_config())
+    default = SimpleNamespace(
+        uuid=str(uuid4()),
+        organization_id=1,
+        revision=1,
+        configuration={
+            "version": 3,
+            "mode": "realtime",
+            "llm": {"provider_connection_uuid": row.uuid, "settings": {}},
+            "realtime": {
+                "provider_connection_uuid": row.uuid,
+                "settings": {"start_of_speech_sensitivity": "LOW"},
+            },
+        },
+    )
 
+    async def get_connection(org, uuid, active_only=True):
+        return row if org == row.organization_id and uuid == row.uuid else None
+
+    monkeypatch.setattr(
+        model_connections.db_client,
+        "get_provider_connection",
+        AsyncMock(side_effect=get_connection),
+    )
+
+    resolved = await model_connections.resolve_model_configuration(
+        1,
+        workflow_override={
+            "realtime": {
+                "settings": {
+                    "end_of_speech_sensitivity": "HIGH",
+                    "silence_duration_ms": 250,
+                }
+            }
+        },
+        default_row=default,
+    )
+    assert {"source": "workflow"} in resolved.provenance
+    assert resolved.snapshot["services"]["realtime"]["settings"] == {
+        "start_of_speech_sensitivity": "LOW",
+        "end_of_speech_sensitivity": "HIGH",
+        "silence_duration_ms": 250,
+    }
+
+    service = create_realtime_llm_service(resolved.effective, _audio_config())
+
+    assert isinstance(service, DograhGeminiLiveVertexLLMService)
     vad = service._settings.vad
     assert vad is not None
+    # The saved base setting is kept and the workflow settings are merged in.
+    assert vad.start_sensitivity == StartSensitivity.START_SENSITIVITY_LOW
     assert vad.end_sensitivity == EndSensitivity.END_SENSITIVITY_HIGH
+    assert vad.prefix_padding_ms is None
     assert vad.silence_duration_ms == 250

@@ -1,7 +1,7 @@
 """Bind archived workflow versions that non-terminal campaigns still run.
 
 Revision ID: e7a4c91d2b58
-Revises: d6a83e2b19f0
+Revises: 93d7a618f2c4
 
 b3c1d9e4f7a2 already shipped. It bound active workflows and their current
 published definition plus drafts, and left archived workflows and historical
@@ -49,10 +49,10 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "e7a4c91d2b58"
-# d6a83e2b19f0 landed on main with the same parent. This follow-up stays the
-# single head by chaining after that revision; the conversion still continues
-# the b3c1d9e4f7a2 backfill.
-down_revision = "d6a83e2b19f0"
+# d6a83e2b19f0 now continues through 8b24d9a76c10 to 93d7a618f2c4 on main.
+# This follow-up has not shipped, so it stays the single head by chaining
+# after that revision. The conversion still continues the b3c1d9e4f7a2 backfill.
+down_revision = "93d7a618f2c4"
 branch_labels = None
 depends_on = None
 

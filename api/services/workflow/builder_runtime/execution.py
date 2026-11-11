@@ -10,7 +10,9 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.workflow_builder import BuilderBusy
+from api.enums import PostHogEvent
 from api.schemas.workflow_builder import BuilderSession, BuilderTurnRequest
+from api.services.posthog_tenant import capture_tenant_event
 
 ACTIVE = {"queued", "running"}
 
@@ -188,6 +190,21 @@ async def execute_builder_run(run_id: str) -> None:
         session_id = UUID(run["session_id"])
         request = BuilderTurnRequest.model_validate(run["request"])
 
+        async def track(event: str, **properties) -> None:
+            # Builder lifecycle analytics. Telemetry must never fail a run, so
+            # swallow everything; the funnel tolerates an occasional miss.
+            try:
+                await capture_tenant_event(
+                    distinct_id=str(actor.provider_id),
+                    event=event,
+                    organization_id=actor.selected_organization_id,
+                    properties={"session_id": str(session_id), **properties},
+                )
+            except Exception:  # noqa: BLE001 -- analytics is best-effort
+                logger.warning(
+                    "Builder analytics event {} failed for run {}", event, run_id
+                )
+
         async def failed(event):
             # A failed inference may still have checkpointed the user input or
             # completed tools. Send that checkpoint before the terminal error.
@@ -201,6 +218,12 @@ async def execute_builder_run(run_id: str) -> None:
                     {"type": "session", "session": session.model_dump(mode="json")},
                 )
             await db_client.append_builder_event(run_id, event, status="failed")
+            await track(
+                PostHogEvent.BUILDER_ERROR,
+                message=str(event.get("message", ""))[:300],
+                status_code=event.get("status_code"),
+                is_edit=request.workflow_id is not None,
+            )
 
         async def stopped():
             try:
@@ -282,8 +305,10 @@ async def execute_builder_run(run_id: str) -> None:
                     await db_client.append_builder_event(run_id, event)
 
         async def finish(session: BuilderSession):
+            is_edit = request.workflow_id is not None
+            saved_draft = False
             if (
-                request.workflow_id is not None
+                is_edit
                 and session.proposal
                 and not session.can_continue
                 and not session.pending
@@ -296,6 +321,26 @@ async def execute_builder_run(run_id: str) -> None:
                 )
                 await db_client.append_builder_event(
                     run_id, {"type": "saved", "workflow_id": saved}
+                )
+                saved_draft = True
+                created_via, builder_edited = await db_client.get_workflow_origin(
+                    saved, organization_id=actor.selected_organization_id
+                )
+                await track(
+                    PostHogEvent.BUILDER_SAVED,
+                    workflow_id=saved,
+                    is_edit=True,
+                    workflow_origin=created_via,
+                    builder_edited=builder_edited,
+                )
+            # A valid proposal means a working agent now exists (new agents are
+            # already persisted as V1; edits are saved just above).
+            if session.proposal:
+                await track(
+                    PostHogEvent.BUILDER_AGENT_BUILT,
+                    is_edit=is_edit,
+                    workflow_id=request.workflow_id,
+                    saved_draft=saved_draft,
                 )
             await db_client.append_builder_event(
                 run_id, {"type": "session", "session": session.model_dump(mode="json")}

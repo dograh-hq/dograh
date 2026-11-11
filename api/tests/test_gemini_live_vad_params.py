@@ -256,11 +256,12 @@ async def test_gemini_vertex_vad_params_survive_workflow_override(
         default_row=default,
     )
     assert {"source": "workflow"} in resolved.provenance
-    assert resolved.snapshot["services"]["realtime"]["settings"] == {
-        "start_of_speech_sensitivity": "LOW",
-        "end_of_speech_sensitivity": "HIGH",
-        "silence_duration_ms": 250,
-    }
+    # The snapshot also stores every model default (model, voice, ...), so
+    # only the saved and overridden VAD keys are checked here.
+    snapshot_settings = resolved.snapshot["services"]["realtime"]["settings"]
+    assert snapshot_settings["start_of_speech_sensitivity"] == "LOW"
+    assert snapshot_settings["end_of_speech_sensitivity"] == "HIGH"
+    assert snapshot_settings["silence_duration_ms"] == 250
 
     service = create_realtime_llm_service(resolved.effective, _audio_config())
 

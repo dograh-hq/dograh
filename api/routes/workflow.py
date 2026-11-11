@@ -296,6 +296,11 @@ class WorkflowResponse(BaseModel):
     version_number: int | None = None
     version_status: str | None = None
     workflow_uuid: str | None = None
+    # Analytics attribution: how the agent was first created ("builder" |
+    # "template" | "blank" | "unknown") and whether the builder was later used
+    # to edit it. Used to stamp workflow_origin on editor/test events.
+    created_via: str | None = None
+    builder_edited: bool = False
 
 
 class WorkflowListResponse(BaseModel):
@@ -859,6 +864,9 @@ async def get_workflow(
         template_vars = published.template_context_variables
 
     active_def = draft or workflow.released_definition
+    created_via, builder_edited = await db_client.get_workflow_origin(
+        workflow_id, organization_id=user.selected_organization_id
+    )
     return {
         "id": workflow.id,
         "name": workflow.name,
@@ -872,6 +880,8 @@ async def get_workflow(
         "version_number": active_def.version_number if active_def else None,
         "version_status": active_def.status if active_def else None,
         "workflow_uuid": workflow.workflow_uuid,
+        "created_via": created_via,
+        "builder_edited": builder_edited,
     }
 
 

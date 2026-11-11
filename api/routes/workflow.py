@@ -652,6 +652,7 @@ async def create_workflow_from_template(
             workflow_definition=workflow_def,
             user_id=user.id,
             organization_id=user.selected_organization_id,
+            created_via="template",
         )
 
         await capture_tenant_event(
@@ -1088,6 +1089,9 @@ async def publish_workflow(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    created_via, builder_edited = await db_client.get_workflow_origin(
+        workflow.id, organization_id=user.selected_organization_id
+    )
     await capture_tenant_event(
         distinct_id=str(user.provider_id),
         event=PostHogEvent.WORKFLOW_PUBLISHED,
@@ -1095,6 +1099,8 @@ async def publish_workflow(
         properties={
             "workflow_uuid": workflow.workflow_uuid,
             "version_number": published.version_number,
+            "workflow_origin": created_via,
+            "builder_edited": builder_edited,
         },
     )
 
@@ -1784,6 +1790,7 @@ async def duplicate_workflow_template(
         workflow_def,
         user.id,
         user.selected_organization_id,
+        created_via="template",
     )
 
     if trigger_paths:

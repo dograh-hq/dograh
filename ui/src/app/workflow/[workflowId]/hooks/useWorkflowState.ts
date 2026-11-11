@@ -108,6 +108,11 @@ interface UseWorkflowStateProps {
     onVersionSaved?: (version: SavedVersion) => void;
     initialWorkflowName: string;
     workflowId: number;
+    /**
+     * How the agent was first created (builder | template | blank | unknown),
+     * for analytics attribution on manual node edits. Immutable.
+     */
+    createdVia?: string | null;
     initialFlow?: {
         nodes: FlowNode[];
         edges: FlowEdge[];
@@ -128,6 +133,7 @@ export const useWorkflowState = ({
     initialFlow,
     initialTemplateContextVariables,
     initialWorkflowConfigurations,
+    createdVia,
     user,
     onVersionSaved,
     editingDisabled = false,
@@ -342,9 +348,11 @@ export const useWorkflowState = ({
         rfInstance.current.addNodes([newNode]);
         posthog.capture(PostHogEvent.WORKFLOW_NODE_ADDED, {
             node_type: nodeType,
+            workflow_origin: createdVia ?? "unknown",
+            source: "manual",
         });
         setIsAddNodePanelOpen(false);
-    }, [nodes, setIsAddNodePanelOpen, bySpecName]);
+    }, [nodes, setIsAddNodePanelOpen, bySpecName, createdVia]);
 
     const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setWorkflowName(e.target.value);

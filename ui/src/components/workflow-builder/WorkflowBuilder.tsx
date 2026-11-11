@@ -3,6 +3,7 @@
 import { ArrowUp, Loader2, Play, Plus, Square } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import posthog from 'posthog-js';
 import { useEffect, useRef, useState } from 'react';
 
 import { getBuilderSessionApiV1WorkflowBuilderSessionIdGet, openWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPost, saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost } from '@/client/sdk.gen';
@@ -13,6 +14,7 @@ import { PlanApprovalCard } from '@/components/workflow-builder/PlanApprovalCard
 import { QuestionCards } from '@/components/workflow-builder/QuestionCards';
 import { ToolApprovalCard } from '@/components/workflow-builder/ToolApprovalCard';
 import { useBuilderExecution } from '@/components/workflow-builder/useBuilderExecution';
+import { PostHogEvent } from '@/constants/posthog-events';
 import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 
@@ -38,6 +40,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     const [optimisticMessage, setOptimisticMessage] = useState('');
     const bottom = useRef<HTMLDivElement>(null);
     const composer = useRef<HTMLTextAreaElement>(null);
+    const openedTracked = useRef(false);
 
     const execution = useBuilderExecution({
         getAccessToken, onSaved,
@@ -50,6 +53,17 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
         onBusyChange?.(busy || saving || (!!workflowId && restoring));
         return () => onBusyChange?.(false);
     }, [busy, saving, restoring, workflowId, onBusyChange]);
+
+    // Builder opened: fire once the authed user lands on the builder. Dedupe
+    // via a ref so re-renders / StrictMode double-mounts count a single open.
+    useEffect(() => {
+        if (authLoading || !user || openedTracked.current) return;
+        openedTracked.current = true;
+        posthog.capture(PostHogEvent.BUILDER_OPENED, {
+            mode: workflowId ? 'edit' : 'create',
+            workflow_id: workflowId ?? null,
+        });
+    }, [authLoading, user, workflowId]);
 
     useEffect(() => {
         if (authLoading) return;
@@ -111,6 +125,15 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     };
     const send = async (content: Pick<BuilderTurnRequest, 'message' | 'answers' | 'approval' | 'tool_approval'> = {}) => {
         if (!user || !sessionId || busy || saving || restoring || disabled) return;
+        // The brief: first user message of the session separates "tried" from
+        // "just opened". Later turns are iteration, not a fresh attempt.
+        if (content.message && !session?.messages?.length) {
+            posthog.capture(PostHogEvent.BUILDER_PROMPT_SUBMITTED, {
+                mode: workflowId ? 'edit' : 'create',
+                prompt_chars: content.message.length,
+                session_id: sessionId,
+            });
+        }
         setError(null); setOptimisticMessage(content.message ?? '');
         if (!workflowId) {
             const url = new URL(window.location.href); url.searchParams.set('session', sessionId);
@@ -121,6 +144,10 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     };
     const testAgent = async () => {
         if (!session?.checkpoint || session.can_continue || awaitingUser || busy || saving || restoring || disabled) return;
+        posthog.capture(PostHogEvent.BUILDER_TEST_CLICKED, {
+            mode: workflowId ? 'edit' : 'create',
+            session_id: sessionId,
+        });
         setSaving(true); setError(null);
         try {
             const id = await persistProposal(session);

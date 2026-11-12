@@ -279,9 +279,9 @@ SARVAM_LANGUAGES = (
     "ta-IN",
     "te-IN",
 )
-SARVAM_STT_MODELS = ("saarika:v2.5", "saaras:v3")
-# saarika:v2.5 language codes (unknown = auto-detect)
-SARVAM_STT_LANGUAGES_V25 = (
+SARVAM_STT_MODELS = ("saaras:v4", "saaras:v3")
+# saaras:v4 and saaras:v3 language codes (unknown = auto-detect). Full list: https://docs.sarvam.ai/api-reference-docs/speech-to-text/transcribe
+SARVAM_STT_LANGUAGES_V4 = (
     "unknown",
     "hi-IN",
     "bn-IN",
@@ -294,9 +294,6 @@ SARVAM_STT_LANGUAGES_V25 = (
     "ta-IN",
     "te-IN",
     "en-IN",
-)
-# saaras:v3 adds these regional languages on top of the v2.5 set. Full list: https://docs.sarvam.ai/api-reference-docs/speech-to-text/transcribe
-SARVAM_STT_LANGUAGES_V3 = SARVAM_STT_LANGUAGES_V25 + (
     "as-IN",
     "ur-IN",
     "ne-IN",
@@ -310,6 +307,7 @@ SARVAM_STT_LANGUAGES_V3 = SARVAM_STT_LANGUAGES_V25 + (
     "mai-IN",
     "doi-IN",
 )
+SARVAM_STT_LANGUAGES_V3 = SARVAM_STT_LANGUAGES_V4
 # Keep in step with SarvamLLMService._SUPPORTED_MODELS in pipecat: offering a
 # model the service rejects turns every call using it into a hard failure at
 # pipeline start. sarvam-30b was listed here after Sarvam withdrew it and was

@@ -7425,6 +7425,14 @@ export type WorkflowResponse = {
      * Workflow Uuid
      */
     workflow_uuid?: string | null;
+    /**
+     * Created Via
+     */
+    created_via?: string | null;
+    /**
+     * Builder Edited
+     */
+    builder_edited?: boolean;
 };
 
 /**

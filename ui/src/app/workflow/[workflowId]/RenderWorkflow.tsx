@@ -65,6 +65,9 @@ interface RenderWorkflowProps {
     initialVersionNumber?: number | null;
     initialVersionStatus?: string | null;
     initialSelectedVersion?: WorkflowVersionResponse;
+    // How the agent was first created (builder | template | blank | unknown),
+    // for analytics attribution on manual editor/test actions. Immutable.
+    initialCreatedVia?: string | null;
     user: { id: string; email?: string };
 }
 
@@ -91,6 +94,7 @@ function WorkflowEditor({
     initialVersionNumber,
     initialVersionStatus,
     initialSelectedVersion,
+    initialCreatedVia,
     user,
 }: RenderWorkflowProps) {
     const router = useRouter();
@@ -179,6 +183,7 @@ function WorkflowEditor({
         initialFlow,
         initialTemplateContextVariables,
         initialWorkflowConfigurations,
+        createdVia: initialCreatedVia,
         user,
         onVersionSaved,
         editingDisabled: builderBusy,
@@ -864,6 +869,7 @@ function WorkflowEditor({
                                     disabled={testerDisabledReason !== null}
                                     disabledReason={testerDisabledReason}
                                     showWebCallOnboarding={shouldShowWebCallOnboarding}
+                                    workflowOrigin={initialCreatedVia ?? undefined}
                                     isVisible={isDesktopViewport}
                                     onClose={() => setIsTesterRailOpen(false)}
                                     onRuntimeNodeTransition={handleRuntimeNodeTransition}
@@ -880,6 +886,7 @@ function WorkflowEditor({
                                 disabled={testerDisabledReason !== null}
                                 disabledReason={testerDisabledReason}
                                 showWebCallOnboarding={shouldShowWebCallOnboarding}
+                                workflowOrigin={initialCreatedVia ?? undefined}
                                 isVisible={isTesterSheetOpen}
                                 onRuntimeNodeTransition={handleRuntimeNodeTransition}
                             />

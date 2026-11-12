@@ -3,6 +3,7 @@
 import { ArrowUp, Loader2, Play, Plus, Square } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import posthog from 'posthog-js';
 import { useEffect, useRef, useState } from 'react';
 
 import { getBuilderSessionApiV1WorkflowBuilderSessionIdGet, openWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPost, saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost } from '@/client/sdk.gen';
@@ -13,6 +14,7 @@ import { PlanApprovalCard } from '@/components/workflow-builder/PlanApprovalCard
 import { QuestionCards } from '@/components/workflow-builder/QuestionCards';
 import { ToolApprovalCard } from '@/components/workflow-builder/ToolApprovalCard';
 import { useBuilderExecution } from '@/components/workflow-builder/useBuilderExecution';
+import { PostHogEvent } from '@/constants/posthog-events';
 import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 
@@ -38,6 +40,8 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     const [optimisticMessage, setOptimisticMessage] = useState('');
     const bottom = useRef<HTMLDivElement>(null);
     const composer = useRef<HTMLTextAreaElement>(null);
+    const openedTracked = useRef(false);
+    const shownInterrupts = useRef<Set<string>>(new Set());
 
     const execution = useBuilderExecution({
         getAccessToken, onSaved,
@@ -50,6 +54,17 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
         onBusyChange?.(busy || saving || (!!workflowId && restoring));
         return () => onBusyChange?.(false);
     }, [busy, saving, restoring, workflowId, onBusyChange]);
+
+    // Builder opened: fire once the authed user lands on the builder. Dedupe
+    // via a ref so re-renders / StrictMode double-mounts count a single open.
+    useEffect(() => {
+        if (authLoading || !user || openedTracked.current) return;
+        openedTracked.current = true;
+        posthog.capture(PostHogEvent.BUILDER_OPENED, {
+            mode: workflowId ? 'edit' : 'create',
+            workflow_id: workflowId ?? null,
+        });
+    }, [authLoading, user, workflowId]);
 
     useEffect(() => {
         if (authLoading) return;
@@ -82,6 +97,23 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     }, [authLoading, user?.id, organization, workflowId, restoreAttempt]);
 
     useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [session?.messages?.length, session?.pending?.length, status]);
+
+    // "Shown" friction events: fire once per interrupt as the builder surfaces
+    // it. Deduped by interrupt id so re-renders don't double-count.
+    useEffect(() => {
+        for (const item of session?.pending ?? []) {
+            if (item.kind === 'mcp' || shownInterrupts.current.has(item.id)) continue;
+            shownInterrupts.current.add(item.id);
+            if (item.kind === 'questions') {
+                posthog.capture(PostHogEvent.BUILDER_QUESTIONS_SHOWN, { session_id: sessionId, question_count: item.questions?.length ?? 0 });
+            } else if (item.kind === 'plan_approval') {
+                posthog.capture(PostHogEvent.BUILDER_PLAN_SHOWN, { session_id: sessionId, revision: item.brief_revision ?? null });
+            } else if (item.kind === 'tool_approval') {
+                posthog.capture(PostHogEvent.BUILDER_TOOL_PROPOSED, { session_id: sessionId, operation: item.operation ?? null, tool_category: (item.tool as { category?: string } | null)?.category ?? null });
+            }
+        }
+    }, [session?.pending, sessionId]);
+
     const pendingQuestions = session?.pending?.filter(item => item.kind === 'questions') ?? [];
     const pendingApproval = session?.pending?.find(item => item.kind === 'plan_approval');
     const pendingToolApproval = session?.pending?.find(item => item.kind === 'tool_approval');
@@ -93,6 +125,8 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     const isStarting = !restoring && !session?.messages?.length && !awaitingUser && !session?.proposal && !busy && !optimisticMessage && !session?.can_continue;
     useEffect(() => { if (isStarting) composer.current?.focus(); }, [isStarting]);
     const newConversation = () => {
+        posthog.capture(PostHogEvent.BUILDER_NEW_CONVERSATION, { session_id: sessionId });
+        shownInterrupts.current.clear();
         execution.detach(); setSession(null); setInput(''); setError(null); setOptimisticMessage(''); setStatus('');
         setSessionId(crypto.randomUUID());
         const url = new URL(window.location.href); url.searchParams.delete('session');
@@ -111,6 +145,25 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     };
     const send = async (content: Pick<BuilderTurnRequest, 'message' | 'answers' | 'approval' | 'tool_approval'> = {}) => {
         if (!user || !sessionId || busy || saving || restoring || disabled) return;
+        // The brief: first user message of the session separates "tried" from
+        // "just opened". Later turns are iteration, not a fresh attempt.
+        if (content.message && !session?.messages?.length) {
+            posthog.capture(PostHogEvent.BUILDER_PROMPT_SUBMITTED, {
+                mode: workflowId ? 'edit' : 'create',
+                prompt_chars: content.message.length,
+                session_id: sessionId,
+            });
+        }
+        if (content.answers) {
+            const questionCount = Object.values(content.answers).reduce((n, qs) => n + Object.keys(qs ?? {}).length, 0);
+            posthog.capture(PostHogEvent.BUILDER_QUESTIONS_ANSWERED, { session_id: sessionId, question_count: questionCount });
+        }
+        if (content.approval) {
+            posthog.capture(content.approval.decision === 'approve' ? PostHogEvent.BUILDER_PLAN_APPROVED : PostHogEvent.BUILDER_PLAN_REVISE, { session_id: sessionId, revision: content.approval.brief_revision ?? null });
+        }
+        if (content.tool_approval) {
+            posthog.capture(content.tool_approval.decision === 'approve' ? PostHogEvent.BUILDER_TOOL_APPROVED : PostHogEvent.BUILDER_TOOL_DENIED, { session_id: sessionId, operation: pendingToolApproval?.operation ?? null });
+        }
         setError(null); setOptimisticMessage(content.message ?? '');
         if (!workflowId) {
             const url = new URL(window.location.href); url.searchParams.set('session', sessionId);
@@ -121,6 +174,10 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     };
     const testAgent = async () => {
         if (!session?.checkpoint || session.can_continue || awaitingUser || busy || saving || restoring || disabled) return;
+        posthog.capture(PostHogEvent.BUILDER_TEST_CLICKED, {
+            mode: workflowId ? 'edit' : 'create',
+            session_id: sessionId,
+        });
         setSaving(true); setError(null);
         try {
             const id = await persistProposal(session);
@@ -147,7 +204,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
                     {busy && !execution.disconnected && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{status}</div>}
                     {busy && <div className="flex gap-2">
                         {execution.disconnected && <Button variant="outline" size="sm" onClick={execution.reconnect}>Reconnect</Button>}
-                        <Button variant="outline" size="sm" disabled={execution.stopping} onClick={() => void execution.stop()}><Square className="mr-2 h-3 w-3" />{execution.stopping ? 'Stopping…' : 'Stop'}</Button>
+                        <Button variant="outline" size="sm" disabled={execution.stopping} onClick={() => { posthog.capture(PostHogEvent.BUILDER_CANCELLED, { mode: workflowId ? 'edit' : 'create', session_id: sessionId }); void execution.stop(); }}><Square className="mr-2 h-3 w-3" />{execution.stopping ? 'Stopping…' : 'Stop'}</Button>
                     </div>}
                     {error && <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}
                         {!sessionId && !restoring && <Button variant="outline" size="sm" onClick={() => setRestoreAttempt(value => value + 1)}>Retry restoring conversation</Button>}

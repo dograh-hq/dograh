@@ -62,6 +62,7 @@ class WorkflowClient(BaseDBClient):
                 user_id=user_id,
                 organization_id=organization_id,
                 workflow_definition=workflow_definition,
+                created_via="builder",
             )
             try:
                 session.add(workflow)
@@ -96,6 +97,42 @@ class WorkflowClient(BaseDBClient):
                         )
                     return workflow
                 raise
+
+    async def get_workflow_origin(
+        self, workflow_id: int, *, organization_id: int
+    ) -> tuple[str, bool]:
+        """Return ``(created_via, builder_edited)`` for a workflow.
+
+        Reads the stamped ``workflows.created_via`` column and whether the
+        anchor (first) definition carries a ``builder_sessions`` link. Missing
+        workflow resolves to ``("unknown", False)``.
+        """
+        from api.utils.workflow_origin import resolve_workflow_origin
+
+        async with self.async_session() as session:
+            row = (
+                await session.execute(
+                    select(
+                        WorkflowModel.created_via,
+                        WorkflowDefinitionModel.extra_metadata,
+                    )
+                    .join(
+                        WorkflowDefinitionModel,
+                        WorkflowModel.id == WorkflowDefinitionModel.workflow_id,
+                    )
+                    .where(
+                        WorkflowModel.id == workflow_id,
+                        WorkflowModel.organization_id == organization_id,
+                    )
+                    .order_by(WorkflowDefinitionModel.id)
+                    .limit(1)
+                )
+            ).first()
+            if row is None:
+                return resolve_workflow_origin(None, False)
+            created_via, extra_metadata = row
+            has_builder_session = bool((extra_metadata or {}).get("builder_sessions"))
+            return resolve_workflow_origin(created_via, has_builder_session)
 
     async def get_workflow_builder_session_id(
         self,
@@ -298,6 +335,8 @@ class WorkflowClient(BaseDBClient):
         workflow_definition: dict,
         user_id: int,
         organization_id: int = None,
+        *,
+        created_via: str = "blank",
     ) -> WorkflowModel:
         async with self.async_session() as session:
             try:
@@ -306,6 +345,7 @@ class WorkflowClient(BaseDBClient):
                     workflow_definition=workflow_definition,  # Keep for backwards compatibility
                     user_id=user_id,
                     organization_id=organization_id,
+                    created_via=created_via,
                 )
                 session.add(new_workflow)
                 await session.flush()  # Flush to get the workflow ID

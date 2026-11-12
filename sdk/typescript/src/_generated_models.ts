@@ -1496,6 +1496,19 @@ export interface components {
              */
             required?: boolean;
         };
+        /** PromptVariablesConfiguration */
+        PromptVariablesConfiguration: {
+            /**
+             * Mode
+             * @description Enable prompt caching optimization with call_context. Dograh manages explicit caching automatically for eligible providers and models.
+             * @enum {string}
+             */
+            mode?: "inline" | "call_context";
+            /** Call Context Note */
+            call_context_note?: string | null;
+            /** Include Weekday */
+            include_weekday?: boolean;
+        };
         /**
          * PropertyLayoutOptions
          * @description Renderer layout hints for a property in the node editor.
@@ -2099,6 +2112,7 @@ export interface components {
         /** WorkflowConfigurationDefaults */
         WorkflowConfigurationDefaults: {
             model_configuration_override?: components["schemas"]["ModelConfigurationOverride"] | null;
+            prompt_variables?: components["schemas"]["PromptVariablesConfiguration"];
             ambient_noise_configuration?: components["schemas"]["AmbientNoiseConfigurationDefaults"];
             /** Max Call Duration */
             max_call_duration?: number;
@@ -2210,6 +2224,13 @@ export interface components {
             version_status?: string | null;
             /** Workflow Uuid */
             workflow_uuid?: string | null;
+            /** Created Via */
+            created_via?: string | null;
+            /**
+             * Builder Edited
+             * @default false
+             */
+            builder_edited: boolean;
         };
         /** WorkflowRunResponseSchema */
         WorkflowRunResponseSchema: {
@@ -2349,6 +2370,7 @@ export type NodeSpec = components['schemas']['NodeSpec'];
 export type NodeTypesResponse = components['schemas']['NodeTypesResponse'];
 export type NumberInputOptions = components['schemas']['NumberInputOptions'];
 export type PresetToolParameter = components['schemas']['PresetToolParameter'];
+export type PromptVariablesConfiguration = components['schemas']['PromptVariablesConfiguration'];
 export type PropertyLayoutOptions = components['schemas']['PropertyLayoutOptions'];
 export type PropertyOption = components['schemas']['PropertyOption'];
 export type PropertyRendererOptions = components['schemas']['PropertyRendererOptions'];

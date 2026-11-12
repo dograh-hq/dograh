@@ -131,9 +131,7 @@ class WorkflowClient(BaseDBClient):
             if row is None:
                 return resolve_workflow_origin(None, False)
             created_via, extra_metadata = row
-            has_builder_session = bool(
-                (extra_metadata or {}).get("builder_sessions")
-            )
+            has_builder_session = bool((extra_metadata or {}).get("builder_sessions"))
             return resolve_workflow_origin(created_via, has_builder_session)
 
     async def get_workflow_builder_session_id(

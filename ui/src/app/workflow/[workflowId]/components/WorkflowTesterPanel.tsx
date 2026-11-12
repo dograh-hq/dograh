@@ -127,7 +127,7 @@ export function WorkflowTesterPanel({
         } finally {
             setCreatingVoiceRun(false);
         }
-    }, [accessToken, disabled, markActionCompleted, workflowId]);
+    }, [accessToken, disabled, markActionCompleted, workflowId, workflowOrigin]);
 
     const authUnavailableReason = tokenReady && !accessToken
         ? "Authentication is required before testing can start."

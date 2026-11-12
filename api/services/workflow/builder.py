@@ -13,12 +13,12 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.db.workflow_builder import BuilderBusy
 from api.enums import PostHogEvent
-from api.services.posthog_tenant import capture_tenant_event
 from api.mcp_server.auth import builder_mcp_operation, builder_mcp_user
 from api.mcp_server.server import mcp
 from api.mcp_server.tools._workflow_projection import project_workflow_to_sdk_view
 from api.schemas.workflow_builder import BuilderSession, BuilderTurnRequest
 from api.services.observability.trace_payloads import trace_json
+from api.services.posthog_tenant import capture_tenant_event
 from api.services.workflow.builder_runtime.agent import ALLOWED_TOOLS as BUILDER_TOOLS
 from api.services.workflow.builder_runtime.errors import BuilderModelError
 from api.services.workflow.builder_runtime.progress import progress_queue

@@ -61,3 +61,85 @@ def test_clock_variables_still_render():
 
     assert rendered != "It is "
     assert "{{" not in rendered
+
+
+def test_template_renderer_runtime_error_falls_back_gracefully():
+    """Verify that runtime errors (like TypeError on arithmetic with None) do not crash live calls."""
+    context = {"amount": None, "greeting": "Hello"}
+    template = "Greeting: {{ greeting }}. Math: {{ amount + 1 }}"
+    rendered = render_template(template, context)
+    assert "Greeting: Hello" in rendered
+
+
+def test_template_renderer_security_error_blocks_exploit():
+    """Verify that SecurityError does not fall back to legacy regex and returns empty string."""
+    template = "{{ [].__class__.__mro__ }}"
+    rendered = render_template(template, {})
+    assert rendered == ""
+
+
+def test_extract_template_variables_excludes_jinja_locals():
+    """Verify that loop targets and set variables are excluded from campaign required variables."""
+    # Loop over range has no source data requirements
+    assert (
+        extract_template_variables("{% for i in range(3) %}{{ i }}{% endfor %}")
+        == set()
+    )
+
+    # Local set assignment is not required from contact CSV
+    assert extract_template_variables("{% set x = 123 %}{{ x }}") == set()
+
+    # Loop with parenthesized and unparenthesized tuple unpack targets
+    assert extract_template_variables(
+        "{% for (k, v) in pairs %}{{ k }}: {{ v }}{% endfor %}"
+    ) == {"pairs"}
+    assert extract_template_variables(
+        "{% for k, v in pairs %}{{ k }}: {{ v }}{% endfor %}"
+    ) == {"pairs"}
+
+    # Loop target is local, but iterable is required
+    assert extract_template_variables(
+        "{% for item in items %}{{ item }}{% endfor %}"
+    ) == {"items"}
+
+    # Conditions require their test variables
+    assert extract_template_variables(
+        "{% if is_vip %}VIP{% else %}Standard{% endif %}"
+    ) == {"is_vip"}
+
+    # Variables with fallback/default are optional
+    assert extract_template_variables("Hi {{ name | default('there') }}") == set()
+    assert extract_template_variables("Hi {{ name | fallback('there') }}") == set()
+
+    # Variable used bare without fallback is required even if elsewhere used with fallback
+    assert extract_template_variables(
+        "Hi {{ name | default('there') }}. Your name is {{ name }}."
+    ) == {"name"}
+
+    # Nested attributes are runtime-resolved and skipped
+    assert (
+        extract_template_variables("{{ user.address }} {{ gathered_context.city }}")
+        == set()
+    )
+
+    # Chained filters with default/fallback are optional
+    assert extract_template_variables("{{ name | upper | default('there') }}") == set()
+    assert (
+        extract_template_variables("{{ name | trim | lower | default('there') }}")
+        == set()
+    )
+
+    # Loop-local reference shadowing external defaulted name does not leak into required variables
+    assert extract_template_variables(
+        "{% for name in names %}{{ name }}{% endfor %}Hi {{ name | default('there') }}"
+    ) == {"names"}
+
+    # Legacy hyphenated variables are preserved as required contact fields without prose or quoted-string collisions
+    assert extract_template_variables("Hello {{ customer-name }}") == {"customer-name"}
+    assert extract_template_variables(
+        "Hello {{ customer }} and {{ customer-name }}"
+    ) == {"customer", "customer-name"}
+    assert extract_template_variables("{{ name }}: {{ 'follow-up' }}") == {"name"}
+    assert extract_template_variables("Your customer: {{ customer-name }}") == {
+        "customer-name"
+    }

@@ -2,7 +2,7 @@ import json
 import re
 import uuid
 from datetime import datetime
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -58,6 +58,9 @@ from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
 from api.services.workflow.greeting_validation import validate_greeting_recordings
+from api.services.workflow.jinja_validation import (
+    validate_workflow_jinja_templates,
+)
 from api.services.workflow.layout import tidy_positions
 from api.services.workflow.prompt_preview import (
     PromptPreviewGraphError,
@@ -100,7 +103,7 @@ class ValidateWorkflowResponse(BaseModel):
 
 
 def _trigger_conflict_http_exception(
-    workflow_definition: Optional[dict], conflicting_paths: list[str]
+    workflow_definition: dict | None, conflicting_paths: list[str]
 ) -> HTTPException:
     """Build a 409 with the same detail shape as validate's 422 so the editor
     can highlight the offending trigger node(s) using the same code path."""
@@ -144,9 +147,9 @@ def _trigger_path_validation_http_exception(
 
 
 async def _validate_workflow_definition(
-    workflow_definition: Optional[dict],
+    workflow_definition: dict | None,
     organization_id: int,
-    exclude_workflow_id: Optional[int] = None,
+    exclude_workflow_id: int | None = None,
 ) -> list[WorkflowError]:
     """Run DTO, greeting, graph, tool-name, and trigger checks on a definition.
 
@@ -159,7 +162,7 @@ async def _validate_workflow_definition(
         return errors
 
     # ----------- DTO Validation ------------
-    dto: Optional[ReactFlowDTO] = None
+    dto: ReactFlowDTO | None = None
     try:
         dto = ReactFlowDTO.model_validate(workflow_definition)
     except ValidationError as exc:
@@ -184,6 +187,9 @@ async def _validate_workflow_definition(
                 message=issue.message,
             )
         )
+
+    # ----------- Jinja Template Syntax Check ------------
+    errors.extend(validate_workflow_jinja_templates(workflow_definition))
 
     errors.extend(
         await validate_workflow_tool_name_collisions(
@@ -229,7 +235,7 @@ def _validation_errors_http_exception(
 
 
 def _node_instance_validation_errors(
-    workflow_definition: Optional[dict],
+    workflow_definition: dict | None,
 ) -> list[WorkflowError]:
     """Validate spec-driven max_instances without requiring a complete draft."""
     if not workflow_definition:
@@ -250,7 +256,7 @@ def _node_instance_validation_errors(
 
 
 def _transition_tool_name_validation_errors(
-    workflow_definition: Optional[dict],
+    workflow_definition: dict | None,
 ) -> list[WorkflowError]:
     """Validate transition names without requiring a complete draft DTO."""
     if not workflow_definition:
@@ -540,6 +546,10 @@ async def create_workflow(
     if tool_name_errors:
         raise _validation_errors_http_exception(tool_name_errors)
 
+    jinja_errors = validate_workflow_jinja_templates(workflow_definition)
+    if jinja_errors:
+        raise _validation_errors_http_exception(jinja_errors, status_code=422)
+
     # Validate trigger path uniqueness BEFORE creating the workflow so we
     # don't leave an orphaned workflow record when the trigger conflicts.
     trigger_paths = (
@@ -717,7 +727,7 @@ async def create_workflow_from_template(
         logger.error(f"Unexpected error creating workflow from template: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected error occurred: {str(e)}",
+            detail=f"An unexpected error occurred: {e!s}",
         )
 
 
@@ -746,7 +756,7 @@ async def get_workflow_count(
     )
 
 
-def _validate_status_filter(status: Optional[str]) -> List[str]:
+def _validate_status_filter(status: str | None) -> list[str]:
     """Parse and validate a workflow ``status`` query filter.
 
     Accepts a single value or a comma-separated list. Returns the list of
@@ -780,11 +790,11 @@ def _validate_status_filter(status: Optional[str]) -> List[str]:
 )
 async def get_workflows(
     user: UserModel = Depends(get_user),
-    status: Optional[str] = Query(
+    status: str | None = Query(
         None,
         description="Filter by status - can be single value (active/archived) or comma-separated (active,archived)",
     ),
-) -> List[WorkflowListResponse]:
+) -> list[WorkflowListResponse]:
     """Get all workflows for the authenticated user's organization.
 
     Returns a lightweight response with only essential fields for listing.
@@ -1171,11 +1181,11 @@ async def create_workflow_draft(
 @router.get("/summary")
 async def get_workflows_summary(
     user: UserModel = Depends(get_user),
-    status: Optional[str] = Query(
+    status: str | None = Query(
         None,
         description="Filter by status (e.g. 'active' or 'archived'). Omit to return all.",
     ),
-) -> List[WorkflowSummaryResponse]:
+) -> list[WorkflowSummaryResponse]:
     """Get minimal workflow information (id and name only) for all workflows"""
     statuses = _validate_status_filter(status)
     if statuses:
@@ -1335,6 +1345,12 @@ async def update_workflow(
             raise _validation_errors_http_exception(
                 tool_name_errors,
                 status_code=409,
+            )
+        jinja_errors = validate_workflow_jinja_templates(workflow_definition)
+        if jinja_errors:
+            raise _validation_errors_http_exception(
+                jinja_errors,
+                status_code=422,
             )
         if workflow_definition:
             existing_workflow = await db_client.get_workflow(
@@ -1630,12 +1646,12 @@ async def get_workflow_run(
 
 
 class WorkflowRunsResponse(BaseModel):
-    runs: List[WorkflowRunResponseSchema]
+    runs: list[WorkflowRunResponseSchema]
     total_count: int
     page: int
     limit: int
     total_pages: int
-    applied_filters: Optional[List[dict]] = None
+    applied_filters: list[dict] | None = None
 
 
 @router.get("/{workflow_id}/runs")
@@ -1643,13 +1659,11 @@ async def get_workflow_runs(
     workflow_id: int,
     page: int = Query(1, ge=1, description="Page number (starts from 1)"),
     limit: int = Query(50, ge=1, le=100, description="Number of items per page"),
-    filters: Optional[str] = Query(None, description="JSON-encoded filter criteria"),
-    sort_by: Optional[str] = Query(
+    filters: str | None = Query(None, description="JSON-encoded filter criteria"),
+    sort_by: str | None = Query(
         None, description="Field to sort by (e.g., 'duration', 'created_at')"
     ),
-    sort_order: Optional[str] = Query(
-        "desc", description="Sort order ('asc' or 'desc')"
-    ),
+    sort_order: str | None = Query("desc", description="Sort order ('asc' or 'desc')"),
     user: UserModel = Depends(get_user),
 ) -> WorkflowRunsResponse:
     """
@@ -1709,10 +1723,10 @@ async def get_workflow_runs(
 async def download_workflow_report(
     workflow_id: int,
     user: UserModel = Depends(get_user),
-    start_date: Optional[datetime] = Query(
+    start_date: datetime | None = Query(
         None, description="Filter runs created on or after this datetime (ISO 8601)"
     ),
-    end_date: Optional[datetime] = Query(
+    end_date: datetime | None = Query(
         None, description="Filter runs created on or before this datetime (ISO 8601)"
     ),
 ) -> StreamingResponse:
@@ -1737,7 +1751,7 @@ async def download_workflow_report(
 
 
 @router.get("/templates")
-async def get_workflow_templates() -> List[WorkflowTemplateResponse]:
+async def get_workflow_templates() -> list[WorkflowTemplateResponse]:
     """
     Get all available workflow templates.
 

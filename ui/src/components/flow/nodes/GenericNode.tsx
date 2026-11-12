@@ -2,10 +2,12 @@ import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
 import * as LucideIcons from "lucide-react";
 import { Check, Circle, Copy, Edit, type LucideIcon, Trash2Icon } from "lucide-react";
 import Link from "next/link";
+import posthog from "posthog-js";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
+import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
 import type { NodeSpec } from "@/client/types.gen";
 import { DocumentBadges } from "@/components/flow/DocumentBadges";
 import { NodeEditForm, useNodeSpecs } from "@/components/flow/renderer";
@@ -14,6 +16,7 @@ import { FlowNodeData } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { PostHogEvent } from "@/constants/posthog-events";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
@@ -485,6 +488,8 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
         id,
         additionalData,
     });
+    // Immutable creation origin, for manual edit/delete attribution.
+    const createdVia = useWorkflowStore((state) => state.createdVia);
     const { saveWorkflow, tools, documents, recordings } = useWorkflow();
     const { bySpecName } = useNodeSpecs();
     const { config: appConfig } = useAppConfig();
@@ -557,6 +562,14 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
             ...data,
             ...(values as Partial<FlowNodeData>),
         });
+        // Only count real edits -- the dialog leaves Save enabled on no-op.
+        if (isDirty) {
+            posthog.capture(PostHogEvent.WORKFLOW_NODE_EDITED, {
+                node_type: type,
+                workflow_origin: createdVia ?? "unknown",
+                source: "manual",
+            });
+        }
         setOpen(false);
         await saveWorkflow();
     };
@@ -628,7 +641,14 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                     {/* Start nodes can't be deleted (workflow always needs one). */}
                     {type !== "startCall" && (
                         <Button
-                            onClick={handleDeleteNode}
+                            onClick={() => {
+                                posthog.capture(PostHogEvent.WORKFLOW_NODE_DELETED, {
+                                    node_type: type,
+                                    workflow_origin: createdVia ?? "unknown",
+                                    source: "manual",
+                                });
+                                handleDeleteNode();
+                            }}
                             variant="outline"
                             size="icon"
                         >

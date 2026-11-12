@@ -487,8 +487,11 @@ class TestPublishDraft:
             next_draft = await db_session.save_workflow_draft(workflow.id)
             assert next_draft.extra_metadata == {}
             # Existing API clients can still publish without release notes.
+            # The response still includes the release-note keys upstream returns.
             legacy = await client.post(f"/api/v1/workflow/{workflow.id}/publish")
             assert legacy.status_code == 200, legacy.text
+            assert legacy.json()["version_name"] is None
+            assert legacy.json()["change_description"] is None
             history = (
                 await client.get(f"/api/v1/workflow/{workflow.id}/versions")
             ).json()

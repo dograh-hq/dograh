@@ -20,6 +20,19 @@ def _make_test_app() -> FastAPI:
     return app
 
 
+def test_get_workflow_run_rejects_run_from_another_workflow():
+    app = _make_test_app()
+    client = TestClient(app)
+    run = SimpleNamespace(id=9, workflow_id=99)
+
+    with patch("api.routes.workflow.db_client") as mock_db:
+        mock_db.get_workflow_run = AsyncMock(return_value=run)
+        response = client.get("/workflow/5/runs/9")
+
+    assert response.status_code == 404
+    mock_db.ensure_public_access_token.assert_not_called()
+
+
 def test_workflow_fetch_list_includes_workflow_uuid():
     app = _make_test_app()
     client = TestClient(app)

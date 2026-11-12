@@ -4,6 +4,8 @@
 export const PostHogEvent = {
   WORKFLOW_EDITOR_OPENED: "workflow_editor_opened",
   WORKFLOW_NODE_ADDED: "workflow_node_added",
+  WORKFLOW_NODE_EDITED: "workflow_node_edited",
+  WORKFLOW_NODE_DELETED: "workflow_node_deleted",
   // Agent-builder interaction events. Terminal outcomes (built/saved/error)
   // are emitted server-side; these capture what the user does in the UI.
   BUILDER_OPENED: "builder_opened",

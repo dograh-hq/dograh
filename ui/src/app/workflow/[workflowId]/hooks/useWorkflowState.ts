@@ -186,7 +186,14 @@ export const useWorkflowState = ({
         markNodeAsInvalid,
         markEdgeAsInvalid,
         setRfInstance,
+        setCreatedVia,
     } = useWorkflowStore();
+
+    // Publish the immutable creation origin into the store so node-level
+    // handlers can stamp workflow_origin on manual edit/delete analytics.
+    useEffect(() => {
+        setCreatedVia(createdVia ?? null);
+    }, [createdVia, setCreatedVia]);
 
     // Get undo/redo functions from the store
     const undo = useWorkflowStore((state) => state.undo);

@@ -323,16 +323,8 @@ async def execute_builder_run(run_id: str) -> None:
                     run_id, {"type": "saved", "workflow_id": saved}
                 )
                 saved_draft = True
-                created_via, builder_edited = await db_client.get_workflow_origin(
-                    saved, organization_id=actor.selected_organization_id
-                )
-                await track(
-                    PostHogEvent.BUILDER_SAVED,
-                    workflow_id=saved,
-                    is_edit=True,
-                    workflow_origin=created_via,
-                    builder_edited=builder_edited,
-                )
+                # builder_saved is emitted inside save_builder_draft (the one
+                # save boundary shared with the new-agent POST /save path).
             # A valid proposal means a working agent now exists (new agents are
             # already persisted as V1; edits are saved just above).
             if session.proposal:

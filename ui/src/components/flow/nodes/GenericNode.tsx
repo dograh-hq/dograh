@@ -562,11 +562,14 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
             ...data,
             ...(values as Partial<FlowNodeData>),
         });
-        posthog.capture(PostHogEvent.WORKFLOW_NODE_EDITED, {
-            node_type: type,
-            workflow_origin: createdVia ?? "unknown",
-            source: "manual",
-        });
+        // Only count real edits -- the dialog leaves Save enabled on no-op.
+        if (isDirty) {
+            posthog.capture(PostHogEvent.WORKFLOW_NODE_EDITED, {
+                node_type: type,
+                workflow_origin: createdVia ?? "unknown",
+                source: "manual",
+            });
+        }
         setOpen(false);
         await saveWorkflow();
     };

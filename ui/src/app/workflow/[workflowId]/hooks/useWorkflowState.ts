@@ -548,12 +548,25 @@ export const useWorkflowState = ({
     const onNodesChange: OnNodesChange = useCallback(
         (changes) => {
             const currentNodes = useWorkflowStore.getState().nodes;
+            // Keyboard / canvas / multi-node deletes arrive here as 'remove'
+            // changes (the per-node trash button uses the store directly and is
+            // captured in GenericNode, so these paths don't double-count).
+            for (const change of changes) {
+                if (change.type === "remove") {
+                    const removed = currentNodes.find(node => node.id === change.id);
+                    posthog.capture(PostHogEvent.WORKFLOW_NODE_DELETED, {
+                        node_type: removed?.type ?? "unknown",
+                        workflow_origin: createdVia ?? "unknown",
+                        source: "manual",
+                    });
+                }
+            }
             const newNodes = applyNodeChanges(changes, currentNodes) as FlowNode[];
             // Cast changes to FlowNode type - safe because setNodes only uses the type field
             // to determine history tracking, not the actual item data
             setNodes(newNodes, changes as NodeChange<FlowNode>[]);
         },
-        [setNodes],
+        [setNodes, createdVia],
     );
 
     const onDelete = useCallback(() => {

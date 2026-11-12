@@ -16,10 +16,12 @@ from dograh_sdk.typed._base import TypedNode
 @dataclass(kw_only=True)
 class GlobalNode(TypedNode):
     """
-    Persona/tone appended to every agent node's prompt.  LLM hint: System-
-    level prompt appended to every prompted node whose `add_global_prompt`
-    is true. Use it for persona, tone, and shared rules that apply across
-    the entire conversation. At most one global node per workflow.
+    Persona/tone appended to every agent node's prompt.
+
+    LLM hint: System-level prompt appended to every prompted node whose
+    `add_global_prompt` is true. Use it for persona, tone, and shared rules
+    that apply across the entire conversation. At most one global node per
+    workflow.
     """
 
     type: ClassVar[str] = 'globalNode'

@@ -32,10 +32,12 @@ class Webhook_Custom_headersRow:
 class Webhook(TypedNode):
     """
     Sync data extracted during the conversation back to your systems after
-    the call.  LLM hint: Sends an HTTP request to an external system after
-    the workflow completes. The payload is a Jinja-templated JSON body with
-    access to `workflow_run_id`, `initial_context`, `gathered_context`,
-    `annotations`, and call metadata.
+    the call.
+
+    LLM hint: Sends an HTTP request to an external system after the workflow
+    completes. The payload is a Jinja-templated JSON body with access to
+    `workflow_run_id`, `initial_context`, `gathered_context`, `annotations`,
+    and call metadata.
     """
 
     type: ClassVar[str] = 'webhook'

@@ -10,6 +10,7 @@ from dograh_sdk.typed.global_node import GlobalNode
 from dograh_sdk.typed.noveum import Noveum
 from dograh_sdk.typed.paygent import Paygent
 from dograh_sdk.typed.qa import Qa
+from dograh_sdk.typed.roark import Roark
 from dograh_sdk.typed.start_call import StartCall
 from dograh_sdk.typed.trigger import Trigger
 from dograh_sdk.typed.tuner import Tuner
@@ -23,6 +24,7 @@ __all__ = [
     "Noveum",
     "Paygent",
     "Qa",
+    "Roark",
     "StartCall",
     "Trigger",
     "Tuner",

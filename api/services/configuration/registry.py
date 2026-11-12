@@ -62,7 +62,6 @@ from api.services.configuration.options import (
     SMALLEST_TTS_LANGUAGES,
     SMALLEST_TTS_MODELS,
     SMALLEST_TTS_PRO_VOICES,
-    SMALLEST_TTS_VOICES,
     SONIOX_STT_LANGUAGES,
     SONIOX_STT_MODELS,
     SPEECHMATICS_STT_LANGUAGES,
@@ -1890,18 +1889,17 @@ SMALLEST_PROVIDER = Provider(
 class SmallestAITTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
     model: str = Field(
-        default="lightning_v3.1",
-        description="Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents); lightning_v3.1 is the standard pool with 217 voices across 12 languages.",
+        default="lightning_v3.1_pro",
+        description="Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents).",
         json_schema_extra={"examples": SMALLEST_TTS_MODELS},
     )
     voice: str = Field(
-        default="sophia",
-        description="Smallest AI voice ID. Available voices differ by model: lightning_v3.1 has a broad multilingual pool; lightning_v3.1_pro has premium American, British, and Indian accent voices (English + Hindi only).",
+        default="kaitlyn",
+        description="Smallest AI voice ID. lightning_v3.1_pro has premium American, British, and Indian accent voices.",
         json_schema_extra={
-            "examples": list(SMALLEST_TTS_VOICES),
+            "examples": list(SMALLEST_TTS_PRO_VOICES),
             "allow_custom_input": True,
             "model_options": {
-                "lightning_v3.1": list(SMALLEST_TTS_VOICES),
                 "lightning_v3.1_pro": list(SMALLEST_TTS_PRO_VOICES),
             },
         },

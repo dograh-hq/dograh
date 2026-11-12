@@ -197,7 +197,7 @@ async def test_provider_pause_is_campaign_scoped_and_resume_allows_retrip(
         monkeypatch.setattr(
             runner.circuit_breaker, "reset", AsyncMock(return_value=True)
         )
-        await runner.campaign_runner_service.resume_campaign(s.campaign.id)
+        await runner.campaign_runner_service.resume_campaign(s.campaign.id, s.org.id)
         assert (
             await db_client.get_campaign(s.campaign.id, s.org.id)
         ).state == "running"
@@ -251,7 +251,7 @@ async def test_provider_error_during_resume_reset_is_not_lost(
 
     monkeypatch.setattr(runner.circuit_breaker, "reset", reset)
     resuming = asyncio.create_task(
-        runner.campaign_runner_service.resume_campaign(s.campaign.id)
+        runner.campaign_runner_service.resume_campaign(s.campaign.id, s.org.id)
     )
     pausing = None
     try:
@@ -286,7 +286,7 @@ async def test_failed_resume_reset_leaves_campaign_paused(campaign_data, monkeyp
     await db_client.update_campaign(campaign_id=s.campaign.id, state="paused")
     monkeypatch.setattr(runner.circuit_breaker, "reset", AsyncMock(return_value=False))
     with pytest.raises(ValueError, match="Could not reset"):
-        await runner.campaign_runner_service.resume_campaign(s.campaign.id)
+        await runner.campaign_runner_service.resume_campaign(s.campaign.id, s.org.id)
     assert (await db_client.get_campaign(s.campaign.id, s.org.id)).state == "paused"
 
 

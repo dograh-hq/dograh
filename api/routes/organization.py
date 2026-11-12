@@ -691,12 +691,19 @@ async def create_telephony_configuration(
             detail="Telephony configuration violates a uniqueness constraint.",
         )
 
+    # is_first_for_org tells builder-adoption analysis when a user takes the
+    # (manual, org-scoped) step of wiring telephony for the first time. The
+    # list includes the row just created, so first time == exactly one config.
+    existing_configs = await db_client.list_telephony_configurations(
+        user.selected_organization_id
+    )
     await capture_tenant_event(
         distinct_id=str(user.provider_id),
         event=PostHogEvent.TELEPHONY_CONFIGURED,
         organization_id=user.selected_organization_id,
         properties={
             "provider": request.config.provider,
+            "is_first_for_org": len(existing_configs) == 1,
         },
     )
 

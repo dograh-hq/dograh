@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.52.0 (2026-11-13)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add conversational voice agent creation and editing by @a6kme in https://github.com/dograh-hq/dograh/pull/876
+* feat(builder): use dedicated billable Agent Builder endpoint by @a6kme in https://github.com/dograh-hq/dograh/pull/978
+* feat: add automatic prompt cache optimization by @a6kme in https://github.com/dograh-hq/dograh/pull/983
+### Bug Fixes
+* fix(cloudonix): normalize Hangup tag in transfer CXML by @a6kme in https://github.com/dograh-hq/dograh/pull/976
+* fix: send a reasoning_effort each gpt-5 release accepts by @a6kme in https://github.com/dograh-hq/dograh/pull/986
+### Other Changes
+* Agent builder: PostHog analytics (funnel + manual-action attribution) by @chewwbaka in https://github.com/dograh-hq/dograh/pull/988
+* Add missing attribution props to call + node events by @chewwbaka in https://github.com/dograh-hq/dograh/pull/991
+
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.51.0...dograh-v1.52.0
+
 ## 1.51.0 (2026-11-04)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

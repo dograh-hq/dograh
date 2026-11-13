@@ -55,6 +55,14 @@ async def _capture_call_event(
     try:
         workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
         workflow = workflow_run.workflow if workflow_run else None
+        # How the agent was created, so call volume can be attributed to the
+        # builder (e.g. telephony tests/usage of a builder-born agent, which the
+        # web-only web_call_initiated event cannot see).
+        created_via = builder_edited = None
+        if workflow is not None:
+            created_via, builder_edited = await db_client.get_workflow_origin(
+                workflow.id, organization_id=workflow.organization_id
+            )
         # The run id is only unique within this deployment and the run has no
         # UUID, so the event names the workflow by its UUID and not the run.
         properties = {
@@ -65,6 +73,8 @@ async def _capture_call_event(
                 if workflow_run
                 else None
             ),
+            "workflow_origin": created_via,
+            "builder_edited": builder_edited,
         }
         if extra_properties:
             properties.update(extra_properties)

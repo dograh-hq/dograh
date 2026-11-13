@@ -490,6 +490,7 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     });
     // Immutable creation origin, for manual edit/delete attribution.
     const createdVia = useWorkflowStore((state) => state.createdVia);
+    const nodeWorkflowId = useWorkflowStore((state) => state.workflowId);
     const { saveWorkflow, tools, documents, recordings } = useWorkflow();
     const { bySpecName } = useNodeSpecs();
     const { config: appConfig } = useAppConfig();
@@ -566,6 +567,7 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
         if (isDirty) {
             posthog.capture(PostHogEvent.WORKFLOW_NODE_EDITED, {
                 node_type: type,
+                workflow_id: nodeWorkflowId,
                 workflow_origin: createdVia ?? "unknown",
                 source: "manual",
             });
@@ -644,6 +646,7 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                             onClick={() => {
                                 posthog.capture(PostHogEvent.WORKFLOW_NODE_DELETED, {
                                     node_type: type,
+                                    workflow_id: nodeWorkflowId,
                                     workflow_origin: createdVia ?? "unknown",
                                     source: "manual",
                                 });

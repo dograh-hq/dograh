@@ -60,9 +60,13 @@ async def _capture_call_event(
         # web-only web_call_initiated event cannot see).
         created_via = builder_edited = None
         if workflow is not None:
-            created_via, builder_edited = await db_client.get_workflow_origin(
-                workflow.id, organization_id=workflow.organization_id
-            )
+            try:
+                created_via, builder_edited = await db_client.get_workflow_origin(
+                    workflow.id, organization_id=workflow.organization_id
+                )
+            except Exception:
+                # Enrichment is best-effort; never drop the call event over it.
+                logger.exception("get_workflow_origin failed for call event enrichment")
         # The run id is only unique within this deployment and the run has no
         # UUID, so the event names the workflow by its UUID and not the run.
         properties = {

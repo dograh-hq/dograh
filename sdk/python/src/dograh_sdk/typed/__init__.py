@@ -7,6 +7,7 @@ Re-exports every typed node class so users can write
 from dograh_sdk.typed.agent_node import AgentNode
 from dograh_sdk.typed.end_call import EndCall
 from dograh_sdk.typed.global_node import GlobalNode
+from dograh_sdk.typed.moss import Moss
 from dograh_sdk.typed.noveum import Noveum
 from dograh_sdk.typed.paygent import Paygent
 from dograh_sdk.typed.qa import Qa
@@ -20,6 +21,7 @@ __all__ = [
     "AgentNode",
     "EndCall",
     "GlobalNode",
+    "Moss",
     "Noveum",
     "Paygent",
     "Qa",

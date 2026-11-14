@@ -371,3 +371,30 @@ async def test_output_gaps_do_not_commit_full_requested_text():
     tracker.after_output(None, audio(0.1))
     tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=False))
     assert speech.delivered_text == ""
+
+
+@pytest.mark.asyncio
+async def test_sentence_text_arriving_before_first_audio_is_committed():
+    # Websocket TTS services can push a sentence's text before its first audio.
+    tracker = SpeechPlaybackTracker()
+    speech = tracker.create(greeting=True)
+    tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=True))
+    tracker._capture_greeting_text(
+        None, TTSTextFrame("Hi there.", aggregated_by="sentence")
+    )
+    tracker.after_output(None, audio(1))
+    tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=False))
+    assert speech.outcome is PlaybackOutcome.PLAYED
+    assert speech.delivered_text == "Hi there."
+
+
+@pytest.mark.asyncio
+async def test_sentence_text_without_any_audio_is_not_committed():
+    tracker = SpeechPlaybackTracker()
+    speech = tracker.create(greeting=True)
+    tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=True))
+    tracker._capture_greeting_text(
+        None, TTSTextFrame("Hi there.", aggregated_by="sentence")
+    )
+    speech.finish(PlaybackOutcome.INTERRUPTED)
+    assert speech.delivered_text == ""

@@ -18,6 +18,10 @@ When **Allow Interruption** is enabled on a node, VAD is what triggers the inter
 VAD also feeds turn-taking more generally — it's part of how Dograh decides a caller has finished a turn and the agent should respond, independent of whether interruption is enabled.
 
 <Note>
+**Gemini Live turn-taking**: in Realtime mode with Google (`google_realtime`) or Google Vertex AI (`google_vertex_realtime`), Gemini's server-side VAD decides when a turn ends. Its automatic activity detection can be tuned on the realtime connection with **Start of speech sensitivity**, **End of speech sensitivity**, **Prefix padding (ms)** and **Silence duration (ms)**. Leave them blank to keep Google's defaults; set end-of-speech sensitivity to `HIGH` and a shorter silence duration if short utterances such as "Hello?" are slow to get a reply.
+</Note>
+
+<Note>
 **Valid sample rates**: Dograh's pipeline runs VAD at either **8000 Hz** or **16000 Hz** — no other value is accepted. The overall pipeline sample rate is capped at 16 kHz to satisfy this. This only matters if you're integrating a [custom telephony provider](/integrations/telephony/custom#audio-format-considerations); telephony providers built into Dograh (Twilio, Vonage, Plivo, etc.) already negotiate a supported rate for you.
 </Note>
 

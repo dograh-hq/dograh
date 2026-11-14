@@ -1616,6 +1616,50 @@ def create_llm_service_from_provider(
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
 
 
+def _gemini_live_vad_params(realtime_config):
+    """Build pipecat ``GeminiVADParams`` from the Gemini Live realtime config.
+
+    Returns ``None`` when no automatic-activity-detection field is set so the
+    Live session keeps Google's server defaults, exactly as before these
+    settings were exposed. Sensitivities are stored as ``"HIGH"``/``"LOW"``
+    in the configuration schema and mapped to the ``google.genai`` enums here.
+    """
+    from google.genai.types import EndSensitivity, StartSensitivity
+
+    from pipecat.services.google.gemini_live.llm import GeminiVADParams
+
+    start_sensitivity = getattr(realtime_config, "start_of_speech_sensitivity", None)
+    end_sensitivity = getattr(realtime_config, "end_of_speech_sensitivity", None)
+    prefix_padding_ms = getattr(realtime_config, "prefix_padding_ms", None)
+    silence_duration_ms = getattr(realtime_config, "silence_duration_ms", None)
+
+    if (
+        start_sensitivity is None
+        and end_sensitivity is None
+        and prefix_padding_ms is None
+        and silence_duration_ms is None
+    ):
+        return None
+
+    start_sensitivities = {
+        "HIGH": StartSensitivity.START_SENSITIVITY_HIGH,
+        "LOW": StartSensitivity.START_SENSITIVITY_LOW,
+    }
+    end_sensitivities = {
+        "HIGH": EndSensitivity.END_SENSITIVITY_HIGH,
+        "LOW": EndSensitivity.END_SENSITIVITY_LOW,
+    }
+
+    return GeminiVADParams(
+        start_sensitivity=(
+            start_sensitivities[start_sensitivity] if start_sensitivity else None
+        ),
+        end_sensitivity=end_sensitivities[end_sensitivity] if end_sensitivity else None,
+        prefix_padding_ms=prefix_padding_ms,
+        silence_duration_ms=silence_duration_ms,
+    )
+
+
 @_report_service_factory_failures(ErrorSource.LLM, config_section="realtime")
 def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
     """Create a realtime (speech-to-speech) LLM service that handles STT+LLM+TTS.
@@ -1775,6 +1819,9 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         }
         if language:
             settings_kwargs["language"] = language
+        vad_params = _gemini_live_vad_params(realtime_config)
+        if vad_params is not None:
+            settings_kwargs["vad"] = vad_params
         return DograhGeminiLiveLLMService(
             api_key=api_key,
             settings=DograhGeminiLiveLLMService.Settings(**settings_kwargs),
@@ -1793,6 +1840,9 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         }
         if language:
             settings_kwargs["language"] = language
+        vad_params = _gemini_live_vad_params(realtime_config)
+        if vad_params is not None:
+            settings_kwargs["vad"] = vad_params
         return DograhGeminiLiveVertexLLMService(
             credentials=credentials,
             project_id=project_id,

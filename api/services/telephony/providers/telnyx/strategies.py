@@ -41,6 +41,11 @@ class TelnyxConferenceStrategy(TransferStrategy):
             )
             return False
 
+        if transfer_context.introduction_audio_url:
+            return await self._start_caller_introduction(
+                transfer_context, caller_call_control_id, api_key
+            )
+
         conference_id = transfer_context.conference_id
         if not conference_id:
             logger.error(
@@ -79,6 +84,32 @@ class TelnyxConferenceStrategy(TransferStrategy):
             )
             await self._cleanup_transfer_context(transfer_context.transfer_id)
             return False
+
+    async def _start_caller_introduction(
+        self, transfer_context, caller_call_control_id: str, api_key: str
+    ) -> bool:
+        """Play the clip to the caller; the playback-ended webhook does the bridging."""
+        from api.services.telephony.call_transfer_manager import (
+            get_call_transfer_manager,
+        )
+        from api.services.telephony.providers.telnyx.introduction import (
+            leg_finished,
+            play_introduction,
+            resolve_transfer_provider,
+        )
+
+        if await play_introduction(
+            api_key, caller_call_control_id, transfer_context.introduction_audio_url
+        ):
+            return True
+        provider = await resolve_transfer_provider(transfer_context)
+        if not provider:
+            await self._cleanup_transfer_context(transfer_context.transfer_id)
+            return False
+        await leg_finished(
+            await get_call_transfer_manager(), transfer_context, provider, "caller"
+        )
+        return True
 
     async def _join_caller(
         self,

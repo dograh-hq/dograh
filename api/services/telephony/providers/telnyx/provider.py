@@ -4,6 +4,7 @@ Uses the Telnyx Call Control API v2 for outbound calling with
 inline WebSocket media streaming.
 """
 
+import asyncio
 import base64
 import binascii
 import json
@@ -53,6 +54,9 @@ def _get_header(headers: Dict[str, str], name: str) -> str:
         if key.lower() == name:
             return value
     return ""
+
+
+TRANSFER_LEG_HANGUP_TIMEOUT_SECONDS = 5
 
 
 class TelnyxProvider(TelephonyProvider):
@@ -809,6 +813,8 @@ class TelnyxProvider(TelephonyProvider):
             "webhook_url": webhook_url,
             "webhook_url_method": "POST",
         }
+        # The clip URL lives on the TransferContext; Telnyx's dial API rejects unknown keys.
+        kwargs.pop("introduction_audio_url", None)
         payload.update(kwargs)
 
         endpoint = f"{self.TELNYX_API_BASE}/calls"
@@ -858,6 +864,30 @@ class TelnyxProvider(TelephonyProvider):
 
     def supports_transfers(self) -> bool:
         return True
+
+    def supports_transfer_introduction(self) -> bool:
+        return True
+
+    async def end_transfer_leg(self, call_control_id: str) -> None:
+        """Best-effort hangup of one leg when a transfer with an introduction is abandoned."""
+        from api.services.telephony.providers.telnyx.strategies import (
+            TelnyxHangupStrategy,
+        )
+
+        try:
+            # Runs inline in webhook handlers, so a slow Telnyx must not stall them.
+            await asyncio.wait_for(
+                TelnyxHangupStrategy().execute_hangup(
+                    {"call_control_id": call_control_id, "api_key": self.api_key}
+                ),
+                timeout=TRANSFER_LEG_HANGUP_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            # The context is dropped after this, so the id is the only way to find the leg.
+            logger.warning(
+                "Telnyx transfer leg hangup timed out call_control_id={}",
+                call_control_id,
+            )
 
     async def create_conference(
         self, seed_call_control_id: str, name: str

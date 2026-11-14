@@ -355,7 +355,9 @@ class SpeechPlaybackTracker:
                     speech.text_parts.append(speech._pending_word)
                     speech._text_ends.append(word_end)
                 speech._pending_word = part
-            elif frame.aggregated_by != "recording" and speech.has_output:
+            # Websocket TTS can push a sentence's text before its first audio
+            # chunk; keep it. _delivered_text() still returns "" if no audio plays.
+            elif frame.aggregated_by != "recording":
                 speech.timing_source = "segment"
                 if speech._pending_word is not None:
                     speech.text_parts.append(speech._pending_word)

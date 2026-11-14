@@ -77,7 +77,7 @@ class SpeechCache:
             async with asyncio.timeout(self.policy.operation_timeout_seconds):
                 value = await self.backend.get(
                     request,
-                    self.policy.max_entry_bytes + 1028,
+                    self.policy.max_value_bytes,
                     self.policy.ttl_seconds,
                 )
         except Exception:  # noqa: BLE001 - Cache availability must not stop a call.

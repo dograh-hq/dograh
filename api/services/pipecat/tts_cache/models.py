@@ -152,10 +152,9 @@ class CachedSpeech:
             "sha256": hashlib.sha256(self.audio).hexdigest(),
         }
         if self.words:
-            header["words"] = [
-                [word, round(start, 3), round(end, 3)]
-                for word, start, end in self.words
-            ]
+            # Stored exactly as validated: rounding could move an end past the
+            # limit validate() allowed, and decode would then reject the entry.
+            header["words"] = [[word, start, end] for word, start, end in self.words]
         encoded = json.dumps(header, separators=(",", ":"), allow_nan=False).encode()
         if len(encoded) > MAX_HEADER_BYTES:
             raise ValueError("Cached speech header too large")

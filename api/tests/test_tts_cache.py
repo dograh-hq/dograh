@@ -1352,11 +1352,25 @@ async def test_a_version_2_entry_with_no_words_is_invalid():
         CachedSpeech.decode(tampered, request_for(), CachePolicy())
 
 
-async def test_a_long_sentence_header_fits_the_read_limit(cache):
-    # Times are stored to the millisecond.
-    words = tuple((f"parola{i}", i / 10, round(i / 10 + 0.05, 3)) for i in range(250))
+async def test_a_full_entry_with_a_long_word_header_is_read_back(redis_backend):
+    # The audio fills the entry limit, so Redis's read limit must also allow
+    # for the header that carries the words.
+    policy = CachePolicy(max_entry_bytes=64000, operation_timeout_seconds=1)
+    words = tuple((f"parola{i}", i / 125, i / 125 + 0.006) for i in range(250))
     request = request_for()
-    speech = CachedSpeech(b"\x01\x02" * 16000 * 26, 16000, 1, words)
+    speech = CachedSpeech(b"\x01\x02" * 32000, 16000, 1, words)
+    assert len(speech.encode()) > policy.max_entry_bytes + 1028
+    cache = SpeechCache(redis_backend, policy)
     await warm_cache(cache, request, speech)
 
     assert (await cache.get(request)) == speech
+
+
+async def test_a_word_ending_at_the_limit_survives_the_round_trip():
+    # 8005 samples at 8 kHz last 1.000625 s, so the latest end allowed is
+    # 1.250625 s. Rounding that to the millisecond would move it past the limit.
+    request = request_for(sample_rate=8000)
+    speech = CachedSpeech(b"\x01\x02" * 8005, 8000, 1, (("parola", 0.0, 1.250625),))
+    speech.validate(request, CachePolicy())
+
+    assert CachedSpeech.decode(speech.encode(), request, CachePolicy()) == speech

@@ -251,6 +251,12 @@ class PostHogEvent(str, Enum):
     WORKFLOW_CREATED = "workflow_created"
     WORKFLOW_PUBLISHED = "workflow_published"
     WORKFLOW_DUPLICATED = "workflow_duplicated"
+    # Agent-builder lifecycle (fired from the builder worker, survives stream
+    # disconnects). Dedupe by `session_id` for funnels -- a multi-turn build can
+    # emit BUILDER_AGENT_BUILT on each successful turn.
+    BUILDER_AGENT_BUILT = "builder_agent_built"
+    BUILDER_SAVED = "builder_saved"
+    BUILDER_ERROR = "builder_error"
     CALL_STARTED = "call_started"
     CALL_COMPLETED = "call_completed"
     CALL_FAILED = "call_failed"

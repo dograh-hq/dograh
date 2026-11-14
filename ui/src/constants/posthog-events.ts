@@ -4,6 +4,24 @@
 export const PostHogEvent = {
   WORKFLOW_EDITOR_OPENED: "workflow_editor_opened",
   WORKFLOW_NODE_ADDED: "workflow_node_added",
+  WORKFLOW_NODE_EDITED: "workflow_node_edited",
+  WORKFLOW_NODE_DELETED: "workflow_node_deleted",
+  // Agent-builder interaction events. Terminal outcomes (built/saved/error)
+  // are emitted server-side; these capture what the user does in the UI.
+  BUILDER_OPENED: "builder_opened",
+  BUILDER_PROMPT_SUBMITTED: "builder_prompt_submitted",
+  BUILDER_TEST_CLICKED: "builder_test_clicked",
+  // In-session friction funnel: where in the conversation users stall.
+  BUILDER_QUESTIONS_SHOWN: "builder_questions_shown",
+  BUILDER_QUESTIONS_ANSWERED: "builder_questions_answered",
+  BUILDER_PLAN_SHOWN: "builder_plan_shown",
+  BUILDER_PLAN_APPROVED: "builder_plan_approved",
+  BUILDER_PLAN_REVISE: "builder_plan_revise",
+  BUILDER_TOOL_PROPOSED: "builder_tool_proposed",
+  BUILDER_TOOL_APPROVED: "builder_tool_approved",
+  BUILDER_TOOL_DENIED: "builder_tool_denied",
+  BUILDER_CANCELLED: "builder_cancelled",
+  BUILDER_NEW_CONVERSATION: "builder_new_conversation",
   WORKFLOW_RUN_DETAILS_VIEWED: "workflow_run_details_viewed",
   RECORDING_PLAYED: "recording_played",
   TRANSCRIPT_VIEWED: "transcript_viewed",

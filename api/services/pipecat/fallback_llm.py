@@ -91,6 +91,20 @@ class FallbackLLMProcessor(LLMService):
     can still win without exposing it before the user's turn is confirmed.
     """
 
+    def configure_prompt_cache(self, **kwargs) -> None:
+        for service in self._services:
+            configure = getattr(service, "configure_prompt_cache", None)
+            if configure:
+                configure(**kwargs)
+
+    def prewarm_prompt_cache(self, **kwargs) -> list:
+        tasks = []
+        for service in self._services:
+            prewarm = getattr(service, "prewarm_prompt_cache", None)
+            if prewarm:
+                tasks.extend(prewarm(**kwargs))
+        return tasks
+
     def __init__(
         self,
         primary: LLMService,

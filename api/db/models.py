@@ -700,6 +700,10 @@ class WorkflowModel(Base):
         default=WorkflowStatus.ACTIVE.value,
         server_default=text("'active'::workflow_status"),
     )
+    # How the agent was first created, for analytics attribution. Immutable
+    # once set: "builder" | "template" | "blank". NULL on pre-existing rows
+    # (read back as "unknown"/best-effort). See api/utils/workflow_origin.py.
+    created_via = Column(String(16), nullable=True)
     workflow_definition = Column(JSON, nullable=False, default=dict)
     template_context_variables = Column(JSON, nullable=False, default=dict)
     call_disposition_codes = Column(JSON, nullable=False, default=dict)

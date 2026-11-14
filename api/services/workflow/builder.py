@@ -12,11 +12,13 @@ from loguru import logger
 from api.db import db_client
 from api.db.models import UserModel
 from api.db.workflow_builder import BuilderBusy
+from api.enums import PostHogEvent
 from api.mcp_server.auth import builder_mcp_operation, builder_mcp_user
 from api.mcp_server.server import mcp
 from api.mcp_server.tools._workflow_projection import project_workflow_to_sdk_view
 from api.schemas.workflow_builder import BuilderSession, BuilderTurnRequest
 from api.services.observability.trace_payloads import trace_json
+from api.services.posthog_tenant import capture_tenant_event
 from api.services.workflow.builder_runtime.agent import ALLOWED_TOOLS as BUILDER_TOOLS
 from api.services.workflow.builder_runtime.errors import BuilderModelError
 from api.services.workflow.builder_runtime.progress import progress_queue
@@ -354,6 +356,9 @@ async def _builder_turn(user, session_id: UUID, request: BuilderTurnRequest):
 async def save_builder_draft(
     user, session_id: UUID, checkpoint: str, workflow_id: int | None = None
 ) -> int:
+    # The input workflow_id distinguishes edit (target id) from new (None);
+    # it is reassigned below to the saved id, so capture intent first.
+    is_edit = workflow_id is not None
     with builder_trace(
         user=user,
         session_id=session_id,
@@ -367,6 +372,27 @@ async def save_builder_draft(
         span.set_attribute(
             "langfuse.observation.output", trace_json({"workflow_id": workflow_id})
         )
+        # The one save boundary for both paths: edits via the builder worker and
+        # new agents via POST /{session_id}/save. Best-effort -- analytics must
+        # never change the result of a save.
+        try:
+            created_via, builder_edited = await db_client.get_workflow_origin(
+                workflow_id, organization_id=user.selected_organization_id
+            )
+            await capture_tenant_event(
+                distinct_id=str(user.provider_id),
+                event=PostHogEvent.BUILDER_SAVED,
+                organization_id=user.selected_organization_id,
+                properties={
+                    "session_id": str(session_id),
+                    "workflow_id": workflow_id,
+                    "is_edit": is_edit,
+                    "workflow_origin": created_via,
+                    "builder_edited": builder_edited,
+                },
+            )
+        except Exception:  # noqa: BLE001 -- analytics is best-effort
+            logger.warning("builder_saved analytics failed for session {}", session_id)
         return workflow_id
 
 

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from api.services.pipecat.usage_metrics import gross_prompt_tokens, llm_usage_entries
+
 if TYPE_CHECKING:
     from .node import TunerNodeData
 
@@ -23,17 +25,15 @@ if TYPE_CHECKING:
 def _sum_llm_tokens(usage_info: dict[str, Any]) -> tuple[int, int, int]:
     """Sum prompt, completion, and cached-input tokens across all llm entries.
 
-    Cached-input tokens (``cache_read_input_tokens``) are reported as a discounted
-    subset of ``prompt_tokens`` (OpenAI convention), not in addition to it.
+    Normalize net/gross input accounting before splitting out cached tokens.
     """
     prompt_tokens = 0
     completion_tokens = 0
     cached_tokens = 0
-    for entry in (usage_info.get("llm") or {}).values():
-        if isinstance(entry, dict):
-            prompt_tokens += entry.get("prompt_tokens") or 0
-            completion_tokens += entry.get("completion_tokens") or 0
-            cached_tokens += entry.get("cache_read_input_tokens") or 0
+    for entry in llm_usage_entries(usage_info.get("llm")):
+        prompt_tokens += gross_prompt_tokens(entry)
+        completion_tokens += entry.get("completion_tokens") or 0
+        cached_tokens += entry.get("cache_read_input_tokens") or 0
     return prompt_tokens, completion_tokens, cached_tokens
 
 

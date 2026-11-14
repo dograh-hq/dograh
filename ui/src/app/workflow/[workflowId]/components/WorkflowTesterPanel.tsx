@@ -33,6 +33,8 @@ interface WorkflowTesterPanelProps {
     className?: string;
     onClose?: () => void;
     onRuntimeNodeTransition?: (transition: WorkflowRuntimeNodeTransition) => void;
+    // How the agent was first created, for analytics attribution on test runs.
+    workflowOrigin?: string | null;
 }
 
 export function WorkflowTesterPanel({
@@ -45,6 +47,7 @@ export function WorkflowTesterPanel({
     className,
     onClose,
     onRuntimeNodeTransition,
+    workflowOrigin,
 }: WorkflowTesterPanelProps) {
     const auth = useAuth();
     const { markActionCompleted } = useOnboarding();
@@ -115,6 +118,7 @@ export function WorkflowTesterPanel({
             markActionCompleted("web_call_started");
             posthog.capture(PostHogEvent.WEB_CALL_INITIATED, {
                 source: "workflow_editor",
+                workflow_origin: workflowOrigin ?? "unknown",
             });
             setVoiceRunId(response.data.id);
             setActiveMode("audio");
@@ -123,7 +127,7 @@ export function WorkflowTesterPanel({
         } finally {
             setCreatingVoiceRun(false);
         }
-    }, [accessToken, disabled, markActionCompleted, workflowId]);
+    }, [accessToken, disabled, markActionCompleted, workflowId, workflowOrigin]);
 
     const authUnavailableReason = tokenReady && !accessToken
         ? "Authentication is required before testing can start."

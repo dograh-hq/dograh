@@ -11,7 +11,15 @@ if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
     from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
+from api.schemas.workflow_configurations import PromptVariablesConfiguration
 from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
+from api.services.workflow.prompt_variables import (
+    call_context_note,
+    call_context_prompt,
+    call_variable_names,
+    clock_source_labels,
+    prompt_templates,
+)
 from api.services.workflow.tools.knowledge_base import get_knowledge_base_tool
 
 # ---------------------------------------------------------------------------
@@ -59,6 +67,7 @@ def compose_system_prompt_for_node(
     workflow: "WorkflowGraph",
     format_prompt: Callable[[str], str],
     has_recordings: bool,
+    prompt_variables: PromptVariablesConfiguration | None = None,
 ) -> ComposedNodePrompt:
     """Compose the full system prompt text for a workflow node.
 
@@ -74,18 +83,35 @@ def compose_system_prompt_for_node(
     Returns:
         The composed text and whether this node uses recording response mode.
     """
+    source_labels = {}
+    if prompt_variables and prompt_variables.mode == "call_context":
+        templates = prompt_templates(workflow)
+        names = call_variable_names(templates)
+
+        def format_prompt(text):
+            return call_context_prompt(text, names)
+
+        source_labels = clock_source_labels(templates)
     global_prompt = ""
     if workflow.global_node_id and node.add_global_prompt:
         global_node = workflow.nodes[workflow.global_node_id]
         global_prompt = format_prompt(global_node.prompt)
+        if workflow.global_node_id in source_labels:
+            global_prompt = (
+                source_labels[workflow.global_node_id] + "\n" + global_prompt
+            )
 
     formatted_node_prompt = format_prompt(node.prompt)
+    if node.id in source_labels:
+        formatted_node_prompt = source_labels[node.id] + "\n" + formatted_node_prompt
 
     parts = [p for p in (global_prompt, formatted_node_prompt) if p]
 
     recording_enabled = has_recordings and "RECORDING_ID:" in formatted_node_prompt
     if recording_enabled:
         parts.append(RECORDING_RESPONSE_MODE_INSTRUCTIONS)
+    if prompt_variables and prompt_variables.mode == "call_context":
+        parts.append(call_context_note(prompt_variables))
 
     return ComposedNodePrompt(
         text="\n\n".join(parts), recording_enabled=recording_enabled
@@ -95,7 +121,8 @@ def compose_system_prompt_for_node(
 async def compose_functions_for_node(
     *,
     node: "Node",
-    custom_tool_manager: Optional["CustomToolManager"],
+    custom_tool_manager: Optional["CustomToolManager"] = None,
+    custom_tool_schemas: list | None = None,
 ) -> list[dict]:
     """Compose the function/tool schemas for a workflow node.
 
@@ -124,6 +151,8 @@ async def compose_functions_for_node(
         functions.append(kb_schema)
 
     # Custom tools
+    if custom_tool_schemas is not None:
+        functions.extend(custom_tool_schemas)
     if node.tool_uuids and custom_tool_manager:
         custom_tool_schemas = await custom_tool_manager.get_tool_schemas(
             node.tool_uuids,

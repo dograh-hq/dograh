@@ -35,6 +35,7 @@ from api.services.pipecat.fallback_llm import FallbackLLMProcessor, FallbackRout
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
+from api.services.pipecat.gemini_prompt_cache import GeminiPromptCacheMixin
 from api.services.pipecat.gemini_spoken_tool_calls import GeminiSpokenToolCallMixin
 from api.services.pipecat.google_credentials import (
     get_google_credentials,
@@ -365,11 +366,15 @@ class SpeachesLLMService(OpenAISpokenToolCallMixin, BaseSpeachesLLMService):
     """Speaches streaming service with spoken-tool recovery."""
 
 
-class DograhGoogleLLMService(GeminiSpokenToolCallMixin, GoogleLLMService):
+class DograhGoogleLLMService(
+    GeminiPromptCacheMixin, GeminiSpokenToolCallMixin, GoogleLLMService
+):
     adapter_class = DograhGeminiJSONSchemaAdapter
 
 
-class DograhGoogleVertexLLMService(GeminiSpokenToolCallMixin, GoogleVertexLLMService):
+class DograhGoogleVertexLLMService(
+    GeminiPromptCacheMixin, GeminiSpokenToolCallMixin, GoogleVertexLLMService
+):
     """Vertex text service with Dograh schemas and nonblocking authentication."""
 
     adapter_class = DograhGeminiJSONSchemaAdapter
@@ -1361,6 +1366,20 @@ def _migrate_deprecated_google_model(model: str) -> str:
     return model
 
 
+# The first GPT-5 releases accept "minimal" but reject "none". Later releases
+# reverse that, and on Chat Completions they accept function tools only with
+# "none". Omitting the field does not help, because some releases default to
+# an effort that rejects tools. Workflow transitions are sent as tools, so
+# every newer release has to send "none".
+_GPT5_MINIMAL_EFFORT_MODEL = re.compile(r"gpt-5(?:-mini|-nano)?(?:-\d{4}-\d{2}-\d{2})?")
+
+
+def _gpt5_reasoning_effort(model: str) -> str:
+    """Lowest reasoning effort the model accepts alongside function tools."""
+    base = model.rsplit("/", 1)[-1]
+    return "minimal" if _GPT5_MINIMAL_EFFORT_MODEL.fullmatch(base) else "none"
+
+
 @_report_service_factory_failures(ErrorSource.LLM, provider_argument=0)
 def create_llm_service_from_provider(
     provider: str,
@@ -1437,7 +1456,10 @@ def create_llm_service_from_provider(
                 api_key=api_key,
                 settings=OpenAILLMSettings(
                     model=model,
-                    extra={"reasoning_effort": "minimal", "verbosity": "low"},
+                    extra={
+                        "reasoning_effort": _gpt5_reasoning_effort(model),
+                        "verbosity": "low",
+                    },
                 ),
                 **kwargs,
             )
@@ -1519,6 +1541,7 @@ def create_llm_service_from_provider(
             json.dumps([provider, connection], sort_keys=True).encode()
         ).hexdigest()
         adapter.signature_settings = service._settings
+        service.prompt_cache_scope = adapter.signature_scope
         return service
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:

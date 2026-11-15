@@ -292,15 +292,31 @@ class SixtydbTTSService(WebsocketTTSService):
         if not started and self._waiting_syntheses and not self._websocket_is_open():
             await self._abort_waiting_contexts("connection closed")
 
+    async def _terminate_active_context_only(self) -> None:
+        """End the active local context without consuming queued syntheses."""
+        context_id = self._active_context_id
+        if not context_id:
+            return
+        if self.audio_context_available(context_id):
+            await self.append_to_audio_context(
+                context_id, TTSStoppedFrame(context_id=context_id)
+            )
+            await self.remove_audio_context(context_id)
+        self._active_context_id = None
+        self._active_text = None
+
     async def _process_messages(self) -> None:
-        async for message in self._get_websocket():
-            try:
-                await self._process_json_message(json.loads(message))
-            except Exception as e:
-                logger.error(f"{self} error processing message: {e}")
-                await self.push_error(
-                    error_msg=f"{self} error processing message: {e}", exception=e
-                )
+        try:
+            async for message in self._get_websocket():
+                try:
+                    await self._process_json_message(json.loads(message))
+                except Exception as e:
+                    logger.error(f"{self} error processing message: {e}")
+                    await self.push_error(
+                        error_msg=f"{self} error processing message: {e}", exception=e
+                    )
+        finally:
+            await self._terminate_active_context_only()
 
     async def _receive_messages(self) -> None:
         await self._process_messages()
@@ -419,18 +435,9 @@ class SixtydbTTSService(WebsocketTTSService):
                         context_id, TTSStoppedFrame(context_id=context_id)
                     )
                     await self.remove_audio_context(context_id)
-                websocket, self._websocket = self._websocket, None
-                if websocket:
-                    try:
-                        await websocket.close()
-                    except Exception as close_error:
-                        logger.warning(
-                            f"{self} error closing context-closed connection: "
-                            f"{close_error}"
-                        )
-                await self._connect_websocket()
-                if self._waiting_syntheses and not self._websocket_is_open():
-                    await self._abort_waiting_contexts("connection closed")
+                # 60db closes this connection after context_closed. Return to
+                # the receiver loop; its reconnect path opens a fresh socket and
+                # _connect_websocket starts the next queued synthesis.
 
         if data.get("type") == "context_aborted" or "context_aborted" in data:
             aborted = data.get("context_aborted")

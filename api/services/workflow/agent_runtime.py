@@ -111,6 +111,8 @@ class AgentRuntime:
     greeting_override: dict | None = None
     tools: Any = None
     system_prompt: str = ""
+    # Integration context providers for the current node, run before each user turn.
+    context_providers: list[Any] = field(default_factory=list)
     prompt_variables: PromptVariablesConfiguration = field(
         default_factory=PromptVariablesConfiguration
     )

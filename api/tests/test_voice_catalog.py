@@ -681,6 +681,61 @@ async def test_sarvam_v4_voices_allow_cross_lingual_selection(connection, upstre
 
 
 @pytest.mark.asyncio
+async def test_sixtydb_merges_quality_and_fast_voice_tiers(connection, upstream):
+    connection.provider = "60db"
+    connection.connection_settings = {}
+
+    def page(request):
+        model = request.url.params.get("model")
+        voices = {
+            "quality": [
+                {
+                    "voice_id": "simmi",
+                    "name": "Simmi",
+                    "description": "Quality voice",
+                    "labels": {
+                        "language": "hi",
+                        "language_name": "Hindi",
+                        "gender": "female",
+                        "accent": "Indian",
+                    },
+                }
+            ],
+            "fast": [
+                {
+                    "voice_id": "zara",
+                    "name": "Zara",
+                    "labels": {
+                        "language": "hi",
+                        "gender": "female",
+                        "accent": "Indian",
+                    },
+                },
+                {"voice_id": "simmi", "name": "Duplicate Simmi"},
+            ],
+        }[model]
+        return httpx.Response(200, json={"data": voices, "meta": {"model": model}})
+
+    requests = upstream(page)
+    response = await voice_catalog.get_connection_voices(
+        "60db", 42, connection.uuid, language="hi"
+    )
+
+    assert [voice.voice_id for voice in response.voices] == ["simmi", "zara"]
+    assert response.voices[0].description == "Quality voice"
+    assert response.voices[0].gender == "female"
+    assert response.voices[0].accent == "Indian"
+    assert {request.url.params["model"] for request in requests} == {
+        "quality",
+        "fast",
+    }
+    for request in requests:
+        assert str(request.url).startswith("https://api.60db.ai/voices?")
+        assert request.headers["Authorization"] == "Bearer private-elevenlabs-key"
+    assert "private-elevenlabs-key" not in str(requests[0].headers)
+
+
+@pytest.mark.asyncio
 async def test_only_dograh_uses_mps_without_a_byok_connection(client, mps_not_used):
     mps_not_used.side_effect = None
     mps_not_used.return_value = {
@@ -722,6 +777,7 @@ def test_dynamic_voice_fields_are_backed_by_catalog_adapters():
         "deepgram",
         "rime",
         "sarvam",
+        "60db",
     }
     assert dynamic_providers - {"dograh"} <= VOICE_CATALOGS.keys()
 

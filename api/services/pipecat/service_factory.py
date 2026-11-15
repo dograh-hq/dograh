@@ -26,6 +26,8 @@ from api.services.configuration.registry import (
     ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN,
     HOPPER_API_BASE_URL,
     REGISTRY,
+    SIXTYDB_API_BASE_URL,
+    SIXTYDB_LLM_BASE_URL,
     BaseSTTConfiguration,
     ServiceProviders,
     ServiceType,
@@ -43,6 +45,8 @@ from api.services.pipecat.google_credentials import (
 )
 from api.services.pipecat.murf_tts import MurfTTSService
 from api.services.pipecat.openai_spoken_tool_calls import OpenAISpokenToolCallMixin
+from api.services.pipecat.sixtydb_stt import SixtydbSTTService, SixtydbSTTSettings
+from api.services.pipecat.sixtydb_tts import SixtydbTTSService
 from api.services.pipecat.spoken_tool_calls import SpokenToolCallMixin
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -769,6 +773,21 @@ def create_stt_service(
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
+    elif user_config.stt.provider == ServiceProviders.SIXTY_DB.value:
+        base_url = (
+            getattr(user_config.stt, "base_url", None) or SIXTYDB_API_BASE_URL
+        ).rstrip("/")
+        _validate_runtime_service_url(base_url, "base_url")
+        return SixtydbSTTService(
+            api_key=user_config.stt.api_key,
+            base_url=base_url,
+            settings=SixtydbSTTSettings(
+                model=user_config.stt.model,
+                language=getattr(user_config.stt, "language", None) or "auto",
+                keywords=keyterms or [],
+            ),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
     elif user_config.stt.provider == ServiceProviders.SPEACHES.value:
         _validate_runtime_service_url(user_config.stt.base_url, "base_url")
         return SpeachesSTTService(
@@ -1347,6 +1366,29 @@ def create_tts_service(
             skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
+    elif user_config.tts.provider == ServiceProviders.SIXTY_DB.value:
+        base_url = (
+            getattr(user_config.tts, "base_url", None) or SIXTYDB_API_BASE_URL
+        ).rstrip("/")
+        _validate_runtime_service_url(base_url, "base_url")
+        defaults = SixtydbTTSService.InputParams()
+        speed = getattr(user_config.tts, "speed", None)
+        stability = getattr(user_config.tts, "stability", None)
+        similarity = getattr(user_config.tts, "similarity", None)
+        return SixtydbTTSService(
+            api_key=user_config.tts.api_key,
+            base_url=base_url,
+            sample_rate=audio_config.transport_out_sample_rate,
+            params=SixtydbTTSService.InputParams(
+                voice_id=getattr(user_config.tts, "voice", None) or defaults.voice_id,
+                speed=defaults.speed if speed is None else speed,
+                stability=defaults.stability if stability is None else stability,
+                similarity=(defaults.similarity if similarity is None else similarity),
+            ),
+            text_aggregation_mode=TextAggregationMode.SENTENCE,
+            skip_text_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid TTS provider {user_config.tts.provider}"
@@ -1480,6 +1522,15 @@ def create_llm_service_from_provider(
             enable_direct_mode=enable_direct_mode,
             api_key=api_key,
             base_url=HOPPER_API_BASE_URL,
+            settings=OpenAILLMSettings(model=model, **sampling_settings),
+        )
+    elif provider == ServiceProviders.SIXTY_DB.value:
+        base_url = base_url or SIXTYDB_LLM_BASE_URL
+        _validate_runtime_service_url(base_url, "base_url")
+        return OpenAILLMService(
+            enable_direct_mode=enable_direct_mode,
+            api_key=api_key,
+            base_url=base_url,
             settings=OpenAILLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.OPENROUTER.value:
@@ -1982,6 +2033,8 @@ def _create_single_llm_service(
     elif provider == ServiceProviders.MINIMAX.value:
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.SARVAM.value:
+        kwargs["base_url"] = getattr(user_config.llm, "base_url", None)
+    elif provider == ServiceProviders.SIXTY_DB.value:
         kwargs["base_url"] = getattr(user_config.llm, "base_url", None)
 
     service = create_llm_service_from_provider(

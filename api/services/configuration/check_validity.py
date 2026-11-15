@@ -14,6 +14,7 @@ from api.schemas.ai_model_configuration import (
 )
 from api.services.configuration.registry import (
     HOPPER_API_BASE_URL,
+    SIXTYDB_API_BASE_URL,
     ServiceConfig,
     ServiceProviders,
 )
@@ -87,6 +88,7 @@ class UserConfigurationValidator:
             ServiceProviders.LMNT.value: self._check_lmnt_api_key,
             ServiceProviders.MURF.value: self._check_murf_api_key,
             ServiceProviders.SPEECHIFY.value: self._check_speechify_api_key,
+            ServiceProviders.SIXTY_DB.value: self._check_sixtydb_api_key,
         }
 
     async def validate(
@@ -531,6 +533,28 @@ class UserConfigurationValidator:
                 "Invalid Murf API key. The key was rejected by the Murf API. "
                 "Please check that your API key is correct and active. "
                 "You can find your key at https://murf.ai/api/docs."
+            )
+        return True
+
+    def _check_sixtydb_api_key(self, model: str, api_key: str) -> bool:
+        # Best-effort smoke test against the workspace voice list. Only clear
+        # authentication failures reject the save.
+        try:
+            response = httpx.get(
+                f"{SIXTYDB_API_BASE_URL}/voices",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10.0,
+            )
+        except httpx.RequestError:
+            raise ValueError(
+                "Could not connect to the 60db API. Please check your network "
+                "connection and try again."
+            )
+        if response.status_code in (401, 403):
+            raise ValueError(
+                "Invalid 60db API key. The key was rejected by the 60db API. "
+                "Please check that your API key is correct, active, and allowed "
+                "to use TTS, STT, and chat."
             )
         return True
 

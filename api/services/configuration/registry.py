@@ -59,6 +59,12 @@ from api.services.configuration.options import (
     SARVAM_TTS_MODELS,
     SARVAM_V3_VOICES,
     SARVAM_V4_VOICES,
+    SIXTYDB_API_BASE_URL,
+    SIXTYDB_LLM_BASE_URL,
+    SIXTYDB_LLM_MODELS,
+    SIXTYDB_STT_LANGUAGES,
+    SIXTYDB_STT_MODELS,
+    SIXTYDB_TTS_DEFAULT_VOICE,
     SMALLEST_TTS_LANGUAGES,
     SMALLEST_TTS_MODELS,
     SMALLEST_TTS_PRO_VOICES,
@@ -103,6 +109,7 @@ class ServiceProviders(str, Enum):
     AZURE_SPEECH = "azure_speech"
     DOGRAH = "dograh"
     SARVAM = "sarvam"
+    SIXTY_DB = "60db"
     SPEECHMATICS = "speechmatics"
     CAMB = "camb"
     AWS_BEDROCK = "aws_bedrock"
@@ -182,6 +189,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.AZURE_REALTIME,
         ServiceProviders.AWS_NOVA_SONIC,
         ServiceProviders.SARVAM,
+        ServiceProviders.SIXTY_DB,
         ServiceProviders.SMALLEST,
         ServiceProviders.XAI,
         ServiceProviders.LMNT,
@@ -421,6 +429,15 @@ HOPPER_PROVIDER = Provider(
     "Hopper",
     provider_docs_url="https://docs.withhopper.com",
 )
+SIXTYDB_PROVIDER = Provider(
+    "60db",
+    "60db",
+    description=(
+        "60db multilingual speech and language APIs: Kaak TTS, Garuda STT, "
+        "and an OpenAI-compatible Chat API."
+    ),
+    provider_docs_url="https://docs.60db.ai",
+)
 GOOGLE_PROVIDER = Provider("google", "Google")
 GROQ_PROVIDER = Provider("groq", "Groq")
 OPENROUTER_PROVIDER = Provider("openrouter", "Open Router")
@@ -517,6 +534,8 @@ HOPPER_MODELS = [
     "gemma-4-31b",
 ]
 
+SIXTYDB_LLM_MODEL = "60db-tiny"
+
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "openai/gpt-oss-120b",
@@ -585,6 +604,21 @@ class HopperLLMConfiguration(BaseChatLLMConfiguration):
         default="gemma-4-31b",
         description="Hopper chat model.",
         json_schema_extra={"examples": HOPPER_MODELS, "allow_custom_input": True},
+    )
+
+
+@register_llm(provider=SIXTYDB_PROVIDER)
+class SixtydbLLMConfiguration(BaseChatLLMConfiguration):
+    temperature: float | None = temperature_field("60db", None)
+    provider: Literal[ServiceProviders.SIXTY_DB] = ServiceProviders.SIXTY_DB
+    model: str = Field(
+        default=SIXTYDB_LLM_MODEL,
+        description="60db chat model identifier.",
+        json_schema_extra={"examples": SIXTYDB_LLM_MODELS, "allow_custom_input": True},
+    )
+    base_url: str = Field(
+        default=SIXTYDB_LLM_BASE_URL,
+        description="60db OpenAI-compatible API endpoint.",
     )
 
 
@@ -1246,6 +1280,7 @@ LLMConfig = Annotated[
         HuggingFaceLLMConfiguration,
         MiniMaxLLMConfiguration,
         SarvamLLMConfiguration,
+        SixtydbLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1426,6 +1461,45 @@ class MurfTTSConfiguration(BaseTTSConfiguration):
             "docs_label": "API Reference",
         },
     )
+
+
+@register_tts(provider=SIXTYDB_PROVIDER)
+class SixtydbTTSConfiguration(BaseServiceConfiguration):
+    provider: Literal[ServiceProviders.SIXTY_DB] = ServiceProviders.SIXTY_DB
+    voice: str = Field(
+        default=SIXTYDB_TTS_DEFAULT_VOICE,
+        description="60db voice ID from your workspace voice library.",
+        json_schema_extra={"voice_catalog": "dropdown", "allow_custom_input": True},
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier (0.5 to 2.0).",
+    )
+    stability: int = Field(
+        default=50,
+        ge=0,
+        le=100,
+        description="Voice consistency (higher is more consistent).",
+    )
+    similarity: int = Field(
+        default=75,
+        ge=0,
+        le=100,
+        description="Similarity to the source voice (higher is closer).",
+    )
+    base_url: str = Field(
+        default=SIXTYDB_API_BASE_URL,
+        description="60db API base URL.",
+    )
+
+    @computed_field
+    @property
+    def model(self) -> str:
+        # 60db TTS has no request-level model selector: each voice belongs to
+        # the Fast or Quality tier. A constant keeps the shared contract.
+        return "60db-tts"
 
 
 ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN = r"^eleven_v[34]"
@@ -2066,6 +2140,7 @@ TTSConfig = Annotated[
         XAITTSConfiguration,
         LmntTTSConfiguration,
         SpeechifyTTSConfiguration,
+        SixtydbTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -2538,6 +2613,28 @@ class SmallestAISTTConfiguration(BaseSTTConfiguration):
     )
 
 
+@register_stt(provider=SIXTYDB_PROVIDER)
+class SixtydbSTTConfiguration(BaseSTTConfiguration):
+    provider: Literal[ServiceProviders.SIXTY_DB] = ServiceProviders.SIXTY_DB
+    model: str = Field(
+        default=SIXTYDB_STT_MODELS[0],
+        description="60db streaming STT model.",
+        json_schema_extra={"examples": SIXTYDB_STT_MODELS},
+    )
+    language: str = Field(
+        default="auto",
+        description=(
+            "ISO 639-1 language code for transcription. Use 'auto' to let "
+            "60db detect the language."
+        ),
+        json_schema_extra={"examples": SIXTYDB_STT_LANGUAGES},
+    )
+    base_url: str = Field(
+        default=SIXTYDB_API_BASE_URL,
+        description="60db API base URL.",
+    )
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
@@ -2555,6 +2652,7 @@ STTConfig = Annotated[
         AzureSpeechSTTConfiguration,
         SmallestAISTTConfiguration,
         ElevenlabsSTTConfiguration,
+        SixtydbSTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]

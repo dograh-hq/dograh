@@ -1,5 +1,6 @@
 """Provider-specific voice catalogs. Credentials are supplied by the saved connection."""
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, ClassVar
@@ -369,12 +370,50 @@ class SarvamVoiceCatalog(VoiceCatalog):
         return voices
 
 
+class SixtydbVoiceCatalog(VoiceCatalog):
+    name = "60db"
+    base_url = "https://api.60db.ai"
+    path = "/voices"
+    auth_header = "Authorization"
+    auth_prefix = "Bearer "
+
+    async def voices(self, client, query):
+        # https://docs.60db.ai/api-reference/voices/get-voices
+        # The API separates professional Quality voices from cloned Fast
+        # voices; both are valid synthesis IDs, so fetch and merge both tiers.
+        quality, fast = await asyncio.gather(
+            self.get(client, {"model": "quality"}),
+            self.get(client, {"model": "fast"}),
+        )
+        voices: list[VoiceInfo] = []
+        seen: set[str] = set()
+        for tier in (quality, fast):
+            for entry in tier.get("data", []):
+                voice_id = str(entry.get("voice_id") or "")
+                if not voice_id or voice_id in seen:
+                    continue
+                seen.add(voice_id)
+                labels = entry.get("labels") or {}
+                voices.append(
+                    VoiceInfo(
+                        voice_id=voice_id,
+                        name=str(entry.get("name") or voice_id),
+                        description=entry.get("description"),
+                        accent=labels.get("accent"),
+                        gender=labels.get("gender"),
+                        language=labels.get("language"),
+                    )
+                )
+        return voices
+
+
 VOICE_CATALOGS: dict[str, type[VoiceCatalog]] = {
     "elevenlabs": ElevenLabsVoiceCatalog,
     "cartesia": CartesiaVoiceCatalog,
     "deepgram": DeepgramVoiceCatalog,
     "rime": RimeVoiceCatalog,
     "sarvam": SarvamVoiceCatalog,
+    "60db": SixtydbVoiceCatalog,
 }
 
 

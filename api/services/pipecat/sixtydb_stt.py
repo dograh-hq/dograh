@@ -49,7 +49,7 @@ class SixtydbSTTService(WebsocketSTTService):
     """60db Garuda speech-to-text over its streaming WebSocket API."""
 
     Settings = SixtydbSTTSettings
-    _settings: Settings
+    _settings: SixtydbSTTSettings
 
     def __init__(
         self,
@@ -57,7 +57,7 @@ class SixtydbSTTService(WebsocketSTTService):
         api_key: str,
         base_url: str = "https://api.60db.ai",
         sample_rate: int | None = None,
-        settings: Settings | None = None,
+        settings: SixtydbSTTSettings | None = None,
         **kwargs,
     ):
         default_settings = self.Settings()
@@ -77,7 +77,7 @@ class SixtydbSTTService(WebsocketSTTService):
 
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
-        self._receive_task = None
+        self._receive_task: asyncio.Task[None] | None = None
 
     def can_generate_metrics(self) -> bool:
         return True
@@ -104,13 +104,6 @@ class SixtydbSTTService(WebsocketSTTService):
                 return
 
         yield None
-
-    async def _update_settings(self, delta: STTSettings) -> dict[str, Any]:
-        changed = await super()._update_settings(delta)
-        if changed:
-            await self._disconnect()
-            await self._connect()
-        return changed
 
     async def _send_keepalive(self, silence: bytes) -> None:
         if self._websocket is None:

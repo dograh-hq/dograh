@@ -247,18 +247,25 @@ class SixtydbTTSService(WebsocketTTSService):
 
         if data.get("type") == "context_created" or "context_created" in data:
             created = data.get("context_created")
-            context_id = data.get("context_id") or (
+            created_context_id: str | None = data.get("context_id") or (
                 created.get("context_id") if isinstance(created, dict) else None
             )
-            text = self._pending_text.pop(context_id, None)
-            if not context_id or not text or not self._websocket:
+            text = (
+                self._pending_text.get(created_context_id)
+                if created_context_id
+                else None
+            )
+            if not created_context_id or not text or not self._websocket:
                 return
+            text = self._pending_text.pop(created_context_id)
             try:
                 await self._websocket.send(
-                    json.dumps({"send_text": {"context_id": context_id, "text": text}})
+                    json.dumps(
+                        {"send_text": {"context_id": created_context_id, "text": text}}
+                    )
                 )
                 await self._websocket.send(
-                    json.dumps({"flush_context": {"context_id": context_id}})
+                    json.dumps({"flush_context": {"context_id": created_context_id}})
                 )
             except Exception as e:
                 logger.error(f"{self} error sending synthesis request: {e}")

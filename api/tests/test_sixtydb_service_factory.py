@@ -2,7 +2,7 @@ import asyncio
 import base64
 import contextlib
 import json
-import time
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -884,7 +884,7 @@ class TestSixtydbKeyValidation:
         assert ServiceProviders.SIXTY_DB.value in validator._validator_map
 
     @pytest.mark.asyncio
-    async def test_sixtydb_validation_does_not_block_the_event_loop(self):
+    async def test_sixtydb_validation_runs_off_the_event_loop(self):
         configuration = SimpleNamespace(
             llm=object(),
             llm_fallback=None,
@@ -894,20 +894,20 @@ class TestSixtydbKeyValidation:
             embeddings=None,
         )
         validator = UserConfigurationValidator()
+        event_loop_thread = threading.current_thread()
+        validation_thread = None
 
         def blocking_validation(service, service_name, required=True):
-            time.sleep(0.02)
+            nonlocal validation_thread
+            validation_thread = threading.current_thread()
             return []
 
         validator._validate_service = blocking_validation
-        validation = asyncio.create_task(validator.validate(configuration))
-        ticks = 0
-        while not validation.done():
-            await asyncio.sleep(0.01)
-            ticks += 1
+        result = await validator.validate(configuration)
 
-        assert await validation == {"status": [{"model": "all", "message": "ok"}]}
-        assert ticks >= 2
+        assert result == {"status": [{"model": "all", "message": "ok"}]}
+        assert validation_thread is not None
+        assert validation_thread is not event_loop_thread
 
     def test_accepts_valid_key(self):
         validator = UserConfigurationValidator()

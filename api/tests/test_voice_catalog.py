@@ -712,6 +712,11 @@ async def test_sixtydb_merges_quality_and_fast_voice_tiers(connection, upstream)
                     },
                 },
                 {"voice_id": "simmi", "name": "Duplicate Simmi"},
+                {
+                    "voice_id": "english-voice",
+                    "name": "English Voice",
+                    "labels": {"language": "en"},
+                },
             ],
         }[model]
         return httpx.Response(200, json={"data": voices, "meta": {"model": model}})

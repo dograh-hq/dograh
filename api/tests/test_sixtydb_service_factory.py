@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from websockets.protocol import State
 
@@ -276,3 +277,10 @@ class TestSixtydbKeyValidation:
             mock_get.return_value.status_code = 401
             with pytest.raises(ValueError):
                 validator._check_sixtydb_api_key("60db-tiny", "bad-key")
+
+    def test_network_failure_does_not_block_key_save(self):
+        validator = UserConfigurationValidator()
+        with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
+            mock_get.side_effect = httpx.RequestError("temporary network failure")
+
+            assert validator._check_sixtydb_api_key("60db-tiny", "valid-key") is True

@@ -394,6 +394,10 @@ class SixtydbVoiceCatalog(VoiceCatalog):
                     continue
                 seen.add(voice_id)
                 labels = entry.get("labels") or {}
+                if query.language and str(labels.get("language") or "").casefold() != (
+                    query.language.casefold()
+                ):
+                    continue
                 voices.append(
                     VoiceInfo(
                         voice_id=voice_id,

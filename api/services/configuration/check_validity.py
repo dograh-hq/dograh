@@ -546,10 +546,9 @@ class UserConfigurationValidator:
                 timeout=10.0,
             )
         except httpx.RequestError:
-            raise ValueError(
-                "Could not connect to the 60db API. Please check your network "
-                "connection and try again."
-            )
+            # The smoke test is best-effort; a transient network failure must
+            # not block saving an otherwise valid key.
+            return True
         if response.status_code in (401, 403):
             raise ValueError(
                 "Invalid 60db API key. The key was rejected by the 60db API. "

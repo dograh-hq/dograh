@@ -253,6 +253,7 @@ class SixtydbSTTService(WebsocketSTTService):
         raise Exception("Websocket not connected")
 
     async def _receive_messages(self) -> None:
+        # The inherited receive-task handler reconnects when this loop ends.
         async for message in self._get_websocket():
             try:
                 await self._process_response(json.loads(message))

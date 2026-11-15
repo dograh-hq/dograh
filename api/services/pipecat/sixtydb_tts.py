@@ -34,6 +34,7 @@ except ModuleNotFoundError as e:
 
 
 SIXTYDB_TTS_CONTEXT_TIMEOUT_SECONDS = 15.0
+SIXTYDB_TTS_HANDSHAKE_TIMEOUT_SECONDS = 10.0
 
 
 def sixtydb_tts_websocket_url(base_url: str) -> str:
@@ -182,16 +183,17 @@ class SixtydbTTSService(WebsocketTTSService):
     async def _wait_for_connection_established(self) -> None:
         if self._websocket is None:
             raise RuntimeError("60db TTS WebSocket is not connected")
-        async for message in self._websocket:
-            data = json.loads(message)
-            if (
-                data.get("type") == "connection_established"
-                or "connection_established" in data
-            ):
-                return
-            if data.get("type") == "error" or "error" in data:
-                raise RuntimeError(self._error_message(data))
-        raise RuntimeError("60db TTS connection closed during authentication")
+        async with asyncio.timeout(SIXTYDB_TTS_HANDSHAKE_TIMEOUT_SECONDS):
+            async for message in self._websocket:
+                data = json.loads(message)
+                if (
+                    data.get("type") == "connection_established"
+                    or "connection_established" in data
+                ):
+                    return
+                if data.get("type") == "error" or "error" in data:
+                    raise RuntimeError(self._error_message(data))
+            raise RuntimeError("60db TTS connection closed during authentication")
 
     async def _disconnect_websocket(self) -> None:
         try:

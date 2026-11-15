@@ -276,6 +276,27 @@ class TestSixtydbTTS:
         service.push_error.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_tts_handshake_times_out_silent_socket(self, monkeypatch):
+        monkeypatch.setattr(
+            sixtydb_tts_module, "SIXTYDB_TTS_HANDSHAKE_TIMEOUT_SECONDS", 0.01
+        )
+
+        class SilentSocket:
+            state = State.OPEN
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                await asyncio.sleep(30)
+
+        service = SixtydbTTSService(api_key="test-key")
+        service._websocket = SilentSocket()
+
+        with pytest.raises(TimeoutError):
+            await service._wait_for_connection_established()
+
+    @pytest.mark.asyncio
     async def test_tts_context_abort_closes_active_context(self):
         service = SixtydbTTSService(api_key="test-key")
         context_id = "ctx-aborted"

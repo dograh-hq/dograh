@@ -1,9 +1,11 @@
+import base64
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from pipecat.frames.frames import TTSStoppedFrame
 from websockets.protocol import State
 
 from api.services.configuration.check_validity import UserConfigurationValidator
@@ -151,9 +153,8 @@ class TestSixtydbTTS:
         ]
         service.start_tts_usage_metrics.assert_awaited_once_with("Hello")
 
-        await service._process_json_message(
-            {"context_created": {"context_id": "ctx-1"}}
-        )
+        await service.create_audio_context("ctx-1")
+        await service._process_json_message({"context_created": True})
         sent = [json.loads(call.args[0]) for call in websocket.send.call_args_list][1:]
         assert sent[0]["send_text"] == {"context_id": "ctx-1", "text": "Hello"}
         assert sent[1]["flush_context"] == {"context_id": "ctx-1"}
@@ -181,6 +182,40 @@ class TestSixtydbTTS:
         assert any(isinstance(item, TTSStoppedFrame) for item in items)
         service.stop_all_metrics.assert_awaited_once()
         service.push_error.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_tts_media_without_context_id_uses_active_context(self):
+        service = SixtydbTTSService(api_key="test-key", sample_rate=16000)
+        service._sample_rate = 16000
+        websocket = SimpleNamespace(state=State.OPEN, send=AsyncMock())
+        service._websocket = websocket
+        service.start_tts_usage_metrics = AsyncMock()
+        service.stop_ttfb_metrics = AsyncMock()
+        context_id = "ctx-media"
+        await service.create_audio_context(context_id)
+
+        async for _frame in service.run_tts("Hello", context_id=context_id):
+            pass
+        await service._process_json_message({"type": "context_created"})
+        await service._process_json_message(
+            {
+                "audio_chunk": {
+                    "audioContent": base64.b64encode(b"audio-byte").decode("ascii")
+                }
+            }
+        )
+        await service._process_json_message({"flush_completed": True})
+
+        assert service._audio_context_manager._contexts[context_id].qsize() == 3
+        items = []
+        while True:
+            item = await service._audio_context_manager.get(context_id, timeout=1)
+            items.append(item)
+            if item is None:
+                break
+        assert any(getattr(item, "audio", None) == b"audio-byte" for item in items)
+        assert any(isinstance(item, TTSStoppedFrame) for item in items)
+        service.stop_ttfb_metrics.assert_awaited_once()
 
 
 class TestSixtydbSTT:

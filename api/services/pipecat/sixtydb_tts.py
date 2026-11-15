@@ -107,6 +107,7 @@ class SixtydbTTSService(WebsocketTTSService):
         self._base_url = base_url.rstrip("/")
         self._params = params
         self._pending_text: dict[str, str] = {}
+        self._synthesis_context_id: str | None = None
         self._receive_task: Optional[asyncio.Task[None]] = None
         self._websocket: Optional[ClientConnection] = None
 
@@ -236,8 +237,12 @@ class SixtydbTTSService(WebsocketTTSService):
             logger.error(f"{self} error: {error_msg}")
             await self.stop_all_metrics()
             context_id = data.get("context_id")
+            if not context_id:
+                context_id = self._synthesis_context_id
             if context_id and self.audio_context_available(context_id):
                 self._pending_text.pop(context_id, None)
+                if context_id == self._synthesis_context_id:
+                    self._synthesis_context_id = None
                 await self.append_to_audio_context(
                     context_id, TTSStoppedFrame(context_id=context_id)
                 )
@@ -250,6 +255,10 @@ class SixtydbTTSService(WebsocketTTSService):
             created_context_id: str | None = data.get("context_id") or (
                 created.get("context_id") if isinstance(created, dict) else None
             )
+            if not created_context_id and self._pending_text:
+                # The live protocol acknowledges contexts in order but does not
+                # repeat their IDs in acknowledgement or media messages.
+                created_context_id = next(iter(self._pending_text))
             text = (
                 self._pending_text.get(created_context_id)
                 if created_context_id
@@ -258,6 +267,7 @@ class SixtydbTTSService(WebsocketTTSService):
             if not created_context_id or not text or not self._websocket:
                 return
             text = self._pending_text.pop(created_context_id)
+            self._synthesis_context_id = created_context_id
             try:
                 await self._websocket.send(
                     json.dumps(
@@ -278,7 +288,7 @@ class SixtydbTTSService(WebsocketTTSService):
                 data.get("context_id") or chunk.get("context_id")
                 if isinstance(chunk, dict)
                 else data.get("context_id")
-            )
+            ) or self._synthesis_context_id
             if not context_id or not self.audio_context_available(context_id):
                 return
             try:
@@ -298,11 +308,17 @@ class SixtydbTTSService(WebsocketTTSService):
 
         completed = data.get("flush_completed")
         if completed is not None:
-            context_id = data.get("context_id") or (
-                completed.get("context_id") if isinstance(completed, dict) else None
+            context_id = (
+                data.get("context_id")
+                or (
+                    completed.get("context_id") if isinstance(completed, dict) else None
+                )
+                or self._synthesis_context_id
             )
             if not context_id or not self.audio_context_available(context_id):
                 return
+            if context_id == self._synthesis_context_id:
+                self._synthesis_context_id = None
             await self.stop_ttfb_metrics()
             await self.append_to_audio_context(
                 context_id, TTSStoppedFrame(context_id=context_id)

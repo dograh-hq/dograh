@@ -459,6 +459,36 @@ class TestSixtydbTTS:
         assert list(service._waiting_syntheses) == [("ctx-waiting", "second")]
 
     @pytest.mark.asyncio
+    async def test_tts_long_synthesis_with_progress_does_not_hit_fixed_deadline(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            sixtydb_tts_module, "SIXTYDB_TTS_CONTEXT_TIMEOUT_SECONDS", 0.03
+        )
+        service = SixtydbTTSService(api_key="test-key", sample_rate=16000)
+        service._sample_rate = 16000
+        websocket = SimpleNamespace(
+            state=State.OPEN, send=AsyncMock(), close=AsyncMock()
+        )
+        service._websocket = websocket
+        await service.create_audio_context("ctx-active")
+        service._waiting_syntheses.append(("ctx-active", "first"))
+        service.push_error = AsyncMock()
+        audio = base64.b64encode(b"0123456789").decode("ascii")
+
+        assert await service._start_next_context()
+        await service._process_json_message({"context_created": True})
+        await asyncio.sleep(0.02)
+        await service._process_json_message({"audio_chunk": {"audioContent": audio}})
+        await asyncio.sleep(0.02)
+
+        assert service._active_context_id == "ctx-active"
+        assert service.audio_context_available("ctx-active")
+        await service._process_json_message({"flush_completed": True})
+        assert service._active_context_id is None
+        service.push_error.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_tts_send_failure_closes_registered_audio_context(self):
         service = SixtydbTTSService(api_key="test-key")
         context_id = "ctx-send-failure"

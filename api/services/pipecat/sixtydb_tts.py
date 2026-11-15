@@ -447,6 +447,7 @@ class SixtydbTTSService(WebsocketTTSService):
                 await self._websocket.send(
                     json.dumps({"flush_context": {"context_id": created_context_id}})
                 )
+                self._schedule_active_timeout(created_context_id)
             except Exception as e:
                 logger.error(f"{self} error sending synthesis request: {e}")
                 if created_context_id:
@@ -474,6 +475,7 @@ class SixtydbTTSService(WebsocketTTSService):
                         context_id=context_id,
                     ),
                 )
+                self._schedule_active_timeout(context_id)
             except Exception as e:
                 logger.error(f"{self} error decoding audio data: {e}")
             return

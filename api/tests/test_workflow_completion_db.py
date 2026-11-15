@@ -110,7 +110,7 @@ async def test_extraction_usage_is_scoped_and_committed_once(completion_db, stat
         run_id, organization_id + 1000000, "owner", **kwargs
     )
     assert not await client.finish_final_extraction(
-        run_id, organization_id, "expired", **kwargs
+        run_id, organization_id, "stale-owner", **kwargs
     )
     # Concurrent repeats of the same completion must commit its token counts once.
     assert all(
@@ -139,6 +139,39 @@ async def test_extraction_usage_is_scoped_and_committed_once(completion_db, stat
     assert run.usage_info["tts"] == {"voice": 50}
     assert run.usage_info["call_duration_seconds"] == 30
     assert len(run.usage_info["prompt_cache"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_expired_completion_lease_cannot_commit_extraction_usage(
+    completion_db, monkeypatch
+):
+    client, organization_id, run_id = completion_db
+    await prepare(client, run_id)
+    await client.update_workflow_run(
+        run_id, usage_info={"llm": {"Google|||gemini": {"prompt_tokens": 100}}}
+    )
+    claim = await client.claim_workflow_completion(run_id, organization_id, "owner")
+    before = await client.get_workflow_run_by_id(run_id)
+    monkeypatch.setattr(
+        "api.db.workflow_completion_client.time",
+        SimpleNamespace(time=lambda: claim["lease_until"] + 1),
+    )
+    assert not await client.finish_final_extraction(
+        run_id,
+        organization_id,
+        "owner",
+        variables={"name": "Ada"},
+        disposition="qualified",
+        fallback="end_call",
+        mapped_disposition="QUAL",
+        status="done",
+        error_class=None,
+        usage_info={"llm": {"Google|||gemini": {"prompt_tokens": 3000}}},
+    )
+    after = await client.get_workflow_run_by_id(run_id)
+    assert after.usage_info == before.usage_info
+    assert after.gathered_context == before.gathered_context
+    assert after.extra == before.extra
 
 
 @pytest.mark.asyncio

@@ -211,14 +211,49 @@ async def test_preparation_timeout_joins_cache_work(monkeypatch):
 
     registry._ensure = slow
     # Exercise the actual timeout path without waiting two seconds.
-    real_timeout = asyncio.timeout
     monkeypatch.setattr(
-        "api.services.pipecat.prompt_cache.asyncio.timeout",
-        lambda _: real_timeout(0.01),
+        "api.services.pipecat.prompt_cache.INFERENCE_PREPARE_TIMEOUT_SECONDS", 0.01
     )
-    assert await registry.prepare_inference(spec(), Mock()) is None
+    assert await asyncio.wait_for(registry.prepare_inference(spec(), Mock()), 1) is None
     assert stopped.is_set()
     assert not registry.tasks
+
+
+@pytest.mark.asyncio
+async def test_preparation_does_not_return_invalidated_cache_after_failed_recreate():
+    redis = SimpleNamespace(
+        exists=AsyncMock(return_value=0),
+        hgetall=AsyncMock(
+            return_value={
+                "name": "cachedContents/deleted",
+                "expires": str(time.time() + 100),
+                "tokens": "2700",
+            }
+        ),
+        set=AsyncMock(return_value=True),
+    )
+
+    async def evaluate(script, num_keys, *args):
+        if num_keys == 2:  # Invalidation deletes the registry entry.
+            redis.hgetall.return_value = {}
+        return 1
+
+    async def empty():
+        if False:
+            yield
+
+    redis.eval = AsyncMock(side_effect=evaluate)
+    caches = SimpleNamespace(
+        update=AsyncMock(side_effect=client_error(404)),
+        list=AsyncMock(return_value=empty()),
+        create=AsyncMock(side_effect=client_error(503, "Service unavailable")),
+    )
+    registry = PromptCacheRegistry(redis)
+    client = SimpleNamespace(aio=SimpleNamespace(caches=caches))
+    assert await asyncio.wait_for(registry.prepare_inference(spec(), client), 1) is None
+    caches.update.assert_awaited_once()
+    caches.create.assert_awaited_once()
+    assert not registry.local
 
 
 @pytest.mark.asyncio

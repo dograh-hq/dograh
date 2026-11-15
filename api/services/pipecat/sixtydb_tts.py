@@ -109,6 +109,7 @@ class SixtydbTTSService(WebsocketTTSService):
         self._active_context_id: str | None = None
         self._active_text: str | None = None
         self._receive_task: Optional[asyncio.Task[None]] = None
+        self._socket_recovery_task: Optional[asyncio.Task[None]] = None
         self._websocket: Optional[ClientConnection] = None
 
     def can_generate_metrics(self) -> bool:
@@ -141,6 +142,9 @@ class SixtydbTTSService(WebsocketTTSService):
         if self._receive_task:
             await self.cancel_task(self._receive_task)
             self._receive_task = None
+        if self._socket_recovery_task:
+            await self.cancel_task(self._socket_recovery_task)
+            self._socket_recovery_task = None
         await self._disconnect_websocket()
 
     async def _connect_websocket(self) -> None:
@@ -305,6 +309,17 @@ class SixtydbTTSService(WebsocketTTSService):
         self._active_context_id = None
         self._active_text = None
 
+    async def _recover_after_socket_close(self) -> None:
+        await self._connect_websocket()
+        if not self._websocket_is_open():
+            if self._waiting_syntheses:
+                await self._abort_waiting_contexts("connection closed")
+            return
+        if self._receive_task is None or self._receive_task.done():
+            self._receive_task = self.create_task(
+                self._receive_task_handler(self._report_error)
+            )
+
     async def _process_messages(self) -> None:
         try:
             async for message in self._get_websocket():
@@ -317,6 +332,11 @@ class SixtydbTTSService(WebsocketTTSService):
                     )
         finally:
             await self._terminate_active_context_only()
+            if self._waiting_syntheses and not self._disconnecting:
+                self._receive_task = None
+                self._socket_recovery_task = self.create_task(
+                    self._recover_after_socket_close()
+                )
 
     async def _receive_messages(self) -> None:
         await self._process_messages()

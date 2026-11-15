@@ -176,6 +176,14 @@ class SixtydbSTTService(WebsocketSTTService):
             await self.push_error(
                 error_msg=f"60db STT connection error: {e}", exception=e
             )
+            websocket, self._websocket = self._websocket, None
+            if websocket:
+                try:
+                    await websocket.close()
+                except Exception as close_error:
+                    logger.warning(
+                        f"{self} error closing failed handshake: {close_error}"
+                    )
             self._websocket = None
             await self._call_event_handler("on_connection_error", str(e))
 

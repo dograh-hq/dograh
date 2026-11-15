@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 from types import SimpleNamespace
@@ -387,6 +388,18 @@ class TestSixtydbTTS:
     @pytest.mark.asyncio
     async def test_tts_socket_closure_terminates_active_and_retains_queue(self):
         class ClosedSocket:
+            state = State.CLOSING
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        class ReplacementSocket:
+            state = State.OPEN
+            send = AsyncMock()
+
             def __aiter__(self):
                 return self
 
@@ -399,11 +412,18 @@ class TestSixtydbTTS:
         service._active_text = "first"
         service._waiting_syntheses.append(("ctx-waiting", "second"))
         await service.create_audio_context("ctx-active")
+        replacement_socket = ReplacementSocket()
+        service._websocket_connect = AsyncMock(return_value=replacement_socket)
+        service._wait_for_connection_established = AsyncMock()
+        service.create_task = asyncio.create_task
 
         await service._process_messages()
 
-        assert service._active_context_id is None
-        assert list(service._waiting_syntheses) == [("ctx-waiting", "second")]
+        assert service._socket_recovery_task is not None
+        await service._socket_recovery_task
+        assert not service._waiting_syntheses
+        create_message = json.loads(replacement_socket.send.call_args.args[0])
+        assert create_message["create_context"]["context_id"] == "ctx-waiting"
 
     @pytest.mark.asyncio
     async def test_interrupted_waiting_tts_context_is_discarded(self):
@@ -537,6 +557,28 @@ class TestSixtydbSTT:
 
         with pytest.raises(RuntimeError, match="closed before session_started"):
             await service._handshake()
+
+    @pytest.mark.asyncio
+    async def test_failed_stt_handshake_closes_socket(self):
+        class EmptySocket:
+            close = AsyncMock()
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        socket = EmptySocket()
+        service = SixtydbSTTService(api_key="test-key")
+        service.push_error = AsyncMock()
+        service._call_event_handler = AsyncMock()
+        service._websocket_connect = AsyncMock(return_value=socket)
+
+        await service._connect_websocket()
+
+        socket.close.assert_awaited_once()
+        assert service._websocket is None
 
     def test_stt_websocket_url_contains_no_credential(self):
         url = sixtydb_stt_websocket_url("https://api.60db.ai")

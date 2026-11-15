@@ -205,6 +205,23 @@ class PromptCacheRegistry:
         except Exception:
             return "registry_unavailable", None
 
+    async def prepare_inference(
+        self, spec: CacheSpec, client, *, credentials=None
+    ) -> CacheEntry | None:
+        """Bound cache preparation to two seconds and the inference client's lifetime.
+
+        Unlike streaming clients, completion clients close after one request.
+        Do not leave background cache work using a client that is about to close.
+        Redis leases still serialize creation/refresh across concurrent callers.
+        """
+        entry = await self.lookup(spec)
+        try:
+            async with asyncio.timeout(2):
+                await self._ensure(spec, client, credentials=credentials)
+        except TimeoutError:
+            count_cache_event("prepare_timeout")
+        return await self.lookup(spec) or entry
+
     async def _ensure(self, spec: CacheSpec, client, *, credentials=None) -> None:
         key, lease = spec.key, uuid.uuid4().hex
         locked = False

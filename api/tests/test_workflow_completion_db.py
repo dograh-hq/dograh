@@ -63,6 +63,85 @@ async def prepare(client, run_id):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["done", "failed"])
+async def test_extraction_usage_is_scoped_and_committed_once(completion_db, status):
+    client, organization_id, run_id = completion_db
+    await prepare(client, run_id)
+    key = "Google|||gemini"
+    await client.update_workflow_run(
+        run_id,
+        usage_info={
+            "llm": {
+                key: {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 10,
+                    "total_tokens": 110,
+                }
+            },
+            "tts": {"voice": 50},
+            "call_duration_seconds": 30,
+            "prompt_cache": [{"cache_mode": "explicit", "node_id": "conversation"}],
+        },
+    )
+    await client.claim_workflow_completion(run_id, organization_id, "owner")
+    delta = {
+        "llm": {
+            key: {
+                "prompt_tokens": 3000,
+                "completion_tokens": 50,
+                "total_tokens": 3050,
+                "cache_read_input_tokens": 2700,
+                "reasoning_tokens": 30,
+                "input_audio_tokens": None,
+            }
+        },
+        "prompt_cache": [{"cache_mode": "explicit", "node_id": "extraction:last"}],
+    }
+    kwargs = dict(
+        variables={},
+        disposition=None,
+        fallback="end_call",
+        mapped_disposition=None,
+        status=status,
+        error_class=None,
+        usage_info=delta,
+    )
+    assert not await client.finish_final_extraction(
+        run_id, organization_id + 1000000, "owner", **kwargs
+    )
+    assert not await client.finish_final_extraction(
+        run_id, organization_id, "expired", **kwargs
+    )
+    # Concurrent repeats of the same completion must commit its token counts once.
+    assert all(
+        await asyncio.wait_for(
+            asyncio.gather(
+                *[
+                    client.finish_final_extraction(
+                        run_id, organization_id, "owner", **kwargs
+                    )
+                    for _ in range(3)
+                ]
+            ),
+            timeout=10,
+        )
+    )
+    run = await client.get_workflow_run_by_id(run_id)
+    assert run.usage_info["llm"][key] == {
+        "prompt_tokens": 3100,
+        "completion_tokens": 60,
+        "total_tokens": 3160,
+        "cache_read_input_tokens": 2700,
+        "reasoning_tokens": 30,
+        "input_audio_tokens": None,
+    }
+    assert run.usage_info["final_extraction"] == delta
+    assert run.usage_info["tts"] == {"voice": 50}
+    assert run.usage_info["call_duration_seconds"] == 30
+    assert len(run.usage_info["prompt_cache"]) == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("age_seconds", "eligible"), [(1200, False), (1800, False), (1801, True)]
 )

@@ -71,6 +71,23 @@ async def test_terminal_frame_does_not_wait_for_extraction(monkeypatch):
     assert request["model_configuration_snapshot"] == {"visit": "child"}
     assert request["variables"][0]["prompt"] == "Extract Ada"
     assert request["prompt"] == "For Ada"
+    assert request["cache_static_prompt"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template_location", [None, "prompt", "variable"])
+async def test_snapshot_caches_only_static_definitions(monkeypatch, template_location):
+    instance, _ = engine(monkeypatch)
+    current = instance.active_agent.current_node
+    current.extraction_prompt = "Extract accurately"
+    current.extraction_variables[0].prompt = "The customer's name"
+    if template_location == "prompt":
+        current.extraction_prompt = "For {{ customer }}"
+    elif template_location == "variable":
+        current.extraction_variables[0].prompt = "For {{ customer }}"
+    await instance.end_call_with_reason("end_call", True)
+    request = instance.final_extraction_logs()["final_extraction"]["requests"][0]
+    assert request["cache_static_prompt"] == (template_location is None)
 
 
 @pytest.mark.asyncio

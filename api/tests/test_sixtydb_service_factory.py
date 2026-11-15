@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from pipecat.frames.frames import TTSStoppedFrame
+from pipecat.frames.frames import ErrorFrame, TTSStoppedFrame
 from websockets.protocol import State
 
 from api.services.configuration.check_validity import UserConfigurationValidator
@@ -217,6 +217,57 @@ class TestSixtydbTTS:
         assert any(isinstance(item, TTSStoppedFrame) for item in items)
         service.stop_ttfb_metrics.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_overlapping_tts_contexts_keep_ordered_media_targets(self):
+        service = SixtydbTTSService(api_key="test-key", sample_rate=16000)
+        service._sample_rate = 16000
+        websocket = SimpleNamespace(state=State.OPEN, send=AsyncMock())
+        service._websocket = websocket
+        service.start_tts_usage_metrics = AsyncMock()
+        service.stop_ttfb_metrics = AsyncMock()
+        audio = base64.b64encode(b"0123456789").decode("ascii")
+
+        for context_id in ("ctx-first", "ctx-second"):
+            await service.create_audio_context(context_id)
+            async for _frame in service.run_tts("Hello", context_id=context_id):
+                pass
+
+        await service._process_json_message({"context_created": True})
+        await service._process_json_message({"audio_chunk": {"audioContent": audio}})
+        assert service._audio_context_manager._contexts["ctx-first"].qsize() == 1
+        assert service._audio_context_manager._contexts["ctx-second"].qsize() == 0
+        await service._process_json_message({"flush_completed": True})
+
+        await service._process_json_message({"context_created": True})
+        await service._process_json_message({"audio_chunk": {"audioContent": audio}})
+        assert service._audio_context_manager._contexts["ctx-second"].qsize() == 1
+        await service._process_json_message({"flush_completed": True})
+
+    @pytest.mark.asyncio
+    async def test_failed_tts_handshake_closes_socket(self):
+        class EmptySocket:
+            close = AsyncMock()
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        socket = EmptySocket()
+        service = SixtydbTTSService(api_key="test-key")
+        service.push_error = AsyncMock()
+
+        with patch(
+            "api.services.pipecat.sixtydb_tts.websocket_connect",
+            new=AsyncMock(return_value=socket),
+        ):
+            await service._connect_websocket()
+
+        socket.close.assert_awaited_once()
+        assert service._websocket is None
+        service.push_error.assert_awaited_once()
+
 
 class TestSixtydbSTT:
     def test_configuration_defaults(self):
@@ -284,6 +335,27 @@ class TestSixtydbSTT:
         service._sample_rate = 16000
         message = json.loads(service._start_message())
         assert message["languages"] is None
+
+    @pytest.mark.asyncio
+    async def test_terminal_stt_error_is_reported_to_pipeline(self):
+        service = SixtydbSTTService(api_key="test-key")
+        pushed = []
+
+        async def capture_frame(frame):
+            pushed.append(frame)
+
+        service.push_frame = capture_frame
+        await service._process_response(
+            {
+                "type": "error",
+                "terminal": True,
+                "error": "Transcription timed out.",
+            }
+        )
+
+        assert len(pushed) == 1
+        assert isinstance(pushed[0], ErrorFrame)
+        assert pushed[0].error == "Transcription timed out."
 
     @pytest.mark.asyncio
     async def test_stt_handshake_rejects_closed_session(self):

@@ -178,7 +178,8 @@ class SixtydbSTTService(WebsocketSTTService):
             await self._call_event_handler("on_connection_error", str(e))
 
     async def _handshake(self) -> None:
-        assert self._websocket is not None
+        if self._websocket is None:
+            raise RuntimeError("60db STT WebSocket is not connected")
         async for message in self._websocket:
             data = json.loads(message)
             message_type = data.get("type")
@@ -201,7 +202,8 @@ class SixtydbSTTService(WebsocketSTTService):
             raise RuntimeError("60db STT connection closed before session_started")
 
     async def _wait_for_session_stopped(self) -> None:
-        assert self._websocket is not None
+        if self._websocket is None:
+            return
         try:
             async with asyncio.timeout(2):
                 async for message in self._websocket:
@@ -246,6 +248,7 @@ class SixtydbSTTService(WebsocketSTTService):
                 # The turn failed, but the session remains usable for the next
                 # caller utterance.
                 logger.warning(f"{self} terminal transcription error: {message}")
+                await self.push_frame(ErrorFrame(error=message))
                 return
             logger.warning(f"{self} rejected message: {message}")
             return

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from collections import deque
 from typing import AsyncGenerator, Optional
 from urllib.parse import urlparse, urlunparse
 
@@ -106,7 +107,7 @@ class SixtydbTTSService(WebsocketTTSService):
         self._base_url = base_url.rstrip("/")
         self._params = params
         self._pending_text: dict[str, str] = {}
-        self._synthesis_context_id: str | None = None
+        self._open_context_ids: deque[str] = deque()
         self._receive_task: Optional[asyncio.Task[None]] = None
         self._websocket: Optional[ClientConnection] = None
 
@@ -156,13 +157,21 @@ class SixtydbTTSService(WebsocketTTSService):
             logger.debug("Connected to 60db TTS")
         except Exception as e:
             logger.error(f"{self} initialization error: {e}")
-            self._websocket = None
+            websocket, self._websocket = self._websocket, None
+            if websocket:
+                try:
+                    await websocket.close()
+                except Exception as close_error:
+                    logger.warning(
+                        f"{self} error closing failed handshake: {close_error}"
+                    )
             await self.push_error(
                 error_msg=f"{self} connection error: {e}", exception=e
             )
 
     async def _wait_for_connection_established(self) -> None:
-        assert self._websocket is not None
+        if self._websocket is None:
+            raise RuntimeError("60db TTS WebSocket is not connected")
         async for message in self._websocket:
             data = json.loads(message)
             if (
@@ -239,11 +248,13 @@ class SixtydbTTSService(WebsocketTTSService):
             await self.stop_all_metrics()
             context_id = data.get("context_id")
             if not context_id:
-                context_id = self._synthesis_context_id
+                context_id = (
+                    self._open_context_ids[0] if self._open_context_ids else None
+                )
             if context_id and self.audio_context_available(context_id):
                 self._pending_text.pop(context_id, None)
-                if context_id == self._synthesis_context_id:
-                    self._synthesis_context_id = None
+                if context_id in self._open_context_ids:
+                    self._open_context_ids.remove(context_id)
                 await self.append_to_audio_context(
                     context_id, TTSStoppedFrame(context_id=context_id)
                 )
@@ -268,7 +279,7 @@ class SixtydbTTSService(WebsocketTTSService):
             if not created_context_id or not text or not self._websocket:
                 return
             text = self._pending_text.pop(created_context_id)
-            self._synthesis_context_id = created_context_id
+            self._open_context_ids.append(created_context_id)
             try:
                 await self._websocket.send(
                     json.dumps(
@@ -289,7 +300,7 @@ class SixtydbTTSService(WebsocketTTSService):
                 data.get("context_id") or chunk.get("context_id")
                 if isinstance(chunk, dict)
                 else data.get("context_id")
-            ) or self._synthesis_context_id
+            ) or (self._open_context_ids[0] if self._open_context_ids else None)
             if not context_id or not self.audio_context_available(context_id):
                 return
             try:
@@ -314,12 +325,12 @@ class SixtydbTTSService(WebsocketTTSService):
                 or (
                     completed.get("context_id") if isinstance(completed, dict) else None
                 )
-                or self._synthesis_context_id
+                or (self._open_context_ids[0] if self._open_context_ids else None)
             )
             if not context_id or not self.audio_context_available(context_id):
                 return
-            if context_id == self._synthesis_context_id:
-                self._synthesis_context_id = None
+            if context_id in self._open_context_ids:
+                self._open_context_ids.remove(context_id)
             await self.stop_ttfb_metrics()
             await self.append_to_audio_context(
                 context_id, TTSStoppedFrame(context_id=context_id)

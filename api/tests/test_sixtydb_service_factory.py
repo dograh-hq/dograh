@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import contextlib
 import json
 import time
 from types import SimpleNamespace
@@ -462,9 +463,6 @@ class TestSixtydbTTS:
     async def test_tts_long_synthesis_with_progress_does_not_hit_fixed_deadline(
         self, monkeypatch
     ):
-        monkeypatch.setattr(
-            sixtydb_tts_module, "SIXTYDB_TTS_CONTEXT_TIMEOUT_SECONDS", 0.03
-        )
         service = SixtydbTTSService(api_key="test-key", sample_rate=16000)
         service._sample_rate = 16000
         websocket = SimpleNamespace(
@@ -477,15 +475,25 @@ class TestSixtydbTTS:
         audio = base64.b64encode(b"0123456789").decode("ascii")
 
         assert await service._start_next_context()
+        creation_deadline = service._active_timeout_task
         await service._process_json_message({"context_created": True})
-        await asyncio.sleep(0.02)
+        assert service._active_timeout_task is not creation_deadline
+        with contextlib.suppress(asyncio.CancelledError):
+            await creation_deadline
+
+        request_deadline = service._active_timeout_task
         await service._process_json_message({"audio_chunk": {"audioContent": audio}})
-        await asyncio.sleep(0.02)
+        assert service._active_timeout_task is not request_deadline
+        with contextlib.suppress(asyncio.CancelledError):
+            await request_deadline
 
         assert service._active_context_id == "ctx-active"
         assert service.audio_context_available("ctx-active")
+        audio_deadline = service._active_timeout_task
         await service._process_json_message({"flush_completed": True})
         assert service._active_context_id is None
+        with contextlib.suppress(asyncio.CancelledError):
+            await audio_deadline
         service.push_error.assert_not_awaited()
 
     @pytest.mark.asyncio

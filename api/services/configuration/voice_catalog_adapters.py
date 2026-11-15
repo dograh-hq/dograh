@@ -398,7 +398,16 @@ class SixtydbVoiceCatalog(VoiceCatalog):
         except ExceptionGroup as tier_errors:
             # TaskGroup gives us sibling cancellation; callers already map the
             # provider's original HTTP error to an actionable response.
-            raise tier_errors.exceptions[0] from None
+            provider_error = next(
+                (
+                    error
+                    for error in tier_errors.exceptions
+                    if isinstance(error, httpx.HTTPStatusError)
+                    and error.response.status_code in {401, 403}
+                ),
+                tier_errors.exceptions[0],
+            )
+            raise provider_error from None
         quality, fast = quality_task.result(), fast_task.result()
         voices: list[VoiceInfo] = []
         seen: set[str] = set()

@@ -762,11 +762,14 @@ async def test_sixtydb_tier_failure_cancels_sibling_request():
 
     catalog = SixtydbVoiceCatalog(api_key="test-key", base_url=None)
     cancelled = asyncio.Event()
+    sibling_started = asyncio.Event()
 
     async def get_tier(client, params):
         if params["model"] == "quality":
+            await sibling_started.wait()
             raise RuntimeError("quality tier failed")
         try:
+            sibling_started.set()
             await asyncio.sleep(30)
         except asyncio.CancelledError:
             cancelled.set()
@@ -798,6 +801,40 @@ async def test_sixtydb_tier_auth_error_keeps_actionable_response(connection, ups
 
     assert exc.value.status_code == 400
     assert "API key" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_sixtydb_tier_auth_error_wins_over_sibling_server_error():
+    from api.services.configuration.voice_catalog_adapters import SixtydbVoiceCatalog
+
+    catalog = SixtydbVoiceCatalog(api_key="test-key", base_url=None)
+    sibling_started = asyncio.Event()
+
+    async def get_tier(client, params):
+        request = httpx.Request("GET", "https://api.60db.ai/voices")
+        if params["model"] == "quality":
+            await sibling_started.wait()
+            raise httpx.HTTPStatusError(
+                "server error",
+                request=request,
+                response=httpx.Response(500, request=request),
+            )
+        try:
+            sibling_started.set()
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            raise httpx.HTTPStatusError(
+                "unauthorized",
+                request=request,
+                response=httpx.Response(401, request=request),
+            ) from None
+
+    catalog.get = get_tier
+    query = SimpleNamespace(model=None, language=None, q=None, gender=None, accent=None)
+    with pytest.raises(httpx.HTTPStatusError) as exc:
+        await catalog.voices(None, query)
+
+    assert exc.value.response.status_code == 401
 
 
 @pytest.mark.asyncio

@@ -550,7 +550,9 @@ class TestSixtydbTTS:
 
         assert service._active_context_id is None
         service.stop_all_metrics.assert_awaited_once()
-        service.push_error.assert_awaited_once()
+        service.push_error.assert_awaited_once_with(
+            error_msg="60db TTS connection closed during synthesis"
+        )
         items = []
         while True:
             item = await service._audio_context_manager.get("ctx-active", timeout=1)

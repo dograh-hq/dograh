@@ -412,7 +412,12 @@ class SixtydbTTSService(WebsocketTTSService):
             if context_id and context_id == self._active_context_id:
                 self._active_context_id = None
                 self._active_text = None
-                await self._start_next_context()
+                if self.audio_context_available(context_id):
+                    await self.append_to_audio_context(
+                        context_id, TTSStoppedFrame(context_id=context_id)
+                    )
+                    await self.remove_audio_context(context_id)
+                await self._abort_waiting_contexts("provider connection closed")
 
         if data.get("type") == "context_aborted" or "context_aborted" in data:
             aborted = data.get("context_aborted")

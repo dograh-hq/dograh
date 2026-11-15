@@ -355,6 +355,26 @@ class TestSixtydbTTS:
         assert not service._waiting_syntheses
         service.push_error.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_tts_context_closed_terminates_waiting_contexts(self):
+        for socket_state in (State.CLOSING, State.OPEN):
+            service = SixtydbTTSService(api_key="test-key")
+            service._websocket = SimpleNamespace(state=socket_state, send=AsyncMock())
+            service._active_context_id = "ctx-active"
+            service._active_text = "first"
+            service._waiting_syntheses.append(("ctx-waiting", "second"))
+            service.push_error = AsyncMock()
+            for context_id in ("ctx-active", "ctx-waiting"):
+                await service.create_audio_context(context_id)
+
+            await service._process_json_message(
+                {"context_closed": {"context_id": "ctx-active"}}
+            )
+
+            assert service._active_context_id is None
+            assert not service._waiting_syntheses
+            service.push_error.assert_awaited_once()
+
 
 class TestSixtydbSTT:
     def test_configuration_defaults(self):

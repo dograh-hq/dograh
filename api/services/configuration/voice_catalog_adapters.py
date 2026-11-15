@@ -387,11 +387,16 @@ class SixtydbVoiceCatalog(VoiceCatalog):
         # https://docs.60db.ai/api-reference/voices/get-voices
         # The API separates professional Quality voices from cloned Fast
         # voices; both are valid synthesis IDs, so fetch and merge both tiers.
-        async with asyncio.TaskGroup() as tier_tasks:
-            quality_task = tier_tasks.create_task(
-                self.get(client, {"model": "quality"})
-            )
-            fast_task = tier_tasks.create_task(self.get(client, {"model": "fast"}))
+        try:
+            async with asyncio.TaskGroup() as tier_tasks:
+                quality_task = tier_tasks.create_task(
+                    self.get(client, {"model": "quality"})
+                )
+                fast_task = tier_tasks.create_task(self.get(client, {"model": "fast"}))
+        except ExceptionGroup as tier_errors:
+            # TaskGroup gives us sibling cancellation; callers already map the
+            # provider's original HTTP error to an actionable response.
+            raise tier_errors.exceptions[0] from None
         quality, fast = quality_task.result(), fast_task.result()
         voices: list[VoiceInfo] = []
         seen: set[str] = set()

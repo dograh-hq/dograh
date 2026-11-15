@@ -758,9 +758,30 @@ async def test_sixtydb_tier_failure_cancels_sibling_request():
 
     catalog.get = get_tier
     query = SimpleNamespace(model=None, language=None, q=None, gender=None, accent=None)
-    with pytest.raises(ExceptionGroup):
+    with pytest.raises(RuntimeError):
         await catalog.voices(None, query)
     assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_sixtydb_tier_auth_error_keeps_actionable_response(connection, upstream):
+    connection.provider = "60db"
+    connection.connection_settings = {"base_url": "https://api.60db.ai"}
+
+    def tier_error(request):
+        if request.url.params.get("model") == "quality":
+            return httpx.Response(401, request=request)
+        return httpx.Response(
+            200,
+            json={"data": [{"voice_id": "zara", "name": "Zara"}]},
+        )
+
+    upstream(tier_error)
+    with pytest.raises(HTTPException) as exc:
+        await voice_catalog.get_connection_voices("60db", 42, connection.uuid)
+
+    assert exc.value.status_code == 400
+    assert "API key" in exc.value.detail
 
 
 @pytest.mark.asyncio

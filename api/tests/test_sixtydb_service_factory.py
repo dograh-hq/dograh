@@ -18,6 +18,7 @@ from api.services.configuration.registry import (
     SixtydbSTTConfiguration,
     SixtydbTTSConfiguration,
 )
+from api.services.pipecat import sixtydb_stt as sixtydb_stt_module
 from api.services.pipecat import sixtydb_tts as sixtydb_tts_module
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.service_factory import (
@@ -692,6 +693,27 @@ class TestSixtydbSTT:
         service._websocket = ClosedSessionSocket()
 
         with pytest.raises(RuntimeError, match="closed before session_started"):
+            await service._handshake()
+
+    @pytest.mark.asyncio
+    async def test_stt_handshake_times_out_silent_socket(self, monkeypatch):
+        monkeypatch.setattr(
+            sixtydb_stt_module, "SIXTYDB_STT_HANDSHAKE_TIMEOUT_SECONDS", 0.01
+        )
+
+        class SilentSocket:
+            state = State.OPEN
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                await asyncio.sleep(30)
+
+        service = SixtydbSTTService(api_key="test-key", sample_rate=16000)
+        service._websocket = SilentSocket()
+
+        with pytest.raises(TimeoutError):
             await service._handshake()
 
     @pytest.mark.asyncio

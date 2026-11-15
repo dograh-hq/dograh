@@ -25,6 +25,8 @@ from pipecat.services.settings import STTSettings
 from pipecat.services.stt_service import WebsocketSTTService
 from pipecat.utils.time import time_now_iso8601
 
+SIXTYDB_STT_HANDSHAKE_TIMEOUT_SECONDS = 10.0
+
 
 def sixtydb_stt_websocket_url(base_url: str) -> str:
     """Build the authenticated 60db STT WebSocket URL."""
@@ -192,26 +194,27 @@ class SixtydbSTTService(WebsocketSTTService):
     async def _handshake(self) -> None:
         if self._websocket is None:
             raise RuntimeError("60db STT WebSocket is not connected")
-        async for message in self._websocket:
-            data = json.loads(message)
-            message_type = data.get("type")
-            if message_type == "connection_established":
-                break
-            if message_type == "error":
-                raise RuntimeError(str(data.get("error") or data))
-        else:
-            raise RuntimeError("60db STT connection closed during authentication")
+        async with asyncio.timeout(SIXTYDB_STT_HANDSHAKE_TIMEOUT_SECONDS):
+            async for message in self._websocket:
+                data = json.loads(message)
+                message_type = data.get("type")
+                if message_type == "connection_established":
+                    break
+                if message_type == "error":
+                    raise RuntimeError(str(data.get("error") or data))
+            else:
+                raise RuntimeError("60db STT connection closed during authentication")
 
-        await self._websocket.send(self._start_message())
-        async for message in self._websocket:
-            data = json.loads(message)
-            message_type = data.get("type")
-            if message_type == "session_started":
-                return
-            if message_type == "error":
-                raise RuntimeError(str(data.get("error") or data))
-        else:
-            raise RuntimeError("60db STT connection closed before session_started")
+            await self._websocket.send(self._start_message())
+            async for message in self._websocket:
+                data = json.loads(message)
+                message_type = data.get("type")
+                if message_type == "session_started":
+                    return
+                if message_type == "error":
+                    raise RuntimeError(str(data.get("error") or data))
+            else:
+                raise RuntimeError("60db STT connection closed before session_started")
 
     async def _wait_for_session_stopped(self) -> None:
         if self._websocket is None:

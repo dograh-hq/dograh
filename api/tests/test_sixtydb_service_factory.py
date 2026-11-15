@@ -120,9 +120,9 @@ class TestSixtydbTTS:
         assert kwargs["params"].stability == 0
         assert kwargs["params"].similarity == 80
 
-    def test_websocket_url_hides_key_from_path(self):
-        url = sixtydb_tts_websocket_url("https://api.60db.ai", "secret-key")
-        assert url == "wss://api.60db.ai/ws/tts?apiKey=secret-key"
+    def test_tts_websocket_url_contains_no_credential(self):
+        url = sixtydb_tts_websocket_url("https://api.60db.ai")
+        assert url == "wss://api.60db.ai/ws/tts"
 
     @pytest.mark.asyncio
     async def test_run_tts_creates_flushes_and_closes_a_context(self):
@@ -308,9 +308,9 @@ class TestSixtydbSTT:
         with pytest.raises(RuntimeError, match="closed before session_started"):
             await service._handshake()
 
-    def test_websocket_url_hides_key_from_path(self):
-        url = sixtydb_stt_websocket_url("https://api.60db.ai", "secret-key")
-        assert url == "wss://api.60db.ai/ws/stt?apiKey=secret-key"
+    def test_stt_websocket_url_contains_no_credential(self):
+        url = sixtydb_stt_websocket_url("https://api.60db.ai")
+        assert url == "wss://api.60db.ai/ws/stt"
 
 
 class TestSixtydbKeyValidation:

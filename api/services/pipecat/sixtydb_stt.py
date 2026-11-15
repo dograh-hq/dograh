@@ -8,7 +8,7 @@ import json
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 
 from loguru import logger
 from websockets.protocol import State
@@ -26,14 +26,13 @@ from pipecat.services.stt_service import WebsocketSTTService
 from pipecat.utils.time import time_now_iso8601
 
 
-def sixtydb_stt_websocket_url(base_url: str, api_key: str) -> str:
+def sixtydb_stt_websocket_url(base_url: str) -> str:
     """Build the authenticated 60db STT WebSocket URL."""
     parsed = urlparse(base_url if "://" in base_url else f"https://{base_url}")
     scheme = {"https": "wss", "http": "ws"}.get(parsed.scheme, parsed.scheme)
     if scheme not in {"ws", "wss"} or not parsed.hostname:
         raise ValueError("Invalid 60db base URL")
-    query = urlencode({"apiKey": api_key})
-    return urlunparse((scheme, parsed.netloc, "/ws/stt", "", query, ""))
+    return urlunparse((scheme, parsed.netloc, "/ws/stt", "", "", ""))
 
 
 @dataclass
@@ -163,8 +162,11 @@ class SixtydbSTTService(WebsocketSTTService):
                 return
 
             logger.debug("Connecting to 60db STT")
-            url = sixtydb_stt_websocket_url(self._base_url, self._api_key)
-            self._websocket = await self._websocket_connect(url)
+            url = sixtydb_stt_websocket_url(self._base_url)
+            self._websocket = await self._websocket_connect(
+                url,
+                additional_headers={"Authorization": f"Bearer {self._api_key}"},
+            )
             await self._handshake()
             await self._call_event_handler("on_connected")
             logger.debug("Connected to 60db STT")

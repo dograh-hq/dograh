@@ -6,7 +6,7 @@ import asyncio
 import base64
 import json
 from typing import AsyncGenerator, Optional
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 
 from loguru import logger
 from pydantic import BaseModel, field_validator
@@ -33,14 +33,13 @@ except ModuleNotFoundError as e:
     raise Exception(f"Missing module: {e}") from e
 
 
-def sixtydb_tts_websocket_url(base_url: str, api_key: str) -> str:
+def sixtydb_tts_websocket_url(base_url: str) -> str:
     """Build the authenticated 60db TTS WebSocket URL."""
     parsed = urlparse(base_url if "://" in base_url else f"https://{base_url}")
     scheme = {"https": "wss", "http": "ws"}.get(parsed.scheme, parsed.scheme)
     if scheme not in {"ws", "wss"} or not parsed.hostname:
         raise ValueError("Invalid 60db base URL")
-    query = urlencode({"apiKey": api_key})
-    return urlunparse((scheme, parsed.netloc, "/ws/tts", "", query, ""))
+    return urlunparse((scheme, parsed.netloc, "/ws/tts", "", "", ""))
 
 
 class SixtydbTTSService(WebsocketTTSService):
@@ -148,9 +147,11 @@ class SixtydbTTSService(WebsocketTTSService):
             if self._websocket and self._websocket.state is State.OPEN:
                 return
 
-            url = sixtydb_tts_websocket_url(self._base_url, self._api_key)
+            url = sixtydb_tts_websocket_url(self._base_url)
             logger.debug("Connecting to 60db TTS")
-            self._websocket = await websocket_connect(url)
+            self._websocket = await websocket_connect(
+                url, additional_headers={"Authorization": f"Bearer {self._api_key}"}
+            )
             await self._wait_for_connection_established()
             logger.debug("Connected to 60db TTS")
         except Exception as e:

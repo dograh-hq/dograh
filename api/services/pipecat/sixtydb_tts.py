@@ -27,7 +27,6 @@ from pipecat.utils.tracing.service_decorators import traced_tts
 
 try:
     from websockets.asyncio.client import ClientConnection
-    from websockets.asyncio.client import connect as websocket_connect
     from websockets.protocol import State
 except ModuleNotFoundError as e:
     logger.error(f"Exception: {e}")
@@ -151,7 +150,7 @@ class SixtydbTTSService(WebsocketTTSService):
 
             url = sixtydb_tts_websocket_url(self._base_url)
             logger.debug("Connecting to 60db TTS")
-            self._websocket = await websocket_connect(
+            self._websocket = await self._websocket_connect(
                 url, additional_headers={"Authorization": f"Bearer {self._api_key}"}
             )
             await self._wait_for_connection_established()
@@ -381,6 +380,17 @@ class SixtydbTTSService(WebsocketTTSService):
                 self._active_context_id = None
                 self._active_text = None
                 await self._start_next_context()
+
+        if data.get("type") == "context_aborted" or "context_aborted" in data:
+            aborted = data.get("context_aborted")
+            context_id = data.get("context_id") or (
+                aborted.get("context_id") if isinstance(aborted, dict) else None
+            )
+            if not context_id:
+                context_id = self._active_context_id
+            if context_id:
+                await self.stop_ttfb_metrics()
+                await self._finish_active_context(context_id)
 
     @traced_tts
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:

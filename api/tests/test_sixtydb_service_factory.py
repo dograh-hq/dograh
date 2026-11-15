@@ -261,15 +261,37 @@ class TestSixtydbTTS:
         service = SixtydbTTSService(api_key="test-key")
         service.push_error = AsyncMock()
 
-        with patch(
-            "api.services.pipecat.sixtydb_tts.websocket_connect",
-            new=AsyncMock(return_value=socket),
-        ):
+        service._websocket_connect = AsyncMock(return_value=socket)
+        try:
             await service._connect_websocket()
+        finally:
+            service._websocket_connect.assert_awaited_once()
 
         socket.close.assert_awaited_once()
         assert service._websocket is None
         service.push_error.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_tts_context_abort_closes_active_context(self):
+        service = SixtydbTTSService(api_key="test-key")
+        context_id = "ctx-aborted"
+        await service.create_audio_context(context_id)
+        service._active_context_id = context_id
+        service.stop_ttfb_metrics = AsyncMock()
+
+        await service._process_json_message(
+            {"context_aborted": {"context_id": context_id}}
+        )
+
+        items = []
+        while True:
+            item = await service._audio_context_manager.get(context_id, timeout=1)
+            items.append(item)
+            if item is None:
+                break
+        assert any(isinstance(item, TTSStoppedFrame) for item in items)
+        assert service._active_context_id is None
+        service.stop_ttfb_metrics.assert_awaited_once()
 
 
 class TestSixtydbSTT:

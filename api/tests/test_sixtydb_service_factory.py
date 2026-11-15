@@ -243,12 +243,19 @@ class TestSixtydbTTS:
         assert service._audio_context_manager._contexts["ctx-second"].qsize() == 0
         assert len(websocket.send.call_args_list) == 3
         await service._process_json_message({"flush_completed": True})
+        assert len(websocket.send.call_args_list) == 4
 
+        websocket.state = State.CLOSING
+        replacement_socket = SimpleNamespace(state=State.OPEN, send=AsyncMock())
+        service._websocket_connect = AsyncMock(return_value=replacement_socket)
+        service._wait_for_connection_established = AsyncMock()
+        await service._connect_websocket()
         await service._process_json_message({"context_created": True})
         await service._process_json_message({"audio_chunk": {"audioContent": audio}})
         assert service._audio_context_manager._contexts["ctx-second"].qsize() == 1
-        assert len(websocket.send.call_args_list) == 6
+        assert len(replacement_socket.send.call_args_list) == 3
         await service._process_json_message({"flush_completed": True})
+        assert len(replacement_socket.send.call_args_list) == 4
 
     @pytest.mark.asyncio
     async def test_failed_tts_handshake_closes_socket(self):
@@ -507,6 +514,28 @@ class TestSixtydbTTS:
         create_message = json.loads(service._websocket.send.call_args.args[0])
         assert create_message["create_context"]["context_id"] == "ctx-waiting"
         service.stop_ttfb_metrics.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_tts_flush_completion_closes_context_before_next_synthesis(self):
+        service = SixtydbTTSService(api_key="test-key")
+        websocket = SimpleNamespace(state=State.OPEN, send=AsyncMock())
+        service._websocket = websocket
+        service._active_context_id = "ctx-active"
+        service._active_text = "first"
+        service._waiting_syntheses.append(("ctx-waiting", "second"))
+        service.stop_ttfb_metrics = AsyncMock()
+        for context_id in ("ctx-active", "ctx-waiting"):
+            await service.create_audio_context(context_id)
+
+        await service._process_json_message(
+            {"flush_completed": {"context_id": "ctx-active"}}
+        )
+
+        assert service._active_context_id is None
+        assert list(service._waiting_syntheses) == [("ctx-waiting", "second")]
+        websocket.send.assert_awaited_once()
+        message = json.loads(websocket.send.call_args.args[0])
+        assert message == {"close_context": {"context_id": "ctx-active"}}
 
     @pytest.mark.asyncio
     async def test_tts_socket_closure_terminates_active_and_retains_queue(self):

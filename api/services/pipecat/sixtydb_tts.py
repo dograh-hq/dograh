@@ -320,7 +320,7 @@ class SixtydbTTSService(WebsocketTTSService):
         self._schedule_active_timeout(context_id)
         return True
 
-    async def _finish_active_context(self, context_id: str) -> None:
+    async def _finish_active_context(self, context_id: str, *, start_next=True) -> None:
         if self.audio_context_available(context_id):
             await self.append_to_audio_context(
                 context_id, TTSStoppedFrame(context_id=context_id)
@@ -330,6 +330,8 @@ class SixtydbTTSService(WebsocketTTSService):
             self._cancel_active_timeout()
             self._active_context_id = None
             self._active_text = None
+        if not start_next:
+            return
         try:
             started = await self._start_next_context()
         except Exception as e:
@@ -488,7 +490,11 @@ class SixtydbTTSService(WebsocketTTSService):
             if not context_id or not self.audio_context_available(context_id):
                 return
             await self.stop_ttfb_metrics()
-            await self._finish_active_context(context_id)
+            await self._finish_active_context(context_id, start_next=False)
+            if self._websocket is not None:
+                await self._websocket.send(
+                    json.dumps({"close_context": {"context_id": context_id}})
+                )
 
         if data.get("type") == "context_closed" or "context_closed" in data:
             closed = data.get("context_closed")

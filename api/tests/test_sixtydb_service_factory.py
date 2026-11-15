@@ -527,6 +527,16 @@ class TestSixtydbTTS:
         service = SixtydbTTSService(api_key="test-key")
         replacement_socket = SimpleNamespace(state=State.OPEN, send=AsyncMock())
         service._websocket = SimpleNamespace(state=State.CLOSING)
+        old_receiver = asyncio.create_task(asyncio.sleep(30))
+        service._receive_task = old_receiver
+        service.start_tts_usage_metrics = AsyncMock()
+
+        async def cancel_receiver(receiver):
+            receiver.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await receiver
+
+        service.cancel_task = cancel_receiver
 
         async def reconnect():
             service._websocket = replacement_socket
@@ -538,6 +548,7 @@ class TestSixtydbTTS:
 
         assert not any(isinstance(frame, ErrorFrame) for frame in frames)
         replacement_socket.send.assert_awaited_once()
+        assert old_receiver.done()
 
     @pytest.mark.asyncio
     async def test_tts_context_closed_retains_and_restarts_waiting_context(self):
@@ -579,6 +590,7 @@ class TestSixtydbTTS:
         service._active_text = "first"
         service._waiting_syntheses.append(("ctx-waiting", "second"))
         service.stop_ttfb_metrics = AsyncMock()
+        service.start_tts_usage_metrics = AsyncMock()
         for context_id in ("ctx-active", "ctx-waiting"):
             await service.create_audio_context(context_id)
 
@@ -597,7 +609,67 @@ class TestSixtydbTTS:
         ]
         assert not any(isinstance(frame, ErrorFrame) for frame in concurrent_frames)
         assert ("ctx-next", "next") in service._waiting_syntheses
+        service.start_tts_usage_metrics.assert_awaited_with("next")
         websocket.send.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_tts_context_close_deadline_expires(self, monkeypatch):
+        monkeypatch.setattr(
+            sixtydb_tts_module, "SIXTYDB_TTS_CONTEXT_CLOSE_TIMEOUT_SECONDS", 0.01
+        )
+        service = SixtydbTTSService(api_key="test-key")
+        websocket = SimpleNamespace(
+            state=State.OPEN, send=AsyncMock(), close=AsyncMock()
+        )
+        service._websocket = websocket
+        service._active_context_id = "ctx-active"
+        service._active_text = "first"
+        service._waiting_syntheses.append(("ctx-waiting", "second"))
+        service.stop_ttfb_metrics = AsyncMock()
+        service.push_error = AsyncMock()
+        for context_id in ("ctx-active", "ctx-waiting"):
+            await service.create_audio_context(context_id)
+
+        await service._process_json_message(
+            {"flush_completed": {"context_id": "ctx-active"}}
+        )
+        await asyncio.sleep(0.03)
+
+        assert service._closing_context_id is None
+        assert list(service._waiting_syntheses) == [("ctx-waiting", "second")]
+        websocket.close.assert_awaited_once()
+        service.push_error.assert_awaited_once_with(
+            error_msg="60db TTS context close timed out", exception=None
+        )
+
+    @pytest.mark.asyncio
+    async def test_tts_failed_context_close_send_recovers(self):
+        service = SixtydbTTSService(api_key="test-key")
+        websocket = SimpleNamespace(
+            state=State.OPEN,
+            send=AsyncMock(side_effect=RuntimeError("close failed")),
+            close=AsyncMock(),
+        )
+        service._websocket = websocket
+        service._active_context_id = "ctx-active"
+        service._active_text = "first"
+        service._waiting_syntheses.append(("ctx-waiting", "second"))
+        service.stop_ttfb_metrics = AsyncMock()
+        service.push_error = AsyncMock()
+        for context_id in ("ctx-active", "ctx-waiting"):
+            await service.create_audio_context(context_id)
+
+        await service._process_json_message(
+            {"flush_completed": {"context_id": "ctx-active"}}
+        )
+
+        assert service._closing_context_id is None
+        websocket.close.assert_awaited_once()
+        close_error = websocket.send.side_effect
+        service.push_error.assert_awaited_once_with(
+            error_msg="60db TTS error closing context: close failed",
+            exception=close_error,
+        )
 
     @pytest.mark.asyncio
     async def test_tts_socket_closure_terminates_active_and_retains_queue(self):

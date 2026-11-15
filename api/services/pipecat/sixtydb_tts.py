@@ -34,6 +34,7 @@ except ModuleNotFoundError as e:
 
 
 SIXTYDB_TTS_CONTEXT_TIMEOUT_SECONDS = 15.0
+SIXTYDB_TTS_CONTEXT_CLOSE_TIMEOUT_SECONDS = 10.0
 SIXTYDB_TTS_HANDSHAKE_TIMEOUT_SECONDS = 10.0
 
 
@@ -114,6 +115,7 @@ class SixtydbTTSService(WebsocketTTSService):
         self._closing_context_id: str | None = None
         self._active_text: str | None = None
         self._active_timeout_task: asyncio.Task[None] | None = None
+        self._closing_timeout_task: asyncio.Task[None] | None = None
         self._receive_task: Optional[asyncio.Task[None]] = None
         self._socket_recovery_task: Optional[asyncio.Task[None]] = None
         self._websocket: Optional[ClientConnection] = None
@@ -152,6 +154,7 @@ class SixtydbTTSService(WebsocketTTSService):
         if self._socket_recovery_task:
             await self.cancel_task(self._socket_recovery_task)
             self._socket_recovery_task = None
+        self._cancel_closing_timeout()
         self._closing_context_id = None
         await self._disconnect_websocket()
 
@@ -241,6 +244,42 @@ class SixtydbTTSService(WebsocketTTSService):
         if self._active_timeout_task:
             self._active_timeout_task.cancel()
         self._active_timeout_task = None
+
+    def _cancel_closing_timeout(self) -> None:
+        timeout_task = self._closing_timeout_task
+        self._closing_timeout_task = None
+        if timeout_task and timeout_task is not asyncio.current_task():
+            timeout_task.cancel()
+
+    def _schedule_closing_timeout(self, context_id: str) -> None:
+        self._cancel_closing_timeout()
+        self._closing_timeout_task = asyncio.create_task(
+            self._closing_context_timeout(context_id)
+        )
+
+    async def _closing_context_timeout(self, context_id: str) -> None:
+        try:
+            await asyncio.sleep(SIXTYDB_TTS_CONTEXT_CLOSE_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            return
+        if self._closing_context_id != context_id:
+            return
+        await self._fail_closing_context("60db TTS context close timed out")
+
+    async def _fail_closing_context(
+        self, error_msg: str, exception: Exception | None = None
+    ) -> None:
+        self._cancel_closing_timeout()
+        self._closing_context_id = None
+        websocket, self._websocket = self._websocket, None
+        if websocket:
+            try:
+                await websocket.close()
+            except Exception as close_error:
+                logger.warning(
+                    f"{self} error closing context connection: {close_error}"
+                )
+        await self.push_error(error_msg=error_msg, exception=exception)
 
     def _schedule_active_timeout(self, context_id: str) -> None:
         self._cancel_active_timeout()
@@ -502,9 +541,15 @@ class SixtydbTTSService(WebsocketTTSService):
             self._closing_context_id = context_id
             await self._finish_active_context(context_id, start_next=False)
             if self._websocket is not None:
-                await self._websocket.send(
-                    json.dumps({"close_context": {"context_id": context_id}})
-                )
+                self._schedule_closing_timeout(context_id)
+                try:
+                    await self._websocket.send(
+                        json.dumps({"close_context": {"context_id": context_id}})
+                    )
+                except Exception as e:
+                    await self._fail_closing_context(
+                        f"60db TTS error closing context: {e}", e
+                    )
 
         if data.get("type") == "context_closed" or "context_closed" in data:
             closed = data.get("context_closed")
@@ -527,6 +572,7 @@ class SixtydbTTSService(WebsocketTTSService):
                 # the receiver loop; its reconnect path opens a fresh socket and
                 # _connect_websocket starts the next queued synthesis.
             if context_id and context_id == self._closing_context_id:
+                self._cancel_closing_timeout()
                 self._closing_context_id = None
 
         if data.get("type") == "context_aborted" or "context_aborted" in data:
@@ -545,12 +591,15 @@ class SixtydbTTSService(WebsocketTTSService):
         logger.debug(f"{self}: Generating TTS for context {context_id}")
         try:
             if not self._websocket or self._websocket.state is not State.OPEN:
+                if self._websocket is not None:
+                    await self._disconnect()
                 await self._connect()
 
             self._waiting_syntheses.append((context_id, text))
             try:
                 started = await self._start_next_context()
                 if not started and self._closing_context_id:
+                    await self.start_tts_usage_metrics(text)
                     return
                 if not started and not self._active_context_id:
                     self._discard_waiting_context(context_id)

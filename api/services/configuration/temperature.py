@@ -147,6 +147,12 @@ TEMPERATURE_POLICIES = {
         "maximum": 2.0,
         "docs_url": "https://docs.sarvam.ai/api-reference/chat/chat-completions-v1",
     },
+    "60db": {
+        "maximum": 2.0,
+        "docs_url": "https://docs.60db.ai/api-reference/llm/chat-completion",
+        "description": TEMPERATURE_DESCRIPTION
+        + " 60db documents model defaults and top-k sampling; leave blank to use them.",
+    },
 }
 
 

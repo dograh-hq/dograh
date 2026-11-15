@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -681,6 +682,162 @@ async def test_sarvam_v4_voices_allow_cross_lingual_selection(connection, upstre
 
 
 @pytest.mark.asyncio
+async def test_sixtydb_merges_quality_and_fast_voice_tiers(connection, upstream):
+    connection.provider = "60db"
+    connection.connection_settings = {"base_url": "https://api.60db.ai/v1"}
+
+    def page(request):
+        model = request.url.params.get("model")
+        voices = {
+            "quality": [
+                {
+                    "voice_id": "simmi",
+                    "name": "Simmi",
+                    "description": "Quality voice",
+                    "labels": {
+                        "language": "hi",
+                        "language_name": "Hindi",
+                        "gender": "female",
+                        "accent": "Indian",
+                    },
+                }
+            ],
+            "fast": [
+                {
+                    "voice_id": "zara",
+                    "name": "Zara",
+                    "labels": {
+                        "language": "hi",
+                        "gender": "female",
+                        "accent": "Indian",
+                    },
+                },
+                {"voice_id": "simmi", "name": "Duplicate Simmi"},
+                {
+                    "voice_id": "english-voice",
+                    "name": "English Voice",
+                    "labels": {"language": "en"},
+                },
+            ],
+        }[model]
+        return httpx.Response(200, json={"data": voices, "meta": {"model": model}})
+
+    requests = upstream(page)
+    response = await voice_catalog.get_connection_voices(
+        "60db", 42, connection.uuid, language="hi"
+    )
+
+    assert [voice.voice_id for voice in response.voices] == ["simmi", "zara"]
+    assert response.voices[0].description == "Quality voice"
+    assert response.voices[0].gender == "female"
+    assert response.voices[0].accent == "Indian"
+    assert {request.url.params["model"] for request in requests} == {
+        "quality",
+        "fast",
+    }
+    for request in requests:
+        assert str(request.url).startswith("https://api.60db.ai/voices?")
+        assert request.headers["Authorization"] == "Bearer private-elevenlabs-key"
+
+
+@pytest.mark.asyncio
+async def test_sixtydb_path_only_base_url_rejects_without_default_fallback(
+    connection, upstream
+):
+    connection.provider = "60db"
+    connection.connection_settings = {"base_url": "/v1"}
+
+    requests = upstream(lambda request: httpx.Response(500, request=request))
+    with pytest.raises(HTTPException) as exc:
+        await voice_catalog.get_connection_voices("60db", 42, connection.uuid)
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Invalid 60db connection base URL"
+    assert requests == []
+
+
+@pytest.mark.asyncio
+async def test_sixtydb_tier_failure_cancels_sibling_request():
+    from api.services.configuration.voice_catalog_adapters import SixtydbVoiceCatalog
+
+    catalog = SixtydbVoiceCatalog(api_key="test-key", base_url=None)
+    cancelled = asyncio.Event()
+    sibling_started = asyncio.Event()
+
+    async def get_tier(client, params):
+        if params["model"] == "quality":
+            await sibling_started.wait()
+            raise RuntimeError("quality tier failed")
+        try:
+            sibling_started.set()
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    catalog.get = get_tier
+    query = SimpleNamespace(model=None, language=None, q=None, gender=None, accent=None)
+    with pytest.raises(RuntimeError):
+        await catalog.voices(None, query)
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_sixtydb_tier_auth_error_keeps_actionable_response(connection, upstream):
+    connection.provider = "60db"
+    connection.connection_settings = {"base_url": "https://api.60db.ai"}
+
+    def tier_error(request):
+        if request.url.params.get("model") == "quality":
+            return httpx.Response(401, request=request)
+        return httpx.Response(
+            200,
+            json={"data": [{"voice_id": "zara", "name": "Zara"}]},
+        )
+
+    upstream(tier_error)
+    with pytest.raises(HTTPException) as exc:
+        await voice_catalog.get_connection_voices("60db", 42, connection.uuid)
+
+    assert exc.value.status_code == 400
+    assert "API key" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_sixtydb_tier_auth_error_wins_over_sibling_server_error():
+    from api.services.configuration.voice_catalog_adapters import SixtydbVoiceCatalog
+
+    catalog = SixtydbVoiceCatalog(api_key="test-key", base_url=None)
+    sibling_started = asyncio.Event()
+
+    async def get_tier(client, params):
+        request = httpx.Request("GET", "https://api.60db.ai/voices")
+        if params["model"] == "quality":
+            await sibling_started.wait()
+            raise httpx.HTTPStatusError(
+                "server error",
+                request=request,
+                response=httpx.Response(500, request=request),
+            )
+        try:
+            sibling_started.set()
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            raise httpx.HTTPStatusError(
+                "unauthorized",
+                request=request,
+                response=httpx.Response(401, request=request),
+            ) from None
+
+    catalog.get = get_tier
+    query = SimpleNamespace(model=None, language=None, q=None, gender=None, accent=None)
+    with pytest.raises(httpx.HTTPStatusError) as exc:
+        await catalog.voices(None, query)
+
+    assert exc.value.response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_only_dograh_uses_mps_without_a_byok_connection(client, mps_not_used):
     mps_not_used.side_effect = None
     mps_not_used.return_value = {
@@ -722,6 +879,7 @@ def test_dynamic_voice_fields_are_backed_by_catalog_adapters():
         "deepgram",
         "rime",
         "sarvam",
+        "60db",
     }
     assert dynamic_providers - {"dograh"} <= VOICE_CATALOGS.keys()
 

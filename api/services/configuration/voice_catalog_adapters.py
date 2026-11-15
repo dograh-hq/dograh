@@ -1,5 +1,6 @@
 """Provider-specific voice catalogs. Credentials are supplied by the saved connection."""
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, ClassVar
@@ -369,12 +370,78 @@ class SarvamVoiceCatalog(VoiceCatalog):
         return voices
 
 
+class SixtydbVoiceCatalog(VoiceCatalog):
+    name = "60db"
+    base_url = "https://api.60db.ai"
+    path = "/voices"
+    auth_header = "Authorization"
+    auth_prefix = "Bearer "
+
+    def __init__(self, api_key: str | None, base_url: str | None):
+        # Model configuration stores one API root across services. A saved
+        # chat-only value may include the OpenAI-compatible /v1 path.
+        normalized = (base_url or self.base_url).rstrip("/").removesuffix("/v1")
+        super().__init__(
+            api_key=api_key, base_url=normalized or base_url or self.base_url
+        )
+
+    async def voices(self, client, query):
+        # https://docs.60db.ai/api-reference/voices/get-voices
+        # The API separates professional Quality voices from cloned Fast
+        # voices; both are valid synthesis IDs, so fetch and merge both tiers.
+        try:
+            async with asyncio.TaskGroup() as tier_tasks:
+                quality_task = tier_tasks.create_task(
+                    self.get(client, {"model": "quality"})
+                )
+                fast_task = tier_tasks.create_task(self.get(client, {"model": "fast"}))
+        except ExceptionGroup as tier_errors:
+            # TaskGroup gives us sibling cancellation; callers already map the
+            # provider's original HTTP error to an actionable response.
+            provider_error = next(
+                (
+                    error
+                    for error in tier_errors.exceptions
+                    if isinstance(error, httpx.HTTPStatusError)
+                    and error.response.status_code in {401, 403}
+                ),
+                tier_errors.exceptions[0],
+            )
+            raise provider_error from None
+        quality, fast = quality_task.result(), fast_task.result()
+        voices: list[VoiceInfo] = []
+        seen: set[str] = set()
+        for tier in (quality, fast):
+            for entry in tier.get("data", []):
+                voice_id = str(entry.get("voice_id") or "")
+                if not voice_id or voice_id in seen:
+                    continue
+                seen.add(voice_id)
+                labels = entry.get("labels") or {}
+                if query.language and str(labels.get("language") or "").casefold() != (
+                    query.language.casefold()
+                ):
+                    continue
+                voices.append(
+                    VoiceInfo(
+                        voice_id=voice_id,
+                        name=str(entry.get("name") or voice_id),
+                        description=entry.get("description"),
+                        accent=labels.get("accent"),
+                        gender=labels.get("gender"),
+                        language=labels.get("language"),
+                    )
+                )
+        return voices
+
+
 VOICE_CATALOGS: dict[str, type[VoiceCatalog]] = {
     "elevenlabs": ElevenLabsVoiceCatalog,
     "cartesia": CartesiaVoiceCatalog,
     "deepgram": DeepgramVoiceCatalog,
     "rime": RimeVoiceCatalog,
     "sarvam": SarvamVoiceCatalog,
+    "60db": SixtydbVoiceCatalog,
 }
 
 

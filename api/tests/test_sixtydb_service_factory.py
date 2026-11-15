@@ -592,6 +592,13 @@ class TestSixtydbTTS:
         message = json.loads(websocket.send.call_args.args[0])
         assert message == {"close_context": {"context_id": "ctx-active"}}
 
+        concurrent_frames = [
+            frame async for frame in service.run_tts("next", context_id="ctx-next")
+        ]
+        assert not any(isinstance(frame, ErrorFrame) for frame in concurrent_frames)
+        assert ("ctx-next", "next") in service._waiting_syntheses
+        websocket.send.assert_awaited_once()
+
     @pytest.mark.asyncio
     async def test_tts_socket_closure_terminates_active_and_retains_queue(self):
         class ClosedSocket:

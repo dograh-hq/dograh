@@ -111,6 +111,7 @@ class SixtydbTTSService(WebsocketTTSService):
         self._params = params
         self._waiting_syntheses: deque[tuple[str, str]] = deque()
         self._active_context_id: str | None = None
+        self._closing_context_id: str | None = None
         self._active_text: str | None = None
         self._active_timeout_task: asyncio.Task[None] | None = None
         self._receive_task: Optional[asyncio.Task[None]] = None
@@ -151,6 +152,7 @@ class SixtydbTTSService(WebsocketTTSService):
         if self._socket_recovery_task:
             await self.cancel_task(self._socket_recovery_task)
             self._socket_recovery_task = None
+        self._closing_context_id = None
         await self._disconnect_websocket()
 
     async def _connect_websocket(self) -> None:
@@ -158,6 +160,7 @@ class SixtydbTTSService(WebsocketTTSService):
             if self._websocket and self._websocket.state is State.OPEN:
                 return
 
+            self._closing_context_id = None
             url = sixtydb_tts_websocket_url(self._base_url)
             logger.debug("Connecting to 60db TTS")
             self._websocket = await self._websocket_connect(
@@ -285,7 +288,11 @@ class SixtydbTTSService(WebsocketTTSService):
         a context ID. Sending one synthesis at a time makes that untagged
         stream unambiguous without guessing from arrival order.
         """
-        if self._active_context_id or not self._waiting_syntheses:
+        if (
+            self._active_context_id
+            or self._closing_context_id
+            or not self._waiting_syntheses
+        ):
             return False
         websocket = self._websocket
         if websocket is None or websocket.state is not State.OPEN:
@@ -492,6 +499,7 @@ class SixtydbTTSService(WebsocketTTSService):
             if not context_id or not self.audio_context_available(context_id):
                 return
             await self.stop_ttfb_metrics()
+            self._closing_context_id = context_id
             await self._finish_active_context(context_id, start_next=False)
             if self._websocket is not None:
                 await self._websocket.send(
@@ -518,6 +526,8 @@ class SixtydbTTSService(WebsocketTTSService):
                 # 60db closes this connection after context_closed. Return to
                 # the receiver loop; its reconnect path opens a fresh socket and
                 # _connect_websocket starts the next queued synthesis.
+            if context_id and context_id == self._closing_context_id:
+                self._closing_context_id = None
 
         if data.get("type") == "context_aborted" or "context_aborted" in data:
             aborted = data.get("context_aborted")
@@ -540,6 +550,8 @@ class SixtydbTTSService(WebsocketTTSService):
             self._waiting_syntheses.append((context_id, text))
             try:
                 started = await self._start_next_context()
+                if not started and self._closing_context_id:
+                    return
                 if not started and not self._active_context_id:
                     self._discard_waiting_context(context_id)
                     raise RuntimeError("60db TTS connection is unavailable")

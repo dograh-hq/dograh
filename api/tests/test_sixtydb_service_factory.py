@@ -358,10 +358,15 @@ class TestSixtydbTTS:
     @pytest.mark.asyncio
     async def test_tts_context_closed_retains_and_restarts_waiting_context(self):
         service = SixtydbTTSService(api_key="test-key")
-        service._websocket = SimpleNamespace(state=State.OPEN, send=AsyncMock())
+        service._websocket = SimpleNamespace(
+            state=State.OPEN, send=AsyncMock(), close=AsyncMock()
+        )
         service._active_context_id = "ctx-active"
         service._active_text = "first"
         service._waiting_syntheses.append(("ctx-waiting", "second"))
+        replacement_socket = SimpleNamespace(state=State.OPEN, send=AsyncMock())
+        service._websocket_connect = AsyncMock(return_value=replacement_socket)
+        service._wait_for_connection_established = AsyncMock()
         for context_id in ("ctx-active", "ctx-waiting"):
             await service.create_audio_context(context_id)
 
@@ -369,16 +374,7 @@ class TestSixtydbTTS:
             {"context_closed": {"context_id": "ctx-active"}}
         )
 
-        assert service._active_context_id is None
-        assert list(service._waiting_syntheses) == [("ctx-waiting", "second")]
-
-        service._websocket.state = State.CLOSING
-        service._websocket_connect = AsyncMock(
-            return_value=SimpleNamespace(state=State.OPEN, send=AsyncMock())
-        )
-        service._wait_for_connection_established = AsyncMock()
-        await service._connect_websocket()
-
+        assert service._websocket is replacement_socket
         assert service._active_context_id == "ctx-waiting"
         assert not service._waiting_syntheses
         create_message = json.loads(service._websocket.send.call_args.args[0])
@@ -551,3 +547,18 @@ class TestSixtydbKeyValidation:
             mock_get.side_effect = httpx.RequestError("temporary network failure")
 
             assert validator._check_sixtydb_api_key("60db-tiny", "valid-key") is True
+
+    def test_key_validation_uses_configured_endpoint(self):
+        validator = UserConfigurationValidator()
+        service_config = SimpleNamespace(base_url="https://proxy.60db.example")
+        with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
+            mock_get.return_value.status_code = 200
+
+            assert (
+                validator._check_sixtydb_api_key(
+                    "60db-tiny", "valid-key", service_config
+                )
+                is True
+            )
+
+        assert mock_get.call_args.args[0] == "https://proxy.60db.example/voices"

@@ -297,6 +297,7 @@ class UserConfigurationValidator:
             ServiceProviders.ATLASCLOUD.value,
             ServiceProviders.HOPPER.value,
             ServiceProviders.OPENAI_REALTIME.value,
+            ServiceProviders.SIXTY_DB.value,
         ):
             return validator(provider, api_key, service_config)
         return validator(provider, api_key)
@@ -536,12 +537,20 @@ class UserConfigurationValidator:
             )
         return True
 
-    def _check_sixtydb_api_key(self, model: str, api_key: str) -> bool:
+    def _check_sixtydb_api_key(
+        self,
+        model: str,
+        api_key: str,
+        service_config: Optional[ServiceConfig] = None,
+    ) -> bool:
         # Best-effort smoke test against the workspace voice list. Only clear
         # authentication failures reject the save.
         try:
+            base_url = (
+                getattr(service_config, "base_url", None) or SIXTYDB_API_BASE_URL
+            ).rstrip("/")
             response = httpx.get(
-                f"{SIXTYDB_API_BASE_URL}/voices",
+                f"{base_url}/voices",
                 headers={"Authorization": f"Bearer {api_key}"},
                 timeout=10.0,
             )

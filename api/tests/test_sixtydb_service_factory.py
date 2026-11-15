@@ -344,7 +344,6 @@ class TestSixtydbTTS:
         service._active_text = "first"
         service._waiting_syntheses.append(("ctx-waiting", "second"))
         service.stop_ttfb_metrics = AsyncMock()
-        service.stop_ttfb_metrics = AsyncMock()
         for context_id in ("ctx-active", "ctx-waiting"):
             await service.create_audio_context(context_id)
 
@@ -527,6 +526,38 @@ class TestSixtydbTTS:
         service.stop_all_metrics.assert_awaited()
         create_message = json.loads(replacement_socket.send.call_args.args[0])
         assert create_message["create_context"]["context_id"] == "ctx-waiting"
+
+    @pytest.mark.asyncio
+    async def test_tts_socket_closure_reports_lone_active_synthesis_error(self):
+        class ClosedSocket:
+            state = State.CLOSING
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        service = SixtydbTTSService(api_key="test-key")
+        service._websocket = ClosedSocket()
+        service._active_context_id = "ctx-active"
+        service._active_text = "first"
+        service.stop_all_metrics = AsyncMock()
+        service.push_error = AsyncMock()
+        await service.create_audio_context("ctx-active")
+
+        await service._process_messages()
+
+        assert service._active_context_id is None
+        service.stop_all_metrics.assert_awaited_once()
+        service.push_error.assert_awaited_once()
+        items = []
+        while True:
+            item = await service._audio_context_manager.get("ctx-active", timeout=1)
+            items.append(item)
+            if item is None:
+                break
+        assert any(isinstance(item, TTSStoppedFrame) for item in items)
 
     @pytest.mark.asyncio
     async def test_interrupted_waiting_tts_context_is_discarded(self):

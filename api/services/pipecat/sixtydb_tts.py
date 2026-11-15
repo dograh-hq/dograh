@@ -374,7 +374,12 @@ class SixtydbTTSService(WebsocketTTSService):
                         error_msg=f"{self} error processing message: {e}", exception=e
                     )
         finally:
+            had_active_context = self._active_context_id is not None
             await self._terminate_active_context_only()
+            if had_active_context and not self._disconnecting:
+                await self.push_error(
+                    error_msg="60db TTS connection closed during synthesis"
+                )
             if self._waiting_syntheses and not self._disconnecting:
                 self._receive_task = None
                 self._socket_recovery_task = self.create_task(

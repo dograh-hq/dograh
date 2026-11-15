@@ -507,3 +507,9 @@ class SixtydbTTSService(WebsocketTTSService):
                 return
         except Exception as e:
             yield ErrorFrame(error=f"Unknown error occurred: {e}")
+            yield TTSStoppedFrame(context_id=context_id)
+            if self.audio_context_available(context_id):
+                await self.append_to_audio_context(
+                    context_id, TTSStoppedFrame(context_id=context_id)
+                )
+                await self.remove_audio_context(context_id)

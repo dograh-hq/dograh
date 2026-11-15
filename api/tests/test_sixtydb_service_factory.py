@@ -315,6 +315,27 @@ class TestSixtydbTTS:
         assert service._active_context_id is None
 
     @pytest.mark.asyncio
+    async def test_tts_setup_error_terminates_audio_context(self):
+        service = SixtydbTTSService(api_key="test-key")
+        context_id = "ctx-setup-error"
+        await service.create_audio_context(context_id)
+
+        async def failing_connect():
+            raise RuntimeError("setup failed")
+
+        service._connect = failing_connect
+
+        frames = [
+            frame async for frame in service.run_tts("Hello", context_id=context_id)
+        ]
+
+        assert any(isinstance(frame, ErrorFrame) for frame in frames)
+        assert any(
+            isinstance(frame, TTSStoppedFrame) and frame.context_id == context_id
+            for frame in frames
+        )
+
+    @pytest.mark.asyncio
     async def test_tts_closing_socket_terminates_waiting_context(self):
         service = SixtydbTTSService(api_key="test-key")
         service._websocket = SimpleNamespace(state=State.CLOSING, send=AsyncMock())

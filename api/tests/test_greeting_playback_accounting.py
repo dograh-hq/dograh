@@ -6,12 +6,14 @@ import pytest
 from loguru import logger
 from pipecat.frames.frames import (
     Frame,
+    InterruptionFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     SpeechBoundaryFrame,
     TTSAudioRawFrame,
     TTSSpeakFrame,
+    TTSStoppedFrame,
     TTSTextFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -371,3 +373,137 @@ async def test_output_gaps_do_not_commit_full_requested_text():
     tracker.after_output(None, audio(0.1))
     tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=False))
     assert speech.delivered_text == ""
+
+
+@pytest.mark.asyncio
+async def test_sentence_text_arriving_before_first_audio_is_committed():
+    # Websocket TTS services can push a sentence's text before its first audio.
+    tracker = SpeechPlaybackTracker()
+    speech = tracker.create(greeting=True)
+    tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=True))
+    tracker._capture_greeting_text(
+        None, TTSTextFrame("Hi there.", aggregated_by="sentence")
+    )
+    tracker.after_output(None, audio(1))
+    tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=False))
+    assert speech.outcome is PlaybackOutcome.PLAYED
+    assert speech.delivered_text == "Hi there."
+
+
+@pytest.mark.asyncio
+async def test_sentence_text_without_any_audio_is_not_committed():
+    tracker = SpeechPlaybackTracker()
+    speech = tracker.create(greeting=True)
+    tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=True))
+    tracker._capture_greeting_text(
+        None, TTSTextFrame("Hi there.", aggregated_by="sentence")
+    )
+    speech.finish(PlaybackOutcome.INTERRUPTED)
+    assert speech.delivered_text == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("configured_text", [False, True])
+async def test_pre_audio_sentence_is_not_committed_after_partial_playback(
+    configured_text,
+):
+    tracker = SpeechPlaybackTracker()
+    context = LLMContext()
+    logs = InMemoryLogsBuffer(1)
+    feedback = RealtimeFeedbackObserver(AsyncMock(), logs)
+    controller = GreetingController(
+        tracker, lambda: context, is_screening=lambda: False
+    )
+    controller.log_speech = feedback.log_greeting
+    speech = tracker.create(greeting=True)
+    speech.text = "Hello there." if configured_text else None
+    speech.queued_seconds = 1
+    tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=True))
+    tracker._capture_greeting_text(
+        None, TTSTextFrame("Hello there.", aggregated_by="sentence", context_id="first")
+    )
+    tracker.after_output(None, audio(0.1))
+    speech.finish(PlaybackOutcome.INTERRUPTED)
+    await controller.flush()
+    assert speech.delivered_text == ""
+    assert context.messages == []
+    assert logs.get_events() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("context_id", [None, "first"])
+@pytest.mark.parametrize("text_after_stop", [False, True])
+async def test_pre_audio_sentence_uses_its_completed_context_boundary(
+    context_id, text_after_stop
+):
+    tracker = SpeechPlaybackTracker()
+    speech = tracker.create(greeting=True)
+    speech.queued_seconds = 2
+    tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=True))
+    first = TTSTextFrame("Hello.", aggregated_by="sentence", context_id=context_id)
+    if not text_after_stop:
+        tracker._capture_greeting_text(None, first)
+    tracker.after_output(None, audio(1))
+    tracker._capture_greeting_text(None, TTSStoppedFrame(context_id=context_id))
+    if text_after_stop:
+        tracker._capture_greeting_text(None, first)
+    tracker._capture_greeting_text(
+        None, TTSTextFrame("More words.", aggregated_by="sentence", context_id="second")
+    )
+    tracker.after_output(None, audio(0.1))
+    speech.finish(PlaybackOutcome.INTERRUPTED)
+    assert speech.delivered_text == "Hello."
+
+
+@pytest.mark.asyncio
+async def test_other_context_stop_does_not_complete_pre_audio_sentence():
+    tracker = SpeechPlaybackTracker()
+    speech = tracker.create(greeting=True)
+    tracker.after_output(None, SpeechBoundaryFrame(speech.id, beginning=True))
+    tracker._capture_greeting_text(
+        None, TTSTextFrame("Hello.", aggregated_by="sentence", context_id="first")
+    )
+    tracker.after_output(None, audio(0.1))
+    tracker._capture_greeting_text(None, TTSStoppedFrame(context_id="other"))
+    speech.finish(PlaybackOutcome.INTERRUPTED)
+    assert speech.delivered_text == ""
+
+
+@pytest.mark.asyncio
+async def test_output_queue_does_not_commit_pre_audio_sentence_on_interruption():
+    tracker = SpeechPlaybackTracker()
+    context = LLMContext()
+    controller = GreetingController(
+        tracker, lambda: context, is_screening=lambda: False
+    )
+    speech = tracker.create(greeting=True)
+    output = MockOutputTransport(
+        params=TransportParams(
+            audio_out_enabled=True,
+            audio_out_sample_rate=16000,
+            audio_out_end_silence_secs=0,
+        )
+    )
+    tracker.bind_output(output)
+    try:
+        async with asyncio.timeout(3):
+            await run_test(
+                Pipeline([output]),
+                frames_to_send=[
+                    SpeechBoundaryFrame(speech.id, beginning=True),
+                    TTSTextFrame(
+                        "Hello there.", aggregated_by="sentence", context_id="first"
+                    ),
+                    audio(0.1),
+                    SleepFrame(0.05),
+                    InterruptionFrame(),
+                    SleepFrame(0.02),
+                ],
+            )
+        await controller.flush()
+        assert speech.has_output
+        assert speech.outcome is PlaybackOutcome.INTERRUPTED
+        assert speech.delivered_text == ""
+        assert context.messages == []
+    finally:
+        tracker.cancel_all()

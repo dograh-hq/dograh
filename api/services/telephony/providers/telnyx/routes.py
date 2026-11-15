@@ -14,8 +14,12 @@ from api.db import db_client
 from api.services.telephony import ws_auth
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import get_telephony_provider_for_run
+from api.services.telephony.providers.telnyx.introduction import (
+    handle_caller_event,
+    handle_destination_event,
+    resolve_transfer_provider,
+)
 from api.services.telephony.providers.telnyx.provider import (
-    TelnyxProvider,
     normalize_event_type,
 )
 from api.services.telephony.providers.telnyx.strategies import TelnyxHangupStrategy
@@ -43,6 +47,7 @@ _INFORMATIONAL_EVENT_TYPES = frozenset(
     {
         "streaming.started",
         "streaming.stopped",
+        "call.playback.started",
         "call.recording.saved",
         "call.recording.error",
         "call.recording.transcription.saved",
@@ -187,6 +192,17 @@ async def handle_telnyx_events(
     #
     # Event names are Telnyx's documented Call Control callbacks; there is no
     # call.recording.started in that catalog.
+    if event_type in ("call.playback.ended", "call.hangup"):
+        await handle_caller_event(
+            await get_call_transfer_manager(),
+            event_type,
+            data.get("payload", {}).get("call_control_id", ""),
+            provider,
+        )
+    if event_type == "call.playback.ended":
+        # Only transfer introductions play audio by command on this leg.
+        return {"status": "success"}
+
     if event_type in _INFORMATIONAL_EVENT_TYPES:
         logger.debug(
             f"[run {workflow_run_id}] Telnyx informational event: {event_type}"
@@ -247,13 +263,25 @@ async def handle_telnyx_transfer_result(transfer_id: str, request: Request):
     call_control_id = payload.get("call_control_id", "")
 
     # Pre-answer events carry no outcome — wait for answered/hangup.
-    if event_type in ("call.initiated", "call.bridging", "streaming.started"):
+    if event_type in (
+        "call.initiated",
+        "call.bridging",
+        "streaming.started",
+        "call.playback.started",
+    ):
         return {"status": "pending"}
 
     call_transfer_manager = await get_call_transfer_manager()
     transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
     original_call_sid = transfer_context.original_call_sid if transfer_context else ""
     conference_name = transfer_context.conference_name if transfer_context else None
+
+    if transfer_context and transfer_context.introduction_audio_url:
+        handled = await handle_destination_event(
+            call_transfer_manager, transfer_context, event_type, call_control_id
+        )
+        if handled is not None:
+            return handled
 
     if event_type == "call.answered":
         # Seed the conference now with the destination's live call_control_id
@@ -348,58 +376,13 @@ async def handle_telnyx_transfer_result(transfer_id: str, request: Request):
     return {"status": "success"}
 
 
-async def _resolve_telnyx_provider(
-    transfer_context: TransferContext,
-) -> TelnyxProvider | None:
-    """Resolve the TelnyxProvider for this transfer via its workflow_run.
-
-    Routes the lookup through ``get_telephony_provider_for_run`` so the
-    right credentials are used in multi-config orgs.
-    """
-    workflow_run_id = transfer_context.workflow_run_id
-    if not workflow_run_id:
-        logger.error(
-            f"TransferContext {transfer_context.transfer_id} missing "
-            f"workflow_run_id; cannot resolve Telnyx provider"
-        )
-        return None
-
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        logger.error(
-            f"Workflow run {workflow_run_id} not found for transfer "
-            f"{transfer_context.transfer_id}"
-        )
-        return None
-
-    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-    if not workflow:
-        logger.error(
-            f"Workflow {workflow_run.workflow_id} not found for transfer "
-            f"{transfer_context.transfer_id}"
-        )
-        return None
-
-    provider = await get_telephony_provider_for_run(
-        workflow_run, workflow.organization_id
-    )
-    if not isinstance(provider, TelnyxProvider):
-        logger.error(
-            f"Transfer {transfer_context.transfer_id} resolved to non-Telnyx "
-            f"provider ({type(provider).__name__})"
-        )
-        return None
-
-    return provider
-
-
 async def _seed_destination_conference(
     *,
     transfer_context: TransferContext,
     destination_call_control_id: str,
 ) -> str | None:
     """Create a Telnyx conference seeded with the destination leg."""
-    provider = await _resolve_telnyx_provider(transfer_context)
+    provider = await resolve_transfer_provider(transfer_context)
     if not provider:
         return None
 
@@ -419,7 +402,7 @@ async def _hangup_caller_leg(transfer_context: TransferContext) -> None:
 
     https://developers.telnyx.com/api-reference/call-commands/hangup
     """
-    provider = await _resolve_telnyx_provider(transfer_context)
+    provider = await resolve_transfer_provider(transfer_context)
     if not provider:
         return
 

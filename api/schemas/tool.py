@@ -376,7 +376,7 @@ class TransferCallConfig(BaseModel):
         default=False,
         description=(
             "Play a generated introduction in the agent's voice to both parties "
-            "before connecting them. Supported for Twilio calls with a TTS "
+            "before connecting them. Supported for Twilio and Telnyx calls with a TTS "
             "provider. Realtime speech-to-speech agents and synthesis failures "
             "skip the introduction."
         ),

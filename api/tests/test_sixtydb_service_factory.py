@@ -250,6 +250,29 @@ class TestSixtydbSTT:
         message = json.loads(service._start_message())
         assert message["languages"] is None
 
+    @pytest.mark.asyncio
+    async def test_stt_handshake_rejects_closed_session(self):
+        class ClosedSessionSocket:
+            delivered = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if not self.delivered:
+                    self.delivered = True
+                    return json.dumps({"type": "connection_established"})
+                raise StopAsyncIteration
+
+            async def send(self, message):
+                pass
+
+        service = SixtydbSTTService(api_key="test-key", sample_rate=16000)
+        service._websocket = ClosedSessionSocket()
+
+        with pytest.raises(RuntimeError, match="closed before session_started"):
+            await service._handshake()
+
     def test_websocket_url_hides_key_from_path(self):
         url = sixtydb_stt_websocket_url("https://api.60db.ai", "secret-key")
         assert url == "wss://api.60db.ai/ws/stt?apiKey=secret-key"

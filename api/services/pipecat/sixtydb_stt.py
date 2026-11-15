@@ -195,6 +195,8 @@ class SixtydbSTTService(WebsocketSTTService):
                 return
             if message_type == "error":
                 raise RuntimeError(str(data.get("error") or data))
+        else:
+            raise RuntimeError("60db STT connection closed before session_started")
 
     async def _wait_for_session_stopped(self) -> None:
         assert self._websocket is not None

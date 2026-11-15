@@ -20,6 +20,7 @@ from api.services.configuration.options import (
     DEEPGRAM_DEFAULT_BASE_URL,
     DEEPGRAM_FLUX_MODELS,
     GOOGLE_VERTEX_DEFAULT_LOCATION,
+    SIXTYDB_LLM_BASE_URL,
 )
 from api.services.configuration.registry import (
     ATLASCLOUD_API_BASE_URL,
@@ -27,7 +28,6 @@ from api.services.configuration.registry import (
     HOPPER_API_BASE_URL,
     REGISTRY,
     SIXTYDB_API_BASE_URL,
-    SIXTYDB_LLM_BASE_URL,
     BaseSTTConfiguration,
     ServiceProviders,
     ServiceType,
@@ -150,6 +150,13 @@ from pipecat.services.tts_service import TextAggregationMode
 from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
 from pipecat.transcriptions.language import Language
 from pipecat.utils.types import NOT_GIVEN, NotGiven
+
+
+def _sixtydb_llm_base_url(base_url: str | None) -> str:
+    """Return the OpenAI-compatible endpoint from a shared 60db API root."""
+    normalized = (base_url or SIXTYDB_LLM_BASE_URL).rstrip("/")
+    return normalized if normalized.endswith("/v1") else f"{normalized}/v1"
+
 
 if TYPE_CHECKING:
     from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
@@ -1525,7 +1532,7 @@ def create_llm_service_from_provider(
             settings=OpenAILLMSettings(model=model, **sampling_settings),
         )
     elif provider == ServiceProviders.SIXTY_DB.value:
-        base_url = base_url or SIXTYDB_LLM_BASE_URL
+        base_url = _sixtydb_llm_base_url(base_url)
         _validate_runtime_service_url(base_url, "base_url")
         return OpenAILLMService(
             enable_direct_mode=enable_direct_mode,

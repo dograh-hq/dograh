@@ -60,7 +60,6 @@ from api.services.configuration.options import (
     SARVAM_V3_VOICES,
     SARVAM_V4_VOICES,
     SIXTYDB_API_BASE_URL,
-    SIXTYDB_LLM_BASE_URL,
     SIXTYDB_LLM_MODELS,
     SIXTYDB_STT_LANGUAGES,
     SIXTYDB_STT_MODELS,
@@ -617,8 +616,10 @@ class SixtydbLLMConfiguration(BaseChatLLMConfiguration):
         json_schema_extra={"examples": SIXTYDB_LLM_MODELS, "allow_custom_input": True},
     )
     base_url: str = Field(
-        default=SIXTYDB_LLM_BASE_URL,
-        description="60db OpenAI-compatible API endpoint.",
+        default=SIXTYDB_API_BASE_URL,
+        description=(
+            "60db API root shared by all services. Chat derives the OpenAI-compatible /v1 path."
+        ),
     )
 
 

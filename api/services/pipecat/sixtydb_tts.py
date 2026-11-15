@@ -33,6 +33,9 @@ except ModuleNotFoundError as e:
     raise Exception(f"Missing module: {e}") from e
 
 
+SIXTYDB_TTS_CONTEXT_TIMEOUT_SECONDS = 15.0
+
+
 def sixtydb_tts_websocket_url(base_url: str) -> str:
     """Build the authenticated 60db TTS WebSocket URL."""
     parsed = urlparse(base_url if "://" in base_url else f"https://{base_url}")
@@ -108,6 +111,7 @@ class SixtydbTTSService(WebsocketTTSService):
         self._waiting_syntheses: deque[tuple[str, str]] = deque()
         self._active_context_id: str | None = None
         self._active_text: str | None = None
+        self._active_timeout_task: asyncio.Task[None] | None = None
         self._receive_task: Optional[asyncio.Task[None]] = None
         self._socket_recovery_task: Optional[asyncio.Task[None]] = None
         self._websocket: Optional[ClientConnection] = None
@@ -139,6 +143,7 @@ class SixtydbTTSService(WebsocketTTSService):
 
     async def _disconnect(self) -> None:
         await super()._disconnect()
+        self._cancel_active_timeout()
         if self._receive_task:
             await self.cancel_task(self._receive_task)
             self._receive_task = None
@@ -227,6 +232,39 @@ class SixtydbTTSService(WebsocketTTSService):
             request for request in self._waiting_syntheses if request[0] != context_id
         )
 
+    def _cancel_active_timeout(self) -> None:
+        if self._active_timeout_task:
+            self._active_timeout_task.cancel()
+        self._active_timeout_task = None
+
+    def _schedule_active_timeout(self, context_id: str) -> None:
+        self._cancel_active_timeout()
+        self._active_timeout_task = asyncio.create_task(
+            self._active_context_timeout(context_id)
+        )
+
+    async def _active_context_timeout(self, context_id: str) -> None:
+        try:
+            await asyncio.sleep(SIXTYDB_TTS_CONTEXT_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            return
+        if self._active_context_id != context_id:
+            return
+        self._active_timeout_task = None
+        await self._expire_active_context(context_id)
+
+    async def _expire_active_context(self, context_id: str) -> None:
+        await self._terminate_active_context_only()
+        await self.push_error(error_msg="60db TTS context timed out")
+        websocket, self._websocket = self._websocket, None
+        if websocket:
+            try:
+                await websocket.close()
+            except Exception as close_error:
+                logger.warning(
+                    f"{self} error closing timed-out connection: {close_error}"
+                )
+
     async def _abort_waiting_contexts(self, error: Exception | str) -> None:
         """Close contexts that can no longer be started on this connection."""
         while self._waiting_syntheses:
@@ -277,6 +315,7 @@ class SixtydbTTSService(WebsocketTTSService):
             self._active_text = None
             self._waiting_syntheses.appendleft((context_id, text))
             raise e
+        self._schedule_active_timeout(context_id)
         return True
 
     async def _finish_active_context(self, context_id: str) -> None:
@@ -286,6 +325,7 @@ class SixtydbTTSService(WebsocketTTSService):
             )
             await self.remove_audio_context(context_id)
         if context_id == self._active_context_id:
+            self._cancel_active_timeout()
             self._active_context_id = None
             self._active_text = None
         try:
@@ -301,6 +341,9 @@ class SixtydbTTSService(WebsocketTTSService):
         context_id = self._active_context_id
         if not context_id:
             return
+        if self._active_timeout_task is not asyncio.current_task():
+            self._cancel_active_timeout()
+        await self.stop_all_metrics()
         if self.audio_context_available(context_id):
             await self.append_to_audio_context(
                 context_id, TTSStoppedFrame(context_id=context_id)
@@ -448,6 +491,8 @@ class SixtydbTTSService(WebsocketTTSService):
             if not context_id:
                 context_id = self._active_context_id
             if context_id and context_id == self._active_context_id:
+                await self.stop_ttfb_metrics()
+                self._cancel_active_timeout()
                 self._active_context_id = None
                 self._active_text = None
                 if self.audio_context_available(context_id):
@@ -491,6 +536,11 @@ class SixtydbTTSService(WebsocketTTSService):
                 self._discard_waiting_context(context_id)
                 yield ErrorFrame(error=f"Error sending message: {e}")
                 yield TTSStoppedFrame(context_id=context_id)
+                if self.audio_context_available(context_id):
+                    await self.append_to_audio_context(
+                        context_id, TTSStoppedFrame(context_id=context_id)
+                    )
+                    await self.remove_audio_context(context_id)
                 await self._disconnect()
                 await self._connect()
                 try:

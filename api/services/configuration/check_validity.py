@@ -546,9 +546,8 @@ class UserConfigurationValidator:
         # Best-effort smoke test against the workspace voice list. Only clear
         # authentication failures reject the save.
         try:
-            base_url = (
-                getattr(service_config, "base_url", None) or SIXTYDB_API_BASE_URL
-            ).rstrip("/")
+            base_url = getattr(service_config, "base_url", None) or SIXTYDB_API_BASE_URL
+            base_url = base_url.rstrip("/").removesuffix("/v1")
             response = httpx.get(
                 f"{base_url}/voices",
                 headers={"Authorization": f"Bearer {api_key}"},

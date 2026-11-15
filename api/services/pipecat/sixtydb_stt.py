@@ -145,6 +145,8 @@ class SixtydbSTTService(WebsocketSTTService):
 
     async def _connect(self) -> None:
         await self._connect_websocket()
+        if self._websocket is None or self._websocket.state is not State.OPEN:
+            return
         await super()._connect()
         if not self._receive_task:
             self._receive_task = self.create_task(
@@ -223,16 +225,23 @@ class SixtydbSTTService(WebsocketSTTService):
             pass
 
     async def _disconnect_websocket(self) -> None:
+        websocket = self._websocket
         try:
-            if self._websocket and self._websocket.state is State.OPEN:
+            if websocket and websocket.state is State.OPEN:
                 logger.debug("Disconnecting from 60db STT")
-                await self._websocket.send(json.dumps({"type": "stop"}))
+                await websocket.send(json.dumps({"type": "stop"}))
                 await self._wait_for_session_stopped()
-                await self._websocket.close()
         except Exception as e:
             logger.error(f"{self} error closing websocket: {e}")
         finally:
             self._websocket = None
+            if websocket:
+                try:
+                    await websocket.close()
+                except Exception as close_error:
+                    logger.warning(
+                        f"{self} error forcing websocket close: {close_error}"
+                    )
             await self._call_event_handler("on_disconnected")
 
     def _get_websocket(self):

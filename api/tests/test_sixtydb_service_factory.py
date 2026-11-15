@@ -18,6 +18,7 @@ from api.services.configuration.registry import (
     SixtydbSTTConfiguration,
     SixtydbTTSConfiguration,
 )
+from api.services.pipecat import sixtydb_tts as sixtydb_tts_module
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.service_factory import (
     create_llm_service_from_provider,
@@ -45,7 +46,7 @@ class TestSixtydbLLM:
 
         assert config.provider == ServiceProviders.SIXTY_DB
         assert config.model == "60db-tiny"
-        assert config.base_url == "https://api.60db.ai/v1"
+        assert config.base_url == "https://api.60db.ai"
         assert config.temperature is None
 
     def test_is_registered_llm_provider(self):
@@ -342,6 +343,8 @@ class TestSixtydbTTS:
         service._active_context_id = "ctx-active"
         service._active_text = "first"
         service._waiting_syntheses.append(("ctx-waiting", "second"))
+        service.stop_ttfb_metrics = AsyncMock()
+        service.stop_ttfb_metrics = AsyncMock()
         for context_id in ("ctx-active", "ctx-waiting"):
             await service.create_audio_context(context_id)
 
@@ -363,6 +366,7 @@ class TestSixtydbTTS:
         service._websocket = SimpleNamespace(
             state=State.OPEN,
             send=AsyncMock(side_effect=RuntimeError("peer stopped reading")),
+            close=AsyncMock(),
         )
         service._active_context_id = "ctx-active"
         service._active_text = "first"
@@ -378,6 +382,80 @@ class TestSixtydbTTS:
         service.push_error.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_tts_expired_active_context_fails_and_preserves_queue(self):
+        service = SixtydbTTSService(api_key="test-key")
+        service.stop_all_metrics = AsyncMock()
+        service.push_error = AsyncMock()
+        service._active_context_id = "ctx-active"
+        service._active_text = "first"
+        service._waiting_syntheses.append(("ctx-waiting", "second"))
+        websocket = SimpleNamespace(state=State.OPEN, close=AsyncMock())
+        service._websocket = websocket
+        for context_id in ("ctx-active", "ctx-waiting"):
+            await service.create_audio_context(context_id)
+
+        await service._expire_active_context("ctx-active")
+
+        assert service._active_context_id is None
+        assert list(service._waiting_syntheses) == [("ctx-waiting", "second")]
+        websocket.close.assert_awaited_once()
+        service.stop_all_metrics.assert_awaited_once()
+        service.push_error.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_tts_active_context_deadline_expires(self, monkeypatch):
+        monkeypatch.setattr(
+            sixtydb_tts_module,
+            "SIXTYDB_TTS_CONTEXT_TIMEOUT_SECONDS",
+            0.01,
+        )
+        service = SixtydbTTSService(api_key="test-key")
+        service.stop_all_metrics = AsyncMock()
+        service.push_error = AsyncMock()
+        websocket = SimpleNamespace(
+            state=State.OPEN,
+            send=AsyncMock(),
+            close=AsyncMock(),
+        )
+        service._websocket = websocket
+        await service.create_audio_context("ctx-active")
+        service._waiting_syntheses.append(("ctx-active", "first"))
+        service._waiting_syntheses.append(("ctx-waiting", "second"))
+
+        assert await service._start_next_context()
+        await asyncio.sleep(0.03)
+
+        websocket.close.assert_awaited_once()
+        assert service._active_context_id is None
+        assert list(service._waiting_syntheses) == [("ctx-waiting", "second")]
+
+    @pytest.mark.asyncio
+    async def test_tts_send_failure_closes_registered_audio_context(self):
+        service = SixtydbTTSService(api_key="test-key")
+        context_id = "ctx-send-failure"
+        await service.create_audio_context(context_id)
+        service._websocket = SimpleNamespace(
+            state=State.OPEN,
+            send=AsyncMock(side_effect=RuntimeError("peer stopped reading")),
+            close=AsyncMock(),
+        )
+        service._disconnect = AsyncMock()
+        service._connect = AsyncMock()
+
+        frames = [
+            frame async for frame in service.run_tts("Hello", context_id=context_id)
+        ]
+
+        assert any(isinstance(frame, ErrorFrame) for frame in frames)
+        items = []
+        while True:
+            item = await service._audio_context_manager.get(context_id, timeout=1)
+            items.append(item)
+            if item is None:
+                break
+        assert any(isinstance(item, TTSStoppedFrame) for item in items)
+
+    @pytest.mark.asyncio
     async def test_tts_context_closed_retains_and_restarts_waiting_context(self):
         service = SixtydbTTSService(api_key="test-key")
         service._websocket = SimpleNamespace(
@@ -387,6 +465,7 @@ class TestSixtydbTTS:
         service._active_text = "first"
         service._waiting_syntheses.append(("ctx-waiting", "second"))
         replacement_socket = SimpleNamespace(state=State.OPEN, send=AsyncMock())
+        service.stop_ttfb_metrics = AsyncMock()
         service._websocket_connect = AsyncMock(return_value=replacement_socket)
         service._wait_for_connection_established = AsyncMock()
         for context_id in ("ctx-active", "ctx-waiting"):
@@ -405,6 +484,7 @@ class TestSixtydbTTS:
         assert not service._waiting_syntheses
         create_message = json.loads(service._websocket.send.call_args.args[0])
         assert create_message["create_context"]["context_id"] == "ctx-waiting"
+        service.stop_ttfb_metrics.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_tts_socket_closure_terminates_active_and_retains_queue(self):
@@ -432,6 +512,7 @@ class TestSixtydbTTS:
         service._active_context_id = "ctx-active"
         service._active_text = "first"
         service._waiting_syntheses.append(("ctx-waiting", "second"))
+        service.stop_all_metrics = AsyncMock()
         await service.create_audio_context("ctx-active")
         replacement_socket = ReplacementSocket()
         service._websocket_connect = AsyncMock(return_value=replacement_socket)
@@ -443,6 +524,7 @@ class TestSixtydbTTS:
         assert service._socket_recovery_task is not None
         await service._socket_recovery_task
         assert not service._waiting_syntheses
+        service.stop_all_metrics.assert_awaited()
         create_message = json.loads(replacement_socket.send.call_args.args[0])
         assert create_message["create_context"]["context_id"] == "ctx-waiting"
 
@@ -601,6 +683,35 @@ class TestSixtydbSTT:
         socket.close.assert_awaited_once()
         assert service._websocket is None
 
+    @pytest.mark.asyncio
+    async def test_failed_stt_handshake_does_not_start_receiver(self):
+        service = SixtydbSTTService(api_key="test-key")
+        service._connect_websocket = AsyncMock()
+
+        def fail_create_task(*args, **kwargs):
+            raise AssertionError("receiver must not start after failed handshake")
+
+        service.create_task = fail_create_task
+        await service._connect()
+
+        assert service._websocket is None
+        assert service._receive_task is None
+
+    @pytest.mark.asyncio
+    async def test_stt_teardown_closes_socket_when_stop_send_fails(self):
+        websocket = SimpleNamespace(
+            state=State.OPEN,
+            send=AsyncMock(side_effect=RuntimeError("stop failed")),
+            close=AsyncMock(),
+        )
+        service = SixtydbSTTService(api_key="test-key")
+        service._websocket = websocket
+
+        await service._disconnect_websocket()
+
+        websocket.close.assert_awaited_once()
+        assert service._websocket is None
+
     def test_stt_websocket_url_contains_no_credential(self):
         url = sixtydb_stt_websocket_url("https://api.60db.ai")
         assert url == "wss://api.60db.ai/ws/stt"
@@ -650,3 +761,18 @@ class TestSixtydbKeyValidation:
             )
 
         assert mock_get.call_args.args[0] == "https://proxy.60db.example/voices"
+
+    def test_key_validation_normalizes_llm_v1_endpoint(self):
+        validator = UserConfigurationValidator()
+        service_config = SimpleNamespace(base_url="https://api.60db.ai/v1")
+        with patch("api.services.configuration.check_validity.httpx.get") as mock_get:
+            mock_get.return_value.status_code = 200
+
+            assert (
+                validator._check_sixtydb_api_key(
+                    "60db-tiny", "valid-key", service_config
+                )
+                is True
+            )
+
+        assert mock_get.call_args.args[0] == "https://api.60db.ai/voices"

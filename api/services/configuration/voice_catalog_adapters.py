@@ -377,14 +377,22 @@ class SixtydbVoiceCatalog(VoiceCatalog):
     auth_header = "Authorization"
     auth_prefix = "Bearer "
 
+    def __init__(self, api_key: str | None, base_url: str | None):
+        # Model configuration stores one API root across services. A saved
+        # chat-only value may include the OpenAI-compatible /v1 path.
+        normalized = (base_url or self.base_url).rstrip("/").removesuffix("/v1")
+        super().__init__(api_key=api_key, base_url=normalized)
+
     async def voices(self, client, query):
         # https://docs.60db.ai/api-reference/voices/get-voices
         # The API separates professional Quality voices from cloned Fast
         # voices; both are valid synthesis IDs, so fetch and merge both tiers.
-        quality, fast = await asyncio.gather(
-            self.get(client, {"model": "quality"}),
-            self.get(client, {"model": "fast"}),
-        )
+        async with asyncio.TaskGroup() as tier_tasks:
+            quality_task = tier_tasks.create_task(
+                self.get(client, {"model": "quality"})
+            )
+            fast_task = tier_tasks.create_task(self.get(client, {"model": "fast"}))
+        quality, fast = quality_task.result(), fast_task.result()
         voices: list[VoiceInfo] = []
         seen: set[str] = set()
         for tier in (quality, fast):

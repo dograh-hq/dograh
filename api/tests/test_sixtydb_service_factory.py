@@ -168,6 +168,7 @@ class TestSixtydbTTS:
         await service.create_audio_context(context_id)
         service.stop_all_metrics = AsyncMock()
         service.push_error = AsyncMock()
+        service._active_context_id = context_id
 
         await service._process_json_message(
             {"type": "error", "context_id": context_id, "error": "voice not found"}
@@ -236,11 +237,13 @@ class TestSixtydbTTS:
         await service._process_json_message({"audio_chunk": {"audioContent": audio}})
         assert service._audio_context_manager._contexts["ctx-first"].qsize() == 1
         assert service._audio_context_manager._contexts["ctx-second"].qsize() == 0
+        assert len(websocket.send.call_args_list) == 3
         await service._process_json_message({"flush_completed": True})
 
         await service._process_json_message({"context_created": True})
         await service._process_json_message({"audio_chunk": {"audioContent": audio}})
         assert service._audio_context_manager._contexts["ctx-second"].qsize() == 1
+        assert len(websocket.send.call_args_list) == 6
         await service._process_json_message({"flush_completed": True})
 
     @pytest.mark.asyncio
@@ -356,6 +359,15 @@ class TestSixtydbSTT:
         assert len(pushed) == 1
         assert isinstance(pushed[0], ErrorFrame)
         assert pushed[0].error == "Transcription timed out."
+
+    @pytest.mark.asyncio
+    async def test_stt_audio_without_connection_reports_error(self):
+        service = SixtydbSTTService(api_key="test-key")
+        frames = [frame async for frame in service.run_stt(b"audio")]
+
+        assert len(frames) == 1
+        assert isinstance(frames[0], ErrorFrame)
+        assert frames[0].error == "60db STT connection is unavailable"
 
     @pytest.mark.asyncio
     async def test_stt_handshake_rejects_closed_session(self):

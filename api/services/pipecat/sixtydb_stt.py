@@ -94,13 +94,15 @@ class SixtydbSTTService(WebsocketSTTService):
         await self._disconnect()
 
     async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame | None, None]:
-        if self._websocket and self._websocket.state is State.OPEN:
-            try:
-                await self._websocket.send(self._audio_message(audio))
-                self._record_stt_audio_usage(audio)
-            except Exception as e:
-                yield ErrorFrame(error=f"60db STT error: {e}")
-                return
+        if not self._websocket or self._websocket.state is not State.OPEN:
+            yield ErrorFrame(error="60db STT connection is unavailable")
+            return
+        try:
+            await self._websocket.send(self._audio_message(audio))
+            self._record_stt_audio_usage(audio)
+        except Exception as e:
+            yield ErrorFrame(error=f"60db STT error: {e}")
+            return
 
         yield None
 

@@ -381,7 +381,9 @@ class SixtydbVoiceCatalog(VoiceCatalog):
         # Model configuration stores one API root across services. A saved
         # chat-only value may include the OpenAI-compatible /v1 path.
         normalized = (base_url or self.base_url).rstrip("/").removesuffix("/v1")
-        super().__init__(api_key=api_key, base_url=normalized)
+        super().__init__(
+            api_key=api_key, base_url=normalized or base_url or self.base_url
+        )
 
     async def voices(self, client, query):
         # https://docs.60db.ai/api-reference/voices/get-voices

@@ -741,6 +741,22 @@ async def test_sixtydb_merges_quality_and_fast_voice_tiers(connection, upstream)
 
 
 @pytest.mark.asyncio
+async def test_sixtydb_path_only_base_url_rejects_without_default_fallback(
+    connection, upstream
+):
+    connection.provider = "60db"
+    connection.connection_settings = {"base_url": "/v1"}
+
+    requests = upstream(lambda request: httpx.Response(500, request=request))
+    with pytest.raises(HTTPException) as exc:
+        await voice_catalog.get_connection_voices("60db", 42, connection.uuid)
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Invalid 60db connection base URL"
+    assert requests == []
+
+
+@pytest.mark.asyncio
 async def test_sixtydb_tier_failure_cancels_sibling_request():
     from api.services.configuration.voice_catalog_adapters import SixtydbVoiceCatalog
 

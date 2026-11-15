@@ -534,7 +534,7 @@ class SixtydbTTSService(WebsocketTTSService):
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
         logger.debug(f"{self}: Generating TTS for context {context_id}")
         try:
-            if not self._websocket or self._websocket.state is State.CLOSED:
+            if not self._websocket or self._websocket.state is not State.OPEN:
                 await self._connect()
 
             self._waiting_syntheses.append((context_id, text))

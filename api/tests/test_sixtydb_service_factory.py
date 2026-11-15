@@ -515,6 +515,23 @@ class TestSixtydbTTS:
         assert any(isinstance(item, TTSStoppedFrame) for item in items)
 
     @pytest.mark.asyncio
+    async def test_tts_closing_socket_reconnects_before_new_request(self):
+        service = SixtydbTTSService(api_key="test-key")
+        replacement_socket = SimpleNamespace(state=State.OPEN, send=AsyncMock())
+        service._websocket = SimpleNamespace(state=State.CLOSING)
+
+        async def reconnect():
+            service._websocket = replacement_socket
+
+        service._connect = reconnect
+        frames = [
+            frame async for frame in service.run_tts("Hello", context_id="ctx-next")
+        ]
+
+        assert not any(isinstance(frame, ErrorFrame) for frame in frames)
+        replacement_socket.send.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_tts_context_closed_retains_and_restarts_waiting_context(self):
         service = SixtydbTTSService(api_key="test-key")
         service._websocket = SimpleNamespace(

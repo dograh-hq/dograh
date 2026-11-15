@@ -154,6 +154,7 @@ class SixtydbTTSService(WebsocketTTSService):
                 url, additional_headers={"Authorization": f"Bearer {self._api_key}"}
             )
             await self._wait_for_connection_established()
+            await self._start_next_context()
             logger.debug("Connected to 60db TTS")
         except Exception as e:
             logger.error(f"{self} initialization error: {e}")
@@ -204,6 +205,7 @@ class SixtydbTTSService(WebsocketTTSService):
         return
 
     async def on_audio_context_interrupted(self, context_id: str) -> None:
+        self._discard_waiting_context(context_id)
         if self._websocket and context_id:
             try:
                 await self._websocket.send(
@@ -417,7 +419,6 @@ class SixtydbTTSService(WebsocketTTSService):
                         context_id, TTSStoppedFrame(context_id=context_id)
                     )
                     await self.remove_audio_context(context_id)
-                await self._abort_waiting_contexts("provider connection closed")
 
         if data.get("type") == "context_aborted" or "context_aborted" in data:
             aborted = data.get("context_aborted")

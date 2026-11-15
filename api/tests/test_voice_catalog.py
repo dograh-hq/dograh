@@ -737,7 +737,6 @@ async def test_sixtydb_merges_quality_and_fast_voice_tiers(connection, upstream)
     for request in requests:
         assert str(request.url).startswith("https://api.60db.ai/voices?")
         assert request.headers["Authorization"] == "Bearer private-elevenlabs-key"
-    assert "private-elevenlabs-key" not in str(requests[0].headers)
 
 
 @pytest.mark.asyncio

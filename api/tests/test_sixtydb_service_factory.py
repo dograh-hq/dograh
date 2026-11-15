@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -776,6 +777,32 @@ class TestSixtydbKeyValidation:
     def test_is_registered_for_key_validation(self):
         validator = UserConfigurationValidator()
         assert ServiceProviders.SIXTY_DB.value in validator._validator_map
+
+    @pytest.mark.asyncio
+    async def test_sixtydb_validation_does_not_block_the_event_loop(self):
+        configuration = SimpleNamespace(
+            llm=object(),
+            llm_fallback=None,
+            is_realtime=False,
+            stt=object(),
+            tts=object(),
+            embeddings=None,
+        )
+        validator = UserConfigurationValidator()
+
+        def blocking_validation(service, service_name, required=True):
+            time.sleep(0.02)
+            return []
+
+        validator._validate_service = blocking_validation
+        validation = asyncio.create_task(validator.validate(configuration))
+        ticks = 0
+        while not validation.done():
+            await asyncio.sleep(0.01)
+            ticks += 1
+
+        assert await validation == {"status": [{"model": "all", "message": "ok"}]}
+        assert ticks >= 2
 
     def test_accepts_valid_key(self):
         validator = UserConfigurationValidator()

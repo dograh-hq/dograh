@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional, TypedDict
 
 import httpx
@@ -104,6 +105,11 @@ class UserConfigurationValidator:
             "organization_id": organization_id,
             "created_by": created_by,
         }
+        return await asyncio.to_thread(self._validate_all_services, configuration)
+
+    def _validate_all_services(
+        self, configuration: EffectiveAIModelConfiguration
+    ) -> APIKeyStatusResponse:
         status_list = []
 
         status_list.extend(self._validate_service(configuration.llm, "llm"))

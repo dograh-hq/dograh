@@ -42,8 +42,8 @@ async def create_transport(
         application_id=application_id,
         private_key=private_key,
         params=VonageFrameSerializer.InputParams(
-            vonage_sample_rate=audio_config.transport_in_sample_rate,
-            sample_rate=audio_config.pipeline_sample_rate,
+            audio_in_sample_rate=audio_config.transport_in_sample_rate,
+            audio_out_sample_rate=audio_config.transport_out_sample_rate,
         ),
     )
 

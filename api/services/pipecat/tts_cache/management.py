@@ -73,7 +73,7 @@ class TTSCacheManager:
 
     async def preview(self, digest: str) -> bytes | None:
         result = await self.backend.preview(
-            self.organization_id, digest, self.policy.max_entry_bytes + 1028
+            self.organization_id, digest, self.policy.max_value_bytes
         )
         if not result:
             return None

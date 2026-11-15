@@ -213,7 +213,26 @@ class SixtydbTTSService(WebsocketTTSService):
                 logger.warning(f"{self} error cancelling context: {e}")
         await super().on_audio_context_interrupted(context_id)
 
-    async def _start_next_context(self) -> None:
+    def _websocket_is_open(self) -> bool:
+        return bool(self._websocket and self._websocket.state is State.OPEN)
+
+    def _discard_waiting_context(self, context_id: str) -> None:
+        self._waiting_syntheses = deque(
+            request for request in self._waiting_syntheses if request[0] != context_id
+        )
+
+    async def _abort_waiting_contexts(self, error: Exception | str) -> None:
+        """Close contexts that can no longer be started on this connection."""
+        while self._waiting_syntheses:
+            context_id, _text = self._waiting_syntheses.popleft()
+            if self.audio_context_available(context_id):
+                await self.append_to_audio_context(
+                    context_id, TTSStoppedFrame(context_id=context_id)
+                )
+                await self.remove_audio_context(context_id)
+        await self.push_error(error_msg=f"60db TTS unavailable: {error}")
+
+    async def _start_next_context(self) -> bool:
         """Send one create_context request, keeping provider turns serial.
 
         Live 60db acknowledgement, media, and completion messages do not carry
@@ -221,30 +240,38 @@ class SixtydbTTSService(WebsocketTTSService):
         stream unambiguous without guessing from arrival order.
         """
         if self._active_context_id or not self._waiting_syntheses:
-            return
-        if not self._websocket:
-            return
+            return False
+        websocket = self._websocket
+        if websocket is None or websocket.state is not State.OPEN:
+            return False
 
         context_id, text = self._waiting_syntheses.popleft()
         self._active_context_id = context_id
         self._active_text = text
-        await self._websocket.send(
-            json.dumps(
-                {
-                    "create_context": {
-                        "context_id": context_id,
-                        "voice_id": self._params.voice_id,
-                        "audio_config": {
-                            "audio_encoding": "LINEAR16",
-                            "sample_rate_hertz": self.sample_rate,
-                        },
-                        "speed": self._params.speed,
-                        "stability": self._params.stability,
-                        "similarity": self._params.similarity,
+        try:
+            await websocket.send(
+                json.dumps(
+                    {
+                        "create_context": {
+                            "context_id": context_id,
+                            "voice_id": self._params.voice_id,
+                            "audio_config": {
+                                "audio_encoding": "LINEAR16",
+                                "sample_rate_hertz": self.sample_rate,
+                            },
+                            "speed": self._params.speed,
+                            "stability": self._params.stability,
+                            "similarity": self._params.similarity,
+                        }
                     }
-                }
+                )
             )
-        )
+        except Exception as e:
+            self._active_context_id = None
+            self._active_text = None
+            self._waiting_syntheses.appendleft((context_id, text))
+            raise e
+        return True
 
     async def _finish_active_context(self, context_id: str) -> None:
         if self.audio_context_available(context_id):
@@ -255,7 +282,13 @@ class SixtydbTTSService(WebsocketTTSService):
         if context_id == self._active_context_id:
             self._active_context_id = None
             self._active_text = None
-        await self._start_next_context()
+        try:
+            started = await self._start_next_context()
+        except Exception as e:
+            await self._abort_waiting_contexts(e)
+            return
+        if not started and self._waiting_syntheses and not self._websocket_is_open():
+            await self._abort_waiting_contexts("connection closed")
 
     async def _process_messages(self) -> None:
         async for message in self._get_websocket():
@@ -401,17 +434,31 @@ class SixtydbTTSService(WebsocketTTSService):
 
             self._waiting_syntheses.append((context_id, text))
             try:
-                await self._start_next_context()
+                started = await self._start_next_context()
+                if not started and not self._active_context_id:
+                    self._discard_waiting_context(context_id)
+                    raise RuntimeError("60db TTS connection is unavailable")
                 await self.start_tts_usage_metrics(text)
             except Exception as e:
                 if self._active_context_id:
                     self._active_context_id = None
                     self._active_text = None
+                self._discard_waiting_context(context_id)
                 yield ErrorFrame(error=f"Error sending message: {e}")
                 yield TTSStoppedFrame(context_id=context_id)
                 await self._disconnect()
                 await self._connect()
-                await self._start_next_context()
+                try:
+                    started = await self._start_next_context()
+                except Exception as reconnect_error:
+                    await self._abort_waiting_contexts(reconnect_error)
+                else:
+                    if (
+                        not started
+                        and self._waiting_syntheses
+                        and not self._websocket_is_open()
+                    ):
+                        await self._abort_waiting_contexts("connection closed")
                 return
         except Exception as e:
             yield ErrorFrame(error=f"Unknown error occurred: {e}")

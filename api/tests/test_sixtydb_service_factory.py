@@ -293,6 +293,68 @@ class TestSixtydbTTS:
         assert service._active_context_id is None
         service.stop_ttfb_metrics.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_tts_unavailable_connection_terminates_request(self):
+        service = SixtydbTTSService(api_key="test-key")
+        context_id = "ctx-unavailable"
+        await service.create_audio_context(context_id)
+        service._websocket = None
+        service._connect = AsyncMock()
+
+        frames = [
+            frame async for frame in service.run_tts("Hello", context_id=context_id)
+        ]
+
+        assert any(isinstance(frame, ErrorFrame) for frame in frames)
+        assert any(
+            isinstance(frame, TTSStoppedFrame) and frame.context_id == context_id
+            for frame in frames
+        )
+        assert not service._waiting_syntheses
+        assert service._active_context_id is None
+
+    @pytest.mark.asyncio
+    async def test_tts_closing_socket_terminates_waiting_context(self):
+        service = SixtydbTTSService(api_key="test-key")
+        service._websocket = SimpleNamespace(state=State.CLOSING, send=AsyncMock())
+        service._active_context_id = "ctx-active"
+        service._active_text = "first"
+        service._waiting_syntheses.append(("ctx-waiting", "second"))
+        for context_id in ("ctx-active", "ctx-waiting"):
+            await service.create_audio_context(context_id)
+
+        await service._finish_active_context("ctx-active")
+
+        assert service._active_context_id is None
+        assert not service._waiting_syntheses
+        items = []
+        while True:
+            item = await service._audio_context_manager.get("ctx-waiting", timeout=1)
+            items.append(item)
+            if item is None:
+                break
+        assert any(isinstance(item, TTSStoppedFrame) for item in items)
+
+    @pytest.mark.asyncio
+    async def test_tts_transition_send_failure_terminates_waiting_context(self):
+        service = SixtydbTTSService(api_key="test-key")
+        service._websocket = SimpleNamespace(
+            state=State.OPEN,
+            send=AsyncMock(side_effect=RuntimeError("peer stopped reading")),
+        )
+        service._active_context_id = "ctx-active"
+        service._active_text = "first"
+        service._waiting_syntheses.append(("ctx-waiting", "second"))
+        service.push_error = AsyncMock()
+        for context_id in ("ctx-active", "ctx-waiting"):
+            await service.create_audio_context(context_id)
+
+        await service._finish_active_context("ctx-active")
+
+        assert service._active_context_id is None
+        assert not service._waiting_syntheses
+        service.push_error.assert_awaited_once()
+
 
 class TestSixtydbSTT:
     def test_configuration_defaults(self):

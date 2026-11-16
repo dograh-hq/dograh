@@ -40,7 +40,7 @@ class PresignedUploadUrlResponse(BaseModel):
 router = APIRouter(prefix="/s3", tags=["s3"])
 
 
-ORG_SCOPED_STORAGE_PREFIXES = ("campaigns", "knowledge_base")
+ORG_SCOPED_STORAGE_PREFIXES = ("campaigns", "knowledge_base", "ambient-noise")
 
 
 def _extract_org_id_from_key(key: str) -> Optional[int]:
@@ -182,7 +182,8 @@ async def get_signed_url(
     """Return a short-lived signed URL for a file stored on S3 / MinIO.
 
     Access Control:
-    * Known org-scoped keys (for example ``campaigns/{org_id}/...`` and
+    * Known org-scoped keys (for example ``campaigns/{org_id}/...``,
+      ``ambient-noise/{org_id}/{workflow_id}/...``, and
       ``recordings/{org_id}/{recording_id}/...``) are authorized by matching the
       org_id against the requesting user's organization.
     * Legacy keys (``recordings/{run_id}.wav``, ``transcripts/{run_id}.txt``)

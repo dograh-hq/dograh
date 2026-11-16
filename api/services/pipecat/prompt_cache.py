@@ -1,4 +1,7 @@
-"""Worker-shared Gemini cache registry. Provider work never blocks a call.
+"""Worker-shared Gemini cache registry.
+
+Streaming calls prepare caches in the background. One-shot inference waits up to
+two seconds for provider cache work before falling back to inline inference.
 
 Only static, provider-shaped instructions and tools enter a cache. Redis owns
 creation/refresh leases; an unavailable registry always means inline inference.
@@ -27,6 +30,7 @@ from api.constants import is_prompt_cache_disabled as cache_disabled
 
 TTL_SECONDS = 3600
 EXPIRY_MARGIN_SECONDS = 30
+INFERENCE_PREPARE_TIMEOUT_SECONDS = 2
 _counter = metrics.get_meter(__name__).create_counter("dograh.prompt_cache.operations")
 _RELEASE = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0"
 _INVALIDATE = """
@@ -204,6 +208,22 @@ class PromptCacheRegistry:
                 return reason or "not_ready", None
         except Exception:
             return "registry_unavailable", None
+
+    async def prepare_inference(
+        self, spec: CacheSpec, client, *, credentials=None
+    ) -> CacheEntry | None:
+        """Bound cache preparation to two seconds and the inference client's lifetime.
+
+        Unlike streaming clients, completion clients close after one request.
+        Do not leave background cache work using a client that is about to close.
+        Redis leases still serialize creation/refresh across concurrent callers.
+        """
+        try:
+            async with asyncio.timeout(INFERENCE_PREPARE_TIMEOUT_SECONDS):
+                await self._ensure(spec, client, credentials=credentials)
+        except TimeoutError:
+            count_cache_event("prepare_timeout")
+        return await self.lookup(spec)
 
     async def _ensure(self, spec: CacheSpec, client, *, credentials=None) -> None:
         key, lease = spec.key, uuid.uuid4().hex

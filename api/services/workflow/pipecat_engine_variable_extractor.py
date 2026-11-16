@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any, List
 
 from loguru import logger
@@ -12,6 +13,7 @@ from api.services.gen_ai.json_parser import parse_llm_json
 from api.services.pipecat.tracing_config import ensure_tracing
 from api.services.workflow.conversation_history import build_conversation_history
 from api.services.workflow.dto import ExtractionVariableDTO
+from api.utils.template_renderer import TEMPLATE_VAR_PATTERN
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -37,6 +39,16 @@ ENGINE_OWNED_CONTEXT_KEYS = frozenset(
 
 class ExtractionResponseError(ValueError):
     """The model did not return a usable extraction response."""
+
+
+def extraction_prompt_is_static(
+    prompt: str, variables: List[ExtractionVariableDTO]
+) -> bool:
+    """Only cache definitions that cannot contain rendered per-call values."""
+    return not any(
+        re.search(TEMPLATE_VAR_PATTERN, text or "")
+        for text in [prompt, *(variable.prompt for variable in variables)]
+    )
 
 
 class VariableExtractionManager:
@@ -69,6 +81,7 @@ async def extract_variables(
     extraction_prompt: str = "",
     parent_ctx: Any = None,
     strict: bool = False,
+    separate_static_prompt: bool = False,
 ) -> dict:
     """Extract node variables without owning a pipeline or swallowing failures."""
     vars_description = "\n".join(
@@ -92,6 +105,9 @@ async def extract_variables(
         "\n\nConversation history:\n"
         f"{conversation_history}"
     )
+    if separate_static_prompt:
+        system_prompt += f"\n\nVariables to extract:\n{vars_description}"
+        user_prompt = f"\n\nConversation history:\n{conversation_history}"
 
     extraction_context = LLMContext()
     extraction_messages = [

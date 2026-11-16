@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.db import db_client
 from api.db.folder_client import FolderNameConflictError
 from api.db.models import UserModel
+from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 
 router = APIRouter(prefix="/folder")
@@ -33,7 +34,13 @@ class UpdateFolderRequest(CreateFolderRequest):
     pass
 
 
-@router.get("/")
+@router.get(
+    "/",
+    **sdk_expose(
+        method="list_folders",
+        description="List folders in the authenticated organization.",
+    ),
+)
 async def list_folders(
     user: UserModel = Depends(get_user),
 ) -> list[FolderResponse]:
@@ -46,7 +53,13 @@ async def list_folders(
     ]
 
 
-@router.post("/")
+@router.post(
+    "/",
+    **sdk_expose(
+        method="create_folder",
+        description="Create a folder in the authenticated organization.",
+    ),
+)
 async def create_folder(
     request: CreateFolderRequest,
     user: UserModel = Depends(get_user),

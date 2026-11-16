@@ -46,10 +46,16 @@ RUN --mount=type=bind,source=api/requirements.txt,target=/tmp/req.txt \
 # `import cv2` fails at runtime.
 RUN --mount=type=bind,source=pipecat,target=/tmp/pipecat,rw \
     --mount=type=cache,target=/root/.cache/uv \
+    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PIPECAT_AI=1.16.0 \
     uv pip install '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest]' \
  && uv pip install --group /tmp/pipecat/pyproject.toml:dev \
  && uv pip uninstall opencv-python \
  && uv pip install opencv-python-headless
+
+# See api/requirements.gnani-stt.txt. Installed after the versioned fork.
+RUN --mount=type=bind,source=api/requirements.gnani-stt.txt,target=/tmp/gnani-stt.txt \
+    --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -r /tmp/gnani-stt.txt
 
 
 # =============================================================================

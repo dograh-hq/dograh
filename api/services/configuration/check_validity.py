@@ -1,9 +1,13 @@
+import asyncio
+import json
 from typing import Optional, TypedDict
 
 import httpx
 import openai
 from deepgram import DeepgramClient
 from groq import Groq
+from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.sync.client import connect as websocket_connect
 
 # try:
 #     from pyneuphonic import Neuphonic
@@ -64,6 +68,7 @@ class UserConfigurationValidator:
             ServiceProviders.CARTESIA.value: self._check_cartesia_api_key,
             ServiceProviders.DOGRAH.value: self._check_dograh_api_key,
             ServiceProviders.SARVAM.value: self._check_sarvam_api_key,
+            ServiceProviders.GNANI.value: self._check_gnani_api_key,
             ServiceProviders.SPEECHMATICS.value: self._check_speechmatics_api_key,
             ServiceProviders.CAMB.value: self._check_camb_api_key,
             ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
@@ -90,6 +95,22 @@ class UserConfigurationValidator:
         }
 
     async def validate(
+        self,
+        configuration: EffectiveAIModelConfiguration,
+        organization_id: Optional[int] = None,
+        created_by: Optional[str] = None,
+    ) -> APIKeyStatusResponse:
+        # Provider checks are synchronous. The saved-connection path already
+        # runs them in a worker thread; this request path must do the same so
+        # a slow Gnani handshake cannot stall other requests on this worker.
+        return await asyncio.to_thread(
+            self._validate,
+            configuration,
+            organization_id,
+            created_by,
+        )
+
+    def _validate(
         self,
         configuration: EffectiveAIModelConfiguration,
         organization_id: Optional[int] = None,
@@ -264,7 +285,9 @@ class UserConfigurationValidator:
         api_key = service_config.api_key
 
         try:
-            if not self._check_api_key(provider, api_key, service_config):
+            if not self._check_api_key(
+                provider, api_key, service_config, service_name=service_name
+            ):
                 return [
                     {
                         "model": service_name,
@@ -284,12 +307,16 @@ class UserConfigurationValidator:
         provider: str,
         api_key: str,
         service_config: Optional[ServiceConfig] = None,
+        *,
+        service_name: str | None = None,
     ) -> bool:
         """Check if an API key for a provider is valid."""
         validator = self._validator_map.get(provider)
         if not validator:
             return False
 
+        if provider == ServiceProviders.GNANI.value:
+            return validator(service_name or "connection", api_key)
         if provider in (
             ServiceProviders.OPENAI.value,
             ServiceProviders.ATLASCLOUD.value,
@@ -420,6 +447,69 @@ class UserConfigurationValidator:
 
     def _check_sarvam_api_key(self, model: str, api_key: str) -> bool:
         return True
+
+    def _check_gnani_api_key(self, role: str, api_key: str) -> bool:
+        """A saved connection may grant STT, TTS, or both."""
+        if not isinstance(api_key, str) or not api_key.strip():
+            raise ValueError("Gnani API key is required.")
+        headers = {"X-API-Key-ID": api_key.strip()}
+        try:
+            if role != "tts":
+                try:
+                    with websocket_connect(
+                        "wss://api.vachana.ai/stt/v3/stream",
+                        additional_headers={**headers, "lang_code": "hi-IN"},
+                        open_timeout=10,
+                        close_timeout=2,
+                    ) as socket:
+                        message = socket.recv(timeout=10)
+                    payload = json.loads(message)
+                    if isinstance(payload, dict) and payload.get("type") == "connected":
+                        return True
+                    raise ValueError("Gnani credential check failed.")
+                except InvalidStatus as exc:
+                    if role != "connection" or exc.response.status_code != 403:
+                        raise
+
+            # The TTS endpoint authenticates the WebSocket upgrade. It sends
+            # no welcome frame and requires no billable synthesis for this check.
+            # https://docs.gnani.ai/api/TTS/tts-websocket
+            with websocket_connect(
+                "wss://api.vachana.ai/api/v1/tts",
+                additional_headers=headers,
+                open_timeout=10,
+                close_timeout=2,
+            ):
+                return True
+        except InvalidStatus as exc:
+            status = int(exc.response.status_code)
+            if status == 401:
+                raise ValueError(
+                    "Invalid Gnani API key. The key was rejected by the Gnani API."
+                )
+            if status == 403:
+                raise ValueError(
+                    "Gnani API authorization failed. The key does not have permission "
+                    "to use the requested speech service."
+                )
+            if status == 429:
+                raise ValueError(
+                    "Gnani rate limited the credential check. The key was not "
+                    "verified. Try again later."
+                )
+            if status >= 500:
+                raise ValueError(
+                    "Gnani could not complete the credential check. Try again later."
+                )
+            raise ValueError("Gnani credential check failed.")
+        except TimeoutError:
+            raise ValueError("Gnani credential check timed out. Try again later.")
+        except (OSError, ConnectionClosed):
+            raise ValueError(
+                "Could not connect to the Gnani API. Check the network and try again."
+            )
+        except Exception:
+            raise ValueError("Gnani credential check failed.")
 
     def _check_openrouter_api_key(self, model: str, api_key: str) -> bool:
         return True

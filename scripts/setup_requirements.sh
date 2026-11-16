@@ -78,7 +78,12 @@ if [ "$DEV_MODE" -eq 1 ]; then
     uv pip install -r api/requirements.dev.txt
 fi
 
-# Install pipecat in editable mode with all extras
+# The submodule merged upstream Pipecat 1.16.0, but its newest git tag is
+# still v1.1.0, so setuptools-scm reports 1.1.1.dev. A Docker build has no
+# git metadata and would otherwise fall back to 0.0.0.dev0. This override
+# names the installed distribution 1.16.0. It does not change which files
+# are installed. https://setuptools-scm.readthedocs.io/en/latest/overrides/
+export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PIPECAT_AI=1.16.0
 echo "Installing pipecat dependencies..."
 pipecat_install_args=(-e './pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest,aws-nova-sonic]')
 
@@ -88,5 +93,8 @@ if [ "$DEV_MODE" -eq 1 ]; then
     pipecat_install_args+=(--group pipecat/pyproject.toml:dev)
 fi
 uv pip install "${pipecat_install_args[@]}"
+
+echo "Installing Gnani speech adapter..."
+uv pip install -r api/requirements.gnani-stt.txt
 
 echo "Setup complete! Requirements are installed."

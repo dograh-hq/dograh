@@ -104,6 +104,10 @@ step "Switching pipecat to editable install from workspace"
 # the build context. Re-register editable from the bind-mounted workspace
 # so source edits take effect. --no-deps skips re-resolving transitive
 # dependencies (already present from the seeded image template).
+# The image build names the fork 1.16.0. This reinstall rewrites that
+# metadata, and the newest submodule tag is v1.1.0, so keep the same
+# override or pipecat-gnani no longer matches pipecat-ai>=1.5.
+export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PIPECAT_AI=1.16.0
 uv pip install -e "$ROOT_DIR/pipecat" --no-deps
 step_done
 

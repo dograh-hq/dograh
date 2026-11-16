@@ -58,7 +58,9 @@ if ($Dev) {
     uv pip install -r api/requirements.dev.txt
 }
 
-# Install pipecat in editable mode with all extras
+# See the comment in setup_requirements.sh. Names the fork distribution
+# 1.16.0 without changing the installed source.
+$env:SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PIPECAT_AI = "1.16.0"
 Write-Host "Installing pipecat dependencies..."
 $PipecatInstallArgs = @('-e', './pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest,aws-nova-sonic]')
 
@@ -68,5 +70,11 @@ if ($Dev) {
     $PipecatInstallArgs += @('--group', 'pipecat/pyproject.toml:dev')
 }
 uv pip install @PipecatInstallArgs
+
+Write-Host "Installing Gnani speech adapter..."
+uv pip install -r api/requirements.gnani-stt.txt
+if ($LASTEXITCODE -ne 0) {
+    throw "Gnani speech adapter installation failed (exit $LASTEXITCODE)."
+}
 
 Write-Host "Setup complete! Requirements are installed."

@@ -29,6 +29,14 @@ from .deepgram import (
 )
 from .elevenlabs import ELEVENLABS_STT_LANGUAGES, ELEVENLABS_STT_MODELS
 from .gladia import GLADIA_STT_LANGUAGES, GLADIA_STT_MODELS
+from .gnani import (
+    GNANI_STT_LANGUAGES,
+    GNANI_STT_LANGUAGES_V3,
+    GNANI_STT_MODELS,
+    GNANI_TTS_LANGUAGES,
+    GNANI_TTS_VOICES,
+    validate_gnani_stt_settings,
+)
 from .google import (
     GOOGLE_MODELS,
     GOOGLE_REALTIME_LANGUAGES,
@@ -92,6 +100,12 @@ __all__ = [
     "deepgram_tts_model_for_voice",
     "GLADIA_STT_LANGUAGES",
     "GLADIA_STT_MODELS",
+    "GNANI_STT_LANGUAGES",
+    "GNANI_STT_LANGUAGES_V3",
+    "GNANI_STT_MODELS",
+    "GNANI_TTS_LANGUAGES",
+    "GNANI_TTS_VOICES",
+    "validate_gnani_stt_settings",
     "GOOGLE_MODELS",
     "GOOGLE_REALTIME_LANGUAGES",
     "GOOGLE_REALTIME_MODELS",

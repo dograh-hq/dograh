@@ -39,6 +39,11 @@ from api.services.configuration.options import (
     ELEVENLABS_STT_MODELS,
     GLADIA_STT_LANGUAGES,
     GLADIA_STT_MODELS,
+    GNANI_STT_LANGUAGES,
+    GNANI_STT_LANGUAGES_V3,
+    GNANI_STT_MODELS,
+    GNANI_TTS_LANGUAGES,
+    GNANI_TTS_VOICES,
     GOOGLE_MODELS,
     GOOGLE_REALTIME_LANGUAGES,
     GOOGLE_REALTIME_MODELS,
@@ -67,6 +72,7 @@ from api.services.configuration.options import (
     SONIOX_STT_MODELS,
     SPEECHMATICS_STT_LANGUAGES,
     deepgram_tts_model_for_voice,
+    validate_gnani_stt_settings,
 )
 from api.services.configuration.options.google import (
     GOOGLE_VERTEX_DEFAULT_LOCATION,
@@ -103,6 +109,7 @@ class ServiceProviders(str, Enum):
     AZURE_SPEECH = "azure_speech"
     DOGRAH = "dograh"
     SARVAM = "sarvam"
+    GNANI = "gnani"
     SPEECHMATICS = "speechmatics"
     CAMB = "camb"
     AWS_BEDROCK = "aws_bedrock"
@@ -182,6 +189,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.AZURE_REALTIME,
         ServiceProviders.AWS_NOVA_SONIC,
         ServiceProviders.SARVAM,
+        ServiceProviders.GNANI,
         ServiceProviders.SMALLEST,
         ServiceProviders.XAI,
         ServiceProviders.LMNT,
@@ -452,6 +460,15 @@ INWORLD_PROVIDER = Provider(
     provider_docs_url="https://docs.inworld.ai/tts/tts",
 )
 SARVAM_PROVIDER = Provider("sarvam", "Sarvam")
+GNANI_PROVIDER = Provider(
+    "gnani",
+    "Gnani",
+    description=(
+        "Gnani Prisma transcription and Timbre speech synthesis for Indian languages. "
+        "Bring your own API key from app.gnani.ai."
+    ),
+    provider_docs_url="https://docs.gnani.ai/pipecat/introduction",
+)
 CAMB_PROVIDER = Provider("camb", "Camb.ai")
 RIME_PROVIDER = Provider("rime", "Rime")
 SPEECHMATICS_PROVIDER = Provider("speechmatics", "Speechmatics")
@@ -1652,6 +1669,43 @@ class InworldTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+@register_tts(provider=GNANI_PROVIDER)
+class GnaniTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.GNANI] = ServiceProviders.GNANI
+    model: Literal["timbre-v2.5", "timbre-v3.0"] = "timbre-v2.5"
+    voice: str = Field(
+        default_factory=lambda data: (
+            GNANI_TTS_VOICES[data["model"]][0] if "model" in data else "Pranav"
+        ),
+        json_schema_extra={
+            "default": "Pranav",
+            "model_options": GNANI_TTS_VOICES,
+            "reset_on_change": ["model"],
+        },
+    )
+    language: str = Field(
+        default="auto",
+        description="Choose auto to let Gnani detect the language from the text.",
+        json_schema_extra={"enum": GNANI_TTS_LANGUAGES},
+    )
+    speed: float = Field(
+        default=1.0, ge=0.85, le=1.15, description="Speech speed multiplier."
+    )
+
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, value: str) -> str:
+        if value not in GNANI_TTS_LANGUAGES:
+            raise ValueError(f"Unsupported Gnani TTS language {value!r}.")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_voice(self):
+        if self.voice not in GNANI_TTS_VOICES[self.model]:
+            raise ValueError(f"Unsupported voice {self.voice!r} for {self.model}.")
+        return self
+
+
 @register_tts(provider=SARVAM_PROVIDER)
 class SarvamTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
@@ -2088,6 +2142,7 @@ TTSConfig = Annotated[
         InworldTTSConfiguration,
         DograhTTSService,
         SarvamTTSConfiguration,
+        GnaniTTSConfiguration,
         CambTTSConfiguration,
         RimeTTSConfiguration,
         SpeachesTTSConfiguration,
@@ -2292,6 +2347,66 @@ class DograhSTTService(BaseSTTConfiguration):
     @classmethod
     def validate_language_hints(cls, hints: list[str]) -> list[str]:
         return _validate_flux_language_hints(hints)
+
+
+@register_stt(provider=GNANI_PROVIDER)
+class GnaniSTTConfiguration(BaseSTTConfiguration):
+    provider: Literal[ServiceProviders.GNANI] = ServiceProviders.GNANI
+    model: Literal["prisma-v2.5", "prisma-v3.0"] = Field(
+        default="prisma-v2.5",
+        description=(
+            "Gnani Prisma model. prisma-v2.5 transcribes a chosen language. "
+            "prisma-v3.0 can detect the language when Language is indic-auto. "
+            "Transcription uses the plugin's default format."
+        ),
+        json_schema_extra={"examples": list(GNANI_STT_MODELS)},
+    )
+    language: str = Field(
+        default="hi-IN",
+        description=("BCP-47 language. indic-auto is only available with prisma-v3.0."),
+        json_schema_extra={
+            "examples": list(GNANI_STT_LANGUAGES),
+            "model_options": {
+                "prisma-v2.5": list(GNANI_STT_LANGUAGES),
+                "prisma-v3.0": list(GNANI_STT_LANGUAGES_V3),
+            },
+            "reset_on_change": ["model"],
+        },
+    )
+    language_candidates: list[str] | None = Field(
+        default=None,
+        description=(
+            "Two to four likely languages. Only used with prisma-v3.0 and indic-auto."
+        ),
+        json_schema_extra={
+            "examples": list(GNANI_STT_LANGUAGES),
+            "visible_for_models": ["prisma-v3.0"],
+            "visible_for_languages": ["indic"],
+            "reset_on_change": ["model", "language"],
+        },
+    )
+    keywords: list[str] | None = Field(
+        default=None,
+        description="Up to 200 words or phrases to favour. prisma-v3.0 only.",
+        json_schema_extra={
+            "visible_for_models": ["prisma-v3.0"],
+            "reset_on_change": ["model"],
+        },
+    )
+
+    @model_validator(mode="after")
+    def validate_prisma_options(self):
+        validate_gnani_stt_settings(
+            self.model,
+            self.language,
+            self.language_candidates or None,
+            self.keywords or None,
+        )
+        if not self.language_candidates:
+            self.language_candidates = None
+        if not self.keywords:
+            self.keywords = None
+        return self
 
 
 @register_stt(provider=SARVAM_PROVIDER)
@@ -2578,6 +2693,7 @@ STTConfig = Annotated[
         DograhSTTService,
         SpeechmaticsSTTConfiguration,
         SarvamSTTConfiguration,
+        GnaniSTTConfiguration,
         SpeachesSTTConfiguration,
         HuggingFaceSTTConfiguration,
         AssemblyAISTTConfiguration,

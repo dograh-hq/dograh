@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from pipecat.frames.frames import (
+    ErrorFrame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
@@ -16,6 +17,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineWorker
+from pipecat_gnani import GnaniTTSService
 
 from api.services.configuration.registry import GnaniTTSConfiguration
 from api.services.pipecat.audio_config import AudioConfig
@@ -99,13 +101,16 @@ async def test_two_sentences_play_in_one_reply(playback):
         for text, pcm in sentences:
             assert await playback.socket.requests.get() == text
             playback.socket.audio(pcm)
+        contexts = set()
         for _, pcm in sentences:
             audio = await playback.downstream.get()
             assert isinstance(audio, TTSAudioRawFrame)
+            contexts.add(audio.context_id)
             assert audio.audio == pcm
             stop = await playback.downstream.get()
             assert isinstance(stop, TTSStoppedFrame)
             assert stop.context_id == audio.context_id
+        assert len(contexts) == 2
 
 
 async def test_interruption_discards_old_audio_and_next_reply_plays(playback):
@@ -128,6 +133,9 @@ async def test_interruption_discards_old_audio_and_next_reply_plays(playback):
         assert (await playback.downstream.get()).audio == fresh
         assert isinstance(await playback.downstream.get(), TTSStoppedFrame)
 
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(playback.downstream.get(), 0.1)
+
 
 async def test_missing_completion_does_not_block_the_next_sentence(playback):
     playback.service._stop_frame_timeout_s = 0.2
@@ -143,3 +151,46 @@ async def test_missing_completion_does_not_block_the_next_sentence(playback):
         playback.replacement.audio(pcm)
         assert (await playback.downstream.get()).audio == pcm
         assert isinstance(await playback.downstream.get(), TTSStoppedFrame)
+
+
+@pytest.mark.parametrize("failure", ["raise", "close", "error_frame"])
+async def test_abandoned_send_allows_next_request(playback, monkeypatch, failure):
+    async def fail_after_send(service, text, context_id):
+        if failure == "error_frame":
+            yield ErrorFrame(error="send failed")
+            return
+        yield None
+        raise RuntimeError("send failed")
+
+    service = playback.service
+    with monkeypatch.context() as patch:
+        patch.setattr(GnaniTTSService, "run_tts", fail_after_send)
+        request = service.run_tts("First.", "first")
+        await anext(request)
+        if failure == "close":
+            await request.aclose()
+        elif failure == "error_frame":
+            with pytest.raises(StopAsyncIteration):
+                await anext(request)
+        else:
+            with pytest.raises(RuntimeError, match="send failed"):
+                await anext(request)
+
+    assert playback.socket.closed
+    async with asyncio.timeout(2):
+        await playback.reply("Next reply.")
+        assert await playback.replacement.requests.get() == "Next reply."
+
+
+async def test_closing_completed_sender_preserves_new_request(playback):
+    service = playback.service
+    first = service.run_tts("First.", "first")
+    await anext(first)
+    playback.socket.audio(b"")
+    async with asyncio.timeout(2):
+        second = service.run_tts("Second.", "second")
+        await anext(second)
+        await first.aclose()
+        assert service.get_active_audio_context_id() == "second"
+        assert not playback.socket.closed
+        await second.aclose()

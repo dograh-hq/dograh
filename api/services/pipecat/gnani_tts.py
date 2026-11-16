@@ -2,6 +2,7 @@
 
 import asyncio
 
+from pipecat.frames.frames import ErrorFrame
 from pipecat_gnani import GnaniTTSService
 
 
@@ -17,8 +18,18 @@ class DograhGnaniTTSService(GnaniTTSService):
         # The socket accepts the next request after the previous one completes.
         await self._request_lock.acquire()
         self._request_context_id = context_id
-        async for frame in super().run_tts(text, context_id):
-            yield frame
+        awaiting_response = False
+        send_failed = False
+        try:
+            async for frame in super().run_tts(text, context_id):
+                if isinstance(frame, ErrorFrame):
+                    send_failed = True
+                yield frame
+            # A successful send returns before the receiver gets "complete".
+            awaiting_response = not send_failed
+        finally:
+            if not awaiting_response and self._request_context_id == context_id:
+                await self._disconnect_websocket()
 
     def get_active_audio_context_id(self) -> str | None:
         # The receiver can get the next response before Pipecat drains playback.

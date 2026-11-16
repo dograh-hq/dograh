@@ -14,7 +14,14 @@ from api.services.workflow.node_specs import all_specs, get_spec
 from api.utils.template_renderer import TEMPLATE_VAR_PATTERN, is_builtin_variable
 
 # Variables injected by the system at runtime, not from source data.
-_SYSTEM_VARIABLES = {"campaign_id", "provider", "source_uuid"}
+_SYSTEM_VARIABLES = {
+    "campaign_id",
+    "provider",
+    "source_uuid",
+    "initial_context",
+    "gathered_context",
+    "range",
+}
 
 
 def transition_tool_name(label: str) -> str:
@@ -57,31 +64,102 @@ def validate_unique_transition_tool_names(
 
 def extract_template_variables(text: str) -> Set[str]:
     """Extract template variable names from a string, excluding nested paths,
-    variables with a fallback filter, and system-injected variables."""
-    variables: Set[str] = set()
-    for match in re.finditer(TEMPLATE_VAR_PATTERN, text):
-        var_name = match.group(1).strip()
-        filter_name = match.group(2).strip() if match.group(2) else None
+    variables with a fallback filter, system-injected variables, and local
+    loop/set variables.
+    """
+    if not text or ("{{" not in text and "{%" not in text):
+        return set()
 
-        # Skip nested paths (runtime-resolved, e.g. gathered_context.city)
-        if "." in var_name:
-            continue
-        # Skip variables with a fallback (they have a default value)
-        # Supports both {{var | default}} and legacy {{var | fallback:default}}
-        if filter_name is not None:
-            continue
-        # Skip system-injected variables
-        if var_name in _SYSTEM_VARIABLES:
-            continue
-        # Skip variables the renderer computes itself, such as
-        # current_time_<TZ>. No source data could supply them, so asking a
-        # campaign's contact file for a column named after one rejects a file
-        # that is complete.
-        if is_builtin_variable(var_name):
-            continue
+    # Attempt Jinja AST parsing to accurately exclude local loop/set variables
+    try:
+        from jinja2 import meta, nodes
 
-        variables.add(var_name)
-    return variables
+        from api.utils.jinja_engine import (
+            get_jinja_env,
+            preprocess_legacy_template_with_symbols,
+        )
+
+        preprocessed, alias_to_original = preprocess_legacy_template_with_symbols(text)
+        env = get_jinja_env()
+        ast = env.parse(preprocessed)
+
+        undeclared = meta.find_undeclared_variables(ast)
+        if not undeclared:
+            return set()
+
+        candidates = {
+            v
+            for v in undeclared
+            if v not in _SYSTEM_VARIABLES
+            and not is_builtin_variable(v)
+            and not is_builtin_variable(v.replace("__slash__", "/"))
+        }
+        if not candidates:
+            return set()
+
+        # Identify Name node occurrences protected by default/fallback filter
+        protected_by_filter: set[int] = set()
+        for f in ast.find_all(nodes.Filter):
+            if f.name in ("default", "fallback", "d"):
+                target = f.node
+                while isinstance(target, nodes.Filter):
+                    target = target.node
+                if isinstance(target, nodes.Name):
+                    protected_by_filter.add(id(target))
+
+        # Identify Name node occurrences that are roots of nested attribute access (e.g. user.address or gathered_context.city)
+        nested_root_nodes: set[int] = set()
+        for g in ast.find_all((nodes.Getattr, nodes.Getitem)):
+            curr = g.node
+            while isinstance(curr, (nodes.Getattr, nodes.Getitem)):
+                curr = curr.node
+            if isinstance(curr, nodes.Name):
+                nested_root_nodes.add(id(curr))
+
+        # Collect Name nodes that are local loop targets to prevent shadowing external variables
+        def _extract_target_names(target_node: nodes.Node) -> set[str]:
+            names: set[str] = set()
+            if isinstance(target_node, nodes.Name):
+                names.add(target_node.name)
+            elif isinstance(target_node, (nodes.Tuple, nodes.List)):
+                for item in target_node.items:
+                    names.update(_extract_target_names(item))
+            return names
+
+        local_scoped_node_ids: set[int] = set()
+        for for_node in ast.find_all(nodes.For):
+            targets = _extract_target_names(for_node.target)
+            for child in for_node.body:
+                for child_node in child.find_all(nodes.Name):
+                    if child_node.name in targets:
+                        local_scoped_node_ids.add(id(child_node))
+
+        required: set[str] = set()
+        for node in ast.find_all(nodes.Name):
+            if node.name in candidates and node.ctx == "load":
+                if (
+                    id(node) in protected_by_filter
+                    or id(node) in nested_root_nodes
+                    or id(node) in local_scoped_node_ids
+                ):
+                    continue
+                required.add(node.name)
+
+        return {alias_to_original.get(v, v) for v in required}
+    except Exception:  # noqa: BLE001
+        # Fallback to legacy regex extraction if template is malformed or in legacy syntax
+        variables: Set[str] = set()
+        for match in re.finditer(TEMPLATE_VAR_PATTERN, text):
+            var_name = match.group(1).strip()
+            filter_name = match.group(2).strip() if match.group(2) else None
+
+            if "." in var_name or filter_name is not None:
+                continue
+            if var_name in _SYSTEM_VARIABLES or is_builtin_variable(var_name):
+                continue
+
+            variables.add(var_name)
+        return variables
 
 
 class Edge:

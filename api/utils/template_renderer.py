@@ -9,7 +9,10 @@ from typing import Any, Callable, Dict, Optional, Union
 from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
+from jinja2.exceptions import SecurityError
 from loguru import logger
+
+from api.utils.jinja_engine import render_jinja_string
 
 # Regex for matching {{ variable }} template placeholders.
 # Captures: group(1) = variable path, group(2) = filter name, group(3) = filter value.
@@ -244,6 +247,22 @@ def _render_string(
     """
     if not template_str:
         return template_str
+
+    if value_formatter is None:
+        try:
+            return render_jinja_string(
+                template_str,
+                context,
+                replace_escaped_newlines=replace_escaped_newlines,
+                raise_on_error=True,
+            )
+        except SecurityError as e:
+            logger.error(f"Blocked security violation during template rendering: {e}")
+            return ""
+        except Exception as e:
+            logger.warning(
+                f"Jinja render failed with error ({e}); falling back to legacy regex renderer"
+            )
 
     # Pre-scan for a current_time_<TZ> variable so that {{current_weekday}}
     # can inherit the same timezone instead of defaulting to UTC.

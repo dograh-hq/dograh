@@ -1,15 +1,11 @@
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import (
     TYPE_CHECKING,
-    Awaitable,
-    Callable,
-    Iterable,
     Literal,
-    Mapping,
     Optional,
-    Sequence,
     Union,
 )
 
@@ -132,23 +128,24 @@ class PipecatEngine:
     def __init__(
         self,
         *,
-        task: Optional[PipelineWorker] = None,
+        task: PipelineWorker | None = None,
         llm: Optional["LLMService"] = None,
         inference_llm: Optional["LLMService"] = None,
         variable_extraction_llm: Optional["LLMService"] = None,
-        context: Optional[LLMContext] = None,
+        context: LLMContext | None = None,
         workflow: WorkflowGraph,
         call_context_vars: dict,
-        workflow_run_id: Optional[int] = None,
-        node_transition_callback: Optional[
-            Callable[[str, str, Optional[str], Optional[str], bool], Awaitable[None]]
-        ] = None,
-        embeddings_api_key: Optional[str] = None,
-        embeddings_model: Optional[str] = None,
-        embeddings_base_url: Optional[str] = None,
-        embeddings_provider: Optional[str] = None,
-        embeddings_endpoint: Optional[str] = None,
-        embeddings_api_version: Optional[str] = None,
+        workflow_run_id: int | None = None,
+        node_transition_callback: Callable[
+            [str, str, str | None, str | None, bool], Awaitable[None]
+        ]
+        | None = None,
+        embeddings_api_key: str | None = None,
+        embeddings_model: str | None = None,
+        embeddings_base_url: str | None = None,
+        embeddings_provider: str | None = None,
+        embeddings_endpoint: str | None = None,
+        embeddings_api_version: str | None = None,
         has_recordings: bool = False,
         is_realtime: bool = False,
         context_compaction_enabled: bool = False,
@@ -212,7 +209,7 @@ class PipecatEngine:
         self._shutdown_task: asyncio.Task | None = None
         self._initial_agent_startup: asyncio.Task[bool] | None = None
         self._gathered_context: dict = {}
-        self._response_timeout_task: Optional[asyncio.Task] = None
+        self._response_timeout_task: asyncio.Task | None = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
         self._prompt_prewarm_tasks: set[asyncio.Task] = set()
         self._pending_extraction_requests: dict[asyncio.Task, dict] = {}
@@ -227,9 +224,7 @@ class PipecatEngine:
         # Will be set later in initialize() when we have
         # access to _context
         self._variable_extraction_manager = None
-        self._disposition_extraction_service: Optional[DispositionExtractionService] = (
-            None
-        )
+        self._disposition_extraction_service: DispositionExtractionService | None = None
 
         # Track current LLM reference text for TTS aggregation correction
         self._current_llm_generation_reference_text: str = ""
@@ -269,10 +264,10 @@ class PipecatEngine:
         self._bot_is_speaking: bool = False
 
         # Custom tool manager (initialized in initialize())
-        self._custom_tool_manager: Optional[CustomToolManager] = None
+        self._custom_tool_manager: CustomToolManager | None = None
 
         # Cached organization ID (resolved lazily from workflow run)
-        self._organization_id: Optional[int] = None
+        self._organization_id: int | None = None
 
         # The organization's disposition mapping, loaded once in initialize().
         # Held on the engine rather than fetched where it is used because the
@@ -283,12 +278,12 @@ class PipecatEngine:
         self._disposition_mapping: dict[str, str] = {}
 
         # Embeddings configuration (passed from run_pipeline.py)
-        self._embeddings_api_key: Optional[str] = embeddings_api_key
-        self._embeddings_model: Optional[str] = embeddings_model
-        self._embeddings_base_url: Optional[str] = embeddings_base_url
-        self._embeddings_provider: Optional[str] = embeddings_provider
-        self._embeddings_endpoint: Optional[str] = embeddings_endpoint
-        self._embeddings_api_version: Optional[str] = embeddings_api_version
+        self._embeddings_api_key: str | None = embeddings_api_key
+        self._embeddings_model: str | None = embeddings_model
+        self._embeddings_base_url: str | None = embeddings_base_url
+        self._embeddings_provider: str | None = embeddings_provider
+        self._embeddings_endpoint: str | None = embeddings_endpoint
+        self._embeddings_api_version: str | None = embeddings_api_version
 
         # Audio configuration (set via set_audio_config from _run_pipeline)
         self._audio_config = None
@@ -306,9 +301,7 @@ class PipecatEngine:
 
         # Background context summarization on node transitions
         self._context_compaction_enabled: bool = context_compaction_enabled
-        self._context_summarization_manager: Optional[ContextSummarizationManager] = (
-            None
-        )
+        self._context_summarization_manager: ContextSummarizationManager | None = None
 
     @property
     def active_agent(self) -> AgentRuntime:
@@ -316,12 +309,12 @@ class PipecatEngine:
         return self._active_agent
 
     @property
-    def pending_agent(self) -> Optional[AgentRuntime]:
+    def pending_agent(self) -> AgentRuntime | None:
         """An agent prepared for a handoff that has not committed yet."""
         return self.__dict__.get("_pending_agent")
 
     @property
-    def call_worker(self) -> Optional[PipelineWorker]:
+    def call_worker(self) -> PipelineWorker | None:
         """The worker that lives for the whole call.
 
         Transport, recording, recognition, the shared aggregators and the call
@@ -334,7 +327,7 @@ class PipecatEngine:
         return self.__dict__.get("_call_worker")
 
     @call_worker.setter
-    def call_worker(self, worker: Optional[PipelineWorker]) -> None:
+    def call_worker(self, worker: PipelineWorker | None) -> None:
         """Bind the call-scoped worker, which is built after the engine.
 
         A realtime call's only agent runs in this same worker, so binding the
@@ -345,7 +338,7 @@ class PipecatEngine:
         if not self._active_agent.is_child and self._active_agent.worker is None:
             self._active_agent.worker = worker
 
-    async def _get_organization_id(self) -> Optional[int]:
+    async def _get_organization_id(self) -> int | None:
         """Get and cache the organization ID from workflow run."""
         if self._organization_id is None:
             self._organization_id = (
@@ -437,7 +430,8 @@ class PipecatEngine:
 
     def _format_prompt(self, prompt: str) -> str:
         """Delegate prompt formatting to the shared workflow.utils implementation."""
-
+        if not prompt:
+            return ""
         return render_template(prompt, self._call_context_vars)
 
     def _update_call_context_variables(self) -> None:
@@ -459,9 +453,9 @@ class PipecatEngine:
         self,
         name: str,
         transition_to_node: str,
-        transition_speech: Optional[str] = None,
-        transition_speech_type: Optional[str] = None,
-        transition_speech_recording_id: Optional[str] = None,
+        transition_speech: str | None = None,
+        transition_speech_type: str | None = None,
+        transition_speech_recording_id: str | None = None,
         *,
         agent: AgentRuntime | None = None,
     ):
@@ -538,7 +532,7 @@ class PipecatEngine:
                 )
 
             except Exception as e:
-                logger.error(f"Error in transition function {name}: {str(e)}")
+                logger.error(f"Error in transition function {name}: {e!s}")
                 error_result = {"status": "error", "error": str(e)}
                 await function_call_params.result_callback(error_result)
 
@@ -548,9 +542,9 @@ class PipecatEngine:
         self,
         name: str,
         transition_to_node: str,
-        transition_speech: Optional[str] = None,
-        transition_speech_type: Optional[str] = None,
-        transition_speech_recording_id: Optional[str] = None,
+        transition_speech: str | None = None,
+        transition_speech_type: str | None = None,
+        transition_speech_recording_id: str | None = None,
         *,
         agent: AgentRuntime | None = None,
     ):
@@ -660,9 +654,9 @@ class PipecatEngine:
 
     async def _perform_variable_extraction_if_needed(
         self,
-        node: Optional[Node],
+        node: Node | None,
         run_in_background: bool = True,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Perform variable extraction if the node has extraction enabled.
 
         Args:
@@ -698,7 +692,7 @@ class PipecatEngine:
             for v in node_variables
         ]
 
-        async def _do_extraction() -> Optional[dict]:
+        async def _do_extraction() -> dict | None:
             try:
                 logger.debug(f"Starting variable extraction for node: {node.name}")
                 extracted_data = (
@@ -825,7 +819,7 @@ class PipecatEngine:
                 f"Incomplete: {incomplete}"
             )
 
-    async def flush_variable_extraction(self) -> Optional[dict]:
+    async def flush_variable_extraction(self) -> dict | None:
         """Refresh extracted variables without marking the call finalized.
 
         This operation is intentionally repeatable. Transfer routing and
@@ -838,7 +832,7 @@ class PipecatEngine:
             run_in_background=False,
         )
 
-    async def extract_variables_standalone(self, node: Node) -> Optional[dict]:
+    async def extract_variables_standalone(self, node: Node) -> dict | None:
         """Run one node's extraction on an engine that never owned a pipeline.
 
         A text chat ends outside any pipeline -- every turn builds and tears one
@@ -1100,7 +1094,7 @@ class PipecatEngine:
         node_id: str,
         emit_transition_event: bool = True,
         *,
-        origin_visit_id: Optional[str] = None,
+        origin_visit_id: str | None = None,
     ):
         """
         Simplified set_node implementation according to v2 PRD.
@@ -1189,7 +1183,7 @@ class PipecatEngine:
     async def handle_answer_supervision(self):
         await handle_answer(self, self.answer_supervisor)
 
-    def get_node_greeting(self, node_id: str) -> Optional[tuple[str, Optional[str]]]:
+    def get_node_greeting(self, node_id: str) -> tuple[str, str | None] | None:
         """Return the greeting info for a node, or None if not configured.
 
         Returns:
@@ -1235,7 +1229,7 @@ class PipecatEngine:
 
         return None
 
-    def get_start_greeting(self) -> Optional[tuple[str, Optional[str]]]:
+    def get_start_greeting(self) -> tuple[str, str | None] | None:
         """Return the greeting info for the start node, or None if not configured."""
         return self.get_node_greeting(self.active_agent.workflow.start_node_id)
 
@@ -1243,9 +1237,9 @@ class PipecatEngine:
         self,
         *,
         node_id: str,
-        previous_node_id: Optional[str] = None,
+        previous_node_id: str | None = None,
         generate_if_no_greeting: bool = False,
-        origin_visit_id: Optional[str] = None,
+        origin_visit_id: str | None = None,
         wait_for_playback: bool = False,
         mute_user: bool = False,
         opening_context: LLMContext | None = None,
@@ -1962,7 +1956,7 @@ class PipecatEngine:
         """
         return engine_callbacks.create_max_duration_callback(self)
 
-    def create_generation_started_callback(self, visit_id: Optional[str] = None):
+    def create_generation_started_callback(self, visit_id: str | None = None):
         """
         This callback is called when a new generation starts.
         This is used to reset the flags that control the flow of the engine.
@@ -1976,7 +1970,7 @@ class PipecatEngine:
             self, visit_id=visit_id
         )
 
-    def create_llm_text_frame_callback(self, visit_id: Optional[str] = None):
+    def create_llm_text_frame_callback(self, visit_id: str | None = None):
         """Return the text accumulator for one agent visit's generation stage."""
 
         async def accumulate(text: str) -> None:
@@ -1984,7 +1978,7 @@ class PipecatEngine:
 
         return accumulate
 
-    def owns_generation(self, visit_id: Optional[str]) -> bool:
+    def owns_generation(self, visit_id: str | None) -> bool:
         """Whether ``visit_id`` is the agent currently owning the call."""
         return visit_id is None or visit_id == self._active_agent.visit_id
 
@@ -2226,7 +2220,7 @@ class PipecatEngine:
         self,
         runtime: AgentRuntime,
         *,
-        previous: Optional[AgentRuntime] = None,
+        previous: AgentRuntime | None = None,
         previous_exit_reason: str = "transferred",
     ) -> None:
         """Make ``runtime`` the agent that owns the call.
@@ -2443,7 +2437,7 @@ class PipecatEngine:
         logger.debug(f"Setting pipeline mute state to: {mute}")
         self._mute_pipeline = mute
 
-    async def handle_llm_text_frame(self, text: str, visit_id: Optional[str] = None):
+    async def handle_llm_text_frame(self, text: str, visit_id: str | None = None):
         """Accumulate LLM text frames to build reference text.
 
         The reference text corrects the assistant aggregator's transcript, and

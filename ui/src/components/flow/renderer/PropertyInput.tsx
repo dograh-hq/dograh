@@ -1,4 +1,5 @@
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { AlertCircle, Eye, PenLine, PlusIcon, Sparkles, Trash2Icon } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import type {
     DocumentResponseSchema,
@@ -8,6 +9,7 @@ import type {
 } from "@/client/types.gen";
 import { DocumentSelector } from "@/components/flow/DocumentSelector";
 import { MentionTextarea } from "@/components/flow/MentionTextarea";
+import { PromptPreview } from "@/components/flow/PromptPreview";
 import { RecordingSelect } from "@/components/flow/TextOrAudioInput";
 import { ToolSelector } from "@/components/flow/ToolSelector";
 import { CredentialSelector, UrlInput } from "@/components/http";
@@ -16,6 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { validateJinjaSyntax } from "@/lib/jinjaValidator";
+import { cn } from "@/lib/utils";
 
 import { evaluateDisplayOptions } from "./displayOptions";
 import {
@@ -155,6 +159,14 @@ interface WidgetProps {
 function StringWidget({ spec, value, onChange }: WidgetProps) {
     const v = (value as string | undefined) ?? "";
     const isMultiline = spec.editor === "textarea";
+    const error = useMemo(() => {
+        if (isMultiline && typeof value === "string") {
+            const res = validateJinjaSyntax(value);
+            if (!res.isValid) return res.error;
+        }
+        return null;
+    }, [isMultiline, value]);
+
     return (
         <div className="grid gap-2">
             <StackedLabel spec={spec} />
@@ -172,6 +184,12 @@ function StringWidget({ spec, value, onChange }: WidgetProps) {
                     onChange={(e) => onChange(e.target.value)}
                     placeholder={spec.placeholder ?? undefined}
                 />
+            )}
+            {error && (
+                <div className="flex items-center gap-1.5 text-xs text-destructive">
+                    <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{error}</span>
+                </div>
             )}
         </div>
     );
@@ -402,16 +420,116 @@ function MentionWidget({
     onChange,
     recordings,
 }: WidgetProps & { recordings: RecordingResponseSchema[] }) {
+    const [viewMode, setViewMode] = useState<"write" | "preview">("write");
+
+    const error = useMemo(() => {
+        if (typeof value === "string") {
+            const res = validateJinjaSyntax(value);
+            if (!res.isValid) return res.error;
+        }
+        return null;
+    }, [value]);
+
+    const hasJinja = useMemo(() => {
+        return typeof value === "string" && (value.includes("{%") || value.includes("{{"));
+    }, [value]);
+
     return (
         <div className="grid gap-2">
-            <StackedLabel spec={spec} />
-            <MentionTextarea
-                value={(value as string | undefined) ?? ""}
-                onChange={onChange}
-                placeholder={spec.placeholder ?? undefined}
-                className="min-h-[100px] max-h-[300px] resize-none overflow-y-auto"
-                recordings={recordings}
-            />
+            {/* Header: Label row with controls on the right, followed by stacked description */}
+            <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                    <Label className="font-medium text-foreground">
+                        {spec.display_name}
+                        {spec.required && <span className="text-destructive ml-1">*</span>}
+                    </Label>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                        {hasJinja && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-[10px] font-mono font-medium text-purple-600 dark:text-purple-400">
+                                <span className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-pulse" />
+                                Jinja
+                            </span>
+                        )}
+
+                        {/* Segmented Write / Preview Toggle */}
+                        <div className="inline-flex items-center rounded-md border border-border/70 bg-muted/40 p-0.5 text-xs">
+                            <button
+                                type="button"
+                                onClick={() => setViewMode("write")}
+                                className={cn(
+                                    "inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-all cursor-pointer",
+                                    viewMode === "write"
+                                        ? "bg-background text-foreground shadow-xs font-semibold"
+                                        : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <PenLine className="h-3 w-3" />
+                                <span>Write</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode("preview")}
+                                className={cn(
+                                    "inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-all cursor-pointer",
+                                    viewMode === "preview"
+                                        ? "bg-background text-foreground shadow-xs font-semibold"
+                                        : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <Eye className="h-3 w-3" />
+                                <span>Preview</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Subheading / Description stacked cleanly under label */}
+                <p className="text-xs text-muted-foreground leading-normal">
+                    {spec.description}
+                    {" "}Supports Jinja logic (type <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground border border-border/50">{"{%"}</code> to start).
+                </p>
+            </div>
+
+            {viewMode === "write" ? (
+                <>
+                    <MentionTextarea
+                        value={(value as string | undefined) ?? ""}
+                        onChange={onChange}
+                        placeholder={spec.placeholder ?? undefined}
+                        className="min-h-[120px] max-h-[300px] resize-none overflow-y-auto"
+                        recordings={recordings}
+                    />
+                    {hasJinja && (
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground font-mono px-0.5">
+                            <span className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400">
+                                <Sparkles className="h-3 w-3 shrink-0" />
+                                Jinja template active — type <kbd className="px-1 py-0.5 bg-muted rounded border border-border/60">{"{%"}</kbd> for snippets
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode("preview")}
+                                className="text-primary hover:underline cursor-pointer"
+                            >
+                                Preview prompt →
+                            </button>
+                        </div>
+                    )}
+                </>
+            ) : (
+                <PromptPreview
+                    value={(value as string | undefined) ?? ""}
+                    className="min-h-[120px] max-h-[300px]"
+                    onSwitchToWrite={() => setViewMode("write")}
+                />
+            )}
+
+            {error && (
+                <div className="flex items-center gap-1.5 text-xs text-destructive">
+                    <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{error}</span>
+                </div>
+            )}
         </div>
     );
 }

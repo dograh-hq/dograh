@@ -1674,7 +1674,9 @@ class GnaniTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.GNANI] = ServiceProviders.GNANI
     model: Literal["timbre-v2.5", "timbre-v3.0"] = "timbre-v2.5"
     voice: str = Field(
-        default_factory=lambda data: GNANI_TTS_VOICES[data["model"]][0],
+        default_factory=lambda data: (
+            GNANI_TTS_VOICES[data["model"]][0] if "model" in data else "Pranav"
+        ),
         json_schema_extra={
             "default": "Pranav",
             "model_options": GNANI_TTS_VOICES,

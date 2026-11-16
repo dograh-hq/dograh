@@ -71,7 +71,10 @@ if ($Dev) {
 }
 uv pip install @PipecatInstallArgs
 
-Write-Host "Installing Gnani STT adapter..."
+Write-Host "Installing Gnani speech adapter..."
 uv pip install -r api/requirements.gnani-stt.txt
+if ($LASTEXITCODE -ne 0) {
+    throw "Gnani speech adapter installation failed (exit $LASTEXITCODE)."
+}
 
 Write-Host "Setup complete! Requirements are installed."

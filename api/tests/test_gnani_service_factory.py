@@ -96,12 +96,13 @@ def test_gnani_v3_round_trip_and_masks_api_key():
 
 @pytest.mark.parametrize("sample_rate", [8000, 16000])
 def test_create_gnani_stt_service_without_connecting(sample_rate):
-    config = GnaniSTTConfiguration(api_key="test-key", language="hi-IN")
+    config = GnaniSTTConfiguration(api_key=" test-key ", language="hi-IN")
     service = create_stt_service(
         SimpleNamespace(stt=config),
         SimpleNamespace(transport_in_sample_rate=sample_rate),
     )
     assert isinstance(service, GnaniSTTService)
+    assert service._api_key == "test-key"
     assert service._ws is None
     assert service._init_sample_rate == sample_rate
     assert service._settings.model == "prisma-v2.5"

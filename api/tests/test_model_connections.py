@@ -116,6 +116,16 @@ async def test_four_layers_and_named_reset(catalog):
 
 
 @pytest.mark.asyncio
+async def test_invalid_gnani_tts_model_without_voice_returns_422(catalog):
+    config = pipeline(catalog(connection()))
+    config["tts"] = selection(catalog(connection("gnani")), model="timbre-unknown")
+    with pytest.raises(HTTPException, match="Invalid tts configuration") as exc:
+        await service.resolve_inline_model_configuration(1, config)
+    assert exc.value.status_code == 422
+    assert "model" in exc.value.detail
+
+
+@pytest.mark.asyncio
 async def test_same_provider_connection_preserves_settings(catalog):
     dograh = connection()
     config = pipeline(dograh)

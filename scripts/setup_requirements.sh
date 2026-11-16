@@ -94,7 +94,7 @@ if [ "$DEV_MODE" -eq 1 ]; then
 fi
 uv pip install "${pipecat_install_args[@]}"
 
-echo "Installing Gnani STT adapter..."
+echo "Installing Gnani speech adapter..."
 uv pip install -r api/requirements.gnani-stt.txt
 
 echo "Setup complete! Requirements are installed."

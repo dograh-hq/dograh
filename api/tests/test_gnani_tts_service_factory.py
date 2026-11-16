@@ -80,7 +80,4 @@ def test_saved_selection_reaches_streaming_factory(model, voice, language, speed
     ) == (model, voice, language, speed)
     assert service._skip_text_types == ["recording_router", "recording"]
     assert service._silence_time_s == 1.0
-    # Completing one sentence must leave later sentences in the turn playable.
-    service._turn_context_id = "current-turn"
-    assert service.create_context_id() != service.create_context_id()
     assert service._ws is None

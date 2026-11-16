@@ -8,7 +8,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import aiohttp
 from fastapi import HTTPException
 from loguru import logger
-from pipecat_gnani import GnaniSTTService, GnaniTTSService
+from pipecat_gnani import GnaniSTTService
 
 from api.constants import MPS_API_URL
 from api.errors.failure import (
@@ -38,6 +38,7 @@ from api.services.pipecat.gemini_json_schema_adapter import (
 )
 from api.services.pipecat.gemini_prompt_cache import GeminiPromptCacheMixin
 from api.services.pipecat.gemini_spoken_tool_calls import GeminiSpokenToolCallMixin
+from api.services.pipecat.gnani_tts import DograhGnaniTTSService
 from api.services.pipecat.google_credentials import (
     get_google_credentials,
     prepare_google_credentials,
@@ -784,7 +785,7 @@ def create_stt_service(
         )
     elif user_config.stt.provider == ServiceProviders.GNANI.value:
         return GnaniSTTService(
-            api_key=user_config.stt.api_key,
+            api_key=user_config.stt.api_key.strip(),
             settings=GnaniSTTService.Settings(
                 model=user_config.stt.model,
                 **configurable_settings,
@@ -1151,9 +1152,9 @@ def create_tts_service(
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.GNANI.value:
-        return GnaniTTSService(
+        return DograhGnaniTTSService(
             api_key=user_config.tts.api_key.strip(),
-            settings=GnaniTTSService.Settings(
+            settings=DograhGnaniTTSService.Settings(
                 model=user_config.tts.model,
                 voice=user_config.tts.voice,
                 language=user_config.tts.language,

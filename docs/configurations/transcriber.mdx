@@ -7,7 +7,7 @@ Dograh platform supports Deepgram, OpenAI, Google, Azure Speech, AssemblyAI, Spe
 
 ## Gnani Prisma
 
-Gnani transcribes Indian languages over a streaming WebSocket. Choose `prisma-v2.5` for a language you specify, or `prisma-v3.0` when the caller may switch languages. `indic-auto`, language candidates, and keywords are available only on `prisma-v3.0`. Candidates need `indic-auto` and two to four languages. Keywords are limited to 200 phrases.
+Gnani transcribes Indian languages over a streaming WebSocket. Choose `prisma-v2.5` for a language you specify, or choose `prisma-v3.0` and set the language to `indic-auto` when the caller may switch languages. Selecting `prisma-v3.0` alone still transcribes `hi-IN`. Language candidates and keywords are available only on `prisma-v3.0`. Candidates need `indic-auto` and two to four languages. Keywords accept up to 200 words or short phrases.
 
 This integration uses the plugin's default transcription format. Output format, topic, previous text, and speaker names are not settings in Dograh. See the [Gnani Pipecat guide](https://docs.gnani.ai/pipecat/introduction). 
 

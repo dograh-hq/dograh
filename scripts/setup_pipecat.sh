@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Setup script for using pipecat as a git submodule
 

@@ -2316,8 +2316,8 @@ class GnaniSTTConfiguration(BaseSTTConfiguration):
         default="prisma-v2.5",
         description=(
             "Gnani Prisma model. prisma-v2.5 transcribes a chosen language. "
-            "prisma-v3.0 adds automatic language detection. Transcription uses "
-            "the plugin's default format."
+            "prisma-v3.0 can detect the language when Language is indic-auto. "
+            "Transcription uses the plugin's default format."
         ),
         json_schema_extra={"examples": list(GNANI_STT_MODELS)},
     )

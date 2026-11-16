@@ -55,8 +55,28 @@ def test_connected_handshake_accepts_the_key(monkeypatch):
         UserConfigurationValidator()._check_gnani_api_key("prisma-v2.5", SECRET)
         is True
     )
+    assert seen["additional_headers"]["X-API-Key-ID"] == SECRET
     assert seen["additional_headers"]["lang_code"] == "hi-IN"
     assert SECRET not in json.dumps(seen["additional_headers"]["lang_code"])
+
+
+def test_padded_key_is_trimmed_before_the_handshake(monkeypatch):
+    seen = {}
+
+    def connect(*args, **kwargs):
+        seen.update(kwargs)
+        return _Socket(json.dumps({"type": "connected"}))
+
+    monkeypatch.setattr(
+        "api.services.configuration.check_validity.websocket_connect", connect
+    )
+    assert (
+        UserConfigurationValidator()._check_gnani_api_key(
+            "prisma-v2.5", f"  {SECRET}  "
+        )
+        is True
+    )
+    assert seen["additional_headers"]["X-API-Key-ID"] == SECRET
 
 
 @pytest.mark.parametrize(

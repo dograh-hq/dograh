@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Optional, TypedDict
 
@@ -94,6 +95,22 @@ class UserConfigurationValidator:
         }
 
     async def validate(
+        self,
+        configuration: EffectiveAIModelConfiguration,
+        organization_id: Optional[int] = None,
+        created_by: Optional[str] = None,
+    ) -> APIKeyStatusResponse:
+        # Provider checks are synchronous. The saved-connection path already
+        # runs them in a worker thread; this request path must do the same so
+        # a slow Gnani handshake cannot stall other requests on this worker.
+        return await asyncio.to_thread(
+            self._validate,
+            configuration,
+            organization_id,
+            created_by,
+        )
+
+    def _validate(
         self,
         configuration: EffectiveAIModelConfiguration,
         organization_id: Optional[int] = None,
@@ -433,6 +450,7 @@ class UserConfigurationValidator:
         """
         if not isinstance(api_key, str) or not api_key.strip():
             raise ValueError("Gnani API key is required.")
+        api_key = api_key.strip()
         try:
             with websocket_connect(
                 "wss://api.vachana.ai/stt/v3/stream",

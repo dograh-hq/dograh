@@ -32,7 +32,8 @@ fastmcp==4.0.10
 jsonschema==4.26.0
 tuner-pipecat-sdk==0.3.0
 # Gnani speech SDK. The Pipecat adapter is pinned in requirements.gnani-stt.txt
-# and installed with --no-deps after the editable Pipecat fork.
+# and installed normally after the Pipecat fork, once that fork is versioned
+# as 1.16.0 so the adapter's pipecat-ai>=1.5 requirement stays satisfied.
 gnani-vachana==0.9.0
 # Pin the reviewed wheel bytes, not only the package version.
 noveum-trace @ https://files.pythonhosted.org/packages/e7/53/177b987931f3fd4366082de43a482187f6983b6b5851a6bf1b65c833c731/noveum_trace-1.5.21-py3-none-any.whl#sha256=03e916d5f45633d0db65092a12e6665634004901dde3d05b6055a4190ac5a3a4

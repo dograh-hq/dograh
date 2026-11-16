@@ -1,8 +1,4 @@
-"""Gnani Prisma speech-to-text choices and save-time checks.
-
-Language and candidate limits come from gnani-vachana. The picker lists are
-duplicated here so the settings schema does not import the SDK.
-"""
+"""Gnani Prisma and Timbre choices and save-time checks."""
 
 from gnani.stt._prisma import (
     INDIC_AUTO_LANGUAGE_CODE,
@@ -11,6 +7,14 @@ from gnani.stt._prisma import (
     require_prisma_v3,
 )
 from gnani.stt.client import STREAM_SUPPORTED_LANGUAGES, _validate_language_code
+from gnani.tts import SUPPORTED_TTS_LANGUAGES, TIMBRE_V25_VOICES, TIMBRE_V30_VOICES
+
+# The picker selects the first voice after a model change.
+GNANI_TTS_VOICES = {
+    "timbre-v2.5": ["Pranav", *sorted(TIMBRE_V25_VOICES - {"Pranav"})],
+    "timbre-v3.0": ["Avinash", *sorted(TIMBRE_V30_VOICES - {"Avinash"})],
+}
+GNANI_TTS_LANGUAGES = ["auto", *sorted(SUPPORTED_TTS_LANGUAGES - {"auto"})]
 
 GNANI_STT_MODELS = ("prisma-v2.5", "prisma-v3.0")
 GNANI_STT_LANGUAGES = (

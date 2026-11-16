@@ -285,7 +285,9 @@ class UserConfigurationValidator:
         api_key = service_config.api_key
 
         try:
-            if not self._check_api_key(provider, api_key, service_config):
+            if not self._check_api_key(
+                provider, api_key, service_config, service_name=service_name
+            ):
                 return [
                     {
                         "model": service_name,
@@ -305,12 +307,16 @@ class UserConfigurationValidator:
         provider: str,
         api_key: str,
         service_config: Optional[ServiceConfig] = None,
+        *,
+        service_name: str | None = None,
     ) -> bool:
         """Check if an API key for a provider is valid."""
         validator = self._validator_map.get(provider)
         if not validator:
             return False
 
+        if provider == ServiceProviders.GNANI.value:
+            return validator(service_name or "connection", api_key)
         if provider in (
             ServiceProviders.OPENAI.value,
             ServiceProviders.ATLASCLOUD.value,
@@ -442,28 +448,39 @@ class UserConfigurationValidator:
     def _check_sarvam_api_key(self, model: str, api_key: str) -> bool:
         return True
 
-    def _check_gnani_api_key(self, model: str, api_key: str) -> bool:
-        """Accept the key only after Gnani's streaming STT handshake says connected.
-
-        There is no separate credential URL. The documented success signal is the
-        first WebSocket message from wss://api.vachana.ai/stt/v3/stream.
-        """
+    def _check_gnani_api_key(self, role: str, api_key: str) -> bool:
+        """A saved connection may grant STT, TTS, or both."""
         if not isinstance(api_key, str) or not api_key.strip():
             raise ValueError("Gnani API key is required.")
-        api_key = api_key.strip()
+        headers = {"X-API-Key-ID": api_key.strip()}
         try:
+            if role != "tts":
+                try:
+                    with websocket_connect(
+                        "wss://api.vachana.ai/stt/v3/stream",
+                        additional_headers={**headers, "lang_code": "hi-IN"},
+                        open_timeout=10,
+                        close_timeout=2,
+                    ) as socket:
+                        message = socket.recv(timeout=10)
+                    payload = json.loads(message)
+                    if isinstance(payload, dict) and payload.get("type") == "connected":
+                        return True
+                    raise ValueError("Gnani credential check failed.")
+                except InvalidStatus as exc:
+                    if role != "connection" or exc.response.status_code != 403:
+                        raise
+
+            # The TTS endpoint authenticates the WebSocket upgrade. It sends
+            # no welcome frame and requires no billable synthesis for this check.
+            # https://docs.gnani.ai/api/TTS/tts-websocket
             with websocket_connect(
-                "wss://api.vachana.ai/stt/v3/stream",
-                additional_headers={
-                    "X-API-Key-ID": api_key,
-                    # Gnani rejects the upgrade handshake until a language is
-                    # present. This is the same header the streaming service sends.
-                    "lang_code": "hi-IN",
-                },
+                "wss://api.vachana.ai/api/v1/tts",
+                additional_headers=headers,
                 open_timeout=10,
                 close_timeout=2,
-            ) as socket:
-                message = socket.recv(timeout=10)
+            ):
+                return True
         except InvalidStatus as exc:
             status = int(exc.response.status_code)
             if status == 401:
@@ -472,8 +489,8 @@ class UserConfigurationValidator:
                 )
             if status == 403:
                 raise ValueError(
-                    "Gnani API authorization failed. The key does not have "
-                    "permission to use speech-to-text."
+                    "Gnani API authorization failed. The key does not have permission "
+                    "to use the requested speech service."
                 )
             if status == 429:
                 raise ValueError(
@@ -493,16 +510,6 @@ class UserConfigurationValidator:
             )
         except Exception:
             raise ValueError("Gnani credential check failed.")
-
-        if isinstance(message, bytes):
-            message = message.decode("utf-8", "replace")
-        try:
-            payload = json.loads(message)
-        except (TypeError, json.JSONDecodeError):
-            raise ValueError("Gnani credential check failed.")
-        if not isinstance(payload, dict) or payload.get("type") != "connected":
-            raise ValueError("Gnani credential check failed.")
-        return True
 
     def _check_openrouter_api_key(self, model: str, api_key: str) -> bool:
         return True

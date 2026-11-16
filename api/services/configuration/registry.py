@@ -42,6 +42,8 @@ from api.services.configuration.options import (
     GNANI_STT_LANGUAGES,
     GNANI_STT_LANGUAGES_V3,
     GNANI_STT_MODELS,
+    GNANI_TTS_LANGUAGES,
+    GNANI_TTS_VOICES,
     GOOGLE_MODELS,
     GOOGLE_REALTIME_LANGUAGES,
     GOOGLE_REALTIME_MODELS,
@@ -462,7 +464,7 @@ GNANI_PROVIDER = Provider(
     "gnani",
     "Gnani",
     description=(
-        "Gnani Prisma streaming speech-to-text for Indian languages. "
+        "Gnani Prisma transcription and Timbre speech synthesis for Indian languages. "
         "Bring your own API key from app.gnani.ai."
     ),
     provider_docs_url="https://docs.gnani.ai/pipecat/introduction",
@@ -1667,6 +1669,41 @@ class InworldTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+@register_tts(provider=GNANI_PROVIDER)
+class GnaniTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.GNANI] = ServiceProviders.GNANI
+    model: Literal["timbre-v2.5", "timbre-v3.0"] = "timbre-v2.5"
+    voice: str = Field(
+        default_factory=lambda data: GNANI_TTS_VOICES[data["model"]][0],
+        json_schema_extra={
+            "default": "Pranav",
+            "model_options": GNANI_TTS_VOICES,
+            "reset_on_change": ["model"],
+        },
+    )
+    language: str = Field(
+        default="auto",
+        description="Choose auto to let Gnani detect the language from the text.",
+        json_schema_extra={"enum": GNANI_TTS_LANGUAGES},
+    )
+    speed: float = Field(
+        default=1.0, ge=0.85, le=1.15, description="Speech speed multiplier."
+    )
+
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, value: str) -> str:
+        if value not in GNANI_TTS_LANGUAGES:
+            raise ValueError(f"Unsupported Gnani TTS language {value!r}.")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_voice(self):
+        if self.voice not in GNANI_TTS_VOICES[self.model]:
+            raise ValueError(f"Unsupported voice {self.voice!r} for {self.model}.")
+        return self
+
+
 @register_tts(provider=SARVAM_PROVIDER)
 class SarvamTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
@@ -2103,6 +2140,7 @@ TTSConfig = Annotated[
         InworldTTSConfiguration,
         DograhTTSService,
         SarvamTTSConfiguration,
+        GnaniTTSConfiguration,
         CambTTSConfiguration,
         RimeTTSConfiguration,
         SpeachesTTSConfiguration,

@@ -38,7 +38,7 @@ def _check(monkeypatch, message=None, error=None):
     monkeypatch.setattr(
         "api.services.configuration.check_validity.websocket_connect", connect
     )
-    return UserConfigurationValidator()._check_gnani_api_key("prisma-v2.5", SECRET)
+    return UserConfigurationValidator()._check_gnani_api_key("stt", SECRET)
 
 
 def test_connected_handshake_accepts_the_key(monkeypatch):
@@ -51,10 +51,7 @@ def test_connected_handshake_accepts_the_key(monkeypatch):
     monkeypatch.setattr(
         "api.services.configuration.check_validity.websocket_connect", connect
     )
-    assert (
-        UserConfigurationValidator()._check_gnani_api_key("prisma-v2.5", SECRET)
-        is True
-    )
+    assert UserConfigurationValidator()._check_gnani_api_key("stt", SECRET) is True
     assert seen["additional_headers"]["X-API-Key-ID"] == SECRET
     assert seen["additional_headers"]["lang_code"] == "hi-IN"
     assert SECRET not in json.dumps(seen["additional_headers"]["lang_code"])
@@ -71,9 +68,7 @@ def test_padded_key_is_trimmed_before_the_handshake(monkeypatch):
         "api.services.configuration.check_validity.websocket_connect", connect
     )
     assert (
-        UserConfigurationValidator()._check_gnani_api_key(
-            "prisma-v2.5", f"  {SECRET}  "
-        )
+        UserConfigurationValidator()._check_gnani_api_key("stt", f"  {SECRET}  ")
         is True
     )
     assert seen["additional_headers"]["X-API-Key-ID"] == SECRET
@@ -121,4 +116,38 @@ def test_blank_key_is_rejected_before_the_network(monkeypatch):
         "api.services.configuration.check_validity.websocket_connect", connect
     )
     with pytest.raises(ValueError, match="required"):
-        UserConfigurationValidator()._check_gnani_api_key("prisma-v2.5", "  ")
+        UserConfigurationValidator()._check_gnani_api_key("stt", "  ")
+
+
+@pytest.mark.parametrize("role", ["connection", "tts"])
+def test_accept_tts_only_key_without_synthesis(monkeypatch, role):
+    endpoints = []
+
+    def connect(url, **kwargs):
+        endpoints.append(url)
+        assert kwargs["additional_headers"]["X-API-Key-ID"] == SECRET
+        if url.endswith("/stt/v3/stream"):
+            raise _status(403)
+        # No greeting on TTS. The authenticated upgrade is sufficient.
+        return _Socket(AssertionError("must not wait for a greeting"))
+
+    monkeypatch.setattr(
+        "api.services.configuration.check_validity.websocket_connect", connect
+    )
+    validator = UserConfigurationValidator()
+    assert validator._check_api_key("gnani", SECRET, service_name=role)
+    assert endpoints == (
+        ["wss://api.vachana.ai/stt/v3/stream"] if role == "connection" else []
+    ) + ["wss://api.vachana.ai/api/v1/tts"]
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 500])
+def test_denied_tts_upgrade_rejects_key(monkeypatch, status):
+    def connect(url, **kwargs):
+        raise _status(status)
+
+    monkeypatch.setattr(
+        "api.services.configuration.check_validity.websocket_connect", connect
+    )
+    with pytest.raises(ValueError, match="Gnani"):
+        UserConfigurationValidator()._check_api_key("gnani", SECRET, service_name="tts")

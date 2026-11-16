@@ -8,7 +8,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import aiohttp
 from fastapi import HTTPException
 from loguru import logger
-from pipecat_gnani import GnaniSTTService
+from pipecat_gnani import GnaniSTTService, GnaniTTSService
 
 from api.constants import MPS_API_URL
 from api.errors.failure import (
@@ -1147,6 +1147,22 @@ def create_tts_service(
         return RimeTTSService(
             api_key=user_config.tts.api_key,
             settings=RimeTTSSettings(**settings_kwargs),
+            skip_text_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.GNANI.value:
+        return GnaniTTSService(
+            api_key=user_config.tts.api_key.strip(),
+            settings=GnaniTTSService.Settings(
+                model=user_config.tts.model,
+                voice=user_config.tts.voice,
+                language=user_config.tts.language,
+                speed=user_config.tts.speed,
+            ),
+            # Gnani completes each synthesis request separately, including
+            # consecutive sentences in the same LLM turn.
+            reuse_context_id_within_turn=False,
+            sample_rate=audio_config.transport_out_sample_rate,
             skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )

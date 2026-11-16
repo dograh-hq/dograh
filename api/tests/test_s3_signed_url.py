@@ -28,5 +28,15 @@ def test_known_org_scoped_keys_extract_org_id():
     assert _extract_legacy_workflow_run_id("campaigns/42/source.csv") is None
 
 
+def test_ambient_noise_keys_extract_org_id():
+    # Ambient noise files are stored as ambient-noise/{org_id}/{workflow_id}/{file}
+    assert _extract_org_id_from_key("ambient-noise/42/77/greeting.mp3") == 42
+    assert _extract_org_id_from_key("ambient-noise/42/77/abc_sound_1.mp3") == 42
+
+
+def test_ambient_noise_keys_with_invalid_org_segment_are_not_org_scoped():
+    assert _extract_org_id_from_key("ambient-noise/not-an-int/77/greeting.mp3") is None
+
+
 def test_unknown_numeric_prefix_is_not_treated_as_org_scoped():
     assert _extract_org_id_from_key("unknown/42/file.wav") is None

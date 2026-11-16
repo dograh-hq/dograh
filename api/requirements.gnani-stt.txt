@@ -1,0 +1,5 @@
+# Install after the Pipecat fork. The fork is named 1.16.0 at install time
+# (SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PIPECAT_AI) and websockets is pinned to
+# >=15.0.1,<16 in api/requirements.txt, so this plugin's requirements are
+# satisfied. A normal install then leaves the local fork in place.
+pipecat-gnani==0.6.0

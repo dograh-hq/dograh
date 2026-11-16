@@ -32,11 +32,21 @@ RUN --mount=type=bind,source=api/requirements.txt,target=/tmp/req.txt \
 # opencv-python-headless. The non-headless build links against X11/Qt
 # (libxcb*); without those shared libs in the image, `import cv2` fails at
 # runtime.
+# The bind-mounted fork has no .git metadata here, so setuptools-scm would
+# version it 0.0.0.dev0. Name it 1.16.0, matching the merged upstream release.
+# This does not switch the install to the PyPI pipecat-ai wheel.
 RUN --mount=type=bind,source=pipecat,target=/tmp/pipecat,rw \
     --mount=type=cache,target=/root/.cache/uv \
+    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PIPECAT_AI=1.16.0 \
     uv pip install '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest,aws-nova-sonic]' \
  && uv pip uninstall opencv-python \
  && uv pip install opencv-python-headless
+
+# Gnani's adapter requires pipecat-ai>=1.5,<2 and websockets<16. The fork
+# install above is versioned 1.16.0, and api/requirements.txt pins websockets.
+RUN --mount=type=bind,source=api/requirements.gnani-stt.txt,target=/tmp/gnani-stt.txt \
+    --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -r /tmp/gnani-stt.txt
 
 # Strip cache files, test/example dirs, and type stubs from the venv
 RUN find /opt/venv -type f -name '*.pyc' -delete && \

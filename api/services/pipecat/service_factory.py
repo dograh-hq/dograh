@@ -8,6 +8,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import aiohttp
 from fastapi import HTTPException
 from loguru import logger
+from pipecat_gnani import GnaniSTTService
 
 from api.constants import MPS_API_URL
 from api.errors.failure import (
@@ -531,6 +532,16 @@ def _stt_configurable_settings(config, *, for_update: bool = False) -> dict[str,
             return {"language": Language(language)}
         except ValueError:
             return {"language": language}
+    if provider == ServiceProviders.GNANI:
+        language = language or "hi-IN"
+        candidates = getattr(config, "language_candidates", None) or None
+        keywords = getattr(config, "keywords", None) or None
+        settings = {"language": language}
+        if for_update or candidates is not None:
+            settings["language_candidates"] = candidates
+        if for_update or keywords is not None:
+            settings["keywords"] = keywords
+        return settings
     if provider == ServiceProviders.SPEACHES:
         return {"language": language}
     if provider == ServiceProviders.HUGGINGFACE:
@@ -766,6 +777,15 @@ def create_stt_service(
         return SarvamSTTService(
             api_key=user_config.stt.api_key,
             settings=SarvamSTTSettings(
+                model=user_config.stt.model,
+                **configurable_settings,
+            ),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.GNANI.value:
+        return GnaniSTTService(
+            api_key=user_config.stt.api_key,
+            settings=GnaniSTTService.Settings(
                 model=user_config.stt.model,
                 **configurable_settings,
             ),

@@ -55,12 +55,26 @@ async def test_collects_complete_wav_and_cleans_processor(
         push_text_frames=push_text_frames,
         pause_frame_processing=pause_frame_processing,
     )
-    audio = await synthesize_speech(tts, "Hello.", timeout=2)
+    # The mocks yield 16 kHz audio, so asking for 16 kHz keeps it byte for byte.
+    audio = await synthesize_speech(tts, "Hello.", sample_rate=16000, timeout=2)
     with wave.open(io.BytesIO(audio)) as wav:
         assert wav.getnchannels() == 1
         assert wav.getsampwidth() == 2
         assert wav.getframerate() == 16000
         assert wav.readframes(wav.getnframes()) == PCM
+    assert tts.cleaned
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("service_type", [TrackingTTS, ReceiverTTS])
+async def test_audio_at_another_rate_is_returned_at_the_requested_rate(service_type):
+    tts = service_type()
+    audio = await synthesize_speech(tts, "Hello.", sample_rate=24000, timeout=2)
+    with wave.open(io.BytesIO(audio)) as wav:
+        assert wav.getframerate() == 24000
+        # 80 ms of speech, plus the few milliseconds the resampler's filter
+        # adds when it is flushed at the end.
+        assert 0.08 <= wav.getnframes() / 24000 <= 0.085
     assert tts.cleaned
 
 
@@ -154,7 +168,7 @@ async def test_preserves_upstream_padding_of_a_trailing_partial_sample():
             yield TTSAudioRawFrame(b"x", 16000, 1, context_id=context_id)
 
     tts = PartialSampleTTS()
-    audio = await synthesize_speech(tts, "Hello.", timeout=2)
+    audio = await synthesize_speech(tts, "Hello.", sample_rate=16000, timeout=2)
     with wave.open(io.BytesIO(audio)) as wav:
         assert wav.getframerate() == 16000
         assert wav.readframes(wav.getnframes()) == b"x\x00"

@@ -41,9 +41,11 @@ from api.services.pipecat.google_credentials import (
     get_google_credentials,
     prepare_google_credentials,
 )
+from api.services.pipecat.minimax_tts import MiniMaxCachingWebsocketTTSService
 from api.services.pipecat.murf_tts import MurfTTSService
 from api.services.pipecat.openai_spoken_tool_calls import OpenAISpokenToolCallMixin
 from api.services.pipecat.spoken_tool_calls import SpokenToolCallMixin
+from api.services.pipecat.tts_cache.runtime import get_speech_cache
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameProcessorSetup
@@ -903,8 +905,8 @@ def create_tts_service(
         audio_config: Pipeline and transport audio configuration.
         correlation_id: Managed model services correlation ID.
         organization_id: Trusted tenant scope for TTS caching.
-        tts_cache_enabled: Whether the workflow enables the speech cache. No provider
-            uses it at present; MiniMax logs a warning when it is set.
+        tts_cache_enabled: Whether the workflow enables the speech cache. Supported
+            for MiniMax.
     """
     # Synthesis carries the same residency question as transcription - the text
     # sent for speaking is drawn from the conversation - so the endpoint is
@@ -1190,27 +1192,33 @@ def create_tts_service(
             base_url = f"{base_url}/t2a_v2"
         _validate_runtime_service_url(base_url, "base_url")
 
-        if tts_cache_enabled:
-            logger.warning(
-                "MiniMax TTS runs over the WebSocket API and does not use the speech "
-                "cache; every reply is synthesized"
-            )
         # One bidirectional WebSocket session serves the whole call: synthesis stops
         # when the caller interrupts, and word timestamps keep the spoken part of an
         # interrupted reply in the transcript. It is served from the same host as
         # /v1/t2a_v2.
-        return MiniMaxTTSService(
-            api_key=user_config.tts.api_key,
-            url=f"wss://{urlparse(base_url).netloc}/ws/v1/t2a_v2_bidi",
-            settings=MiniMaxTTSSettings(
+        service_kwargs = {
+            "api_key": user_config.tts.api_key,
+            "url": f"wss://{urlparse(base_url).netloc}/ws/v1/t2a_v2_bidi",
+            "settings": MiniMaxTTSSettings(
                 model=user_config.tts.model,
                 voice=voice,
                 speed=speed,
                 volume=getattr(user_config.tts, "volume", 1.0),
+                text_normalization_mode=getattr(
+                    user_config.tts, "text_normalization_mode", None
+                ),
+                pronunciation_dict=getattr(user_config.tts, "pronunciation_dict", None)
+                or None,
             ),
-            skip_text_types=["recording_router", "recording"],
-            silence_time_s=1.0,
-        )
+            "skip_text_types": ["recording_router", "recording"],
+            "silence_time_s": 1.0,
+        }
+        cache = get_speech_cache(organization_id, enabled=tts_cache_enabled)
+        if cache:
+            return MiniMaxCachingWebsocketTTSService(
+                speech_cache=cache, organization_id=organization_id, **service_kwargs
+            )
+        return MiniMaxTTSService(**service_kwargs)
     elif user_config.tts.provider == ServiceProviders.AZURE_SPEECH.value:
         region = getattr(user_config.tts, "region", None) or "eastus"
         voice = getattr(user_config.tts, "voice", None) or "en-US-AriaNeural"

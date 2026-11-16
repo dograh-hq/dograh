@@ -1298,3 +1298,79 @@ async def test_runtime_settings_change_cache_identity(cache, minimax_server):
     assert not any(isinstance(f, ErrorFrame) for f in down + up)
     assert [call["voice_setting"]["speed"] for call in calls] == [1.25]
     assert b"".join(f.audio for f in down if isinstance(f, TTSAudioRawFrame)) == PCM * 3
+
+
+WORDS = (("Buongiorno,", 0.033, 0.591), ("sono", 0.624, 1.017))
+
+
+async def test_word_timestamps_round_trip_in_a_version_2_entry():
+    request = request_for()
+    policy = CachePolicy()
+    speech = CachedSpeech(b"\x01\x02" * 16000, 16000, 1, WORDS)
+
+    value = speech.encode()
+    decoded = CachedSpeech.decode(value, request, policy)
+
+    assert json.loads(value[4 : 4 + int.from_bytes(value[:4], "big")])["version"] == 2
+    assert decoded == speech
+
+
+async def test_entries_without_words_keep_the_version_1_format():
+    value = CachedSpeech(PCM, 16000).encode()
+
+    assert json.loads(value[4 : 4 + int.from_bytes(value[:4], "big")])["version"] == 1
+    assert CachedSpeech.decode(value, request_for(), CachePolicy()).words == ()
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        (("", 0.0, 0.1),),
+        (("word", -0.1, 0.1),),
+        (("word", 0.5, 0.1),),
+        # PCM below is 1 s long; a word may end only slightly after the audio.
+        (("word", 0.0, 1.5),),
+        (("word", 0.0),),
+    ],
+)
+async def test_word_timestamps_must_fit_the_audio(words):
+    speech = CachedSpeech(b"\x01\x02" * 16000, 16000, 1, words)
+
+    with pytest.raises(ValueError):
+        speech.validate(request_for(), CachePolicy())
+
+
+async def test_a_version_2_entry_with_no_words_is_invalid():
+    value = CachedSpeech(PCM, 16000, 1, (("word", 0.0, 0.001),)).encode()
+    size = int.from_bytes(value[:4], "big")
+    header = json.loads(value[4 : 4 + size])
+    header["words"] = []
+    encoded = json.dumps(header).encode()
+    tampered = len(encoded).to_bytes(4, "big") + encoded + value[4 + size :]
+
+    with pytest.raises(ValueError):
+        CachedSpeech.decode(tampered, request_for(), CachePolicy())
+
+
+async def test_a_full_entry_with_a_long_word_header_is_read_back(redis_backend):
+    # The audio fills the entry limit, so Redis's read limit must also allow
+    # for the header that carries the words.
+    policy = CachePolicy(max_entry_bytes=64000, operation_timeout_seconds=1)
+    words = tuple((f"parola{i}", i / 125, i / 125 + 0.006) for i in range(250))
+    request = request_for()
+    speech = CachedSpeech(b"\x01\x02" * 32000, 16000, 1, words)
+    assert len(speech.encode()) > policy.max_entry_bytes + 1028
+    cache = SpeechCache(redis_backend, policy)
+    await warm_cache(cache, request, speech)
+
+    assert (await cache.get(request)) == speech
+
+
+async def test_a_word_ending_at_the_limit_survives_the_round_trip():
+    # 8005 samples at 8 kHz last 1.000625 s, so the latest end allowed is
+    # 1.250625 s. Rounding that to the millisecond would move it past the limit.
+    request = request_for(sample_rate=8000)
+    speech = CachedSpeech(b"\x01\x02" * 8005, 8000, 1, (("parola", 0.0, 1.250625),))
+    speech.validate(request, CachePolicy())
+
+    assert CachedSpeech.decode(speech.encode(), request, CachePolicy()) == speech

@@ -1,6 +1,36 @@
 """Provider usage metrics and shared normalization of persisted token totals."""
 
-from pipecat.metrics.metrics import MetricsData
+from pipecat.metrics.metrics import LLMTokenUsage, MetricsData
+
+
+def merge_llm_usage(existing: dict | None, delta: dict) -> dict:
+    """Add provider token counts without losing optional or unreported fields."""
+    merged = dict(existing or {})
+    for key, value in delta.items():
+        current = dict(merged.get(key) or {})
+        for field, count in value.items():
+            if count is not None:
+                current[field] = (current.get(field) or 0) + count
+            else:
+                current.setdefault(field, None)
+        merged[key] = current
+    return merged
+
+
+class InferenceUsage:
+    """Collect out-of-pipeline usage, including completed retry/fallback attempts."""
+
+    def __init__(self) -> None:
+        self.llm: dict = {}
+        self.prompt_cache: list[dict] = []
+
+    def record(self, processor: str, model: str, usage: LLMTokenUsage) -> None:
+        self.llm = merge_llm_usage(
+            self.llm, {f"{processor}|||{model}": usage.model_dump(mode="json")}
+        )
+
+    def serialize(self) -> dict:
+        return {"llm": self.llm, "prompt_cache": self.prompt_cache}
 
 
 class LiveUsageMetricsData(MetricsData):

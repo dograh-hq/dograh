@@ -40,8 +40,8 @@ async def create_transport(
         stream_sid=stream_sid,
         call_sid=call_sid,
         params=ExotelFrameSerializer.InputParams(
-            exotel_sample_rate=8000,
-            sample_rate=audio_config.pipeline_sample_rate,
+            audio_in_sample_rate=8000,
+            audio_out_sample_rate=8000,
         ),
     )
 

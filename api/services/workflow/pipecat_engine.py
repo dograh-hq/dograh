@@ -95,6 +95,7 @@ from api.services.workflow.pipecat_engine_custom_tools import (
 from api.services.workflow.pipecat_engine_variable_extractor import (
     ENGINE_OWNED_CONTEXT_KEYS,
     VariableExtractionManager,
+    extraction_prompt_is_static,
 )
 from api.services.workflow.prompt_variables import (
     call_variable_context,
@@ -875,6 +876,9 @@ class PipecatEngine:
             "node_id": node.id,
             "variables": [v.model_dump(mode="json") for v in variables],
             "prompt": self._format_prompt(node.extraction_prompt),
+            "cache_static_prompt": extraction_prompt_is_static(
+                node.extraction_prompt, node.extraction_variables
+            ),
             "model_configuration_snapshot": deepcopy(
                 agent.model_configuration_snapshot
             ),

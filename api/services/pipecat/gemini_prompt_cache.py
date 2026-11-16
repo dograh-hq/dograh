@@ -1,4 +1,4 @@
-"""Gemini explicit caching restricted to streaming conversation requests."""
+"""Gemini explicit caching for conversations and opted-in extraction requests."""
 
 from __future__ import annotations
 
@@ -15,8 +15,9 @@ from api.services.pipecat.prompt_cache import (
     get_prompt_cache_registry,
     rejected_cached_content,
 )
+from api.services.pipecat.usage_metrics import InferenceUsage
 from pipecat.frames.frames import MetricsFrame
-from pipecat.metrics.metrics import MetricsData
+from pipecat.metrics.metrics import LLMTokenUsage, MetricsData
 from pipecat.utils.types import assert_given
 
 
@@ -26,11 +27,141 @@ class PromptCacheMetricsData(MetricsData):
 
 
 class GeminiPromptCacheMixin:
-    """Never mutate settings.extra, context, or out-of-band run_inference."""
+    """Keep conversation and extraction caches separate without mutating settings."""
 
     _prompt_cache_binding: tuple[int, int, str] | None = None
     _prompt_cache_node_id: str = ""
     prompt_cache_scope: str | None = None
+    _inference_usage: InferenceUsage | None = None
+    _inference_cache_binding: tuple[int, int, str] | None = None
+
+    def configure_inference(
+        self,
+        *,
+        usage: InferenceUsage,
+        organization_id: int,
+        workflow_id: int,
+        node_id: str,
+        cache_enabled: bool,
+    ) -> None:
+        """Opt a dedicated completion client into usage reporting and static caching."""
+        self._inference_usage = usage
+        self._inference_cache_binding = (
+            (organization_id, workflow_id, f"extraction:{node_id}")
+            if cache_enabled
+            else None
+        )
+
+    async def run_inference(
+        self, context, max_tokens=None, system_instruction=None, response_schema=None
+    ):
+        if self._inference_usage is None:
+            return await super().run_inference(
+                context, max_tokens, system_instruction, response_schema
+            )
+
+        model = assert_given(self._settings.model)
+        params = await self.get_llm_adapter().get_llm_invocation_params(
+            context,
+            system_instruction=system_instruction
+            or assert_given(self._settings.system_instruction),
+            ensure_last_message_is_user=self._should_inject_trailing_user_message(),
+        )
+        inline = self._build_generation_params(
+            system_instruction=params["system_instruction"],
+            tools=params["tools"] or None,
+        )
+        if max_tokens is not None:
+            inline["max_output_tokens"] = max_tokens
+        response_schema = self._check_response_schema(response_schema)
+        if response_schema is not None:
+            inline.update(
+                response_mime_type="application/json",
+                response_json_schema=response_schema,
+            )
+
+        binding = self._inference_cache_binding
+        spec, entry, registry = None, None, None
+        mode = "off"
+        if binding and self.prompt_cache_scope and not cache_disabled():
+            mode = "inline_not_ready"
+            spec = CacheSpec(
+                *binding,
+                self.prompt_cache_scope,
+                model,
+                inline.get("system_instruction"),
+                inline.get("tools") or [],
+                inline.get("tool_config"),
+            )
+            try:
+                registry = get_prompt_cache_registry()
+                entry = await registry.prepare_inference(
+                    spec, self._client, credentials=getattr(self, "_credentials", None)
+                )
+            except Exception:
+                logger.warning("Extraction cache unavailable; sending inline request")
+        config = dict(inline)
+        if entry:
+            for field in ("system_instruction", "tools", "tool_config"):
+                config.pop(field, None)
+            config["cached_content"] = entry.name
+            mode = "explicit"
+
+        try:
+            response = await self._client.aio.models.generate_content(
+                model=model,
+                contents=params["messages"],
+                config=GenerateContentConfig(**config),
+            )
+        except Exception as error:
+            if not entry or not rejected_cached_content(error):
+                raise
+            try:
+                await registry.invalidate(spec, entry)
+            except Exception:
+                logger.warning("Extraction cache invalidation unavailable")
+            mode = "inline_fallback"
+            response = await self._client.aio.models.generate_content(
+                model=model,
+                contents=params["messages"],
+                config=GenerateContentConfig(**inline),
+            )
+
+        # Record before parsing/finish-reason handling: invalid answers still cost tokens.
+        usage = response.usage_metadata
+        if usage is not None:
+            prompt = (usage.prompt_token_count or 0) + (
+                usage.tool_use_prompt_token_count or 0
+            )
+            reasoning = usage.thoughts_token_count or 0
+            completion = (usage.candidates_token_count or 0) + reasoning
+            self._inference_usage.record(
+                self.name,
+                model,
+                LLMTokenUsage(
+                    prompt_tokens=prompt,
+                    completion_tokens=completion,
+                    total_tokens=prompt + completion,
+                    cache_read_input_tokens=usage.cached_content_token_count or 0,
+                    reasoning_tokens=reasoning,
+                ),
+            )
+        count_cache_event("hit" if mode == "explicit" else mode)
+        self._inference_usage.prompt_cache.append(
+            {
+                "processor": self.name,
+                "model": model,
+                "node_id": binding[2] if binding else "",
+                "cache_mode": mode,
+            }
+        )
+        if response.candidates and response.candidates[0].finish_reason:
+            self._handle_finish_reason(response.candidates[0].finish_reason)
+        if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts or []:
+                if part.text and not part.thought:
+                    return part.text
+        return None
 
     def configure_prompt_cache(
         self, *, organization_id: int, workflow_id: int, node_id: str, enabled: bool

@@ -26,6 +26,7 @@ from api.services.configuration.run_model_configuration import (
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.pipecat.fallback_llm import FallbackLLMProcessor
 from api.services.pipecat.service_factory import create_llm_service
+from api.services.pipecat.usage_metrics import InferenceUsage
 from api.services.workflow.conversation_history import (
     build_conversation_history,
     has_user_turns,
@@ -127,8 +128,9 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
     disposition = None
     disposition_request: dict = {}
     errors: list[str] = []
+    usage = InferenceUsage()
 
-    async def with_llm(request, operation):
+    async def with_llm(request, operation, *, cache_enabled=False):
         # Validate the pinned definition through the run's organization even
         # when it belongs to an agent visited after the original workflow.
         definition = await db_client.get_workflow_definition(
@@ -152,6 +154,15 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
             config, (run.initial_context or {}).get(MPS_CORRELATION_ID_CONTEXT_KEY)
         )
         try:
+            configure = getattr(llm, "configure_inference", None)
+            if configure:
+                configure(
+                    usage=usage,
+                    organization_id=organization_id,
+                    workflow_id=request["workflow_id"],
+                    node_id=request.get("node_id", "disposition"),
+                    cache_enabled=cache_enabled,
+                )
             return await _retry(
                 lambda: operation(llm),
                 run_id=run_id,
@@ -185,8 +196,10 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
                                 request.get("conversation_history", conversation),
                                 extraction_prompt=request["prompt"],
                                 strict=True,
+                                separate_static_prompt=True,
                             )
                         ),
+                        cache_enabled=request.get("cache_static_prompt") is True,
                     )
                     names = {variable.name for variable in requested}
                     variables.update(
@@ -226,6 +239,7 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
         ),
         status=status,
         error_class=errors[-1] if errors else None,
+        usage_info=usage.serialize(),
     )
     if not saved:
         raise RuntimeError("Completion lease expired before extraction was saved")

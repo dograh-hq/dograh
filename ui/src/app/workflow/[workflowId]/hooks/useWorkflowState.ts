@@ -355,11 +355,12 @@ export const useWorkflowState = ({
         rfInstance.current.addNodes([newNode]);
         posthog.capture(PostHogEvent.WORKFLOW_NODE_ADDED, {
             node_type: nodeType,
+            workflow_id: workflowId,
             workflow_origin: createdVia ?? "unknown",
             source: "manual",
         });
         setIsAddNodePanelOpen(false);
-    }, [nodes, setIsAddNodePanelOpen, bySpecName, createdVia]);
+    }, [nodes, setIsAddNodePanelOpen, bySpecName, createdVia, workflowId]);
 
     const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setWorkflowName(e.target.value);
@@ -556,6 +557,7 @@ export const useWorkflowState = ({
                     const removed = currentNodes.find(node => node.id === change.id);
                     posthog.capture(PostHogEvent.WORKFLOW_NODE_DELETED, {
                         node_type: removed?.type ?? "unknown",
+                        workflow_id: workflowId,
                         workflow_origin: createdVia ?? "unknown",
                         source: "manual",
                     });
@@ -566,7 +568,7 @@ export const useWorkflowState = ({
             // to determine history tracking, not the actual item data
             setNodes(newNodes, changes as NodeChange<FlowNode>[]);
         },
-        [setNodes, createdVia],
+        [setNodes, createdVia, workflowId],
     );
 
     const onDelete = useCallback(() => {

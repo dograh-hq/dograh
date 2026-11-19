@@ -1130,7 +1130,7 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
         ServiceProviders.GOOGLE_VERTEX_REALTIME
     )
     model: str = Field(
-        default="google/gemini-live-2.5-flash-native-audio",
+        default="google/gemini-3.8-live",
         description="Vertex AI publisher/model identifier.",
         json_schema_extra={
             "examples": GOOGLE_VERTEX_REALTIME_MODELS,

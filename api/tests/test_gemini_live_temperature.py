@@ -80,7 +80,7 @@ def test_create_realtime_llm_service_gemini_vertex_uses_provider_temperature(
     realtime_config = GoogleVertexRealtimeLLMConfiguration(
         project_id="test-proj",
         location="us-central1",
-        model="google/gemini-live-2.5-flash-native-audio",
+        model="google/gemini-3.8-live",
         voice="Charon",
     )
     realtime_config = realtime_config.model_copy(update={"temperature": 1.2})

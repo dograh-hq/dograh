@@ -55,7 +55,7 @@ def _build_realtime(location):
     user_config = SimpleNamespace(
         realtime=SimpleNamespace(
             provider=ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
-            model="google/gemini-live-2.5-flash-native-audio",
+            model="google/gemini-3.8-live",
             api_key=None,
             voice="Charon",
             language="it",

@@ -36,10 +36,11 @@ class EndCall_Extraction_variablesRow:
 @dataclass(kw_only=True)
 class EndCall(TypedNode):
     """
-    Closes the conversation and hangs up.  LLM hint: Terminal node that
-    politely closes the conversation. Variable extraction can run before
-    hangup. A workflow can have multiple endCall nodes reached via different
-    edge conditions.
+    Closes the conversation and hangs up.
+
+    LLM hint: Terminal node that politely closes the conversation. Variable
+    extraction can run before hangup. A workflow can have multiple endCall
+    nodes reached via different edge conditions.
     """
 
     type: ClassVar[str] = 'endCall'

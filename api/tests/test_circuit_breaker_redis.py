@@ -179,6 +179,7 @@ async def test_pipeline_failures_pause_campaign_despite_carrier_successes(
     await s.redis.zadd(legacy_key, {str(i): s.clock.now for i in range(50)})
     campaign = SimpleNamespace(
         state="running",
+        organization_id=7,
         orchestrator_metadata={
             "circuit_breaker": {
                 "failure_threshold": 1.0,
@@ -187,8 +188,8 @@ async def test_pipeline_failures_pause_campaign_despite_carrier_successes(
         },
     )
     db = SimpleNamespace(
-        get_campaign_by_id=AsyncMock(return_value=campaign),
-        update_campaign=AsyncMock(),
+        get_campaign=AsyncMock(return_value=campaign),
+        update_campaign_state=AsyncMock(),
         append_campaign_log=AsyncMock(),
     )
     publisher = SimpleNamespace(publish_circuit_breaker_tripped=AsyncMock())
@@ -201,11 +202,14 @@ async def test_pipeline_failures_pause_campaign_despite_carrier_successes(
             await s.breaker.record_and_evaluate(
                 s.campaign_id,
                 True,
+                organization_id=campaign.organization_id,
                 workflow_run_id=run_id,
                 reason="pipeline_error",
             )
-        db.update_campaign.assert_awaited_once_with(
-            campaign_id=s.campaign_id, state="paused"
+        db.update_campaign_state.assert_awaited_once_with(
+            campaign_id=s.campaign_id,
+            state="paused",
+            organization_id=campaign.organization_id,
         )
         details = db.append_campaign_log.await_args.kwargs["details"]
         assert details["failure_rate"] == 1.0

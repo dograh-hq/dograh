@@ -711,7 +711,9 @@ async def start_campaign(
 
     # Start the campaign using the runner service
     try:
-        await campaign_runner_service.start_campaign(campaign_id)
+        await campaign_runner_service.start_campaign(
+            campaign_id, organization_id=user.selected_organization_id
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -747,7 +749,9 @@ async def pause_campaign(
 
     # Pause the campaign using the runner service
     try:
-        await campaign_runner_service.pause_campaign(campaign_id)
+        await campaign_runner_service.pause_campaign(
+            campaign_id, organization_id=user.selected_organization_id
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1071,7 +1075,9 @@ async def resume_campaign(
 
     # Resume the campaign using the runner service
     try:
-        await campaign_runner_service.resume_campaign(campaign_id)
+        await campaign_runner_service.resume_campaign(
+            campaign_id, organization_id=user.selected_organization_id
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1107,7 +1113,9 @@ async def get_campaign_progress(
 
     # Get progress from runner service
     try:
-        progress = await campaign_runner_service.get_campaign_status(campaign_id)
+        progress = await campaign_runner_service.get_campaign_status(
+            campaign_id, organization_id=user.selected_organization_id
+        )
         return CampaignProgressResponse(**progress)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

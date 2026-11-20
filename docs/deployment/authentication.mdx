@@ -97,3 +97,34 @@ Then open the UI. The sign-in page should now present your configured Stack Auth
 ## Reverting to local auth
 
 Remove the variables above (or set `AUTH_PROVIDER=local`) and restart. The UI detects `local` from the backend at runtime and falls back to the built-in email/password flow — no rebuild required.
+
+## Trusted gateway (reverse-proxy single sign-on)
+
+If Dograh sits behind an authenticating reverse proxy (an OIDC gateway such as oauth2-proxy, an identity-aware proxy, a corporate SSO front end), you can let that gateway be the only way in instead of keeping a second, Dograh-specific password.
+
+Set `AUTH_PROVIDER=local` and `TRUSTED_GATEWAY_AUTH=true` on the `api` service. The gateway authenticates the person and forwards a **short-lived signed JWT** (the *assertion*) in a dedicated header on every request, including the WebSocket upgrade requests used by the UI. Dograh trusts only that signed assertion, never an unsigned header.
+
+| Variable | Description |
+|---|---|
+| `TRUSTED_GATEWAY_AUTH` | `true` to enable (default off; nothing changes when off) |
+| `TRUSTED_GATEWAY_ISSUER` | Required. Exact `iss` of the assertion |
+| `TRUSTED_GATEWAY_AUDIENCE` | Pinned `aud` (default `dograh-api`) |
+| `TRUSTED_GATEWAY_ALGS` | Comma list of allowed asymmetric algorithms (default `RS256`) |
+| `TRUSTED_GATEWAY_JWKS_FILE` | Required. Path of a JWKS JSON file; re-read when it changes, so keys can rotate without a restart |
+| `TRUSTED_GATEWAY_HEADER` | Header that carries the assertion (default `X-Gateway-Assertion`) |
+| `TRUSTED_GATEWAY_MAX_LIFETIME_SECONDS` | Ceiling for `exp - iat` (default and maximum `300`) |
+| `TRUSTED_GATEWAY_LEEWAY_SECONDS` | Clock skew allowance (default `5`, maximum `30`) |
+| `TRUSTED_GATEWAY_ORG_PROVIDER_ID` | Required. The single organization every gateway user belongs to |
+| `TRUSTED_GATEWAY_REQUIRED_PERMISSION` | Optional value that must appear in the assertion's `roles`, `permissions` or `scp` |
+| `TRUSTED_GATEWAY_SERVICE_API_KEY_SHA256_FILE` | Optional file holding the sha256 (hex) of the one `X-API-Key` accepted for service-to-service calls. Unset means no API key is accepted |
+
+What changes when it is enabled:
+
+- Identity comes from the assertion on every request. A Dograh JWT on its own no longer authenticates; if the UI also sends one, its user must be the same user the assertion identifies.
+- The assertion must carry `iss`, `aud`, `sub`, `iat` and `exp`, be signed with a key in the JWKS file, and live at most 300 seconds. When the gateway stops issuing assertions for someone (for example because their access was removed), they are locked out within that window.
+- Users are linked by the assertion's `sub` only (never by email), always into the single configured organization, and are never superusers.
+- `POST /auth/signup` and `POST /auth/login` return `404`. `GET /auth/gateway-session` returns a Dograh token for the UI's cookie; it is only useful together with a valid assertion.
+- Every API key lookup (REST, MCP and the public-agent endpoints) only accepts the configured service key; other organization keys are rejected.
+- Fail closed: with the option enabled and a missing or unsafe setting, the API refuses to start; if the JWKS file later becomes unreadable or invalid, every request is rejected with `401`.
+
+The gateway must strip any client-supplied copy of the assertion header (and `X-API-Key`) before adding its own.

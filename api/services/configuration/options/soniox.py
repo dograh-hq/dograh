@@ -1,4 +1,4 @@
-SONIOX_STT_MODELS = ("stt-rt-v5",)
+SONIOX_STT_MODELS = ("stt-rt-v6",)
 
 SONIOX_STT_LANGUAGES = (
     "multi",

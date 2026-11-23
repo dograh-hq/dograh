@@ -2440,7 +2440,7 @@ class GladiaSTTConfiguration(BaseSTTConfiguration):
 class SonioxSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SONIOX] = ServiceProviders.SONIOX
     model: str = Field(
-        default="stt-rt-v5",
+        default="stt-rt-v6",
         description="Soniox real-time STT model.",
         json_schema_extra={"examples": SONIOX_STT_MODELS, "allow_custom_input": True},
     )

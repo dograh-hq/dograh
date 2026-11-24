@@ -76,6 +76,11 @@ def test_stt_seconds_become_usage_to_the_millisecond():
         {"gen_ai.operation.name": "tts"},
         {"gen_ai.operation.name": "stt"},
         _tts(characters="107"),
+        _tts(characters=True),
+        _tts(float("inf")),
+        _stt(float("inf")),
+        _stt(float("nan")),
+        _stt(-1.0),
         # LLM spans already carry token usage of their own.
         {"gen_ai.operation.name": "chat", "metrics.character_count": 50},
         # Usage already set upstream is left as it is.
@@ -113,6 +118,17 @@ def test_a_tts_span_is_exported_with_usage_and_otherwise_unchanged():
 def test_an_stt_span_is_exported_with_seconds():
     exported = with_langfuse_usage(_finished_span("stt", _stt(2.5)))
     assert json.loads(exported.attributes[LANGFUSE_USAGE_DETAILS]) == {"seconds": 2.5}
+
+
+def test_a_failure_while_adding_usage_exports_the_span_unchanged(monkeypatch):
+    from api.services.pipecat import langfuse_usage
+
+    def broken(span, attributes):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(langfuse_usage, "_copy_with_attributes", broken)
+    span = _finished_span("tts", _tts(10))
+    assert with_langfuse_usage(span) is span
 
 
 def test_a_span_with_nothing_to_bill_passes_through_as_is():

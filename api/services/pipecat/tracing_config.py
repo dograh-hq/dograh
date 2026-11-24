@@ -12,6 +12,7 @@ from api.constants import (
     LANGFUSE_PUBLIC_KEY,
     LANGFUSE_SECRET_KEY,
 )
+from api.services.pipecat.langfuse_usage import with_langfuse_usage
 from pipecat.utils.run_context import get_current_org_id
 from pipecat.utils.tracing.langfuse_helpers import (
     set_trace_public_resolver,
@@ -146,6 +147,9 @@ class _OrgRoutingExporter(SpanExporter):
             scope = getattr(span, "instrumentation_scope", None)
             if scope is not None and scope.name in {"fastmcp", "mcp-python-sdk"}:
                 continue
+
+            # TTS characters and STT seconds as usage Langfuse can price.
+            span = with_langfuse_usage(span)
 
             org_id = span.attributes.get("dograh.org_id") if span.attributes else None
             if org_id and str(org_id) in self._org_exporters:

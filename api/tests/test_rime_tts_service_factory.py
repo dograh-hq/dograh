@@ -43,6 +43,6 @@ def test_create_rime_tts_service_passes_selected_language(language, expected):
     assert _create(language) == expected
 
 
-@pytest.mark.parametrize("language", [None, "", "not-a-language"])
+@pytest.mark.parametrize("language", [None, "", "not-a-language", "zh", "en-US"])
 def test_create_rime_tts_service_defaults_to_english(language):
     assert _create(language) == Language.EN

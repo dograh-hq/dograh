@@ -26,6 +26,7 @@ from api.services.configuration.registry import (
     ELEVENLABS_DIALOGUE_TTS_MODEL_PATTERN,
     HOPPER_API_BASE_URL,
     REGISTRY,
+    RIME_TTS_LANGUAGES,
     BaseSTTConfiguration,
     ServiceProviders,
     ServiceType,
@@ -1092,11 +1093,12 @@ def create_tts_service(
         )
     elif user_config.tts.provider == ServiceProviders.RIME.value:
         speed = getattr(user_config.tts, "speed", None)
-        language_code = getattr(user_config.tts, "language", None) or "en"
-        try:
-            pipecat_language = Language(language_code)
-        except ValueError:
-            pipecat_language = Language.EN
+        language_code = getattr(user_config.tts, "language", None)
+        pipecat_language = (
+            Language(language_code)
+            if language_code in RIME_TTS_LANGUAGES
+            else Language.EN
+        )
         settings_kwargs = {
             "voice": user_config.tts.voice,
             "model": user_config.tts.model,

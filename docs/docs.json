@@ -117,6 +117,7 @@
               "integrations/telephony/plivo",
               "integrations/telephony/telnyx",
               "integrations/telephony/cloudonix",
+              "integrations/telephony/dial",
               "integrations/telephony/exotel",
               "integrations/telephony/vobiz",
               "integrations/telephony/whatsapp",

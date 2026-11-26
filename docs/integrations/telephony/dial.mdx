@@ -1,0 +1,130 @@
+---
+title: "Dial Integration"
+description: "Use Dial phone numbers for inbound and outbound Dograh voice agents"
+---
+
+## Overview
+
+[Dial](https://getdial.ai) gives AI agents real US phone numbers through a single API. Dograh's Dial integration uses Dial's [Self-Hosted audio mode](https://docs.getdial.ai/documentation/platform/self-hosted): Dial bridges the phone call and streams the raw call audio (G.711 μ-law, 8 kHz, both directions) over a WebSocket to Dograh, where your workflow's speech pipeline handles the conversation.
+
+You paste a Dial API key into Dograh and it handles the rest of the setup.
+
+## How it works
+
+When you save the configuration, Dograh uses your API key to:
+
+1. Look up your Dial account.
+2. Turn on Self-Hosted **audio** mode on that account and point it at your Dograh backend (`wss://<your-backend>/api/v1/telephony/dial/ws/<account-id>`).
+3. Store the Self-Hosted audio signing secret. Dograh checks Dial's `X-Dial-Signature` on every media connection and rejects anything unsigned.
+4. Subscribe to Dial's [`call.ended`](https://docs.getdial.ai/api-reference/events/call-ended) webhook at `https://<your-backend>/api/v1/telephony/dial/events/<account-id>`. Calls that never connect (busy, no answer, failed) still close their workflow run this way.
+
+After that:
+
+- **Outbound:** Dograh places the call with [`POST /api/v1/calls`](https://docs.getdial.ai/api-reference/rest-api/calls/make-call). When the callee answers, Dial opens the media socket, and Dograh matches it to the workflow run by Dial's call id.
+- **Inbound:** when someone calls one of your Dial numbers, Dial opens the media socket. Its first frame names the called number, and Dograh starts that number's inbound workflow. There's no inbound webhook URL to configure.
+
+<Warning>
+  Self-Hosted mode applies to **every call on the Dial account**, inbound and
+  outbound. While the account is connected to Dograh, Dial's own managed voice
+  agent is not used. Use a separate Dial account if you also need Dial's
+  managed agent.
+</Warning>
+
+## Prerequisites
+
+- A [Dial account](https://getdial.ai). Signing up verifies your email address and a phone number you own; there is no other KYC step for voice.
+- **Self-Hosted access** on that account. Dial approves it per account. If your account doesn't have it yet, Dograh files the request for you the first time you save, and you save again once it's granted. You can check the status at [getdial.ai/dashboard/self-hosted](https://getdial.ai/dashboard/self-hosted).
+- At least one Dial phone number with the `call` capability.
+- A Dograh backend that is reachable from the internet over **HTTPS/WSS**. Dial refuses `ws://`, `http://`, and private or loopback addresses. For local development, run Dograh with its Cloudflare tunnel or set `BACKEND_API_ENDPOINT` to a public HTTPS URL.
+
+## Get a phone number
+
+Dial numbers are US numbers. Buy one in any of these ways:
+
+- **Dashboard:** [getdial.ai/dashboard](https://getdial.ai/dashboard) → **Numbers** → **Buy a number**.
+- **CLI:** `dial number purchase --area-code 415 --explicit-programmatic-consent "<who approved this purchase>"`
+- **API:** [`POST /api/v1/numbers`](https://docs.getdial.ai/api-reference/rest-api/phone-numbers/provision-number).
+
+A purchase charges the number's monthly fee to your Dial credit balance. Every programmatic purchase carries an `explicitProgrammaticConsent` attestation, which Dial keeps for its audit trail. See [Manage phone numbers](https://docs.getdial.ai/documentation/capabilities/manage-phone-numbers) for details.
+
+<Note>
+  Voice calls need no carrier registration. US **10DLC** registration only
+  applies to outbound SMS, which this integration doesn't use.
+</Note>
+
+## Configuration
+
+### Step 1: Get your Dial API key
+
+1. Sign in at [getdial.ai/dashboard](https://getdial.ai/dashboard).
+2. Open **API keys** and copy a key. Keys start with `sk_live_`.
+
+### Step 2: Configure in Dograh AI
+
+1. Go to **/telephony-configurations** and click **Add configuration**.
+2. Select **Dial** as the provider.
+3. Paste your **API Key** and click **Save Configuration**.
+   - If the save reports that Self-Hosted access was requested or is still under review, wait for Dial to approve it, then save again.
+4. Open the saved configuration and click **Refresh numbers** to import your Dial numbers. You can also add a number by hand in E.164 format, e.g. `+14155559876`. Dograh only accepts numbers that are on your Dial account and can place calls.
+
+### Step 3: Test outbound calling
+
+1. Open a workflow and click **Call**.
+2. Enter your phone number and start the call.
+3. When you answer, the agent starts speaking.
+
+## Inbound calling
+
+1. In **/telephony-configurations**, open your Dial configuration.
+2. Edit the number that should receive calls and set its **Inbound workflow**.
+3. Call that number from another phone.
+
+There is no webhook to paste anywhere: Dial streams every call on the account to Dograh, and Dograh routes it by the called number. A call to a number with no inbound workflow is hung up.
+
+## Limitations
+
+- **Call transfers** are not supported yet.
+- **US numbers only.** Outbound calls can still reach international destinations Dial supports.
+- **Call duration caps.** Dial ends calls at the account's maximum call duration. Free accounts, which have never added credit, are capped at 5 minutes per call.
+- **No per-call cost.** Dial bills calls to the account's credit wallet and doesn't return a per-call price, so Dograh records the cost as `0` for Dial calls.
+- **Dial does not record or transcribe these calls.** It never processes the audio in Self-Hosted mode. Dograh's own recordings and transcripts work as usual.
+- **Removing the configuration doesn't disconnect Dial.** Deleting the Dial configuration in Dograh leaves Self-Hosted mode on in your Dial account, so calls keep going to Dograh. Turn it off at [getdial.ai/dashboard/self-hosted](https://getdial.ai/dashboard/self-hosted).
+- **Dropped connections aren't resumed.** If the media socket drops mid-call, Dial reconnects, but the original pipeline is gone. Dograh ends the call rather than starting the conversation over.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Saving fails with &quot;Dial rejected this API key&quot;">
+    Copy the key again from the Dial dashboard. Make sure it is a live key
+    (`sk_live_…`) and hasn't been revoked.
+  </Accordion>
+
+  <Accordion title="Saving says Self-Hosted access is pending">
+    Dial reviews Self-Hosted access for each account. Check
+    [getdial.ai/dashboard/self-hosted](https://getdial.ai/dashboard/self-hosted)
+    and save the configuration again once access is granted.
+  </Accordion>
+
+  <Accordion title="Saving fails during Dial setup">
+    Dial must be able to reach your backend over HTTPS and WSS. Check that
+    `BACKEND_API_ENDPOINT` (or the tunnel URL) is a public `https://` address,
+    not `localhost` or a private IP.
+  </Accordion>
+
+  <Accordion title="A number can't be added">
+    The number must be on the Dial account behind the API key, have the
+    `call` capability, and have calling switched on. Check it under
+    **Numbers** in the Dial dashboard.
+  </Accordion>
+
+  <Accordion title="Calls connect but there's no audio">
+    Confirm your backend accepts WebSocket upgrades on
+    `/api/v1/telephony/dial/ws/…`, including through any reverse proxy, and
+    that the proxy doesn't strip the `X-Dial-Signature` header.
+  </Accordion>
+
+  <Accordion title="Inbound calls hang up immediately">
+    The called number must be added to the Dial configuration in Dograh and
+    have an **Inbound workflow** assigned.
+  </Accordion>
+</AccordionGroup>

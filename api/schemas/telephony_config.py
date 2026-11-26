@@ -19,6 +19,9 @@ from api.services.telephony.providers.ari.config import (
 from api.services.telephony.providers.cloudonix.config import (
     CloudonixConfigurationRequest,
 )
+from api.services.telephony.providers.dial.config import (
+    DialConfigurationRequest,
+)
 from api.services.telephony.providers.exotel.config import (
     ExotelConfigurationRequest,
 )
@@ -52,6 +55,7 @@ TelephonyConfigRequest = Annotated[
     Union[
         ARIConfigurationRequest,
         CloudonixConfigurationRequest,
+        DialConfigurationRequest,
         ExotelConfigurationRequest,
         PlivoConfigurationRequest,
         TelnyxConfigurationRequest,

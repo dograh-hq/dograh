@@ -39,6 +39,7 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
     ExtractionResponseError,
     extract_variables,
 )
+from api.services.workflow.qa.tracing import setup_langfuse_parent_context
 
 FINAL_EXTRACTION_BUDGET_SECONDS = 60.0
 EXTRACTION_ATTEMPT_TIMEOUT_SECONDS = 15.0
@@ -124,6 +125,9 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
         return
     set_current_run_id(str(run_id))
     set_current_org_id(organization_id)
+    # Stitch post-call extraction spans into the original call's Langfuse trace
+    # so the disposition/variable LLM calls nest under it instead of orphaning.
+    parent_context = setup_langfuse_parent_context(run)
     variables: dict = {}
     disposition = None
     disposition_request: dict = {}
@@ -195,6 +199,7 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
                                 requested,
                                 request.get("conversation_history", conversation),
                                 extraction_prompt=request["prompt"],
+                                parent_ctx=parent_context,
                                 strict=True,
                                 separate_static_prompt=True,
                             )
@@ -220,7 +225,9 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
                         context=context,
                         options=options,
                         template_context=None,
-                    ).extract(raise_on_error=True),
+                    ).extract(
+                        parent_context=parent_context, raise_on_error=True
+                    ),
                 )
     except Exception as exc:  # noqa: BLE001 - persist failure before integrations
         errors.append(type(exc).__name__)

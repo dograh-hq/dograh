@@ -88,25 +88,26 @@ async def startup(ctx: dict) -> None:
     """Route post-call spans to each org's own Langfuse project, as the API does.
 
     Without the org exporters, spans from an org that connected its own
-    Langfuse export to Dograh's project under that org's trace ids. Failures
-    are logged rather than raised: tracing must never stop the worker.
+    Langfuse export to Dograh's project under that org's trace ids. It
+    subscribes to credential changes before loading them, so a change made
+    during startup is not missed. Failures are logged rather than raised:
+    tracing must never stop the worker.
     """
-    try:
-        await load_all_org_langfuse_credentials()
-    except Exception:
-        logger.exception("Failed to load org Langfuse credentials")
     sync_manager = WorkerSyncManager(REDIS_URL)
     sync_manager.register(
         WorkerSyncEventType.LANGFUSE_CREDENTIALS, handle_langfuse_sync
     )
     try:
         await sync_manager.start()
+        ctx["worker_sync_manager"] = sync_manager
     except Exception:
         logger.exception(
             "Failed to start worker sync; Langfuse credential changes apply on restart"
         )
-        return
-    ctx["worker_sync_manager"] = sync_manager
+    try:
+        await load_all_org_langfuse_credentials()
+    except Exception:
+        logger.exception("Failed to load org Langfuse credentials")
 
 
 async def shutdown(ctx: dict) -> None:

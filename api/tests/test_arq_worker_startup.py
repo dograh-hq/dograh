@@ -1,7 +1,5 @@
 """The ARQ worker routes spans to each org's Langfuse project, as the API does."""
 
-from unittest.mock import AsyncMock
-
 import pytest
 
 from api.services.pipecat.tracing_config import handle_langfuse_sync
@@ -10,30 +8,36 @@ from api.tasks import arq as arq_worker
 
 
 class SyncManager:
-    def __init__(self, fail_start=False):
+    def __init__(self, order, fail_start=False):
         self.handlers = {}
+        self.order = order
         self.fail_start = fail_start
-        self.started = False
         self.stopped = False
 
     def register(self, event_type, handler):
         self.handlers[event_type] = handler
 
     async def start(self):
+        self.order.append("subscribe")
         if self.fail_start:
             raise ConnectionError("redis unavailable")
-        self.started = True
 
     async def stop(self):
         self.stopped = True
 
 
 def install(monkeypatch, *, load_error=None, fail_start=False):
-    load = AsyncMock(side_effect=load_error)
-    manager = SyncManager(fail_start=fail_start)
+    order = []
+
+    async def load():
+        order.append("load")
+        if load_error:
+            raise load_error
+
+    manager = SyncManager(order, fail_start=fail_start)
     monkeypatch.setattr(arq_worker, "load_all_org_langfuse_credentials", load)
     monkeypatch.setattr(arq_worker, "WorkerSyncManager", lambda _url: manager)
-    return load, manager
+    return order, manager
 
 
 def test_worker_settings_install_lifecycle_hooks():
@@ -42,27 +46,27 @@ def test_worker_settings_install_lifecycle_hooks():
 
 
 @pytest.mark.asyncio
-async def test_startup_loads_org_exporters_and_follows_changes(monkeypatch):
-    load, manager = install(monkeypatch)
+async def test_startup_follows_changes_before_loading_org_exporters(monkeypatch):
+    order, manager = install(monkeypatch)
     ctx = {}
     await arq_worker.startup(ctx)
-    load.assert_awaited_once()
+    # Subscribed first, so a change committed during the load is still heard.
+    assert order == ["subscribe", "load"]
     assert manager.handlers == {
         WorkerSyncEventType.LANGFUSE_CREDENTIALS: handle_langfuse_sync
     }
-    assert manager.started
     await arq_worker.shutdown(ctx)
     assert manager.stopped
 
 
 @pytest.mark.asyncio
 async def test_tracing_failures_do_not_stop_the_worker(monkeypatch):
-    load, manager = install(
+    order, manager = install(
         monkeypatch, load_error=RuntimeError("db unavailable"), fail_start=True
     )
     ctx = {}
     await arq_worker.startup(ctx)
-    load.assert_awaited_once()
+    assert order == ["subscribe", "load"]
     assert "worker_sync_manager" not in ctx
     await arq_worker.shutdown(ctx)
     assert not manager.stopped

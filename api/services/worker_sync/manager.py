@@ -9,6 +9,7 @@ only the events whose state they hold.
 """
 
 import asyncio
+import contextlib
 from typing import Awaitable, Callable, Dict
 
 import redis.asyncio as aioredis
@@ -45,10 +46,21 @@ class WorkerSyncManager:
         logger.debug(f"Broadcast worker sync: {event_type}/{action} org={org_id}")
 
     async def start(self):
-        """Open a dedicated Redis connection and start the background listener."""
+        """Open a dedicated Redis connection and start the background listener.
+
+        A failed start leaves nothing open, so a caller can carry on without sync.
+        """
         self._redis = await aioredis.from_url(self._redis_url, decode_responses=True)
-        self._pubsub = self._redis.pubsub()
-        await self._pubsub.subscribe(RedisChannel.WORKER_SYNC.value)
+        try:
+            self._pubsub = self._redis.pubsub()
+            await self._pubsub.subscribe(RedisChannel.WORKER_SYNC.value)
+        except Exception:
+            for resource in (self._pubsub, self._redis):
+                if resource is not None:
+                    with contextlib.suppress(Exception):
+                        await resource.close()
+            self._pubsub = self._redis = None
+            raise
         self._listener_task = asyncio.create_task(self._listen())
         logger.info("WorkerSyncManager started")
 

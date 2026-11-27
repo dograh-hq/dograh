@@ -238,8 +238,12 @@ class _CompletionWorkerLLM:
         self._variables = variables
         self._disposition = disposition
         self.requests: list[str] = []
+        self.prompts: list[str] = []
 
-    async def run_inference(self, _context, system_instruction=None, **_kwargs):
+    async def run_inference(self, context, system_instruction=None, **_kwargs):
+        self.prompts.append(
+            "\n".join(str(message.get("content")) for message in context.get_messages())
+        )
         if "call_disposition" in (system_instruction or ""):
             self.requests.append("disposition")
             return json.dumps({"call_disposition": self._disposition})
@@ -1113,32 +1117,8 @@ async def test_text_chat_end_transition_persists_synchronous_variable_extraction
     upload_artifacts.assert_awaited_once()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("slow_disposal", [False, True])
-async def test_text_chat_end_node_defers_disposition_to_completion_worker(
-    db_session,
-    async_session,
-    test_client_factory,
-    slow_disposal,
-):
-    """A chat ending at an end node classifies its outcome after the turn.
-
-    The turn tears its pipeline -- and the conversation's LLM client -- down as
-    soon as the closing reply settles, so the disposition cannot be requested
-    from inside it. The turn freezes the request instead, and the completion
-    worker runs it with a client of its own before integrations read the run.
-
-    With ``slow_disposal`` a tool call is still finishing when the reply
-    settles, so the turn must wait for disposal or it persists no handoff.
-    """
-    real_finish_tool_calls = PipecatEngine.finish_tool_calls
-
-    async def finish_tool_calls(engine):
-        if slow_disposal and engine.is_call_disposed():
-            await asyncio.sleep(0.5)
-        await real_finish_tool_calls(engine)
-
-    workflow_definition = {
+def _end_node_workflow_definition() -> dict:
+    return {
         "nodes": [
             {
                 "id": "start",
@@ -1179,25 +1159,59 @@ async def test_text_chat_end_node_defers_disposition_to_completion_worker(
             }
         ],
     }
+
+
+def _ending_turn_llm() -> MockLLMService:
+    """A reply that moves the chat to its end node and says goodbye."""
+    return MockLLMService(
+        mock_steps=[
+            MockLLMService.create_function_call_chunks(
+                "end_the_call", {}, tool_call_id="call_end"
+            ),
+            MockLLMService.create_text_chunks("Glad that's sorted. Bye!"),
+        ],
+        chunk_delay=0.001,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("slow_disposal", [False, True])
+async def test_text_chat_end_node_defers_disposition_to_completion_worker(
+    db_session,
+    async_session,
+    test_client_factory,
+    slow_disposal,
+):
+    """A chat ending at an end node classifies its outcome after the turn.
+
+    The turn tears its pipeline -- and the conversation's LLM client -- down as
+    soon as the closing reply settles, so the disposition cannot be requested
+    from inside it. The turn freezes the request instead, and the completion
+    worker runs it with a client of its own before integrations read the run.
+
+    With ``slow_disposal`` a tool call is still finishing when the reply
+    settles, so the turn must wait for disposal or it persists no handoff.
+    """
+    real_finish_tool_calls = PipecatEngine.finish_tool_calls
+    disposal_slowed = asyncio.Event()
+
+    async def finish_tool_calls(engine):
+        if slow_disposal and engine.is_call_disposed():
+            await asyncio.sleep(0.5)
+            disposal_slowed.set()
+        await real_finish_tool_calls(engine)
+
     user, workflow = await _create_user_and_workflow(
         db_session,
         async_session,
-        workflow_definition=workflow_definition,
-        suffix="end-node-disposition",
+        workflow_definition=_end_node_workflow_definition(),
+        suffix=f"end-node-disposition-{slow_disposal}",
         workflow_configurations=_CALL_DISPOSITIONS,
     )
 
     llm_responses = [
         MockLLMService(mock_steps=[], chunk_delay=0.001),
-        MockLLMService(
-            mock_steps=[
-                MockLLMService.create_function_call_chunks(
-                    "end_the_call", {}, tool_call_id="call_end"
-                ),
-                MockLLMService.create_text_chunks("Glad that's sorted. Bye!"),
-            ],
-            chunk_delay=0.001,
-        ),
+        _ending_turn_llm(),
     ]
     in_turn_disposition = AsyncMock(return_value=None)
 
@@ -1236,6 +1250,8 @@ async def test_text_chat_end_node_defers_disposition_to_completion_worker(
             assert message_response.status_code == 200
     assert message_response.json()["is_completed"] is True
     in_turn_disposition.assert_not_awaited()
+    # The slow case really did finish disposal after the reply settled.
+    assert disposal_slowed.is_set() is slow_disposal
 
     run_id = session["workflow_run_id"]
     run = await db_session.get_workflow_run_by_id(run_id)
@@ -1265,6 +1281,121 @@ async def test_text_chat_end_node_defers_disposition_to_completion_worker(
     assert "issue_resolved" in run.gathered_context["call_tags"]
     assert run.extra["workflow_completion"]["status"] == "done"
     assert run.extra["workflow_completion"]["final_extraction"]["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_text_chat_disposal_past_the_turn_budget_keeps_the_chat_open(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    """A turn whose disposal outlives its budget fails instead of completing.
+
+    Completing it would persist the chat without a call status, a disposition
+    or a final extraction for the worker. Failed instead, the chat stays open
+    and ending it freezes everything as any user-ended chat does.
+    """
+    release_disposal = asyncio.Event()
+    real_finish_tool_calls = PipecatEngine.finish_tool_calls
+    stuck_engines = []
+
+    async def finish_tool_calls(engine):
+        if engine.is_call_disposed():
+            stuck_engines.append(engine)
+            await release_disposal.wait()
+        await real_finish_tool_calls(engine)
+
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=_end_node_workflow_definition(),
+        suffix="disposal-timeout",
+        workflow_configurations=_CALL_DISPOSITIONS,
+    )
+    llm_responses = [
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+        MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Try restarting it.")],
+            chunk_delay=0.001,
+        ),
+        _ending_turn_llm(),
+    ]
+
+    try:
+        async with test_client_factory(user) as client:
+            with (
+                patch(
+                    "api.services.workflow.text_chat_runner.create_llm_service",
+                    side_effect=llm_responses,
+                ),
+                patch(
+                    "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                    new=AsyncMock(return_value=False),
+                ),
+                patch(
+                    "api.services.workflow.text_chat_runner.TEXT_CHAT_TURN_TIMEOUT_SECONDS",
+                    0.5,
+                ),
+                patch.object(PipecatEngine, "finish_tool_calls", finish_tool_calls),
+                patch("api.tasks.arq.enqueue_job", AsyncMock()),
+                patch(
+                    "api.services.workflow.text_chat_session_service."
+                    "upload_workflow_run_artifacts",
+                    AsyncMock(),
+                ),
+            ):
+                response = await client.post(
+                    f"/api/v1/workflow/{workflow.id}/text-chat/sessions", json={}
+                )
+                assert response.status_code == 200
+                session = response.json()
+                run_id = session["workflow_run_id"]
+                base = f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{run_id}"
+                response = await client.post(
+                    f"{base}/messages",
+                    json={
+                        "text": "My router keeps dropping.",
+                        "expected_revision": session["revision"],
+                    },
+                )
+                assert response.status_code == 200
+                session = response.json()
+
+                # The ending turn's disposal is stuck past the turn's budget.
+                response = await client.post(
+                    f"{base}/messages",
+                    json={
+                        "text": "That fixed it, thanks. End the chat.",
+                        "expected_revision": session["revision"],
+                    },
+                )
+                assert response.status_code == 500
+                assert stuck_engines
+
+                run = await db_session.get_workflow_run_by_id(run_id)
+                assert run.is_completed is False
+                failed = await db_session.get_workflow_run_text_session(
+                    run_id, organization_id=user.selected_organization_id
+                )
+                assert failed.session_data["turns"][-1]["status"] == "failed"
+
+                response = await client.post(
+                    f"{base}/end", json={"expected_revision": failed.revision}
+                )
+                assert response.status_code == 200
+    finally:
+        release_disposal.set()
+        for engine in stuck_engines:
+            await asyncio.wait_for(engine.wait_for_call_shutdown(), timeout=5)
+
+    run = await db_session.get_workflow_run_by_id(run_id)
+    assert run.is_completed is True
+    assert run.gathered_context["call_disposition"] == "user_hangup"
+    assert run.extra["workflow_completion"]["final_extraction"]["status"] == "pending"
+    assert run.logs["final_extraction"]["disposition"]["fallback"] == "user_hangup"
+    assert {"role": "user", "content": "My router keeps dropping."} in run.logs[
+        "conversation"
+    ]
 
 
 @pytest.mark.asyncio
@@ -1590,6 +1721,16 @@ async def test_text_chat_end_extracts_from_a_turn_left_pending(
     assert _log_texts(workflow_run.logs, "rtf-user-transcription") == [
         "My ticket is 1054202, please chase it."
     ]
+
+    llm = _CompletionWorkerLLM(variables={"ticket_number": "1054202"}, disposition="")
+    await _run_completion_worker(run_id, llm)
+
+    assert llm.requests == ["variables"]
+    assert "My ticket is 1054202, please chase it." in llm.prompts[0]
+    workflow_run = await db_session.get_workflow_run_by_id(run_id)
+    assert workflow_run.gathered_context["extracted_variables"] == {
+        "ticket_number": "1054202"
+    }
 
 
 @pytest.mark.asyncio

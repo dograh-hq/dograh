@@ -79,9 +79,6 @@ TEXT_CHAT_CHECKPOINT_VERSION = 1
 TEXT_CHAT_TURN_TIMEOUT_SECONDS = 60.0
 TEXT_CHAT_IDLE_SETTLE_SECONDS = 0.2
 TEXT_CHAT_INTERNAL_CANCEL_REASON = "text_chat_turn_complete"
-# Disposal makes no LLM calls -- extraction is deferred -- so this only bounds
-# tool calls and agent retirement that it waits out.
-TEXT_CHAT_SHUTDOWN_TIMEOUT_SECONDS = 10.0
 
 
 def _pipecat_type_tag(type_: type) -> str:
@@ -868,17 +865,20 @@ async def execute_text_chat_pending_turn(
             )
 
         if engine.is_call_disposed():
-            # Disposal stamps the disposition and freezes the final extraction,
-            # and the conversation span it nests that extraction under is gone
-            # once the pipeline is cancelled below.
+            # Disposal stamps the call status and disposition and freezes the
+            # final extraction, and the conversation span it nests that
+            # extraction under is gone once the pipeline is cancelled below. A
+            # turn that completed the chat without them would lose all three,
+            # so past the turn's budget it fails instead, like a reply that
+            # never settles, and the chat stays open for `/end` or the
+            # inactivity sweeper to complete.
             try:
-                async with asyncio.timeout(TEXT_CHAT_SHUTDOWN_TIMEOUT_SECONDS):
+                async with asyncio.timeout(TEXT_CHAT_TURN_TIMEOUT_SECONDS):
                     await engine.wait_for_call_shutdown()
             except TimeoutError:
-                logger.warning(
-                    f"Text chat disposal did not finish within "
-                    f"{TEXT_CHAT_SHUTDOWN_TIMEOUT_SECONDS}s for run {workflow_run_id}"
-                )
+                raise TimeoutError(
+                    "Timed out waiting for the text chat to finish ending"
+                ) from None
     finally:
         try:
             if not task.has_finished():

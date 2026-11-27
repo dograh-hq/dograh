@@ -125,7 +125,7 @@ class WorkflowCompletionClient(BaseDBClient):
             tags.extend(
                 value
                 for key, value in context.items()
-                if key.startswith("tag_") and isinstance(value, str)
+                if key.startswith("tag_") and isinstance(value, str) and value
             )
             context["call_tags"] = append_unique_tags(context.get("call_tags"), tags)
             run.extra = {

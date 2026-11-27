@@ -26,6 +26,7 @@ from api.services.configuration.run_model_configuration import (
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.pipecat.fallback_llm import FallbackLLMProcessor
 from api.services.pipecat.service_factory import create_llm_service
+from api.services.pipecat.tracing_config import build_remote_parent_context
 from api.services.pipecat.usage_metrics import InferenceUsage
 from api.services.workflow.conversation_history import (
     build_conversation_history,
@@ -115,6 +116,19 @@ async def _retry(
             await asyncio.sleep(RETRY_DELAYS[attempt])
 
 
+def _call_trace_parent_context(run) -> Any:
+    """Parent the extraction spans to the call's trace.
+
+    Nests under the conversation span the engine recorded at hangup; a run
+    without one attaches at the trace root by the trace id in ``trace_url``.
+    """
+    payload = (run.logs or {}).get("final_extraction") or {}
+    parent = payload.get("trace_parent") or {}
+    if parent.get("trace_id") and parent.get("span_id"):
+        return build_remote_parent_context(parent["trace_id"], parent["span_id"])
+    return setup_langfuse_parent_context(run)
+
+
 async def run_final_extraction(run_id: int, organization_id: int, token: str) -> None:
     run, run_org = await db_client.get_workflow_run_with_context(run_id)
     if run is None or run_org != organization_id:
@@ -125,9 +139,7 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
         return
     set_current_run_id(str(run_id))
     set_current_org_id(organization_id)
-    # Stitch post-call extraction spans into the original call's Langfuse trace
-    # so the disposition/variable LLM calls nest under it instead of orphaning.
-    parent_context = setup_langfuse_parent_context(run)
+    parent_context = _call_trace_parent_context(run)
     variables: dict = {}
     disposition = None
     disposition_request: dict = {}
@@ -225,9 +237,7 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
                         context=context,
                         options=options,
                         template_context=None,
-                    ).extract(
-                        parent_context=parent_context, raise_on_error=True
-                    ),
+                    ).extract(parent_context=parent_context, raise_on_error=True),
                 )
     except Exception as exc:  # noqa: BLE001 - persist failure before integrations
         errors.append(type(exc).__name__)

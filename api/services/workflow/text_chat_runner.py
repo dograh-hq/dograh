@@ -166,21 +166,22 @@ def normalize_text_chat_checkpoint(
     return normalized
 
 
-def pending_text_chat_user_message(
+def unanswered_text_chat_user_message(
     session_data: dict[str, Any] | None,
 ) -> str | None:
-    """The user text of a turn still pending when the session ended.
+    """The user text of a last turn that never completed when the session ended.
 
     ``append_text_chat_user_message`` persists the user's message into
     ``session_data`` and only folds it into ``checkpoint["messages"]`` once the
-    turn executes. A session completed while a turn is in flight -- the worker
+    turn completes. A session completed while a turn is in flight -- the worker
     died mid-turn, or an ``/end`` arrived carrying no ``expected_revision`` --
-    therefore holds that message in its transcript but not in its checkpoint.
-    Extraction reads it from here so it does not miss the last thing the user
-    said, which is usually the one that matters most.
+    or after its last turn failed therefore holds that message in its
+    transcript but not in its checkpoint. Extraction reads it from here so it
+    does not miss the last thing the user said, which is usually the one that
+    matters most.
     """
     turns = list((session_data or {}).get("turns") or [])
-    if not turns or turns[-1].get("status") != "pending":
+    if not turns or turns[-1].get("status") not in ("pending", "failed"):
         return None
     user_message = turns[-1].get("user_message") or {}
     return ((user_message.get("text") or "").strip()) or None
@@ -973,12 +974,12 @@ async def freeze_text_chat_final_extraction(
         messages = _deserialize_text_chat_checkpoint_messages(
             base_checkpoint["messages"]
         )
-        # The checkpoint lags a turn that never finished executing; its user
-        # message lives in session_data. The transcript already includes it, so
+        # The checkpoint lags a last turn that never completed; its user message
+        # lives in session_data. The transcript already includes it, so
         # extraction must too or the two disagree about what was said.
-        pending_user_message = pending_text_chat_user_message(session_data)
-        if pending_user_message:
-            messages = [*messages, {"role": "user", "content": pending_user_message}]
+        unanswered_message = unanswered_text_chat_user_message(session_data)
+        if unanswered_message:
+            messages = [*messages, {"role": "user", "content": unanswered_message}]
 
         if not any(
             isinstance(message, dict) and message.get("role") == "user"

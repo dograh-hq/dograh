@@ -1293,7 +1293,8 @@ async def test_text_chat_disposal_past_the_turn_budget_keeps_the_chat_open(
 
     Completing it would persist the chat without a call status, a disposition
     or a final extraction for the worker. Failed instead, the chat stays open
-    and ending it freezes everything as any user-ended chat does.
+    and ending it freezes everything as any user-ended chat does -- including
+    the failed turn's message, which never reached the checkpoint.
     """
     release_disposal = asyncio.Event()
     real_finish_tool_calls = PipecatEngine.finish_tool_calls
@@ -1396,6 +1397,18 @@ async def test_text_chat_disposal_past_the_turn_budget_keeps_the_chat_open(
     assert {"role": "user", "content": "My router keeps dropping."} in run.logs[
         "conversation"
     ]
+    assert run.logs["conversation"][-1] == {
+        "role": "user",
+        "content": "That fixed it, thanks. End the chat.",
+    }
+
+    llm = _CompletionWorkerLLM(variables={}, disposition="issue_resolved")
+    await _run_completion_worker(run_id, llm)
+
+    assert llm.requests == ["disposition"]
+    assert "That fixed it, thanks. End the chat." in llm.prompts[0]
+    run = await db_session.get_workflow_run_by_id(run_id)
+    assert run.gathered_context["call_disposition"] == "issue_resolved"
 
 
 @pytest.mark.asyncio

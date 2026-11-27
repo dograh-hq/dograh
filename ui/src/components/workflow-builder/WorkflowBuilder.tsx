@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { getBuilderSessionApiV1WorkflowBuilderSessionIdGet, openWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPost, saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost } from '@/client/sdk.gen';
 import type { BuilderSession, BuilderTurnRequest } from '@/client/types.gen';
+import { useModelSetup } from '@/components/onboarding/useModelSetup';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { BuilderDograhGate } from '@/components/workflow-builder/BuilderDograhGate';
@@ -16,7 +17,6 @@ import { QuestionCards } from '@/components/workflow-builder/QuestionCards';
 import { ToolApprovalCard } from '@/components/workflow-builder/ToolApprovalCard';
 import { useBuilderExecution } from '@/components/workflow-builder/useBuilderExecution';
 import { PostHogEvent } from '@/constants/posthog-events';
-import { useDograhAccount } from '@/context/DograhAccountContext';
 import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 
@@ -44,11 +44,10 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     const composer = useRef<HTMLTextAreaElement>(null);
     const openedTracked = useRef(false);
     const shownInterrupts = useRef<Set<string>>(new Set());
-    // The builder runs on the organization's Dograh key; without one, offer to
-    // set it up instead of accepting a request that can only fail.
-    const dograh = useDograhAccount();
+    // OSS users can compose a request before connecting their Dograh account.
+    const { dograh, selfHosted, checking: checkingDograh, ensureSetup, setupModal } = useModelSetup('builder');
     const needsDograh = dograh.status === 'missing' || dograh.status === 'invalid';
-    const checkingDograh = dograh.status === 'loading';
+    const showDograhGate = needsDograh && !selfHosted;
     const refreshDograh = dograh.refresh;
 
     const execution = useBuilderExecution({
@@ -105,7 +104,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     }, [authLoading, user?.id, organization, workflowId, restoreAttempt]);
 
     // A refusal that points at the Models page means the key changed since the
-    // status was read; show the setup prompt instead of the composer.
+    // status was read; refresh it so the next submission can offer setup.
     useEffect(() => { if (error?.includes('Models page')) void refreshDograh(); }, [error, refreshDograh]);
     // Once reconnected here, that refusal no longer applies.
     const onDograhConnected = async () => {
@@ -161,7 +160,8 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
         return result.data.workflow_id;
     };
     const send = async (content: Pick<BuilderTurnRequest, 'message' | 'answers' | 'approval' | 'tool_approval'> = {}) => {
-        if (!user || !sessionId || busy || saving || restoring || disabled || needsDograh || checkingDograh) return;
+        if (!user || !sessionId || busy || saving || restoring || disabled || showDograhGate || checkingDograh) return;
+        if (!await ensureSetup()) return;
         // The brief: first user message of the session separates "tried" from
         // "just opened". Later turns are iteration, not a fresh attempt.
         if (content.message && !session?.messages?.length) {
@@ -209,7 +209,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
         <div className={`mx-auto grid w-full max-w-3xl flex-1 ${isStarting ? 'content-center' : ''}`}>
             <section className={`flex min-w-0 flex-col ${isStarting ? '' : 'min-h-[650px] rounded-2xl border bg-muted/20'}`}>
                 <div className={isStarting ? 'space-y-5 px-4 pb-6 text-center' : 'max-h-[65vh] min-h-[380px] flex-1 space-y-5 overflow-y-auto p-5 md:p-7'} aria-live="polite">
-                    {restoring ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Restoring conversation…</div> : isStarting && !needsDograh && <div>
+                    {restoring ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Restoring conversation…</div> : isStarting && !showDograhGate && <div>
                         <h2 className="text-2xl font-medium tracking-tight">{workflowId ? 'What would you like to change?' : 'What should your agent do?'}</h2>
                         <p className="mt-3 text-sm leading-6 text-muted-foreground">{workflowId ? 'Start a conversation to refine this agent. The builder will use your current saved workflow.' : 'Describe who it should speak with and what it needs to do.'}</p>
                     </div>}
@@ -227,7 +227,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
                         {!sessionId && !restoring && <Button variant="outline" size="sm" onClick={() => setRestoreAttempt(value => value + 1)}>Retry restoring conversation</Button>}
                         {error.includes('Models page') && <Link href="/model-configurations" className="mt-2 block font-medium underline">Open Models page</Link>}
                     </div>}
-                    {!busy && !awaitingUser && !needsDograh && session?.can_continue && <Button variant="outline" disabled={disabled || saving || checkingDograh} onClick={() => void send()}>Resume building</Button>}
+                    {!busy && !awaitingUser && !showDograhGate && session?.can_continue && <Button variant="outline" disabled={disabled || saving || checkingDograh} onClick={() => void send()}>Resume building</Button>}
                     <div ref={bottom} />
                 </div>
                 {!workflowId && session?.proposal && <div className="px-5 pt-4 md:px-7">
@@ -236,7 +236,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
                         {saving ? 'Preparing agent…' : 'Test agent'}
                     </Button>
                 </div>}
-                {needsDograh ? <div className={isStarting ? '' : 'm-4'}>
+                {showDograhGate ? <div className={isStarting ? '' : 'm-4'}>
                     <BuilderDograhGate reason={dograh.status as 'missing' | 'invalid'} offerBlankCanvas={!workflowId} onConnected={onDograhConnected} />
                 </div> : <form className={`rounded-xl border bg-background p-3 ${isStarting ? 'shadow-sm' : 'm-4'}`} onSubmit={event => { event.preventDefault(); if (input.trim()) void send({ message: input.trim() }); }}>
                     <Textarea ref={composer} aria-label="Describe your agent or request a change" placeholder={pendingApproval ? 'Review the requirements above to continue…' : pendingToolApproval ? 'Review the tool above to continue…' : pendingQuestions.length ? 'Answer the questions above to continue…' : workflowId || session?.proposal ? 'Ask for a change to your agent…' : 'Build me an agent that…'} className="min-h-[80px] resize-none border-0 shadow-none focus-visible:ring-0" value={input} maxLength={12000} disabled={busy || saving || restoring || awaitingUser || disabled || !sessionId}
@@ -245,5 +245,6 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
                 </form>}
             </section>
         </div>
+        {setupModal}
     </div>;
 }

@@ -7,6 +7,10 @@ const mocks = vi.hoisted(() => ({ signedIn: true, get: vi.fn(), open: vi.fn(), e
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock('@/context/DograhAccountContext', () => ({ useDograhAccount: () => ({ status: mocks.dograhStatus, refresh: mocks.refreshDograh }) }));
 vi.mock('@/context/AppConfigContext', () => ({ useAppConfig: () => ({ config: { deploymentMode: mocks.deploymentMode } }) }));
+vi.mock('@/context/OnboardingContext', () => ({ useOnboarding: () => ({ loading: false, hasCompletedAction: () => false, markActionCompleted: vi.fn() }) }));
+vi.mock('@/components/model-connections/DograhAccountConnect', () => ({
+    DograhAccountConnectFlow: ({ onConnected }: { onConnected: () => Promise<void> }) => <button onClick={() => void onConnected()}>Approve on Dograh</button>,
+}));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: mocks.signedIn ? { id: '1', organizationId: '7' } : null, loading: false, getAccessToken: mocks.token }) }));
 vi.mock('@/client/sdk.gen', () => ({
     getBuilderSessionApiV1WorkflowBuilderSessionIdGet: mocks.get,
@@ -291,17 +295,39 @@ it('shows a sign-in action when authentication finishes without a user', () => {
     expect(mocks.get).not.toHaveBeenCalled();
 });
 
-it('offers to connect a Dograh account instead of a composer when the organization has no key', async () => {
-    mocks.dograhStatus = 'missing';
+it.each(['missing', 'invalid'])('waits for submission before offering setup when the Dograh key is %s, then sends the preserved prompt', async (status) => {
+    mocks.dograhStatus = status;
     window.history.replaceState({}, '', '/workflow/create');
     render(<WorkflowBuilder />);
-    const gate = await screen.findByRole('region', { name: 'Agent builder setup' });
-    expect(gate.textContent).toContain('Agent builder runs on Dograh models');
-    expect(screen.getByRole('button', { name: 'Connect Dograh account' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Start from a blank canvas' })).toBeTruthy();
-    expect(screen.queryByRole('textbox')).toBeNull();
-    expect(screen.queryByText('What should your agent do?')).toBeNull();
+    const composer = await screen.findByRole('textbox');
+    expect(screen.getByText('What should your agent do?')).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.change(composer, { target: { value: 'Build my receptionist' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(await screen.findByRole('dialog', { name: 'Set up AI models' })).toBeTruthy();
+    expect((composer as HTMLTextAreaElement).value).toBe('Build my receptionist');
     expect(mocks.send).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve on Dograh' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledOnce());
+    expect(mocks.send.mock.calls[0][0].body.message).toBe('Build my receptionist');
+    expect(mocks.refreshDograh).toHaveBeenCalledOnce();
+    expect(mocks.push).not.toHaveBeenCalled();
+});
+
+it('retains an edit request when setup is skipped and asks again on resubmission', async () => {
+    mocks.dograhStatus = 'missing';
+    render(<WorkflowBuilder workflowId={41} />);
+    await screen.findByText('Build a receptionist');
+    const composer = screen.getByRole('textbox');
+    fireEvent.change(composer, { target: { value: 'Change the greeting' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect((composer as HTMLTextAreaElement).value).toBe('Change the greeting');
+    expect(mocks.send).not.toHaveBeenCalled();
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(await screen.findByRole('dialog', { name: 'Set up AI models' })).toBeTruthy();
 });
 
 it('asks hosted organizations to fix their Dograh connection on the Models page', async () => {

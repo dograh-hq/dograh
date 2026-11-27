@@ -19,6 +19,7 @@ interface ManualTextChatPanelProps {
     initialContextVariables?: Record<string, string>;
     disabled: boolean;
     disabledReason: string | null;
+    beforeStart?: () => Promise<boolean>;
     onActiveChange?: (active: boolean) => void;
     onNodeTransition?: (transition: WorkflowRuntimeNodeTransition) => void;
 }
@@ -29,6 +30,7 @@ export function ManualTextChatPanel({
     initialContextVariables,
     disabled,
     disabledReason,
+    beforeStart,
     onActiveChange,
     onNodeTransition,
 }: ManualTextChatPanelProps) {
@@ -66,7 +68,9 @@ export function ManualTextChatPanel({
         return (
             <div className="flex h-full min-h-0 flex-col gap-3">
                 {disabledReason ? <DisabledNotice reason={disabledReason} /> : null}
-                <ManualChatEmptyState disabled={disabled} ready={ready} onStart={startSession} />
+                <ManualChatEmptyState disabled={disabled} ready={ready} onStart={async () => {
+                    if (!beforeStart || await beforeStart()) startSession();
+                }} />
             </div>
         );
     }

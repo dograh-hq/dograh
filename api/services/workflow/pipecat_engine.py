@@ -13,6 +13,7 @@ from typing import (
     Union,
 )
 
+from opentelemetry import trace as otel_trace
 from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -35,7 +36,10 @@ from api.errors.failure import (
     failure_metadata_for_processor,
     log_failure,
 )
-from api.schemas.workflow_configurations import CallDispositionOption
+from api.schemas.workflow_configurations import (
+    CallDispositionOption,
+    PromptVariablesConfiguration,
+)
 from api.services.pipecat.audio_playback import play_audio
 from api.services.pipecat.call_monitor_processor import CallMonitorProcessor
 from api.services.pipecat.call_opening import CallOpening
@@ -92,6 +96,13 @@ from api.services.workflow.pipecat_engine_custom_tools import (
 from api.services.workflow.pipecat_engine_variable_extractor import (
     ENGINE_OWNED_CONTEXT_KEYS,
     VariableExtractionManager,
+    extraction_prompt_is_static,
+)
+from api.services.workflow.prompt_variables import (
+    call_variable_context,
+    prompt_templates,
+    resolve_call_variables,
+    update_call_context,
 )
 from api.services.workflow.tools.knowledge_base import (
     retrieve_from_knowledge_base,
@@ -145,6 +156,7 @@ class PipecatEngine:
         run_transition_variable_extraction_in_background: bool = True,
         call_dispositions: Sequence[CallDispositionOption] | None = None,
         defer_final_extraction: bool = False,
+        prompt_variables: PromptVariablesConfiguration | None = None,
     ):
         self._call_worker = task
         self._is_realtime = is_realtime
@@ -170,6 +182,11 @@ class PipecatEngine:
             worker=task,
             is_realtime=is_realtime,
             entered_at=time.time(),
+            prompt_variables=(
+                PromptVariablesConfiguration()
+                if is_realtime
+                else prompt_variables or PromptVariablesConfiguration()
+            ),
         )
         self._active_agent.greeting_override = (call_context_vars or {}).get(
             GREETING_OVERRIDE_CONTEXT_KEY
@@ -198,6 +215,7 @@ class PipecatEngine:
         self._gathered_context: dict = {}
         self._response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
+        self._prompt_prewarm_tasks: set[asyncio.Task] = set()
         self._pending_extraction_requests: dict[asyncio.Task, dict] = {}
         self._defer_final_extraction = defer_final_extraction
         self._final_extraction_snapshot: dict | None = None
@@ -351,6 +369,22 @@ class PipecatEngine:
             return None
         return tracing_ctx.get_turn_context() or tracing_ctx.get_conversation_context()
 
+    def _conversation_trace_parent(self) -> dict | None:
+        """Identify the conversation span so post-call work can nest under it."""
+        tracing_ctx: TracingContext | None = getattr(
+            self.call_worker, "_tracing_context", None
+        )
+        context = tracing_ctx.get_conversation_context() if tracing_ctx else None
+        if context is None:
+            return None
+        span_context = otel_trace.get_current_span(context).get_span_context()
+        if not span_context.is_valid:
+            return None
+        return {
+            "trace_id": format(span_context.trace_id, "032x"),
+            "span_id": format(span_context.span_id, "016x"),
+        }
+
     async def initialize(self):
         # TODO: May be set_node in a separate task so that we return from initialize immediately
         if self._initialized:
@@ -422,6 +456,21 @@ class PipecatEngine:
         """Delegate prompt formatting to the shared workflow.utils implementation."""
 
         return render_template(prompt, self._call_context_vars)
+
+    def _update_call_context_variables(self) -> None:
+        agent = self.__dict__.get("_active_agent")
+        if (
+            agent is None
+            or agent.prompt_variables.mode != "call_context"
+            or self.context is None
+        ):
+            return
+        values = resolve_call_variables(
+            prompt_templates(agent.workflow),
+            call_variable_context(self._call_context_vars, self._gathered_context),
+            include_weekday=agent.prompt_variables.include_weekday,
+        )
+        update_call_context(self.context.messages, values)
 
     async def _create_transition_func(
         self,
@@ -710,6 +759,7 @@ class PipecatEngine:
                     "extracted_variables", {}
                 )
                 extracted_variables.update(extracted_data)
+                self._update_call_context_variables()
                 logger.debug(
                     f"Variable extraction completed for node: {node.name}. Extracted: {extracted_data}"
                 )
@@ -843,6 +893,9 @@ class PipecatEngine:
             "node_id": node.id,
             "variables": [v.model_dump(mode="json") for v in variables],
             "prompt": self._format_prompt(node.extraction_prompt),
+            "cache_static_prompt": extraction_prompt_is_static(
+                node.extraction_prompt, node.extraction_variables
+            ),
             "model_configuration_snapshot": deepcopy(
                 agent.model_configuration_snapshot
             ),
@@ -894,6 +947,9 @@ class PipecatEngine:
         agent = self.active_agent
         self._final_extraction_snapshot = {
             "version": 1,
+            # Read before teardown: the conversation span is gone once the
+            # pipeline finishes, and the worker extracts after that.
+            "trace_parent": self._conversation_trace_parent(),
             "requests": requests,
             "disposition": {
                 "options": options,
@@ -973,12 +1029,46 @@ class PipecatEngine:
             workflow=agent.workflow,
             format_prompt=self._format_prompt,
             has_recordings=self._has_recordings,
+            prompt_variables=agent.prompt_variables,
         )
         functions = await compose_functions_for_node(
             node=node, custom_tool_manager=manager
         )
         agent.tools = ToolsSchema(standard_tools=functions)
         agent.system_prompt = prompt.text
+        configure_cache = getattr(agent.llm, "configure_prompt_cache", None)
+        try:
+            cache_enabled = agent.prompt_variables.mode == "call_context"
+            if configure_cache and not cache_enabled:
+                configure_cache(
+                    organization_id=0,
+                    workflow_id=agent.workflow_id,
+                    node_id=node.id,
+                    enabled=False,
+                )
+            if configure_cache and cache_enabled:
+                organization_id = await self._get_organization_id()
+                if organization_id:
+                    configure_cache(
+                        organization_id=organization_id,
+                        workflow_id=agent.workflow_id,
+                        node_id=node.id,
+                        enabled=True,
+                    )
+                    agent.llm.prewarm_prompt_cache(
+                        node_id=node.id,
+                        system_instruction=prompt.text,
+                        tools=agent.tools,
+                    )
+                    task = asyncio.create_task(
+                        self._prewarm_reachable_prompts(agent, node, manager)
+                    )
+                    self._prompt_prewarm_tasks.add(task)
+                    task.add_done_callback(self._prompt_prewarm_tasks.discard)
+        except Exception:
+            logger.warning(
+                "Prompt prewarm unavailable; conversation will use inline requests"
+            )
         if agent.recording_router is not None:
             agent.recording_router.set_enabled(prompt.recording_enabled)
         if apply_settings:
@@ -986,10 +1076,40 @@ class PipecatEngine:
                 LLMSettings(system_instruction=prompt.text)
             )
 
+    async def _prewarm_reachable_prompts(self, agent, node, manager) -> None:
+        for target in node.out.values():
+            if target.id in agent.prompt_prewarm_nodes:
+                continue
+            agent.prompt_prewarm_nodes.add(target.id)
+            try:
+                prompt = compose_system_prompt_for_node(
+                    node=target,
+                    workflow=agent.workflow,
+                    format_prompt=self._format_prompt,
+                    has_recordings=self._has_recordings,
+                    prompt_variables=agent.prompt_variables,
+                )
+                functions = await compose_functions_for_node(
+                    node=target, custom_tool_manager=manager
+                )
+                agent.llm.prewarm_prompt_cache(
+                    node_id=target.id,
+                    system_instruction=prompt.text,
+                    tools=ToolsSchema(standard_tools=functions),
+                )
+            except Exception as error:
+                agent.prompt_prewarm_nodes.discard(target.id)
+                # Provider/tool exceptions can contain credentials or prompt
+                # values. Keep diagnostics scoped and avoid raw exception text.
+                logger.bind(node_id=target.id, error_type=type(error).__name__).warning(
+                    "Reachable-node prompt prewarm unavailable"
+                )
+
     async def _setup_llm_context(self, node: Node) -> None:
         agent = self.active_agent
         await self._prepare_node(agent, node, apply_settings=False)
         if agent is self.active_agent:
+            self._update_call_context_variables()
             self.context.set_otel_span_name(f"llm-{node.name}")
             await self._update_llm_context(
                 agent.system_prompt, agent.tools.standard_tools
@@ -1454,6 +1574,7 @@ class PipecatEngine:
         end instead of several that have to be reconciled.
         """
         self._gathered_context.update(values)
+        self._update_call_context_variables()
 
     def record_call_tags(self, tags: Iterable[str] = ()) -> None:
         """Add call tags, along with any carried by ``tag_*`` context keys.
@@ -1502,6 +1623,10 @@ class PipecatEngine:
         self._call_disposed = True
         await self.opening.close()
         await self.cancel_initial_agent_startup()
+        prewarm_tasks = list(self.__dict__.get("_prompt_prewarm_tasks", ()))
+        for task in prewarm_tasks:
+            task.cancel()
+        await asyncio.gather(*prewarm_tasks, return_exceptions=True)
         self.speech_playback.cancel_all()
 
         # Mute the pipeline
@@ -2071,6 +2196,7 @@ class PipecatEngine:
         self.context.set_otel_span_name(f"llm-{runtime.current_node.name}")
         runtime.entered_at = time.time()
         self.install_agent(runtime, previous=self.active_agent)
+        self._update_call_context_variables()
         self._custom_tool_manager = CustomToolManager(self, runtime)
         self._agent_on_hold = False
         nodes = self._gathered_context.setdefault("nodes_visited", [])
@@ -2471,6 +2597,10 @@ class PipecatEngine:
         Connection owners are finalized by close_mcp_sessions() in the run
         finally block, including failures before the pipeline starts.
         """
+        prewarm_tasks = list(self.__dict__.get("_prompt_prewarm_tasks", ()))
+        for task in prewarm_tasks:
+            task.cancel()
+        await asyncio.gather(*prewarm_tasks, return_exceptions=True)
         await self.opening.close()
         await self.cancel_initial_agent_startup()
         for agent in [self.active_agent, self.pending_agent, *self._retired_agents]:

@@ -35,14 +35,17 @@ from api.services.pipecat.fallback_llm import FallbackLLMProcessor, FallbackRout
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
+from api.services.pipecat.gemini_prompt_cache import GeminiPromptCacheMixin
 from api.services.pipecat.gemini_spoken_tool_calls import GeminiSpokenToolCallMixin
 from api.services.pipecat.google_credentials import (
     get_google_credentials,
     prepare_google_credentials,
 )
+from api.services.pipecat.minimax_tts import MiniMaxCachingWebsocketTTSService
 from api.services.pipecat.murf_tts import MurfTTSService
 from api.services.pipecat.openai_spoken_tool_calls import OpenAISpokenToolCallMixin
 from api.services.pipecat.spoken_tool_calls import SpokenToolCallMixin
+from api.services.pipecat.tts_cache.runtime import get_speech_cache
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameProcessorSetup
@@ -365,11 +368,15 @@ class SpeachesLLMService(OpenAISpokenToolCallMixin, BaseSpeachesLLMService):
     """Speaches streaming service with spoken-tool recovery."""
 
 
-class DograhGoogleLLMService(GeminiSpokenToolCallMixin, GoogleLLMService):
+class DograhGoogleLLMService(
+    GeminiPromptCacheMixin, GeminiSpokenToolCallMixin, GoogleLLMService
+):
     adapter_class = DograhGeminiJSONSchemaAdapter
 
 
-class DograhGoogleVertexLLMService(GeminiSpokenToolCallMixin, GoogleVertexLLMService):
+class DograhGoogleVertexLLMService(
+    GeminiPromptCacheMixin, GeminiSpokenToolCallMixin, GoogleVertexLLMService
+):
     """Vertex text service with Dograh schemas and nonblocking authentication."""
 
     adapter_class = DograhGeminiJSONSchemaAdapter
@@ -898,8 +905,8 @@ def create_tts_service(
         audio_config: Pipeline and transport audio configuration.
         correlation_id: Managed model services correlation ID.
         organization_id: Trusted tenant scope for TTS caching.
-        tts_cache_enabled: Whether the workflow enables the speech cache. No provider
-            uses it at present; MiniMax logs a warning when it is set.
+        tts_cache_enabled: Whether the workflow enables the speech cache. Supported
+            for MiniMax.
     """
     # Synthesis carries the same residency question as transcription - the text
     # sent for speaking is drawn from the conversation - so the endpoint is
@@ -1185,27 +1192,33 @@ def create_tts_service(
             base_url = f"{base_url}/t2a_v2"
         _validate_runtime_service_url(base_url, "base_url")
 
-        if tts_cache_enabled:
-            logger.warning(
-                "MiniMax TTS runs over the WebSocket API and does not use the speech "
-                "cache; every reply is synthesized"
-            )
         # One bidirectional WebSocket session serves the whole call: synthesis stops
         # when the caller interrupts, and word timestamps keep the spoken part of an
         # interrupted reply in the transcript. It is served from the same host as
         # /v1/t2a_v2.
-        return MiniMaxTTSService(
-            api_key=user_config.tts.api_key,
-            url=f"wss://{urlparse(base_url).netloc}/ws/v1/t2a_v2_bidi",
-            settings=MiniMaxTTSSettings(
+        service_kwargs = {
+            "api_key": user_config.tts.api_key,
+            "url": f"wss://{urlparse(base_url).netloc}/ws/v1/t2a_v2_bidi",
+            "settings": MiniMaxTTSSettings(
                 model=user_config.tts.model,
                 voice=voice,
                 speed=speed,
                 volume=getattr(user_config.tts, "volume", 1.0),
+                text_normalization_mode=getattr(
+                    user_config.tts, "text_normalization_mode", None
+                ),
+                pronunciation_dict=getattr(user_config.tts, "pronunciation_dict", None)
+                or None,
             ),
-            skip_text_types=["recording_router", "recording"],
-            silence_time_s=1.0,
-        )
+            "skip_text_types": ["recording_router", "recording"],
+            "silence_time_s": 1.0,
+        }
+        cache = get_speech_cache(organization_id, enabled=tts_cache_enabled)
+        if cache:
+            return MiniMaxCachingWebsocketTTSService(
+                speech_cache=cache, organization_id=organization_id, **service_kwargs
+            )
+        return MiniMaxTTSService(**service_kwargs)
     elif user_config.tts.provider == ServiceProviders.AZURE_SPEECH.value:
         region = getattr(user_config.tts, "region", None) or "eastus"
         voice = getattr(user_config.tts, "voice", None) or "en-US-AriaNeural"
@@ -1339,8 +1352,7 @@ def create_tts_service(
                 min_buffer_size=2,
                 max_buffer_delay_in_ms=0,
             ),
-            text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router", "recording"],
+            skip_text_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     else:
@@ -1360,6 +1372,20 @@ def _migrate_deprecated_google_model(model: str) -> str:
         )
         return migrated
     return model
+
+
+# The first GPT-5 releases accept "minimal" but reject "none". Later releases
+# reverse that, and on Chat Completions they accept function tools only with
+# "none". Omitting the field does not help, because some releases default to
+# an effort that rejects tools. Workflow transitions are sent as tools, so
+# every newer release has to send "none".
+_GPT5_MINIMAL_EFFORT_MODEL = re.compile(r"gpt-5(?:-mini|-nano)?(?:-\d{4}-\d{2}-\d{2})?")
+
+
+def _gpt5_reasoning_effort(model: str) -> str:
+    """Lowest reasoning effort the model accepts alongside function tools."""
+    base = model.rsplit("/", 1)[-1]
+    return "minimal" if _GPT5_MINIMAL_EFFORT_MODEL.fullmatch(base) else "none"
 
 
 @_report_service_factory_failures(ErrorSource.LLM, provider_argument=0)
@@ -1438,7 +1464,10 @@ def create_llm_service_from_provider(
                 api_key=api_key,
                 settings=OpenAILLMSettings(
                     model=model,
-                    extra={"reasoning_effort": "minimal", "verbosity": "low"},
+                    extra={
+                        "reasoning_effort": _gpt5_reasoning_effort(model),
+                        "verbosity": "low",
+                    },
                 ),
                 **kwargs,
             )
@@ -1520,6 +1549,7 @@ def create_llm_service_from_provider(
             json.dumps([provider, connection], sort_keys=True).encode()
         ).hexdigest()
         adapter.signature_settings = service._settings
+        service.prompt_cache_scope = adapter.signature_scope
         return service
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:

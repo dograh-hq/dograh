@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
     getCredits: vi.fn(), push: vi.fn(), error: vi.fn(),
     params: new URLSearchParams(),
     auth: { isAuthenticated: true, loading: false },
-    config: { deploymentMode: "saas" },
+    config: { deploymentMode: "saas", backendStatus: "reachable" },
 }));
 vi.mock("next/navigation", () => ({
     useRouter: () => ({ push: mocks.push }), useSearchParams: () => mocks.params,
@@ -39,10 +39,41 @@ beforeEach(() => {
     mocks.params = new URLSearchParams();
     mocks.auth.loading = false;
     mocks.config.deploymentMode = "saas";
+    mocks.config.backendStatus = "reachable";
     mocks.getCredits.mockResolvedValue(response);
 });
 
 describe("billing ledger filters", () => {
+    it("does not offer checkout while the backend is unreachable", async () => {
+        mocks.config.deploymentMode = "oss";
+        mocks.config.backendStatus = "unreachable";
+        render(<BillingPage />);
+        await screen.findByText("Credits remaining");
+        expect(screen.queryByRole("button", { name: "Add Credits" })).toBeNull();
+    });
+
+    it("shows each Agent Builder charge with request quantity and small-credit precision", async () => {
+        mocks.getCredits.mockResolvedValue({ data: {
+            ...response.data,
+            total_count: 2, total_pages: 1,
+            ledger_entries: [
+                { id: 2, entry_type: "debit", origin: "agent_builder", metric_code: "agent_builder",
+                    billable_quantity: 1, quantity_unit: "request", credits_delta: -0.002,
+                    balance_after: 49.997, created_at: "2026-11-05T19:00:00Z" },
+                { id: 1, entry_type: "debit", origin: "agent_builder", metric_code: "agent_builder",
+                    billable_quantity: 1, quantity_unit: "request", credits_delta: -0.001,
+                    balance_after: 49.999, created_at: "2026-11-05T18:00:00Z" },
+            ],
+        } });
+        render(<BillingPage />);
+        await screen.findByText("-0.001");
+        expect(screen.getByText("-0.002")).toBeTruthy();
+        expect(screen.getAllByText("1 request")).toHaveLength(2);
+        const rows = screen.getAllByRole("row").filter(row => row.textContent?.includes("Agent Builder"));
+        expect(rows).toHaveLength(2);
+        expect(rows[0].querySelector("td")?.textContent).not.toBe(rows[1].querySelector("td")?.textContent);
+    });
+
     it("waits for auth and defaults to all activity for all time", async () => {
         mocks.auth.loading = true;
         const view = render(<BillingPage />);
@@ -126,5 +157,7 @@ describe("billing ledger filters", () => {
         await screen.findByText("Credits remaining");
         expect(mocks.getCredits.mock.calls[0][0].query).toEqual({ page: 1, limit: 50 });
         expect(screen.queryByLabelText("Activity")).toBeNull();
+        expect(screen.getByRole("button", { name: "Add Credits" })).toBeDefined();
+        expect(screen.queryByRole("link", { name: "Invoices" })).toBeNull();
     });
 });

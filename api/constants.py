@@ -61,6 +61,12 @@ UI_APP_URL = os.getenv("UI_APP_URL", "http://localhost:3010")
 DATABASE_URL = os.environ["DATABASE_URL"]
 REDIS_URL = os.environ["REDIS_URL"]
 
+
+def is_prompt_cache_disabled() -> bool:
+    """Global kill switch, checked before cache creation or attachment."""
+    return os.getenv("DOGRAH_PROMPT_CACHE_DISABLED", "").lower() in {"1", "true"}
+
+
 DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "oss")
 CORS_ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()

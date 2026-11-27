@@ -146,6 +146,7 @@ export default function WorkflowDetailPage() {
                 }
                 initialVersionNumber={workflow.version_number ?? null}
                 initialVersionStatus={workflow.version_status ?? null}
+                initialCreatedVia={workflow.created_via ?? null}
                 user={stableUser}
             />
         ) : null;

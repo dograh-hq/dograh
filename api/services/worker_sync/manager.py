@@ -4,10 +4,12 @@ Each FastAPI worker both publishes and listens on a single Redis pub/sub
 channel.  When shared state changes (e.g. Langfuse credentials), the worker
 that handled the mutation broadcasts a lightweight event.  Every worker
 (including the sender) receives it and runs the registered handler, which
-re-reads authoritative state from the DB.
+re-reads authoritative state from the DB.  ARQ workers listen too, handling
+only the events whose state they hold.
 """
 
 import asyncio
+import contextlib
 from typing import Awaitable, Callable, Dict
 
 import redis.asyncio as aioredis
@@ -44,10 +46,21 @@ class WorkerSyncManager:
         logger.debug(f"Broadcast worker sync: {event_type}/{action} org={org_id}")
 
     async def start(self):
-        """Open a dedicated Redis connection and start the background listener."""
+        """Open a dedicated Redis connection and start the background listener.
+
+        A failed start leaves nothing open, so a caller can carry on without sync.
+        """
         self._redis = await aioredis.from_url(self._redis_url, decode_responses=True)
-        self._pubsub = self._redis.pubsub()
-        await self._pubsub.subscribe(RedisChannel.WORKER_SYNC.value)
+        try:
+            self._pubsub = self._redis.pubsub()
+            await self._pubsub.subscribe(RedisChannel.WORKER_SYNC.value)
+        except Exception:
+            for resource in (self._pubsub, self._redis):
+                if resource is not None:
+                    with contextlib.suppress(Exception):
+                        await resource.close()
+            self._pubsub = self._redis = None
+            raise
         self._listener_task = asyncio.create_task(self._listen())
         logger.info("WorkerSyncManager started")
 
@@ -84,7 +97,7 @@ class WorkerSyncManager:
                             f"Worker sync handler error: {event.event_type}"
                         )
                 else:
-                    logger.warning(
+                    logger.debug(
                         f"No handler for worker sync event: {event.event_type}"
                     )
         except asyncio.CancelledError:

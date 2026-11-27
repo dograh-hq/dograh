@@ -15,6 +15,7 @@ setup_logging()
 from arq import create_pool, cron
 from arq.connections import ArqRedis, RedisSettings
 from arq.worker import func
+from loguru import logger
 from redis.asyncio.retry import Retry
 from redis.backoff import ExponentialBackoff
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -58,6 +59,12 @@ REDIS_SETTINGS = RedisSettings(
     ssl_check_hostname=False if use_ssl else None,
 )
 
+from api.services.pipecat.tracing_config import (
+    handle_langfuse_sync,
+    load_all_org_langfuse_credentials,
+)
+from api.services.worker_sync.manager import WorkerSyncManager
+from api.services.worker_sync.protocol import WorkerSyncEventType
 from api.tasks.campaign_tasks import (
     process_campaign_batch,
     sync_campaign_source,
@@ -70,14 +77,50 @@ from api.tasks.text_chat_inactivity import (
     sweep_inactive_text_chat_sessions,
 )
 from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
+from api.tasks.workflow_builder import process_builder_run, sweep_builder_runs
 from api.tasks.workflow_completion import (
     process_workflow_completion,
     sweep_workflow_completions,
 )
 
 
+async def startup(ctx: dict) -> None:
+    """Route post-call spans to each org's own Langfuse project, as the API does.
+
+    Without the org exporters, spans from an org that connected its own
+    Langfuse export to Dograh's project under that org's trace ids. It
+    subscribes to credential changes before loading them, so a change made
+    during startup is not missed. Failures are logged rather than raised:
+    tracing must never stop the worker.
+    """
+    sync_manager = WorkerSyncManager(REDIS_URL)
+    sync_manager.register(
+        WorkerSyncEventType.LANGFUSE_CREDENTIALS, handle_langfuse_sync
+    )
+    try:
+        await sync_manager.start()
+        ctx["worker_sync_manager"] = sync_manager
+    except Exception:
+        logger.exception(
+            "Failed to start worker sync; Langfuse credential changes apply on restart"
+        )
+    try:
+        await load_all_org_langfuse_credentials()
+    except Exception:
+        logger.exception("Failed to load org Langfuse credentials")
+
+
+async def shutdown(ctx: dict) -> None:
+    sync_manager = ctx.get("worker_sync_manager")
+    if sync_manager:
+        await sync_manager.stop()
+
+
 class WorkerSettings:
+    on_startup = startup
+    on_shutdown = shutdown
     functions = [
+        func(process_builder_run, timeout=900),
         run_integrations_post_workflow_run,
         func(process_workflow_completion, timeout=300),
         sync_campaign_source,
@@ -88,6 +131,7 @@ class WorkerSettings:
         finalize_completed_text_chat,
     ]
     cron_jobs = [
+        cron(sweep_builder_runs, minute=set(range(60)), second=45, run_at_startup=True),
         cron(
             sweep_workflow_completions,
             minute=set(range(0, 60, 15)),

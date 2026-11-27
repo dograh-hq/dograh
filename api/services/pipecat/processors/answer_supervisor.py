@@ -32,6 +32,7 @@ from api.services.pipecat.answer_classification import (
     classify_machine_utterance,
 )
 from api.services.pipecat.call_opening import OpeningDeadline
+from api.services.workflow.prompt_variables import CallContextMessage
 
 
 @dataclass(frozen=True)
@@ -58,7 +59,11 @@ class AnswerContextGate(FrameProcessor):
         if isinstance(frame, LLMContextFrame) and self.closed:
             self.dropped_contexts += 1
             for message in frame.context.messages:
-                if isinstance(message, dict) and message.get("role") == "user":
+                if (
+                    isinstance(message, dict)
+                    and message.get("role") == "user"
+                    and not isinstance(message, CallContextMessage)
+                ):
                     self.held_user_messages[id(message)] = message
             return
         await self.push_frame(frame, direction)

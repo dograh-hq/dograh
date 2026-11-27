@@ -279,7 +279,7 @@ class _ToolDocumentRefsMixin(BaseModel):
             "description": "Pre-recorded audio file played at the start of the call. Required when Greeting Type is Pre-recorded Audio.",
             "ui_type": PropertyType.recording_ref,
             "llm_hint": (
-                "Value is the `recording_id` string. Use the `list_recordings` "
+                "Value is the numeric database `id` as a string. Use the `list_recordings` "
                 "MCP tool to discover available recordings."
             ),
             "display_options": DisplayOptions(show={"greeting_type": ["audio"]}),

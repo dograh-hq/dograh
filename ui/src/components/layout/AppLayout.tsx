@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import posthog from "posthog-js";
 import React, { ReactNode } from "react";
 
+import { NewUserOnboarding } from "@/components/onboarding/NewUserOnboarding";
 import { Button } from "@/components/ui/button";
 import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { PostHogEvent } from "@/constants/posthog-events";
@@ -96,7 +97,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   // Check if current route should have sidebar
   // Hide sidebar for root (/), /handler routes (Stack Auth routes), and /auth routes
-  const shouldShowSidebar = pathname !== "/" && !pathname.startsWith("/handler") && !pathname.startsWith("/auth") && !pathname.startsWith("/get-service-key");
+  const shouldShowSidebar = pathname !== "/" && !pathname.startsWith("/handler") && !pathname.startsWith("/auth") && !pathname.startsWith("/get-service-key") && pathname !== "/connect";
 
   // Only match the exact editor page /workflow/<id>, not sub-routes like /workflow/<id>/runs
   const isWorkflowEditor = /^\/workflow\/\d+$/.test(pathname);
@@ -107,6 +108,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     <SidebarProvider defaultOpen>
       {shouldShowSidebar ? (
         <LeadFormsProvider>
+          <NewUserOnboarding />
           <div className="flex min-h-screen w-full">
             <AppSidebar />
             <SidebarInset className="flex-1">

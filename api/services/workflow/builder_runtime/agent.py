@@ -1,0 +1,1268 @@
+"""Create from an approved CallBrief, or edit existing SDK source directly.
+
+Each agent has a private message channel and an independently bound tool set.
+Only requirements conversations, edit questions, and validated proposals reach the public transcript.
+The flat graph keeps interrupts and checkpoints compatible with the existing relay.
+"""
+
+import json
+from pathlib import Path
+from typing import Annotated, Any, Literal
+
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    HumanMessage,
+    RemoveMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langchain_core.tools import InjectedToolCallId, StructuredTool, tool
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import REMOVE_ALL_MESSAGES, add_messages
+from langgraph.prebuilt import InjectedState, ToolNode
+from langgraph.types import Command, Send, interrupt
+from pydantic import Field, ValidationError
+from typing_extensions import TypedDict
+
+from api.schemas.tool import CreateToolRequest, UpdateToolRequest
+from api.services.voice_prompting_guide import render_guide
+from api.services.workflow.authoring import authoring_stage
+from api.services.workflow.authoring.contracts import (
+    AuthoringStage,
+    BuildResult,
+    CallBrief,
+)
+
+from .context import bounded_messages, capture_tool_results, merge_tool_results
+from .progress import TOOL_PROGRESS, report_progress
+from .scenarios import WorkflowScenario
+from .schemas import (
+    BuilderQuestion,
+    QuestionBatch,
+    validate_answers,
+    validate_plan_decision,
+    validate_tool_decision,
+)
+from .tool_schemas import tool_request_schema
+from .working_copy import (
+    SourceEdit,
+    edit_source,
+    patch_source,
+    read_source,
+    source_revision,
+)
+
+ASSETS = Path(__file__).parent / "assets"
+STAGE_MCP_TOOLS = {
+    "build_requirements": frozenset(),
+    "build": frozenset({"get_voice_prompting_guide"}),
+}
+ITERATION_MCP_TOOLS = frozenset(
+    {
+        "get_node_type",
+        "list_tools",
+        "get_tool",
+        "list_documents",
+        "list_credentials",
+        "list_recordings",
+    }
+)
+# create_tool/update_tool are NOT agent-callable: the relay auto-executes any
+# tool in a stage's set without a human gate, and these mutate the account.
+# They stay relay-executable (so the gated propose_tool handoff can run them
+# on approval) but are kept out of the stage sets so the agent cannot call
+# them directly and commit un-approved.
+GATED_TOOLS = frozenset({"create_tool", "update_tool"})
+ALLOWED_TOOLS = (
+    frozenset.union(*STAGE_MCP_TOOLS.values())
+    | ITERATION_MCP_TOOLS
+    | {"preview_workflow", "test_workflow_scenario", "list_node_types"}
+    | GATED_TOOLS
+)
+MAX_VALIDATION_ATTEMPTS = 3
+
+# Keep requirements node/channel names already stored in checkpoints. Prompts,
+# tool permissions, and tracing use the new stage terminology.
+_GRAPH_NAMES = {
+    "build_requirements": "plan",
+    "plan": "plan_conversation",  # Resume the removed planning stage.
+    "build": "build",
+    "review": "review",  # Resume checkpoints created before review was removed.
+}
+
+
+def _keep_latest(_current, new):
+    # A handoff tool that interrupts twice in one turn (propose_tool: approval,
+    # then the create/update relay) makes run_step write last_request_id on both
+    # resumes within one superstep. Take the latest rather than erroring on the
+    # concurrent write; the value is only a replay-dedup marker.
+    return new
+
+
+class BuilderState(TypedDict, total=False):
+    workflow_id: int | None
+    workflow_revision: str | None
+    messages: Annotated[list[AnyMessage], add_messages]
+    # Read only when migrating checkpoints from the removed planning stage.
+    plan_conversation_messages: Annotated[list[AnyMessage], add_messages]
+    plan_messages: Annotated[list[AnyMessage], add_messages]
+    build_messages: Annotated[list[AnyMessage], add_messages]
+    review_messages: Annotated[list[AnyMessage], add_messages]
+    phase: Literal["build_requirements", "plan", "build", "review", "complete"]
+    brief: dict[str, Any] | None
+    brief_revision: int
+    approved_brief_revision: int | None
+    candidate: dict[str, Any] | None
+    candidate_revision: int
+    previous_code: str | None
+    working_code: str | None
+    edit_history: list[str]
+    validated_working_copy: dict | None
+    model_repair_attempts: int
+    configuration_gaps: list[str]
+    tool_results: Annotated[dict[str, dict], merge_tool_results]
+    decision_notes: str
+    review: dict[str, Any] | None
+    proposal: dict[str, Any] | None
+    validation_attempts: int
+    review_attempts: int
+    idle_turns: int
+    pending_tool_calls: Annotated[list[dict], _keep_latest]
+    tools: Annotated[list[dict], _keep_latest]
+    last_request_id: Annotated[str, _keep_latest]
+
+
+def _fresh_messages(payload: dict) -> list[AnyMessage]:
+    return [
+        RemoveMessage(id=REMOVE_ALL_MESSAGES),
+        HumanMessage(content=json.dumps(payload)),
+    ]
+
+
+def _result(stage: str, call_id: str, payload: dict, **updates) -> Command:
+    return Command(
+        update={
+            f"{_GRAPH_NAMES[stage]}_messages": [
+                ToolMessage(content=json.dumps(payload), tool_call_id=call_id)
+            ],
+            **updates,
+        }
+    )
+
+
+def _stop(stage: str, call_id: str, message: str, **updates) -> Command:
+    return _result(
+        stage,
+        call_id,
+        {"error": message},
+        phase="complete",
+        proposal=None,
+        messages=[AIMessage(content=message)],
+        **updates,
+    )
+
+
+@tool
+def ask_questions(
+    questions: Annotated[list[BuilderQuestion], Field(min_length=1, max_length=3)],
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Ask up to three missing requirements or edit details using interactive cards.
+
+    Use single for one choice, multiple for several values, text for free text.
+    Do not ask again about requirements already supplied by the user.
+    """
+    payload = QuestionBatch(questions=questions).model_dump()
+    answers = interrupt({"kind": "questions", **payload})
+    validated = validate_answers(payload["questions"], answers)
+    message = ToolMessage(content=json.dumps(validated), tool_call_id=tool_call_id)
+    stage = "build" if state.get("phase") == "build" else "build_requirements"
+    return Command(
+        update={
+            f"{_GRAPH_NAMES[stage]}_messages": [message],
+            "messages": [message],
+            "phase": stage,
+        }
+    )
+
+
+@tool
+def submit_brief(
+    brief: CallBrief,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Show the complete business requirements for manual approval before building.
+
+    The user can approve it or request changes. Never assume approval from chat.
+    """
+    revision = state.get("brief_revision", 0) + 1
+    # Interrupt before any handoff. On resume LangGraph replays this tool with
+    # the checkpointed arguments, so approval is bound to this exact brief.
+    decision = validate_plan_decision(
+        revision,
+        interrupt(
+            {
+                "kind": "plan_approval",
+                "brief": brief.model_dump(),
+                "brief_revision": revision,
+            }
+        ),
+    )
+    previous = state.get("candidate") or state.get("proposal") or {}
+    previous_code = previous.get("code") or state.get("previous_code")
+    if decision.decision == "revise":
+        return _result(
+            "build_requirements",
+            tool_call_id,
+            {
+                "approved": False,
+                "brief_revision": revision,
+                "feedback": decision.feedback,
+            },
+            phase="build_requirements",
+            brief=brief.model_dump(),
+            brief_revision=revision,
+            approved_brief_revision=None,
+            previous_code=previous_code,
+            candidate=None,
+            review=None,
+            proposal=None,
+            messages=[
+                HumanMessage(
+                    content=f"Changes requested to requirements {revision}: {decision.feedback}"
+                )
+            ],
+        )
+    latest_request = next(
+        (m.content for m in reversed(state.get("messages", [])) if m.type == "human"),
+        "",
+    )
+    return _result(
+        "build_requirements",
+        tool_call_id,
+        {"approved": True, "brief_revision": revision},
+        phase="build",
+        brief=brief.model_dump(),
+        brief_revision=revision,
+        approved_brief_revision=revision,
+        previous_code=previous_code,
+        candidate=None,
+        review=None,
+        proposal=None,
+        validation_attempts=0,
+        review_attempts=0,
+        messages=[
+            HumanMessage(content=f"Approved requirements {revision}. Build the agent.")
+        ],
+        build_messages=_fresh_messages(
+            {
+                "brief": brief.model_dump(),
+                "brief_revision": revision,
+                "user_request": latest_request,
+                "previous_code": previous_code,
+                "working_revision": source_revision(previous_code or ""),
+            }
+        ),
+        review_messages=[RemoveMessage(id=REMOVE_ALL_MESSAGES)],
+    )
+
+
+def _requirements_gap(
+    stage: str, call_id: str, state: dict, reason: str, **updates
+) -> Command:
+    return _result(
+        stage,
+        call_id,
+        {"returned_to_requirements": True},
+        phase="build_requirements",
+        approved_brief_revision=None,
+        proposal=None,
+        plan_messages=[
+            HumanMessage(
+                content=json.dumps(
+                    {
+                        "business_question_from": stage,
+                        "reason": reason,
+                        "current_brief": state.get("brief"),
+                    }
+                )
+            )
+        ],
+        **updates,
+    )
+
+
+@tool
+def request_clarification(
+    reason: Annotated[str, Field(min_length=1)],
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Return a missing business decision to the Requirements agent.
+
+    Explain the gap and business alternatives. Do not silently omit a requirement.
+    """
+    return _requirements_gap(state["phase"], tool_call_id, state, reason, review=None)
+
+
+@tool
+def propose_workflow(
+    candidate: BuildResult,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Validate complete workflow source and show the preview to the user.
+
+    Fix validation errors and retry. Successful validation finishes the turn
+    and exposes the proposal for the interface to apply.
+    """
+    if not state.get("previous_code") and (
+        not state.get("brief")
+        or state.get("approved_brief_revision") is None
+        or state["approved_brief_revision"] != state.get("brief_revision")
+    ):
+        return _result(
+            "build",
+            tool_call_id,
+            {"error": "A human-approved business brief is required."},
+        )
+    result = interrupt(
+        {
+            "kind": "mcp",
+            "tool_name": "preview_workflow",
+            "arguments": {"code": candidate.code},
+        }
+    )
+    attempts = state.get("validation_attempts", 0) + 1
+    if not result.get("valid"):
+        if attempts >= MAX_VALIDATION_ATTEMPTS:
+            return _stop(
+                "build",
+                tool_call_id,
+                "I couldn't validate this workflow after three attempts. Please revise the request to continue.",
+                validation_attempts=attempts,
+            )
+        return _result(
+            "build", tool_call_id, result, validation_attempts=attempts, proposal=None
+        )
+    revision = state.get("candidate_revision", 0) + 1
+    validated = {
+        **result,
+        **candidate.model_dump(),
+        "brief_revision": state.get("approved_brief_revision"),
+        "candidate_revision": revision,
+    }
+    return _result(
+        "build",
+        tool_call_id,
+        {"valid": True},
+        candidate=validated,
+        candidate_revision=revision,
+        validation_attempts=0,
+        **_proposal_updates(validated),
+    )
+
+
+@tool
+def propose_tool(
+    tool: dict[str, Any],
+    plain_language: Annotated[str, Field(min_length=1)],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Propose creating a reusable tool, gated for human approval.
+
+    Use for a tool the agent needs that does not exist yet: http_api,
+    transfer_call, transfer_agent, end_call, calculator, or mcp. `tool` is the
+    full `CreateToolRequest`; `plain_language` is a one-paragraph description of
+    what the tool does, when it runs, and what it sends, for the approval card.
+
+    The tool is created only if the human approves; on approval the new
+    `tool_uuid` is returned, which you then add to the node's `tool_uuids`. On
+    denial, revise per the feedback or drop the tool. Never assume approval.
+    Leave unknown endpoints/credentials as placeholders and say so.
+    """
+    try:
+        parsed = CreateToolRequest.model_validate(tool)
+    except ValidationError as exc:
+        return _result(
+            "build",
+            tool_call_id,
+            {
+                "error": "Invalid tool definition",
+                "details": exc.errors(
+                    include_input=False, include_context=False, include_url=False
+                ),
+            },
+        )
+    decision = validate_tool_decision(
+        interrupt(
+            {
+                "kind": "tool_approval",
+                "operation": "create",
+                "tool": parsed.model_dump(),
+                "plain_language": plain_language,
+                "used_by_count": None,
+            }
+        )
+    )
+    if decision.decision == "deny":
+        return _result(
+            "build",
+            tool_call_id,
+            {"created": False, "approved": False, "feedback": decision.feedback},
+        )
+    result = interrupt(
+        {
+            "kind": "mcp",
+            "tool_name": "create_tool",
+            "arguments": {"request": parsed.model_dump()},
+        }
+    )
+    return _result("build", tool_call_id, result)
+
+
+@tool
+def propose_tool_edit(
+    tool_uuid: Annotated[str, Field(min_length=1)],
+    changes: dict[str, Any],
+    plain_language: Annotated[str, Field(min_length=1)],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Propose editing an existing reusable tool, gated for human approval.
+
+    Read the tool with `get_tool` first. `changes` is an `UpdateToolRequest`
+    with only the fields to change; `definition`, when included, is the FULL
+    replacement definition (not a field-level patch) and its type must match
+    the tool's category. `plain_language` summarizes the change for the card.
+
+    This edits the shared tool in place, so it affects every workflow that
+    references this tool_uuid — the approval card says so. The edit is applied
+    only if the human approves; on denial, revise per the feedback (for example
+    create a separate tool instead). Never assume approval.
+    """
+    try:
+        parsed = UpdateToolRequest.model_validate(changes)
+    except ValidationError as exc:
+        return _result(
+            "build",
+            tool_call_id,
+            {
+                "error": "Invalid tool changes",
+                "details": exc.errors(
+                    include_input=False, include_context=False, include_url=False
+                ),
+            },
+        )
+    decision = validate_tool_decision(
+        interrupt(
+            {
+                "kind": "tool_approval",
+                "operation": "update",
+                "tool_uuid": tool_uuid,
+                "tool": parsed.model_dump(exclude_none=True),
+                "plain_language": plain_language,
+                "used_by_count": None,
+            }
+        )
+    )
+    if decision.decision == "deny":
+        return _result(
+            "build",
+            tool_call_id,
+            {"updated": False, "approved": False, "feedback": decision.feedback},
+        )
+    result = interrupt(
+        {
+            "kind": "mcp",
+            "tool_name": "update_tool",
+            "arguments": {
+                "tool_uuid": tool_uuid,
+                "request": parsed.model_dump(exclude_none=True),
+            },
+        }
+    )
+    return _result("build", tool_call_id, result)
+
+
+def _working_source(state: dict) -> str:
+    return (
+        state["working_code"]
+        if state.get("working_code") is not None
+        else state.get("previous_code") or ""
+    )
+
+
+def _can_build(state: dict) -> bool:
+    return bool(state.get("previous_code")) or bool(
+        state.get("brief")
+        and state.get("approved_brief_revision") is not None
+        and state["approved_brief_revision"] == state.get("brief_revision")
+    )
+
+
+@tool
+def remember_decisions(
+    notes: Annotated[str, Field(max_length=4000)],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Replace compact session notes with confirmed decisions and unresolved questions.
+
+    Preserve relevant earlier decisions. These notes are context, never approval
+    or proof an operation succeeded. Source and recorded tool results take precedence.
+    """
+    return _result("build", tool_call_id, {"remembered": True}, decision_notes=notes)
+
+
+@tool
+def read_tool_result(
+    result_id: str,
+    state: Annotated[dict, InjectedState],
+    offset: Annotated[int, Field(ge=0)] = 0,
+    limit: Annotated[int, Field(ge=1, le=12000)] = 8000,
+) -> dict:
+    """Read a page of a stored tool result, including results from earlier edits."""
+    result = state.get("tool_results", {}).get(result_id)
+    if result is None:
+        return {"error": "Unknown result ID."}
+    content = result["content"]
+    end = min(offset + limit, len(content))
+    return {
+        "tool": result["tool"],
+        "content": content[offset:end],
+        "next_offset": end if end < len(content) else None,
+        "characters": len(content),
+    }
+
+
+@tool
+def read_conversation(
+    state: Annotated[dict, InjectedState],
+    offset: Annotated[int, Field(ge=0)] = 0,
+    limit: Annotated[int, Field(ge=1, le=12000)] = 8000,
+) -> dict:
+    """Retrieve earlier public conversation messages omitted from recent context."""
+    from types import SimpleNamespace
+
+    from .service import present
+
+    # present() reads snapshot.next for can_continue; this fake snapshot needs it
+    # even though read_conversation only uses the returned messages.
+    messages = present(
+        SimpleNamespace(values=state, tasks=[], config={}, next=()), "history"
+    )["messages"]
+    content = json.dumps(messages)
+    end = min(offset + limit, len(content))
+    return {
+        "content": content[offset:end],
+        "characters": len(content),
+        "next_offset": end if end < len(content) else None,
+    }
+
+
+@tool
+def get_tool_definition_schema(
+    category: Literal[
+        "http_api", "end_call", "transfer_call", "transfer_agent", "calculator", "mcp"
+    ],
+    operation: Literal["create", "update"] = "create",
+    destination_source: Literal["static", "dynamic", "context_mapping"] = "static",
+) -> dict:
+    """Read the authoritative request schema for one reusable tool category.
+
+    Retrieve before proposing a new definition; reuse a schema already in context.
+    Transfers default to a static destination. Select dynamic for HTTP lookup or
+    context_mapping for routing rules to retrieve that mode's fields instead.
+    """
+    return tool_request_schema(category, operation, destination_source)
+
+
+@tool
+def read_workflow(
+    state: Annotated[dict, InjectedState],
+    start_line: Annotated[int, Field(ge=1)] = 1,
+    limit: Annotated[int, Field(ge=1, le=200)] = 120,
+) -> dict:
+    """Read numbered lines of the current working copy and its revision.
+
+    Use the revision in edits and validation. Line numbers are display-only.
+    """
+    return read_source(_working_source(state), start_line, limit)
+
+
+def _working_update(
+    state: dict, call_id: str, code: str, payload: dict, **updates
+) -> Command:
+    history = [*state.get("edit_history", []), _working_source(state)][-5:]
+    return _result(
+        "build",
+        call_id,
+        payload,
+        working_code=code,
+        edit_history=history,
+        proposal=None,
+        candidate=None,
+        **{"validated_working_copy": None, **updates},
+    )
+
+
+def _validate_edit(
+    state: dict,
+    call_id: str,
+    code: str,
+    payload: dict,
+    configuration_gaps: list[str] | None,
+) -> Command:
+    result = interrupt(
+        {"kind": "mcp", "tool_name": "preview_workflow", "arguments": {"code": code}}
+    )
+    valid = bool(result.get("valid"))
+    attempts = 0 if valid else state.get("validation_attempts", 0) + 1
+    updates = {
+        "validated_working_copy": {**result, "revision": source_revision(code)}
+        if valid
+        else None,
+        "validation_attempts": attempts,
+    }
+    if configuration_gaps is not None:
+        updates["configuration_gaps"] = configuration_gaps
+    if attempts >= MAX_VALIDATION_ATTEMPTS:
+        updates.update(
+            phase="complete",
+            messages=[
+                AIMessage(
+                    content="I couldn't validate this agent after three attempts. Your working copy is preserved; send a message to continue."
+                )
+            ],
+        )
+    report_progress(
+        "Agent checks passed." if valid else "Found an issue to fix in your agent…"
+    )
+    return _working_update(
+        state,
+        call_id,
+        code,
+        {
+            **payload,
+            **{k: v for k, v in result.items() if k not in {"code", "workflow"}},
+        },
+        **updates,
+    )
+
+
+@tool
+def patch_workflow(
+    expected_revision: str,
+    edits: Annotated[list[SourceEdit], Field(min_length=1, max_length=50)],
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    configuration_gaps: list[str] | None = None,
+) -> Command:
+    """Apply related source edits atomically and automatically validate the result.
+
+    Every old_text must match one unique, non-overlapping region of the supplied
+    revision. No replacements apply if any fails. Returns the new revision and
+    validation errors to repair. Omit configuration_gaps to preserve existing gaps;
+    supply remaining missing connections/settings when this edit changes them.
+    """
+    if not _can_build(state):
+        return _result(
+            "build",
+            tool_call_id,
+            {"error": "Approve the business brief before building."},
+        )
+    result = patch_source(_working_source(state), expected_revision, edits)
+    if "error" in result:
+        return _result("build", tool_call_id, result)
+    return _validate_edit(
+        state, tool_call_id, result.pop("code"), result, configuration_gaps
+    )
+
+
+@tool
+def edit_workflow(
+    expected_revision: str,
+    old_text: Annotated[str, Field(min_length=1)],
+    new_text: str,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Replace exactly one matching region of SDK source in the working copy.
+
+    Include unique surrounding text. Edits never save or publish the agent.
+    """
+    if not _can_build(state):
+        return _result(
+            "build",
+            tool_call_id,
+            {"error": "Approve the business brief before building."},
+        )
+    result = edit_source(_working_source(state), expected_revision, old_text, new_text)
+    if "error" in result:
+        return _result("build", tool_call_id, result)
+    return _working_update(state, tool_call_id, result.pop("code"), result)
+
+
+@tool
+def write_workflow(
+    code: Annotated[str, Field(min_length=1, max_length=100_000)],
+    expected_revision: str,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    configuration_gaps: list[str] | None = None,
+) -> Command:
+    """Write a complete first draft or requested broad rewrite and validate it.
+
+    Use the supplied working_revision; read_workflow only if source is missing or
+    stale. Prefer patch_workflow for targeted edits. Return missing connections
+    or settings in configuration_gaps, never testing disclaimers. Omit to preserve
+    existing gaps. Repair reported errors, then answer normally to complete.
+    """
+    if not _can_build(state):
+        return _result(
+            "build",
+            tool_call_id,
+            {"error": "Approve the business brief before building."},
+        )
+    if expected_revision != source_revision(_working_source(state)):
+        return _result(
+            "build", tool_call_id, {"error": "The working copy changed. Read it again."}
+        )
+    return _validate_edit(
+        state,
+        tool_call_id,
+        code,
+        {"revision": source_revision(code), "written": True},
+        configuration_gaps,
+    )
+
+
+@tool
+def undo_workflow_edit(
+    expected_revision: str,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Undo the latest working-copy edit. Validate before finishing the restored draft."""
+    history = state.get("edit_history", [])
+    if expected_revision != source_revision(_working_source(state)) or not history:
+        return _result(
+            "build",
+            tool_call_id,
+            {"error": "No matching edit to undo. Read the working copy."},
+        )
+    return _result(
+        "build",
+        tool_call_id,
+        {"revision": source_revision(history[-1])},
+        working_code=history[-1],
+        edit_history=history[:-1],
+        validated_working_copy=None,
+        candidate=None,
+        proposal=None,
+    )
+
+
+@tool
+def validate_workflow(
+    expected_revision: str,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command:
+    """Validate the current working copy; return errors without finishing the edit."""
+    code = _working_source(state)
+    if not _can_build(state) or expected_revision != source_revision(code):
+        return _result(
+            "build",
+            tool_call_id,
+            {
+                "error": "Read the current working copy and verify approval before validating."
+            },
+        )
+    result = interrupt(
+        {"kind": "mcp", "tool_name": "preview_workflow", "arguments": {"code": code}}
+    )
+    return _result(
+        "build",
+        tool_call_id,
+        {k: v for k, v in result.items() if k not in {"code", "workflow"}},
+        validated_working_copy={**result, "revision": expected_revision}
+        if result.get("valid")
+        else None,
+    )
+
+
+@tool
+def test_workflow_scenario(
+    expected_revision: str,
+    scenario: WorkflowScenario,
+    state: Annotated[dict, InjectedState],
+) -> dict:
+    """Rehearse caller messages with mocked tool results, never live tools.
+
+    Supply expected tool-call counts (zero forbids a call), visited node names,
+    and required/forbidden spoken phrases. Read the report before claiming success.
+    Use the function names from tool definitions, not their UUIDs, for mocks.
+    """
+    code = _working_source(state)
+    validated = state.get("validated_working_copy") or {}
+    if (
+        not _can_build(state)
+        or expected_revision != source_revision(code)
+        or validated.get("revision") != expected_revision
+    ):
+        return {"error": "Validate this working-copy revision before testing."}
+    return interrupt(
+        {
+            "kind": "mcp",
+            "tool_name": "test_workflow_scenario",
+            "arguments": {"code": code, "scenario": scenario.model_dump(mode="json")},
+        }
+    )
+
+
+@tool
+def finish_workflow(
+    expected_revision: str,
+    summary: Annotated[str, Field(min_length=1)],
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    configuration_gaps: list[str] | None = None,
+) -> Command:
+    """Finish with the validated working-copy revision, without resending source.
+
+    Omit configuration_gaps to preserve existing gaps. Pass the remaining gaps
+    when an edit resolves some; never claim an unconnected integration works.
+    """
+    validated = state.get("validated_working_copy") or {}
+    if (
+        not _can_build(state)
+        or expected_revision != source_revision(_working_source(state))
+        or validated.get("revision") != expected_revision
+    ):
+        return _result(
+            "build",
+            tool_call_id,
+            {"error": "Validate this working-copy revision before finishing."},
+        )
+    revision = state.get("candidate_revision", 0) + 1
+    candidate = {
+        **validated,
+        "code": _working_source(state),
+        "summary": summary,
+        "configuration_gaps": configuration_gaps
+        if configuration_gaps is not None
+        else state.get("configuration_gaps", []),
+        "candidate_revision": revision,
+        "brief_revision": state.get("approved_brief_revision"),
+    }
+    return _result(
+        "build",
+        tool_call_id,
+        {"valid": True},
+        candidate=candidate,
+        candidate_revision=revision,
+        **_proposal_updates(candidate),
+    )
+
+
+def _proposal_updates(candidate: dict) -> dict:
+    summary = candidate["summary"]
+    if candidate["configuration_gaps"]:
+        summary += "\n\nStill to configure:\n" + "\n".join(
+            f"- {gap}" for gap in candidate["configuration_gaps"]
+        )
+    return {
+        "phase": "complete",
+        "working_code": candidate["code"],
+        "configuration_gaps": candidate["configuration_gaps"],
+        "review": None,
+        "proposal": {**candidate, "summary": summary},
+        "messages": [AIMessage(content=summary)],
+    }
+
+
+def _resume_legacy_plan(state: BuilderState) -> dict:
+    """Move old planning checkpoints to the builder without planner inference."""
+    if (
+        not state.get("brief")
+        or state.get("approved_brief_revision") is None
+        or state["approved_brief_revision"] != state.get("brief_revision")
+    ):
+        return {"phase": "build_requirements", "proposal": None}
+    context = next(
+        (
+            m.content
+            for m in state.get("plan_conversation_messages", [])
+            if m.type == "human"
+        ),
+        "{}",
+    )
+    try:
+        user_request = json.loads(context).get("user_request", "")
+    except (ValueError, TypeError, AttributeError):
+        user_request = context
+    return {
+        "phase": "build",
+        "build_messages": _fresh_messages(
+            {
+                "brief": state["brief"],
+                "brief_revision": state["brief_revision"],
+                "user_request": user_request,
+                "previous_code": state.get("previous_code"),
+            }
+        ),
+        "plan_conversation_messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES)],
+    }
+
+
+def _finish_legacy_review(state: BuilderState) -> dict:
+    """Finish previously validated candidates when resuming an old checkpoint."""
+    candidate = state.get("candidate")
+    if (
+        not candidate
+        or not candidate.get("valid")
+        or not state.get("brief")
+        or candidate.get("brief_revision") != state.get("brief_revision")
+        or state.get("approved_brief_revision") != state.get("brief_revision")
+    ):
+        return {"phase": "build", "review": None, "proposal": None}
+    return _proposal_updates(candidate)
+
+
+LOCAL_TOOLS = {
+    "build_requirements": [ask_questions, submit_brief, read_conversation],
+    "build": [
+        ask_questions,
+        read_workflow,
+        write_workflow,
+        patch_workflow,
+        read_tool_result,
+        read_conversation,
+    ],
+}
+# Like ITERATION_MCP_TOOLS: tool changes are deferred past the first draft.
+ITERATION_LOCAL_TOOLS = {
+    "build": [
+        ask_questions,
+        propose_tool,
+        propose_tool_edit,
+        get_tool_definition_schema,
+        read_workflow,
+        write_workflow,
+        patch_workflow,
+        read_tool_result,
+        read_conversation,
+    ],
+}
+# Unadvertised handlers let an already checkpointed tool call finish after deploy.
+LEGACY_BUILD_TOOLS = [
+    request_clarification,
+    propose_workflow,
+    edit_workflow,
+    undo_workflow_edit,
+    validate_workflow,
+    finish_workflow,
+    test_workflow_scenario,
+    remember_decisions,
+]
+
+
+def local_tools(stage: str, *, iteration: bool = False) -> list:
+    """The editor asks focused questions itself instead of restarting discovery."""
+    if iteration and stage in ITERATION_LOCAL_TOOLS:
+        return ITERATION_LOCAL_TOOLS[stage]
+    return LOCAL_TOOLS[stage]
+
+
+def relay_tool(spec: dict) -> StructuredTool:
+    name = spec["name"]
+
+    def call(**arguments):
+        return interrupt({"kind": "mcp", "tool_name": name, "arguments": arguments})
+
+    return StructuredTool.from_function(
+        call,
+        name=name,
+        description=spec.get("description") or name,
+        args_schema=spec["inputSchema"],
+    )
+
+
+def builder_instructions(
+    stage: AuthoringStage | str = AuthoringStage.build_requirements,
+    *,
+    iteration: bool = False,
+) -> str:
+    stage = AuthoringStage(stage)
+    if stage.value not in STAGE_MCP_TOOLS:
+        raise ValueError(f"Unsupported in-app builder stage: {stage.value}")
+    prompt = "edit" if stage == AuthoringStage.build and iteration else stage.value
+    parts = [
+        authoring_stage(stage, iteration=iteration)["instructions"],
+        (ASSETS / "instructions.md").read_text(encoding="utf-8").strip(),
+        (ASSETS / f"{prompt}.md").read_text(encoding="utf-8").strip(),
+    ]
+    if stage == AuthoringStage.build and not iteration:
+        parts.append("# Voice prompting guide\n\n" + render_guide())
+    if stage == AuthoringStage.build and iteration:
+        parts.append(
+            (ASSETS / "iteration_tools.md").read_text(encoding="utf-8").strip()
+        )
+    return "\n\n".join(parts)
+
+
+def build_agent(model, checkpointer, tool_specs: list[dict]):
+    graph = StateGraph(BuilderState)
+
+    def route(state):
+        phase = state.get("phase", "build_requirements")
+        return END if phase == "complete" else _GRAPH_NAMES[phase]
+
+    def add_stage(stage):
+        node_name = _GRAPH_NAMES[stage]
+        key = f"{node_name}_messages"
+
+        def stage_mcp_tools(state):
+            allowed = STAGE_MCP_TOOLS[stage]
+            if state.get("previous_code") and stage == "build":
+                allowed = allowed | ITERATION_MCP_TOOLS
+            return allowed
+
+        def stage_tools(state):
+            return [
+                *local_tools(stage, iteration=bool(state.get("previous_code"))),
+                *[
+                    relay_tool(spec)
+                    for spec in tool_specs
+                    if spec["name"] in stage_mcp_tools(state)
+                ],
+            ]
+
+        async def invoke(state: BuilderState):
+            agent_model = model.bind_tools(stage_tools(state), authoring_stage=stage)
+            history = bounded_messages(state.get(key, []))
+            if stage == "build" and len(history) != len(state.get(key, [])):
+                # Only refresh authoritative state when exchanges were removed.
+                history.append(
+                    HumanMessage(
+                        content=json.dumps(
+                            {
+                                "working_revision": source_revision(
+                                    _working_source(state)
+                                ),
+                                "configuration_gaps": state.get(
+                                    "configuration_gaps", []
+                                ),
+                                "stored_results": [
+                                    {"result_id": id, "tool": result["tool"]}
+                                    for id, result in list(
+                                        state.get("tool_results", {}).items()
+                                    )[-20:]
+                                ],
+                            }
+                        )
+                    )
+                )
+            report_progress("Thinking about your agent…")
+            reply = await agent_model.ainvoke(
+                [
+                    SystemMessage(
+                        content=builder_instructions(
+                            stage, iteration=bool(state.get("previous_code"))
+                        )
+                    ),
+                    *history,
+                ]
+            )
+            repair = reply.additional_kwargs.get("builder_repair")
+            if repair:
+                attempts = state.get("model_repair_attempts", 0) + 1
+                if attempts >= 3:
+                    return {
+                        "phase": "complete",
+                        "proposal": None,
+                        "messages": [
+                            AIMessage(
+                                content="The model could not complete a valid response. Your working copy is preserved; send a message to continue."
+                            )
+                        ],
+                        "model_repair_attempts": attempts,
+                    }
+                return {
+                    key: [HumanMessage(content=repair)],
+                    "model_repair_attempts": attempts,
+                }
+            updates = {
+                key: [reply],
+                "model_repair_attempts": 0,
+                "idle_turns": 0 if reply.tool_calls else state.get("idle_turns", 0) + 1,
+                "pending_tool_calls": reply.tool_calls,
+            }
+            if stage == "build_requirements" or any(
+                call["name"] == "ask_questions" for call in reply.tool_calls
+            ):
+                updates["messages"] = [reply]
+            elif not reply.tool_calls:
+                validated = state.get("validated_working_copy") or {}
+                if (
+                    reply.content
+                    and _can_build(state)
+                    and validated.get("revision")
+                    == source_revision(_working_source(state))
+                    and (_working_source(state) != state.get("previous_code"))
+                ):
+                    revision = state.get("candidate_revision", 0) + 1
+                    candidate = {
+                        **validated,
+                        "code": _working_source(state),
+                        "summary": reply.text,
+                        "configuration_gaps": state.get("configuration_gaps", []),
+                        "candidate_revision": revision,
+                        "brief_revision": state.get("approved_brief_revision"),
+                    }
+                    updates.update(
+                        candidate=candidate,
+                        candidate_revision=revision,
+                        **_proposal_updates(candidate),
+                    )
+                elif (
+                    state.get("previous_code")
+                    and reply.content
+                    and _working_source(state) == state["previous_code"]
+                ):
+                    updates.update(phase="complete", proposal=None, messages=[reply])
+                elif updates["idle_turns"] >= 2:
+                    updates.update(
+                        phase="complete",
+                        proposal=None,
+                        messages=[
+                            AIMessage(
+                                content="I couldn't finish preparing the workflow. Send a message to continue."
+                            )
+                        ],
+                    )
+                else:
+                    updates[key].append(
+                        HumanMessage(
+                            content="The current source has not passed validation. Write or patch the working copy to fix it; these tools validate automatically. Then give a concise final answer."
+                        )
+                    )
+            return updates
+
+        async def execute(state: BuilderState, config):
+            # Each mutation gets its own checkpoint before the next call. Reads
+            # dispatched via Send have one call each; mixed batches run in order.
+            calls = state.get("pending_tool_calls") or state[key][-1].tool_calls
+            if len(calls) > 1 and any(
+                call["name"]
+                in {
+                    "submit_brief",
+                    "request_clarification",
+                    "propose_workflow",
+                    "finish_workflow",
+                }
+                for call in calls
+            ):
+                # These legacy/requirements handoffs leave this conversation;
+                # there would be no consumer for subsequent calls in the batch.
+                return {
+                    key: [
+                        ToolMessage(
+                            content="Call a requirements or completion handoff on its own, after other tools finish.",
+                            tool_call_id=call["id"],
+                            status="error",
+                        )
+                        for call in calls
+                    ],
+                    "pending_tool_calls": [],
+                }
+            call = calls[0]
+            if call["name"] in TOOL_PROGRESS:
+                report_progress(TOOL_PROGRESS[call["name"]])
+            executable = stage_tools(state) + (
+                LEGACY_BUILD_TOOLS if stage == "build" else []
+            )
+            if stage == "build" and not state.get("pending_tool_calls"):
+                # Old first-draft checkpoints may be paused inside a catalog
+                # read that is now advertised only to editors. Keep it executable.
+                bound_names = {tool.name for tool in executable}
+                executable.extend(
+                    relay_tool(spec)
+                    for spec in tool_specs
+                    if spec["name"] in ITERATION_MCP_TOOLS | {"list_node_types"}
+                    and spec["name"] not in bound_names
+                )
+            result = await ToolNode(executable, messages_key=key).ainvoke(
+                {**state, key: [AIMessage(content="", tool_calls=[call])]}, config
+            )
+            result = capture_tool_results(
+                result, [call], request_id=state.get("last_request_id", "")
+            )
+            for item in result if isinstance(result, list) else [result]:
+                update = item.update if isinstance(item, Command) else item
+                update["pending_tool_calls"] = calls[1:]
+            return result
+
+        def after_tools(state):
+            if state.get("phase") == stage and state.get("pending_tool_calls"):
+                return f"{node_name}_tools"
+            return route(state)
+
+        def after_model(state):
+            if state.get("phase") == "complete":
+                return END
+            reply = state[key][-1]
+            calls = getattr(reply, "tool_calls", [])
+            read_tools = (
+                stage_mcp_tools(state) & {spec["name"] for spec in tool_specs}
+            ) | (
+                {
+                    "read_workflow",
+                    "get_tool_definition_schema",
+                    "read_tool_result",
+                    "read_conversation",
+                }
+                if stage == "build"
+                else set()
+            )
+            if len(calls) > 1 and all(call["name"] in read_tools for call in calls):
+                # Each read needs its own task/interrupt ID so results survive
+                # checkpoint reloads and resume against the correct tool call.
+                return [
+                    Send(
+                        f"{node_name}_tools",
+                        {
+                            **state,
+                            key: [AIMessage(content="", tool_calls=[call])],
+                            "pending_tool_calls": [call],
+                        },
+                    )
+                    for call in calls
+                ]
+            if calls:
+                return f"{node_name}_tools"
+            return END if stage == "build_requirements" else node_name
+
+        graph.add_node(node_name, invoke)
+        graph.add_node(f"{node_name}_tools", execute)
+        graph.add_conditional_edges(node_name, after_model)
+        graph.add_conditional_edges(f"{node_name}_tools", after_tools)
+
+    for stage in STAGE_MCP_TOOLS:
+        add_stage(stage)
+    # Drain reads from the removed planner, then build from the approved brief.
+    graph.add_node("plan_conversation_tools", lambda state: {})
+    graph.add_edge("plan_conversation_tools", "plan_conversation")
+    graph.add_node("plan_conversation", _resume_legacy_plan)
+    graph.add_conditional_edges("plan_conversation", route)
+    # Old checkpoints can be paused before review or inside its read tools.
+    # Drain those tasks, then expose the validated candidate without inference.
+    graph.add_node("review_tools", lambda state: {})
+    graph.add_edge("review_tools", "review")
+    graph.add_node("review", _finish_legacy_review)
+    graph.add_conditional_edges("review", route)
+    graph.add_conditional_edges(START, route)
+    return graph.compile(checkpointer=checkpointer)

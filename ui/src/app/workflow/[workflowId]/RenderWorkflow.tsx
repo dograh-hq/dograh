@@ -11,7 +11,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import { createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost, getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet, listDocumentsApiV1KnowledgeBaseDocumentsGet, listRecordingsApiV1WorkflowRecordingsGet, listToolsApiV1ToolsGet } from '@/client';
+import { createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost, getWorkflowApiV1WorkflowFetchWorkflowIdGet, getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet, listDocumentsApiV1KnowledgeBaseDocumentsGet, listRecordingsApiV1WorkflowRecordingsGet, listToolsApiV1ToolsGet } from '@/client';
 import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse, WorkflowVersionResponse } from '@/client/types.gen';
 import { useNodeSpecs } from "@/components/flow/renderer";
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
@@ -36,7 +36,8 @@ import { WorkflowTesterPanel } from './components/WorkflowTesterPanel';
 import { WorkflowVersionDiffDialog } from './components/WorkflowVersionDiffDialog';
 import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { type SavedVersion, useWorkflowState } from "./hooks/useWorkflowState";
-import { layoutNodes } from './utils/layoutNodes';
+import { useWorkflowStore } from './stores/workflowStore';
+import { applyLayoutPositions, layoutNodes } from './utils/layoutNodes';
 
 const edgeTypes = {
     custom: CustomEdge,
@@ -64,6 +65,9 @@ interface RenderWorkflowProps {
     initialVersionNumber?: number | null;
     initialVersionStatus?: string | null;
     initialSelectedVersion?: WorkflowVersionResponse;
+    // How the agent was first created (builder | template | blank | unknown),
+    // for analytics attribution on manual editor/test actions. Immutable.
+    initialCreatedVia?: string | null;
     user: { id: string; email?: string };
 }
 
@@ -90,6 +94,7 @@ function WorkflowEditor({
     initialVersionNumber,
     initialVersionStatus,
     initialSelectedVersion,
+    initialCreatedVia,
     user,
 }: RenderWorkflowProps) {
     const router = useRouter();
@@ -117,16 +122,19 @@ function WorkflowEditor({
     const [currentVersionNumber, setCurrentVersionNumber] = useState<number | null>(initialVersionNumber ?? null);
     const [currentVersionStatus, setCurrentVersionStatus] = useState<string | null>(initialVersionStatus ?? null);
     // What the editor body shows. It lives in the URL (`?view=`) so a refresh
-    // or a shared link lands on the same view; the canvas is the bare URL.
+    // or a shared link lands on the same view. Every view is spelled out,
+    // the canvas included: a URL without a view, or with an unknown one, is
+    // rewritten to `?view=canvas`.
     const viewParam = searchParams.get('view');
     const editorView: EditorView = isEditorView(viewParam) ? viewParam : 'canvas';
     const setEditorView = useCallback((view: EditorView) => {
         const query = new URLSearchParams(searchParams.toString());
-        if (view === 'canvas') query.delete('view');
-        else query.set('view', view);
-        const suffix = query.toString();
-        router.replace(`/workflow/${workflowId}${suffix ? `?${suffix}` : ''}`, { scroll: false });
+        query.set('view', view);
+        router.replace(`/workflow/${workflowId}?${query.toString()}`, { scroll: false });
     }, [router, searchParams, workflowId]);
+    useEffect(() => {
+        if (!isEditorView(viewParam)) setEditorView('canvas');
+    }, [viewParam, setEditorView]);
     const versionsFetched = useRef(false);
     // The version bookkeeping for settings saves lives below, after the
     // version fetcher it needs; the state hook reaches it through this ref.
@@ -135,6 +143,7 @@ function WorkflowEditor({
     // A model edit waiting to save or still saving: publishing or testing now
     // would use the previous settings.
     const [settingsSaving, setSettingsSaving] = useState(false);
+    const [builderBusy, setBuilderBusy] = useState(false);
     const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
     const [tools, setTools] = useState<ToolResponse[] | undefined>(undefined);
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
@@ -174,8 +183,10 @@ function WorkflowEditor({
         initialFlow,
         initialTemplateContextVariables,
         initialWorkflowConfigurations,
+        createdVia: initialCreatedVia,
         user,
         onVersionSaved,
+        editingDisabled: builderBusy,
     });
 
     // Single generic component for every node type. Seed with core node types
@@ -421,6 +432,32 @@ function WorkflowEditor({
     }, [fetchVersions]);
     applySavedVersionRef.current = (version) => { void applySavedVersion(version); };
 
+    const refreshTools = useCallback(async () => {
+        try {
+            const response = await listToolsApiV1ToolsGet({});
+            if (response.error) throw new Error(detailFromError(response.error, 'Could not refresh tools.'));
+            if (!response.data) throw new Error('Could not load tools.');
+            setTools(response.data);
+        } catch (error) {
+            // A catalog failure must not prevent loading the saved workflow
+            // or discard its tool bindings.
+            console.error('Failed to refresh tools:', error);
+            toast.error('Could not refresh tools. Reload to try again.');
+        }
+    }, []);
+
+    const handleBuilderSaved = useCallback(async () => {
+        const response = await getWorkflowApiV1WorkflowFetchWorkflowIdGet({ path: { workflow_id: workflowId } });
+        if (response.error) throw new Error(detailFromError(response.error, 'Draft saved, but the canvas could not be refreshed. Reload to try again.'));
+        if (!response.data) throw new Error('Draft saved, but the workflow could not be loaded.');
+        await refreshTools();
+        setNodes((response.data.workflow_definition.nodes ?? []) as FlowNode[]);
+        setEdges((response.data.workflow_definition.edges ?? []) as FlowEdge[]);
+        setIsDirty(false);
+        await applySavedVersion({ versionNumber: response.data.version_number ?? undefined, versionStatus: response.data.version_status ?? undefined });
+        toast.success('Agent updated');
+    }, [workflowId, setNodes, setEdges, setIsDirty, applySavedVersion, refreshTools]);
+
     // Compute version label for the header.
     // Uses currentVersionNumber/Status which update immediately from save responses,
     // falling back to the versions list for history navigation.
@@ -443,6 +480,9 @@ function WorkflowEditor({
     }, [activeVersionId, versions, currentVersionNumber, currentVersionStatus, initialSelectedVersion]);
 
     const testerDisabledReason = useMemo(() => {
+        if (builderBusy) {
+            return "Wait for the builder to finish updating your agent.";
+        }
         if (isViewingHistoricalVersion) {
             return "Return to the draft before starting a new test session.";
         }
@@ -456,7 +496,7 @@ function WorkflowEditor({
             return "Resolve the current validation errors before starting another test.";
         }
         return null;
-    }, [isDirty, isViewingHistoricalVersion, settingsSaving, workflowValidationErrors.length]);
+    }, [builderBusy, isDirty, isViewingHistoricalVersion, settingsSaving, workflowValidationErrors.length]);
 
     const handleOpenTester = useCallback(() => {
         if (window.innerWidth >= 1280) {
@@ -502,10 +542,7 @@ function WorkflowEditor({
                 }
 
                 // Fetch tools
-                const toolsResponse = await listToolsApiV1ToolsGet({});
-                if (toolsResponse.data) {
-                    setTools(toolsResponse.data);
-                }
+                await refreshTools();
 
                 // Fetch org-level recordings
                 try {
@@ -524,7 +561,7 @@ function WorkflowEditor({
         };
 
         fetchData();
-    }, [workflowId]);
+    }, [workflowId, refreshTools]);
 
     // Memoize defaultEdgeOptions to prevent unnecessary re-renders
     const defaultEdgeOptions = useMemo(() => ({
@@ -577,10 +614,10 @@ function WorkflowEditor({
     // Cmd+S, node edit dialogs, stale doc/tool cleanup, etc.
     // Uses the save response to immediately update version label and hasDraft.
     const guardedSaveWorkflow = useCallback(async (updateWorkflowDefinition?: boolean) => {
-        if (isViewingHistoricalVersion) return;
+        if (isViewingHistoricalVersion || builderBusy) return;
         const result = await saveWorkflow(updateWorkflowDefinition);
         if (result) await applySavedVersion(result);
-    }, [saveWorkflow, isViewingHistoricalVersion, applySavedVersion]);
+    }, [saveWorkflow, isViewingHistoricalVersion, builderBusy, applySavedVersion]);
 
     const renameWorkflow = useCallback(async (newName: string) => {
         // The header doesn't render the pencil until the page has mounted with
@@ -611,7 +648,7 @@ function WorkflowEditor({
         tools,
         updateTool,
         recordings,
-        readOnly: isViewingHistoricalVersion,
+        readOnly: isViewingHistoricalVersion || builderBusy,
     }), [
         guardedSaveWorkflow,
         documents,
@@ -619,6 +656,7 @@ function WorkflowEditor({
         updateTool,
         recordings,
         isViewingHistoricalVersion,
+        builderBusy,
     ]);
 
     return (
@@ -642,7 +680,8 @@ function WorkflowEditor({
                     isViewingHistoricalVersion={isViewingHistoricalVersion}
                     onBackToDraft={handleBackToDraft}
                     hasDraft={hasDraft}
-                    savingSettings={settingsSaving}
+                    savingSettings={settingsSaving || builderBusy}
+                    showSave={editorView !== 'builder' || isDirty}
                     onPublished={handlePublished}
                     renameWorkflow={renameWorkflow}
                 />
@@ -651,6 +690,7 @@ function WorkflowEditor({
                 <div className="flex-1 min-h-0">
                     <div className="flex h-full min-w-0">
                         <div className="relative min-w-0 flex-1">
+                            <div className="h-full" inert={builderBusy}>
                             <ReactFlow
                                 key={activeVersionId ?? 'current'}
                                 nodes={displayNodes}
@@ -671,11 +711,11 @@ function WorkflowEditor({
                                 }}
                                 defaultEdgeOptions={defaultEdgeOptions}
                                 defaultViewport={initialFlow?.viewport}
-                                nodesDraggable={!isViewingHistoricalVersion}
-                                nodesConnectable={!isViewingHistoricalVersion}
-                                edgesReconnectable={!isViewingHistoricalVersion}
+                                nodesDraggable={!isViewingHistoricalVersion && !builderBusy}
+                                nodesConnectable={!isViewingHistoricalVersion && !builderBusy}
+                                edgesReconnectable={!isViewingHistoricalVersion && !builderBusy}
                                 zoomOnDoubleClick={false}
-                                deleteKeyCode={isViewingHistoricalVersion ? null : "Backspace"}
+                                deleteKeyCode={isViewingHistoricalVersion || builderBusy ? null : "Backspace"}
                             >
                                 <Background
                                     variant={BackgroundVariant.Dots}
@@ -709,6 +749,7 @@ function WorkflowEditor({
                                     </Panel>
                                 )}
                             </ReactFlow>
+                            </div>
 
                             {/* Bottom-left controls - horizontal layout with custom buttons */}
                             <div className="absolute bottom-12 left-8 z-10 flex gap-2">
@@ -767,9 +808,17 @@ function WorkflowEditor({
                                                 <Button
                                                     variant="outline"
                                                     size="icon"
+                                                    disabled={builderBusy}
                                                     onClick={() => {
-                                                        setNodes(layoutNodes(nodes, edges, 'TB', rfInstance));
-                                                        setIsDirty(true);
+                                                        void layoutNodes(nodes, edges, 'TB', rfInstance)
+                                                            .then((positioned) => {
+                                                                if (positioned === nodes) return;
+                                                                setNodes(applyLayoutPositions(useWorkflowStore.getState().nodes, positioned));
+                                                                setIsDirty(true);
+                                                            })
+                                                            .catch((err: unknown) => {
+                                                                toast.error(err instanceof Error ? err.message : 'Could not tidy up the canvas.');
+                                                            });
                                                     }}
                                                     className="bg-white shadow-sm hover:shadow-md h-8 w-8"
                                                 >
@@ -784,7 +833,7 @@ function WorkflowEditor({
                                 </TooltipProvider>
                             </div>
 
-                            {/* View switcher (Canvas / Model / Variables / Settings); the other views cover the canvas */}
+                            {/* Editor views cover the canvas while keeping it mounted. */}
                             {!isViewingHistoricalVersion && (
                                 <EditorSetup
                                     view={editorView}
@@ -793,6 +842,10 @@ function WorkflowEditor({
                                     workflowId={workflowId}
                                     workflowName={workflowName}
                                     workflowUuid={workflowUuid}
+                                    builderDisabled={isDirty || settingsSaving}
+                                    builderBusy={builderBusy}
+                                    onBuilderSaved={handleBuilderSaved}
+                                    onBuilderBusyChange={setBuilderBusy}
                                     nodes={nodes}
                                     workflowConfigurations={workflowConfigurations}
                                     defaultCallDispositions={defaultCallDispositions}
@@ -816,6 +869,7 @@ function WorkflowEditor({
                                     disabled={testerDisabledReason !== null}
                                     disabledReason={testerDisabledReason}
                                     showWebCallOnboarding={shouldShowWebCallOnboarding}
+                                    workflowOrigin={initialCreatedVia ?? undefined}
                                     isVisible={isDesktopViewport}
                                     onClose={() => setIsTesterRailOpen(false)}
                                     onRuntimeNodeTransition={handleRuntimeNodeTransition}
@@ -832,6 +886,7 @@ function WorkflowEditor({
                                 disabled={testerDisabledReason !== null}
                                 disabledReason={testerDisabledReason}
                                 showWebCallOnboarding={shouldShowWebCallOnboarding}
+                                workflowOrigin={initialCreatedVia ?? undefined}
                                 isVisible={isTesterSheetOpen}
                                 onRuntimeNodeTransition={handleRuntimeNodeTransition}
                             />

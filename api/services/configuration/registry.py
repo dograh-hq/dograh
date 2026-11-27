@@ -1407,9 +1407,7 @@ class MurfTTSConfiguration(BaseTTSConfiguration):
     )
     locale: str = Field(
         default="en-US",
-        description=(
-            "Must be a locale your chosen voice supports, see the "
-        ),
+        description=("Must be a locale your chosen voice supports, see the "),
         json_schema_extra={
             "allow_custom_input": True,
             "docs_url": "https://murf.ai/api/dashboard?utm_source=dograh",
@@ -1836,9 +1834,40 @@ class MiniMaxTTSConfiguration(BaseTTSConfiguration):
             "1.0 is normal volume."
         ),
     )
+    text_normalization_mode: Literal["basic", "quality"] | None = Field(
+        default=None,
+        description=(
+            "How MiniMax rewrites numbers, dates, times and symbols as words before "
+            "speaking them. 'basic' is rule-based. MiniMax treats 'quality' as "
+            "'basic' over the streaming WebSocket connection Dograh uses. Leave "
+            "blank to send the text as written."
+        ),
+        json_schema_extra={"examples": ["basic", "quality"]},
+    )
+    pronunciation_dict: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Pronunciation replacements MiniMax applies to every reply, one per "
+            "entry as 'original/replacement'. The replacement is plain text "
+            "('ASAP/as soon as possible') or IPA in parentheses "
+            "('Dograh/(ˈdoʊɡrɑː)')."
+        ),
+    )
     group_id: str = Field(
         description="MiniMax Group ID (found in your MiniMax dashboard under Account → Group).",
     )
+
+    @field_validator("pronunciation_dict")
+    @classmethod
+    def validate_pronunciation_dict(cls, entries: list[str]) -> list[str]:
+        cleaned = [entry.strip() for entry in entries if entry.strip()]
+        for entry in cleaned:
+            original, separator, replacement = entry.partition("/")
+            if not separator or not original.strip() or not replacement.strip():
+                raise ValueError(
+                    f"Pronunciation entry {entry!r} must look like 'original/replacement'"
+                )
+        return cleaned
 
 
 @register_tts(provider=AZURE_SPEECH_PROVIDER)

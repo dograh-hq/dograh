@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from loguru import logger
 from pipecat.services.minimax.llm import MiniMaxLLMService as RealMiniMaxLLMService
 from pipecat.services.minimax.tts import MiniMaxTTSService
 from pydantic import ValidationError
@@ -13,10 +12,14 @@ from api.services.configuration.registry import (
     MiniMaxTTSConfiguration,
     ServiceProviders,
 )
+from api.services.pipecat.minimax_tts import MiniMaxCachingWebsocketTTSService
 from api.services.pipecat.service_factory import (
     create_llm_service_from_provider,
     create_tts_service,
 )
+from api.services.pipecat.tts_cache.cache import SpeechCache
+from api.services.pipecat.tts_cache.models import CachePolicy
+from api.tests.test_tts_cache import MemoryBackend
 
 
 class TestMiniMaxLLMConfiguration:
@@ -63,6 +66,29 @@ class TestMiniMaxTTSConfiguration:
             MiniMaxTTSConfiguration(
                 api_key="test-key", group_id="test-group", volume=volume
             )
+
+    @pytest.mark.parametrize("entry", ["Dograh", "/(ˈdoʊɡrɑː)", "Dograh/", " / "])
+    def test_pronunciation_entries_need_both_sides(self, entry):
+        with pytest.raises(ValidationError, match="original/replacement"):
+            MiniMaxTTSConfiguration(
+                api_key="test-key", group_id="test-group", pronunciation_dict=[entry]
+            )
+
+    def test_text_normalization_mode_is_one_of_minimax_modes(self):
+        with pytest.raises(ValidationError, match="text_normalization_mode"):
+            MiniMaxTTSConfiguration(
+                api_key="test-key",
+                group_id="test-group",
+                text_normalization_mode="aggressive",
+            )
+
+    def test_new_settings_are_exposed_in_model_settings(self):
+        properties = model_connection_catalog()["services"]["tts"]["minimax"][
+            "settings_schema"
+        ]["properties"]
+        assert properties["pronunciation_dict"]["type"] == "array"
+        assert properties["pronunciation_dict"]["items"] == {"type": "string"}
+        assert properties["text_normalization_mode"]["examples"] == ["basic", "quality"]
 
 
 class TestMiniMaxLLMServiceFactory:
@@ -161,12 +187,11 @@ class TestMiniMaxTTSServiceFactory:
             "volume", 1.0
         )
 
-    def test_speech_cache_setting_only_logs_a_warning(self):
-        warnings = []
-        sink = logger.add(
-            lambda m: warnings.append(m.record["message"]), level="WARNING"
-        )
-        try:
+    def test_speech_cache_setting_builds_the_caching_service(self):
+        cache = SpeechCache(MemoryBackend(), CachePolicy())
+        with patch(
+            "api.services.pipecat.service_factory.get_speech_cache", return_value=cache
+        ) as get_cache:
             service = create_tts_service(
                 SimpleNamespace(
                     tts=MiniMaxTTSConfiguration(
@@ -177,11 +202,54 @@ class TestMiniMaxTTSServiceFactory:
                 organization_id=7,
                 tts_cache_enabled=True,
             )
-        finally:
-            logger.remove(sink)
+
+        get_cache.assert_called_once_with(7, enabled=True)
+        assert type(service) is MiniMaxCachingWebsocketTTSService
+        assert service._speech_cache is cache
+        assert service._organization_id == 7
+
+    def test_without_the_speech_cache_the_plain_service_is_built(self):
+        service = create_tts_service(
+            SimpleNamespace(
+                tts=MiniMaxTTSConfiguration(api_key="test-key", group_id="test-group")
+            ),
+            SimpleNamespace(transport_in_sample_rate=16000),
+            organization_id=7,
+            tts_cache_enabled=False,
+        )
 
         assert type(service) is MiniMaxTTSService
-        assert any("does not use the speech cache" in w for w in warnings)
+
+    def test_pronunciation_and_normalization_reach_task_start(self):
+        config = MiniMaxTTSConfiguration(
+            api_key="test-key",
+            group_id="test-group",
+            text_normalization_mode="basic",
+            pronunciation_dict=[" Dograh/(ˈdoʊɡrɑː) ", "", "SRL/esse erre elle"],
+        )
+        restored = MiniMaxTTSConfiguration.model_validate_json(config.model_dump_json())
+        service = create_tts_service(
+            SimpleNamespace(tts=restored),
+            SimpleNamespace(transport_in_sample_rate=16000),
+        )
+
+        message = service._task_start_message()
+        assert message["text_normalization_mode"] == "basic"
+        assert message["pronunciation_dict"] == {
+            "tone": ["Dograh/(ˈdoʊɡrɑː)", "SRL/esse erre elle"]
+        }
+
+    def test_unset_pronunciation_and_normalization_are_not_sent(self):
+        service = create_tts_service(
+            SimpleNamespace(
+                tts=MiniMaxTTSConfiguration(api_key="test-key", group_id="test-group")
+            ),
+            SimpleNamespace(transport_in_sample_rate=16000),
+        )
+
+        message = service._task_start_message()
+        assert "text_normalization_mode" not in message
+        assert "pronunciation_dict" not in message
 
     @pytest.mark.parametrize(
         ("base_url", "websocket_url"),

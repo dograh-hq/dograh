@@ -74,6 +74,10 @@ interface WorkflowActions {
 
   // Workflow metadata
   setWorkflowName: (name: string) => void;
+  // How the agent was first created (builder|template|blank|unknown), for
+  // analytics attribution on manual node edits/deletes. Not history-tracked.
+  createdVia: string | null;
+  setCreatedVia: (value: string | null) => void;
   setTemplateContextVariables: (variables: Record<string, string>) => void;
   setWorkflowConfigurations: (configurations: WorkflowConfigurations) => void;
   setDictionary: (dictionary: string) => void;
@@ -128,6 +132,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   // Initial state
   workflowId: null,
   workflowName: '',
+  createdVia: null,
   nodes: [],
   edges: [],
   history: [],
@@ -358,6 +363,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       })
     );
   },
+
+  setCreatedVia: (createdVia) => set({ createdVia }),
 
   setTemplateContextVariables: (templateContextVariables) => {
     set({ templateContextVariables });

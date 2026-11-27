@@ -1,0 +1,250 @@
+'use client';
+
+import { ArrowUp, Loader2, Play, Plus, Square } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import posthog from 'posthog-js';
+import { useEffect, useRef, useState } from 'react';
+
+import { getBuilderSessionApiV1WorkflowBuilderSessionIdGet, openWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPost, saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost } from '@/client/sdk.gen';
+import type { BuilderSession, BuilderTurnRequest } from '@/client/types.gen';
+import { useModelSetup } from '@/components/onboarding/useModelSetup';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { BuilderDograhGate } from '@/components/workflow-builder/BuilderDograhGate';
+import { PlanApprovalCard } from '@/components/workflow-builder/PlanApprovalCard';
+import { QuestionCards } from '@/components/workflow-builder/QuestionCards';
+import { ToolApprovalCard } from '@/components/workflow-builder/ToolApprovalCard';
+import { useBuilderExecution } from '@/components/workflow-builder/useBuilderExecution';
+import { PostHogEvent } from '@/constants/posthog-events';
+import { detailFromError } from '@/lib/apiError';
+import { useAuth } from '@/lib/auth';
+
+type WorkflowBuilderProps = {
+    workflowId?: number;
+    disabled?: boolean;
+    onSaved?: () => Promise<void>;
+    onBusyChange?: (busy: boolean) => void;
+};
+
+export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyChange }: WorkflowBuilderProps) {
+    const router = useRouter();
+    const { user, loading: authLoading, getAccessToken } = useAuth();
+    const organization = user && ('selectedTeam' in user ? user.selectedTeam?.id : 'organizationId' in user ? user.organizationId : '');
+    const [session, setSession] = useState<BuilderSession | null>(null);
+    const [sessionId, setSessionId] = useState('');
+    const [input, setInput] = useState('');
+    const [restoring, setRestoring] = useState(true);
+    const [restoreAttempt, setRestoreAttempt] = useState(0);
+    const [saving, setSaving] = useState(false);
+    const [status, setStatus] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const [optimisticMessage, setOptimisticMessage] = useState('');
+    const bottom = useRef<HTMLDivElement>(null);
+    const composer = useRef<HTMLTextAreaElement>(null);
+    const openedTracked = useRef(false);
+    const shownInterrupts = useRef<Set<string>>(new Set());
+    // OSS users can compose a request before connecting their Dograh account.
+    const { dograh, selfHosted, checking: checkingDograh, ensureSetup, setupModal } = useModelSetup('builder');
+    const needsDograh = dograh.status === 'missing' || dograh.status === 'invalid';
+    const showDograhGate = needsDograh && !selfHosted;
+    const refreshDograh = dograh.refresh;
+
+    const execution = useBuilderExecution({
+        getAccessToken, onSaved,
+        onSession: value => { setSession(value); setOptimisticMessage(''); setInput(''); },
+        onStatus: setStatus, onError: setError,
+    });
+    const { busy } = execution;
+
+    useEffect(() => {
+        onBusyChange?.(busy || saving || (!!workflowId && restoring));
+        return () => onBusyChange?.(false);
+    }, [busy, saving, restoring, workflowId, onBusyChange]);
+
+    // Builder opened: fire once the authed user lands on the builder. Dedupe
+    // via a ref so re-renders / StrictMode double-mounts count a single open.
+    useEffect(() => {
+        if (authLoading || !user || openedTracked.current) return;
+        openedTracked.current = true;
+        posthog.capture(PostHogEvent.BUILDER_OPENED, {
+            mode: workflowId ? 'edit' : 'create',
+            workflow_id: workflowId ?? null,
+        });
+    }, [authLoading, user, workflowId]);
+
+    useEffect(() => {
+        if (authLoading) return;
+        if (!user) { setRestoring(false); return; }
+        const controller = new AbortController();
+        execution.detach(); setSession(null); setSessionId(''); setError(null); setRestoring(true);
+        const id = new URL(window.location.href).searchParams.get('session');
+        if (!workflowId && !id) { setSessionId(crypto.randomUUID()); setRestoring(false); }
+        else {
+            void (async () => {
+                try {
+                    const token = await getAccessToken();
+                    const options = { signal: controller.signal, headers: { Authorization: `Bearer ${token}` } };
+                    const result = workflowId
+                        ? await openWorkflowBuilderSessionApiV1WorkflowBuilderWorkflowWorkflowIdSessionPost({ path: { workflow_id: workflowId }, ...options })
+                        : await getBuilderSessionApiV1WorkflowBuilderSessionIdGet({ path: { session_id: id! }, ...options });
+                    if (result.error) throw new Error(detailFromError(result.error, 'Could not restore this conversation.'));
+                    if (!result.data) throw new Error('Could not restore this conversation.');
+                    if (!controller.signal.aborted) {
+                        setSession(result.data); setSessionId(result.data.id);
+                        if (result.data.active_run_id) void execution.restore(result.data.id, result.data.active_run_id);
+                    }
+                } catch (err) { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Could not restore this conversation.'); }
+                finally { if (!controller.signal.aborted) setRestoring(false); }
+            })();
+        }
+        return () => { controller.abort(); execution.detach(); };
+    // The authenticated user and organization identify this conversation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [authLoading, user?.id, organization, workflowId, restoreAttempt]);
+
+    // A refusal that points at the Models page means the key changed since the
+    // status was read; refresh it so the next submission can offer setup.
+    useEffect(() => { if (error?.includes('Models page')) void refreshDograh(); }, [error, refreshDograh]);
+    // Once reconnected here, that refusal no longer applies.
+    const onDograhConnected = async () => {
+        await refreshDograh();
+        setError(current => current?.includes('Models page') ? null : current);
+    };
+
+    useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [session?.messages?.length, session?.pending?.length, status]);
+
+    // "Shown" friction events: fire once per interrupt as the builder surfaces
+    // it. Deduped by interrupt id so re-renders don't double-count.
+    useEffect(() => {
+        for (const item of session?.pending ?? []) {
+            if (item.kind === 'mcp' || shownInterrupts.current.has(item.id)) continue;
+            shownInterrupts.current.add(item.id);
+            if (item.kind === 'questions') {
+                posthog.capture(PostHogEvent.BUILDER_QUESTIONS_SHOWN, { session_id: sessionId, question_count: item.questions?.length ?? 0 });
+            } else if (item.kind === 'plan_approval') {
+                posthog.capture(PostHogEvent.BUILDER_PLAN_SHOWN, { session_id: sessionId, revision: item.brief_revision ?? null });
+            } else if (item.kind === 'tool_approval') {
+                posthog.capture(PostHogEvent.BUILDER_TOOL_PROPOSED, { session_id: sessionId, operation: item.operation ?? null, tool_category: (item.tool as { category?: string } | null)?.category ?? null });
+            }
+        }
+    }, [session?.pending, sessionId]);
+
+    const pendingQuestions = session?.pending?.filter(item => item.kind === 'questions') ?? [];
+    const pendingApproval = session?.pending?.find(item => item.kind === 'plan_approval');
+    const pendingToolApproval = session?.pending?.find(item => item.kind === 'tool_approval');
+    const awaitingUser = !!pendingQuestions.length || !!pendingApproval || !!pendingToolApproval;
+    // Restored conversations may still contain instructions for the removed preview.
+    const messages = session?.messages?.map(message => message.role === 'assistant'
+        ? { ...message, content: message.content.replace(/\n\nReview the preview and save a draft when ready\.$/, '') }
+        : message);
+    const isStarting = !restoring && !session?.messages?.length && !awaitingUser && !session?.proposal && !busy && !optimisticMessage && !session?.can_continue;
+    useEffect(() => { if (isStarting) composer.current?.focus(); }, [isStarting]);
+    const newConversation = () => {
+        posthog.capture(PostHogEvent.BUILDER_NEW_CONVERSATION, { session_id: sessionId });
+        shownInterrupts.current.clear();
+        execution.detach(); setSession(null); setInput(''); setError(null); setOptimisticMessage(''); setStatus('');
+        setSessionId(crypto.randomUUID());
+        const url = new URL(window.location.href); url.searchParams.delete('session');
+        window.history.replaceState(window.history.state, '', url);
+    };
+    const persistProposal = async (builtSession: BuilderSession, signal?: AbortSignal) => {
+        const token = await getAccessToken();
+        const result = await saveBuilderSessionApiV1WorkflowBuilderSessionIdSavePost({
+            path: { session_id: builtSession.id },
+            body: { checkpoint: builtSession.checkpoint!, workflow_id: workflowId },
+            signal, headers: { Authorization: `Bearer ${token}` },
+        });
+        if (result.error) throw new Error(detailFromError(result.error, 'Could not apply your agent changes. Please try again.'));
+        if (!result.data) throw new Error('The server did not return a workflow.');
+        return result.data.workflow_id;
+    };
+    const send = async (content: Pick<BuilderTurnRequest, 'message' | 'answers' | 'approval' | 'tool_approval'> = {}) => {
+        if (!user || !sessionId || busy || saving || restoring || disabled || showDograhGate || checkingDograh) return;
+        if (!await ensureSetup()) return;
+        // The brief: first user message of the session separates "tried" from
+        // "just opened". Later turns are iteration, not a fresh attempt.
+        if (content.message && !session?.messages?.length) {
+            posthog.capture(PostHogEvent.BUILDER_PROMPT_SUBMITTED, {
+                mode: workflowId ? 'edit' : 'create',
+                prompt_chars: content.message.length,
+                session_id: sessionId,
+            });
+        }
+        if (content.answers) {
+            const questionCount = Object.values(content.answers).reduce((n, qs) => n + Object.keys(qs ?? {}).length, 0);
+            posthog.capture(PostHogEvent.BUILDER_QUESTIONS_ANSWERED, { session_id: sessionId, question_count: questionCount });
+        }
+        if (content.approval) {
+            posthog.capture(content.approval.decision === 'approve' ? PostHogEvent.BUILDER_PLAN_APPROVED : PostHogEvent.BUILDER_PLAN_REVISE, { session_id: sessionId, revision: content.approval.brief_revision ?? null });
+        }
+        if (content.tool_approval) {
+            posthog.capture(content.tool_approval.decision === 'approve' ? PostHogEvent.BUILDER_TOOL_APPROVED : PostHogEvent.BUILDER_TOOL_DENIED, { session_id: sessionId, operation: pendingToolApproval?.operation ?? null });
+        }
+        setError(null); setOptimisticMessage(content.message ?? '');
+        if (!workflowId) {
+            const url = new URL(window.location.href); url.searchParams.set('session', sessionId);
+            window.history.replaceState(window.history.state, '', url);
+        }
+        await execution.start(sessionId, { request_id: crypto.randomUUID(), checkpoint: session?.checkpoint ?? null, workflow_id: workflowId, ...content });
+        setOptimisticMessage('');
+    };
+    const testAgent = async () => {
+        if (!session?.checkpoint || session.can_continue || awaitingUser || busy || saving || restoring || disabled) return;
+        posthog.capture(PostHogEvent.BUILDER_TEST_CLICKED, {
+            mode: workflowId ? 'edit' : 'create',
+            session_id: sessionId,
+        });
+        setSaving(true); setError(null);
+        try {
+            const id = await persistProposal(session);
+            router.push(`/workflow/${id}?view=builder`);
+        } catch (err) { setError(err instanceof Error ? err.message : 'Could not prepare the agent.'); }
+        finally { setSaving(false); }
+    };
+    if (!authLoading && !user) return <p className="p-6">Sign in to build an agent. <Link href="/handler/sign-in" className="underline">Sign in</Link></p>;
+    return <div className="flex min-h-full flex-1 flex-col">
+        <header className="mb-6 flex items-center justify-between gap-3"><div><h1 className="text-xl font-semibold tracking-tight">{workflowId ? 'Agent builder' : 'Create an agent'}</h1><p className="mt-1 text-sm text-muted-foreground">{workflowId ? 'Describe a change, then test your updated agent.' : 'Describe what you need. Build and refine it together.'}</p></div>{!workflowId && !isStarting && <Button variant="outline" size="sm" onClick={newConversation} disabled={busy || saving || restoring}><Plus className="mr-2 h-4 w-4" />New conversation</Button>}</header>
+        {disabled && <p role="status" className="mb-4 rounded-md border bg-muted p-3 text-sm">Save your canvas changes before continuing in the builder.</p>}
+        <div className={`mx-auto grid w-full max-w-3xl flex-1 ${isStarting ? 'content-center' : ''}`}>
+            <section className={`flex min-w-0 flex-col ${isStarting ? '' : 'min-h-[650px] rounded-2xl border bg-muted/20'}`}>
+                <div className={isStarting ? 'space-y-5 px-4 pb-6 text-center' : 'max-h-[65vh] min-h-[380px] flex-1 space-y-5 overflow-y-auto p-5 md:p-7'} aria-live="polite">
+                    {restoring ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Restoring conversation…</div> : isStarting && !showDograhGate && <div>
+                        <h2 className="text-2xl font-medium tracking-tight">{workflowId ? 'What would you like to change?' : 'What should your agent do?'}</h2>
+                        <p className="mt-3 text-sm leading-6 text-muted-foreground">{workflowId ? 'Start a conversation to refine this agent. The builder will use your current saved workflow.' : 'Describe who it should speak with and what it needs to do.'}</p>
+                    </div>}
+                    {messages?.map(message => <div key={message.id} className={message.role === 'user' ? 'ml-8 rounded-2xl bg-muted px-4 py-3' : 'pr-5'}><div className="mb-1.5 text-xs font-medium text-muted-foreground">{message.role === 'user' ? 'You' : 'Dograh'}</div><div className="whitespace-pre-wrap text-sm leading-6">{message.content}</div></div>)}
+                    {optimisticMessage && <div className="ml-8 rounded-2xl bg-muted px-4 py-3 text-sm">{optimisticMessage}</div>}
+                    {!!pendingQuestions.length && <QuestionCards key={pendingQuestions.map(item => item.id).join(':')} pending={pendingQuestions} disabled={busy || saving || disabled} onSubmit={answers => void send({ answers })} />}
+                    {pendingApproval?.brief && pendingApproval.brief_revision != null && <PlanApprovalCard key={pendingApproval.id} interruptId={pendingApproval.id} revision={pendingApproval.brief_revision} brief={pendingApproval.brief} disabled={busy || saving || restoring || disabled} onSubmit={approval => void send({ approval })} />}
+                    {pendingToolApproval?.operation && <ToolApprovalCard key={pendingToolApproval.id} interruptId={pendingToolApproval.id} operation={pendingToolApproval.operation} tool={pendingToolApproval.tool} toolUuid={pendingToolApproval.tool_uuid} plainLanguage={pendingToolApproval.plain_language} usedByCount={pendingToolApproval.used_by_count} disabled={busy || saving || restoring || disabled} onSubmit={tool_approval => void send({ tool_approval })} />}
+                    {busy && !execution.disconnected && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{status}</div>}
+                    {busy && <div className="flex gap-2">
+                        {execution.disconnected && <Button variant="outline" size="sm" onClick={execution.reconnect}>Reconnect</Button>}
+                        <Button variant="outline" size="sm" disabled={execution.stopping} onClick={() => { posthog.capture(PostHogEvent.BUILDER_CANCELLED, { mode: workflowId ? 'edit' : 'create', session_id: sessionId }); void execution.stop(); }}><Square className="mr-2 h-3 w-3" />{execution.stopping ? 'Stopping…' : 'Stop'}</Button>
+                    </div>}
+                    {error && <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}
+                        {!sessionId && !restoring && <Button variant="outline" size="sm" onClick={() => setRestoreAttempt(value => value + 1)}>Retry restoring conversation</Button>}
+                        {error.includes('Models page') && <Link href="/model-configurations" className="mt-2 block font-medium underline">Open Models page</Link>}
+                    </div>}
+                    {!busy && !awaitingUser && !showDograhGate && session?.can_continue && <Button variant="outline" disabled={disabled || saving || checkingDograh} onClick={() => void send()}>Resume building</Button>}
+                    <div ref={bottom} />
+                </div>
+                {!workflowId && session?.proposal && <div className="px-5 pt-4 md:px-7">
+                    <Button onClick={() => void testAgent()} disabled={disabled || busy || saving || restoring || awaitingUser || !!session.can_continue || !session.checkpoint}>
+                        {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                        {saving ? 'Preparing agent…' : 'Test agent'}
+                    </Button>
+                </div>}
+                {showDograhGate ? <div className={isStarting ? '' : 'm-4'}>
+                    <BuilderDograhGate reason={dograh.status as 'missing' | 'invalid'} offerBlankCanvas={!workflowId} onConnected={onDograhConnected} />
+                </div> : <form className={`rounded-xl border bg-background p-3 ${isStarting ? 'shadow-sm' : 'm-4'}`} onSubmit={event => { event.preventDefault(); if (input.trim()) void send({ message: input.trim() }); }}>
+                    <Textarea ref={composer} aria-label="Describe your agent or request a change" placeholder={pendingApproval ? 'Review the requirements above to continue…' : pendingToolApproval ? 'Review the tool above to continue…' : pendingQuestions.length ? 'Answer the questions above to continue…' : workflowId || session?.proposal ? 'Ask for a change to your agent…' : 'Build me an agent that…'} className="min-h-[80px] resize-none border-0 shadow-none focus-visible:ring-0" value={input} maxLength={12000} disabled={busy || saving || restoring || awaitingUser || disabled || !sessionId}
+                        onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (input.trim()) void send({ message: input.trim() }); } }} />
+                    <div className="flex items-center justify-between"><span className="pl-3 text-xs text-muted-foreground">Shift + Enter for a new line</span><Button type="submit" size="icon" aria-label="Send message" disabled={!input.trim() || !sessionId || busy || saving || restoring || disabled || authLoading || !user || awaitingUser || checkingDograh}><ArrowUp className="h-4 w-4" /></Button></div>
+                </form>}
+            </section>
+        </div>
+        {setupModal}
+    </div>;
+}

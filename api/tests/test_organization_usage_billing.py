@@ -11,18 +11,28 @@ from api.routes import organization_usage
 
 
 @pytest.mark.asyncio
-async def test_get_billing_credits_oss_aggregates_by_created_by(monkeypatch):
+async def test_get_billing_credits_oss_uses_configured_account_key(monkeypatch):
     monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "oss")
     get_usage = AsyncMock(
         return_value={"total_credits_used": 12.5, "remaining_credits": 487.5}
     )
     monkeypatch.setattr(
         organization_usage.mps_service_key_client,
-        "get_usage_by_created_by",
+        "check_service_key_usage",
         get_usage,
     )
+    resolve_key = AsyncMock(return_value="mps_sk_connected")
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "find_runtime_service_key",
+        resolve_key,
+    )
+    legacy = AsyncMock()
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client, "get_usage_by_created_by", legacy
+    )
 
-    user = SimpleNamespace(provider_id="provider-123", selected_organization_id=None)
+    user = SimpleNamespace(provider_id="oss-local-user", selected_organization_id=42)
 
     response = await organization_usage.get_billing_credits(
         page=1,
@@ -30,11 +40,44 @@ async def test_get_billing_credits_oss_aggregates_by_created_by(monkeypatch):
         user=user,
     )
 
-    get_usage.assert_awaited_once_with("provider-123")
+    resolve_key.assert_awaited_once_with(42)
+    get_usage.assert_awaited_once_with("mps_sk_connected")
+    legacy.assert_not_awaited()
     assert response.total_credits_used == 12.5
     assert response.remaining_credits == 487.5
     assert response.total_quota == 500.0
     assert response.ledger_entries == []
+
+
+@pytest.mark.asyncio
+async def test_unconnected_oss_has_no_invented_trial_credits(monkeypatch):
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "find_runtime_service_key",
+        AsyncMock(return_value=None),
+    )
+    response = await organization_usage._oss_mps_credits_response(
+        SimpleNamespace(selected_organization_id=42)
+    )
+    assert response.total_quota == 0 and response.remaining_credits == 0
+
+
+@pytest.mark.asyncio
+async def test_oss_balance_failure_does_not_fall_back_to_anonymous_quota(monkeypatch):
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "find_runtime_service_key",
+        AsyncMock(return_value="mps_sk_connected"),
+    )
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "check_service_key_usage",
+        AsyncMock(side_effect=ConnectionError("MPS down")),
+    )
+    with pytest.raises(ConnectionError):
+        await organization_usage._oss_mps_credits_response(
+            SimpleNamespace(selected_organization_id=42)
+        )
 
 
 @pytest.mark.asyncio
@@ -216,6 +259,43 @@ def _billing_client(monkeypatch, mode="saas", organization_id=42, **mps_methods)
         provider_id="provider-123", selected_organization_id=organization_id
     )
     return TestClient(app)
+
+
+async def test_oss_purchase_uses_configured_service_key_account(monkeypatch):
+    monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "oss")
+    purchase = AsyncMock(
+        return_value={"checkout_url": "https://checkout.dograh.com/?session=short"}
+    )
+    hosted = AsyncMock()
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "create_service_key_purchase_url",
+        purchase,
+    )
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client, "create_credit_purchase_url", hosted
+    )
+    response = await organization_usage.create_mps_credit_purchase_url(
+        user=SimpleNamespace(selected_organization_id=42)
+    )
+    assert response.checkout_url.startswith("https://checkout.dograh.com/")
+    purchase.assert_awaited_once_with(42)
+    hosted.assert_not_awaited()
+
+
+async def test_oss_purchase_without_models_keeps_actionable_error(monkeypatch):
+    monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "oss")
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "create_service_key_purchase_url",
+        AsyncMock(side_effect=HTTPException(400, "Connect models first")),
+    )
+    with pytest.raises(HTTPException) as error:
+        await organization_usage.create_mps_credit_purchase_url(
+            user=SimpleNamespace(selected_organization_id=42)
+        )
+    assert error.value.status_code == 400
+    assert error.value.detail == "Connect models first"
 
 
 def test_billing_payments_lists_mps_payments(monkeypatch):

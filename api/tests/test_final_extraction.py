@@ -6,11 +6,15 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException
+from opentelemetry import trace as otel_trace
+from opentelemetry.trace import SpanContext, TraceFlags
 from pipecat.frames.frames import CancelFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.utils.enums import EndTaskReason
+from pipecat.utils.tracing.tracing_context import TracingContext
 
 from api.schemas.workflow_configurations import CallDispositionOption
+from api.services.pipecat import tracing_config
 from api.services.workflow import final_extraction as service
 from api.services.workflow.conversation_history import (
     build_conversation_history,
@@ -71,6 +75,49 @@ async def test_terminal_frame_does_not_wait_for_extraction(monkeypatch):
     assert request["model_configuration_snapshot"] == {"visit": "child"}
     assert request["variables"][0]["prompt"] == "Extract Ada"
     assert request["prompt"] == "For Ada"
+    assert request["cache_static_prompt"] is False
+
+
+TRACE_ID = "0af7651916cd43dd8448eb211c80319c"
+SPAN_ID = "b7ad6b7169203331"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("traced", [True, False])
+async def test_snapshot_records_the_conversation_span(monkeypatch, traced):
+    instance, _ = engine(monkeypatch)
+    if traced:
+        tracing_ctx = TracingContext()
+        tracing_ctx.set_conversation_context(
+            SpanContext(
+                trace_id=int(TRACE_ID, 16),
+                span_id=int(SPAN_ID, 16),
+                is_remote=False,
+                trace_flags=TraceFlags(0x01),
+            )
+        )
+        instance.call_worker._tracing_context = tracing_ctx
+    await instance.end_call_with_reason("end_call", True)
+    snapshot = instance.final_extraction_logs()["final_extraction"]
+    assert snapshot["trace_parent"] == (
+        {"trace_id": TRACE_ID, "span_id": SPAN_ID} if traced else None
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template_location", [None, "prompt", "variable"])
+async def test_snapshot_caches_only_static_definitions(monkeypatch, template_location):
+    instance, _ = engine(monkeypatch)
+    current = instance.active_agent.current_node
+    current.extraction_prompt = "Extract accurately"
+    current.extraction_variables[0].prompt = "The customer's name"
+    if template_location == "prompt":
+        current.extraction_prompt = "For {{ customer }}"
+    elif template_location == "variable":
+        current.extraction_variables[0].prompt = "For {{ customer }}"
+    await instance.end_call_with_reason("end_call", True)
+    request = instance.final_extraction_logs()["final_extraction"]["requests"][0]
+    assert request["cache_static_prompt"] == (template_location is None)
 
 
 @pytest.mark.asyncio
@@ -290,6 +337,63 @@ async def test_worker_uses_child_model_and_is_idempotent(worker, variable):
     llm.cleanup.assert_awaited_once()
     await service.run_final_extraction(1, 7, "lease")
     assert llm.run_inference.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("trace_parent", "trace_url", "expected"),
+    [
+        # Nested under the conversation span recorded at hangup.
+        ({"trace_id": TRACE_ID, "span_id": SPAN_ID}, None, (TRACE_ID, SPAN_ID)),
+        # No recorded span: the trace root, by the trace id in trace_url.
+        (
+            None,
+            f"https://langfuse.example.com/project/p/traces/{TRACE_ID}",
+            (TRACE_ID, "0000000000000001"),
+        ),
+        (None, None, None),
+    ],
+)
+async def test_worker_parents_extraction_spans_to_the_call_trace(
+    worker, monkeypatch, trace_parent, trace_url, expected
+):
+    run, _, saved = worker
+    run.logs["final_extraction"]["trace_parent"] = trace_parent
+    if trace_url:
+        run.gathered_context["trace_url"] = trace_url
+    run.logs["final_extraction"]["disposition"]["options"] = [
+        {"code": "qualified", "description": "Qualified"}
+    ]
+    monkeypatch.setattr(tracing_config, "ensure_tracing", lambda: True)
+    parents = {}
+
+    async def extract_variables(*_args, parent_ctx=None, **_kwargs):
+        parents["variables"] = parent_ctx
+        return {"name": "Ada"}
+
+    class DispositionExtraction:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def extract(self, *, parent_context=None, raise_on_error=False):
+            parents["disposition"] = parent_context
+            return "qualified"
+
+    monkeypatch.setattr(service, "extract_variables", extract_variables)
+    monkeypatch.setattr(service, "DispositionExtractionService", DispositionExtraction)
+    await service.run_final_extraction(1, 7, "lease")
+
+    def parent_ids(context):
+        if context is None:
+            return None
+        span_context = otel_trace.get_current_span(context).get_span_context()
+        return format(span_context.trace_id, "032x"), format(
+            span_context.span_id, "016x"
+        )
+
+    assert saved.call_args.kwargs["disposition"] == "qualified"
+    assert parent_ids(parents["variables"]) == expected
+    assert parent_ids(parents["disposition"]) == expected
 
 
 @pytest.mark.asyncio

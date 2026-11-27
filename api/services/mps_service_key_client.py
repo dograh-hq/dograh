@@ -1,16 +1,19 @@
 """
 MPS Service Key HTTP Client
-This client communicates with the Model Proxy Service (MPS) for service key management.
+This client communicates with the Model Proxy Service (MPS) for service key
+management and managed model requests.
 Service keys are stored and managed entirely in MPS, not in the local database.
 """
 
 import uuid
 from datetime import datetime
 from typing import List, Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import HTTPException
 from loguru import logger
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from api.constants import (
     DEPLOYMENT_MODE,
@@ -48,7 +51,7 @@ def _log_mps_dependency_failure(
 
 
 class MPSServiceKeyClient:
-    """HTTP client for managing service keys via MPS API."""
+    """HTTP client for service keys and managed model requests via MPS API."""
 
     def __init__(self):
         self.base_url = MPS_API_URL
@@ -157,14 +160,27 @@ class MPSServiceKeyClient:
             return response.json()
 
     async def _runtime_service_key(self, organization_id: Optional[int]) -> str:
+        if organization_id is None:
+            raise HTTPException(status_code=400, detail="No organization selected")
+        service_key = await self.find_runtime_service_key(organization_id)
+        if service_key:
+            return service_key
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Connect your Dograh account on the Models page, or add a Dograh "
+                "provider with a service key, to use this feature"
+            ),
+        )
+
+    async def find_runtime_service_key(self, organization_id: int) -> str | None:
+        """The Dograh key the organization's Dograh features run on, if any."""
         # Imported here because configuration resolution itself uses this client.
         from api.services.configuration.ai_model_configuration import (
             get_resolved_ai_model_configuration,
         )
         from api.services.managed_model_services import get_dograh_service_api_key
 
-        if organization_id is None:
-            raise HTTPException(status_code=400, detail="No organization selected")
         resolved = await get_resolved_ai_model_configuration(
             organization_id=organization_id
         )
@@ -189,10 +205,7 @@ class MPSServiceKeyClient:
                 for key in keys:
                     if isinstance(key, str) and key.strip():
                         return key
-        raise HTTPException(
-            status_code=400,
-            detail="Add a Dograh provider with a service key to use this feature",
-        )
+        return None
 
     async def create_service_key(
         self,
@@ -500,6 +513,17 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
+    async def create_service_key_purchase_url(self, organization_id: int) -> dict:
+        """Create deposit-only checkout for the configured key's MPS account."""
+        key = await self._runtime_service_key(organization_id)
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/billing/checkout-sessions/self",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def create_credit_purchase_url(
         self,
         organization_id: int,
@@ -795,6 +819,52 @@ class MPSServiceKeyClient:
                 request=response.request,
                 response=response,
             )
+
+    async def create_agent_builder_completion(
+        self,
+        *,
+        service_key: str,
+        messages: list[dict],
+        max_tokens: int,
+        metadata: dict | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict:
+        """Request one billed Agent Builder completion.
+
+        Authenticate with the caller's configured Dograh Service Key. MPS owns
+        model selection, request identity, price snapshot and credit settlement.
+        Return the full response, preserving provider reasoning/tool metadata.
+
+        Transport and HTTP failures propagate to the caller.
+        """
+        headers = {"Authorization": f"Bearer {service_key}"}
+        metadata = {
+            key: value
+            for key, value in (metadata or {}).items()
+            if key not in {"correlation_id", "mps_billing_version"}
+        }
+        # Only W3C trace context; never forward baggage or caller credentials to
+        # another destination. MPS remains responsible for the generation span.
+        TraceContextTextMapPropagator().inject(headers)
+        # Builder-only call. The build stage can generate a full @dograh/sdk
+        # workflow, which can run longer than a chat turn; keep this under the
+        # 300s builder step deadline (service.py) so that stays the outer bound.
+        async with httpx.AsyncClient(timeout=httpx.Timeout(290, connect=10)) as client:
+            response = await client.post(
+                f"{self.base_url.rstrip('/')}/api/v1/agent-builder/chat/completions",
+                headers=headers,
+                json={
+                    "messages": messages,
+                    "stream": False,
+                    "max_tokens": max_tokens,
+                    "tools": tools,
+                    "tool_choice": tool_choice,
+                    "metadata": metadata,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
 
     async def report_platform_usage(
         self,
@@ -1149,6 +1219,135 @@ class MPSServiceKeyClient:
                     request=response.request,
                     response=response,
                 )
+
+    # Connect Dograh account: a self-hosted install starts a request and polls
+    # for its key; the hosted app looks the request up and approves it for the
+    # signed-in person's team.
+
+    _CONNECT_PATH = "/api/v1/service-keys/connect"
+    # MPS writes these details for people (expired code, already approved,
+    # too many requests), so they pass through to the UI unchanged.
+    _CONNECT_PASSTHROUGH_STATUSES = frozenset({400, 403, 404, 409, 410, 429})
+
+    async def _connect_call(
+        self,
+        operation: str,
+        method: str,
+        path: str,
+        *,
+        headers: dict,
+        json: dict | None = None,
+        organization_id: int | None = None,
+    ) -> dict:
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.request(
+                    method,
+                    f"{self.base_url}{self._CONNECT_PATH}{path}",
+                    headers=headers,
+                    json=json,
+                )
+        except httpx.RequestError as exc:
+            _log_mps_dependency_failure(
+                exc, operation=operation, organization_id=organization_id
+            )
+            raise MPSUnavailableError(operation) from exc
+        if response.status_code == 200:
+            return response.json()
+        if response.status_code in self._CONNECT_PASSTHROUGH_STATUSES:
+            try:
+                body = response.json()
+            except ValueError:
+                body = None
+            detail = body.get("detail") if isinstance(body, dict) else None
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=detail if isinstance(detail, str) else "Request failed",
+            )
+        error = MPSUnavailableError(operation, status_code=response.status_code)
+        _log_mps_dependency_failure(
+            error, operation=operation, organization_id=organization_id
+        )
+        raise error
+
+    async def start_account_connect(
+        self, *, install_name: str, install_url: str | None, created_by: str
+    ) -> dict:
+        """Start connecting this self-hosted install to a Dograh account."""
+        return await self._connect_call(
+            "start_account_connect",
+            "POST",
+            "/start",
+            headers={"Content-Type": "application/json"},
+            json={
+                "install_name": install_name,
+                "install_url": install_url,
+                "created_by": created_by,
+            },
+        )
+
+    async def poll_account_connect(self, device_code: str) -> dict:
+        """Collect the approved key; delivery is retryable until acknowledged."""
+        return await self._connect_call(
+            "poll_account_connect",
+            "POST",
+            "/poll",
+            headers={"Content-Type": "application/json"},
+            json={"device_code": device_code},
+        )
+
+    async def email_account_connect(self, step: str, payload: dict) -> dict:
+        if step not in {"start", "verify", "confirm"}:
+            raise ValueError("Unknown email connection step")
+        return await self._connect_call(
+            f"email_connect_{step}",
+            "POST",
+            f"/email/{step}",
+            headers={"Content-Type": "application/json"},
+            json=payload,
+        )
+
+    async def acknowledge_account_connect(self, device_code: str) -> dict:
+        """Confirm durable local storage so MPS can forget the delivery copy."""
+        return await self._connect_call(
+            "acknowledge_account_connect",
+            "POST",
+            "/acknowledge",
+            headers={"Content-Type": "application/json"},
+            json={"device_code": device_code},
+        )
+
+    async def get_account_connect_request(
+        self, user_code: str, *, organization_id: int, created_by: str
+    ) -> dict:
+        """Describe a pending request so the person can recognise the install."""
+        return await self._connect_call(
+            "get_account_connect_request",
+            "GET",
+            f"/requests/{quote(user_code, safe='')}",
+            headers=await self._tenant_headers(organization_id, created_by),
+            organization_id=organization_id,
+        )
+
+    async def decide_account_connect_request(
+        self,
+        user_code: str,
+        *,
+        approve: bool,
+        organization_id: int,
+        created_by: str,
+        team_name: str | None = None,
+    ) -> dict:
+        """Approve the request for the organization's team, or deny it."""
+        decision = "approve" if approve else "deny"
+        return await self._connect_call(
+            f"{decision}_account_connect_request",
+            "POST",
+            f"/requests/{quote(user_code, safe='')}/{decision}",
+            headers=await self._tenant_headers(organization_id, created_by),
+            json=({"team_name": team_name} if approve else None),
+            organization_id=organization_id,
+        )
 
 
 # Create a singleton instance

@@ -17,6 +17,7 @@ from api.schemas.workflow_configurations import (
     DEFAULT_SMART_TURN_STOP_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_TURN_START_STRATEGY,
+    PromptVariablesConfiguration,
     WorkflowConfigurationDefaults,
 )
 from api.services.call_concurrency import call_concurrency
@@ -943,6 +944,9 @@ async def _run_pipeline_impl(
         has_recordings=has_recordings,
         is_realtime=is_realtime,
         context_compaction_enabled=context_compaction_enabled,
+        prompt_variables=PromptVariablesConfiguration.model_validate(
+            run_configs.get("prompt_variables") or {}
+        ),
         call_dispositions=call_dispositions,
         # Voice calls hand final extraction to the completion worker after hangup.
         defer_final_extraction=True,

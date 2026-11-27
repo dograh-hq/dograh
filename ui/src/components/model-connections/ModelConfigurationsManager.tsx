@@ -13,10 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAppConfig } from "@/context/AppConfigContext";
+import { useDograhAccount } from "@/context/DograhAccountContext";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 import { detailFromError } from "@/lib/apiError";
 
 import { configurationMode } from "./configuration";
+import { DograhAccountConnect } from "./DograhAccountConnect";
 import type { NamedModelConfiguration, ProviderConnection } from "./types";
 import { MODE_LABELS, ROLE_LABELS, ROLES } from "./types";
 import { useModelConnections } from "./useModelConnections";
@@ -31,6 +34,12 @@ function ConfigurationSummary({ configuration, connections }: { configuration: N
 export default function ModelConfigurationsManager({ docsUrl }: { docsUrl?: string }) {
     const { catalog, connections, configurations, defaultUuid, loading, error, reload } = useModelConnections({ includeArchived: true });
     const { refreshConfig } = useOrgConfig();
+    const { config } = useAppConfig();
+    const isOSS = config?.deploymentMode === "oss";
+    const dograh = useDograhAccount(isOSS);
+    // Keep the section after connecting here, so its confirmation stays visible.
+    const [connectedHere, setConnectedHere] = useState(false);
+    const showConnect = isOSS && (connectedHere || dograh.status === "missing" || dograh.status === "invalid");
     const [archive, setArchive] = useState<{ uuid: string; name: string } | null>(null);
     const [busy, setBusy] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
@@ -56,6 +65,8 @@ export default function ModelConfigurationsManager({ docsUrl }: { docsUrl?: stri
         description={<>Create named model configurations using your <Link href="/provider-connections" className="underline">provider connections</Link> in Realtime, Dograh, or BYOK mode.
             {docsUrl && <> <a href={docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline">Learn more<ExternalLink className="h-3 w-3" /></a></>}</>}
     >
+        {showConnect && <DograhAccountConnect reconnect={!connectedHere && dograh.status === "invalid"}
+            onConnected={async () => { setConnectedHere(true); await refresh(); await dograh.refresh(); }} />}
         <PageSection title="Named Model Configurations" description="Choose a setup for each workflow or make one your org default. Workflows inherit the default unless overridden."
             actions={<Button asChild><Link href="/model-configurations/new"><Plus className="h-4 w-4" />Add Configuration</Link></Button>}>
             {loading && !catalog && <div className="grid gap-3"><Skeleton className="h-24 w-full" /><Skeleton className="h-24 w-full" /></div>}

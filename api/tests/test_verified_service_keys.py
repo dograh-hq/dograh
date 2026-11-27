@@ -87,14 +87,14 @@ async def test_oss_still_issues_trial_keys_without_claiming_a_tenant(monkeypatch
     assert "X-Secret-Key" not in requests[0].headers
 
 
-async def test_oss_key_route_keeps_local_auth_while_hosted_requires_verification(
-    monkeypatch,
-):
+async def test_oss_installs_connect_an_account_instead_of_minting_keys(monkeypatch):
     user = SimpleNamespace(provider_id="oss_1_user", selected_organization_id=42)
     verified_user = AsyncMock(return_value=user)
     monkeypatch.setattr(depends, "get_verified_stack_user", verified_user)
     monkeypatch.setattr(depends, "DEPLOYMENT_MODE", "oss")
-    assert await depends.get_service_key_user(user, "Bearer local-token") is user
+    with pytest.raises(HTTPException) as refused:
+        await depends.get_service_key_user(user, "Bearer local-token")
+    assert refused.value.status_code == 403
     verified_user.assert_not_awaited()
     monkeypatch.setattr(depends, "DEPLOYMENT_MODE", "saas")
     assert await depends.get_service_key_user(user, "Bearer hosted-token") is user

@@ -100,6 +100,7 @@ function specAllowInterrupt(
 export type SavedVersion = { versionNumber?: number; versionStatus?: string };
 
 interface UseWorkflowStateProps {
+    editingDisabled?: boolean;
     /**
      * Called after a settings, variables or dictionary save with the version
      * it landed in: saving a published workflow turns it into a draft.
@@ -107,6 +108,11 @@ interface UseWorkflowStateProps {
     onVersionSaved?: (version: SavedVersion) => void;
     initialWorkflowName: string;
     workflowId: number;
+    /**
+     * How the agent was first created (builder | template | blank | unknown),
+     * for analytics attribution on manual node edits. Immutable.
+     */
+    createdVia?: string | null;
     initialFlow?: {
         nodes: FlowNode[];
         edges: FlowEdge[];
@@ -127,8 +133,10 @@ export const useWorkflowState = ({
     initialFlow,
     initialTemplateContextVariables,
     initialWorkflowConfigurations,
+    createdVia,
     user,
     onVersionSaved,
+    editingDisabled = false,
 }: UseWorkflowStateProps) => {
     const reportVersion = useCallback((data: { version_number?: number | null; version_status?: string | null } | undefined) => {
         if (!data || !onVersionSaved) return;
@@ -178,7 +186,14 @@ export const useWorkflowState = ({
         markNodeAsInvalid,
         markEdgeAsInvalid,
         setRfInstance,
+        setCreatedVia,
     } = useWorkflowStore();
+
+    // Publish the immutable creation origin into the store so node-level
+    // handlers can stamp workflow_origin on manual edit/delete analytics.
+    useEffect(() => {
+        setCreatedVia(createdVia ?? null);
+    }, [createdVia, setCreatedVia]);
 
     // Get undo/redo functions from the store
     const undo = useWorkflowStore((state) => state.undo);
@@ -283,6 +298,7 @@ export const useWorkflowState = ({
     // Set up keyboard shortcuts for undo/redo
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (editingDisabled) return;
             // Check if we're in an input field
             const target = e.target as HTMLElement;
             if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
@@ -310,7 +326,7 @@ export const useWorkflowState = ({
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [undo, redo, canUndo, canRedo]);
+    }, [undo, redo, canUndo, canRedo, editingDisabled]);
 
     const handleNodeSelect = useCallback((nodeType: string) => {
         if (!rfInstance.current) return;
@@ -339,9 +355,12 @@ export const useWorkflowState = ({
         rfInstance.current.addNodes([newNode]);
         posthog.capture(PostHogEvent.WORKFLOW_NODE_ADDED, {
             node_type: nodeType,
+            workflow_id: workflowId,
+            workflow_origin: createdVia ?? "unknown",
+            source: "manual",
         });
         setIsAddNodePanelOpen(false);
-    }, [nodes, setIsAddNodePanelOpen, bySpecName]);
+    }, [nodes, setIsAddNodePanelOpen, bySpecName, createdVia, workflowId]);
 
     const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setWorkflowName(e.target.value);
@@ -393,7 +412,7 @@ export const useWorkflowState = ({
 
     // Save workflow function. Returns version info from the API response.
     const saveWorkflow = useCallback(async (updateWorkflowDefinition: boolean = true): Promise<SavedVersion | undefined> => {
-        if (!user?.id || !rfInstance.current) return;
+        if (editingDisabled || !user?.id || !rfInstance.current) return;
         // Read nodes/edges from the Zustand store (synchronously up-to-date)
         // and viewport from the ReactFlow instance to build the flow object.
         // This avoids a race condition where rfInstance.toObject() may return
@@ -482,6 +501,7 @@ export const useWorkflowState = ({
         setEdges,
         user,
         validateWorkflow,
+        editingDisabled,
         applyWorkflowErrors,
         specs,
     ]);
@@ -529,12 +549,26 @@ export const useWorkflowState = ({
     const onNodesChange: OnNodesChange = useCallback(
         (changes) => {
             const currentNodes = useWorkflowStore.getState().nodes;
+            // Keyboard / canvas / multi-node deletes arrive here as 'remove'
+            // changes (the per-node trash button uses the store directly and is
+            // captured in GenericNode, so these paths don't double-count).
+            for (const change of changes) {
+                if (change.type === "remove") {
+                    const removed = currentNodes.find(node => node.id === change.id);
+                    posthog.capture(PostHogEvent.WORKFLOW_NODE_DELETED, {
+                        node_type: removed?.type ?? "unknown",
+                        workflow_id: workflowId,
+                        workflow_origin: createdVia ?? "unknown",
+                        source: "manual",
+                    });
+                }
+            }
             const newNodes = applyNodeChanges(changes, currentNodes) as FlowNode[];
             // Cast changes to FlowNode type - safe because setNodes only uses the type field
             // to determine history tracking, not the actual item data
             setNodes(newNodes, changes as NodeChange<FlowNode>[]);
         },
-        [setNodes],
+        [setNodes, createdVia, workflowId],
     );
 
     const onDelete = useCallback(() => {

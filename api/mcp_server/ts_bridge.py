@@ -3,8 +3,9 @@
 Spawns `node api/mcp_server/ts_validator/src/index.ts` as a short-lived
 subprocess per call, streams a JSON request on stdin, reads a JSON
 response from stdout. The validator never executes LLM code — it either
-emits TypeScript from a workflow JSON (`generate`) or parses LLM-authored
-TS back into a workflow JSON via AST walking (`parse`).
+emits TypeScript from a workflow JSON (`generate`), parses LLM-authored
+TS back into a workflow JSON via AST walking (`parse`), or computes
+canvas positions for a node/edge list (`layout`).
 
 The subprocess startup cost is ~100-200ms per call. Fine for MCP tool
 rates; if it ever matters, the validator can be promoted to a long-lived
@@ -37,13 +38,16 @@ def _edge_field_names() -> list[str]:
 
 
 async def _invoke(request: dict[str, Any]) -> dict[str, Any]:
-    proc = await asyncio.create_subprocess_exec(
-        "node",
-        str(_VALIDATOR_ENTRY),
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "node",
+            str(_VALIDATOR_ENTRY),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise TsBridgeError("Workflow validator could not be started") from exc
     stdout, stderr = await proc.communicate(json.dumps(request).encode("utf-8"))
     if proc.returncode != 0 and not stdout:
         raise TsBridgeError(
@@ -82,8 +86,11 @@ async def generate_code(workflow: dict[str, Any], *, workflow_name: str = "") ->
     return result["code"]
 
 
-async def parse_code(code: str) -> dict[str, Any]:
+async def parse_code(code: str, *, tidy: bool = False) -> dict[str, Any]:
     """Parse LLM-authored TS back into a workflow JSON.
+
+    Set `tidy` only for initial creation to apply the UI's Tidy Up layout.
+    Updates leave it off so position reconciliation preserves the canvas.
 
     Returns the raw validator response — `{"ok": True, "workflow": {...}}`
     on success, `{"ok": False, "stage": "parse" | "validate", "errors": [...]}`
@@ -93,8 +100,30 @@ async def parse_code(code: str) -> dict[str, Any]:
     return await _invoke(
         {
             "command": "parse",
+            "tidy": tidy,
             "code": code,
             "specs": _specs_payload(),
             "edgeFieldNames": _edge_field_names(),
         }
     )
+
+
+async def layout_nodes(
+    nodes: list[dict[str, Any]], edges: list[dict[str, Any]], *, rankdir: str = "TB"
+) -> list[dict[str, Any]]:
+    """Compute Tidy Up canvas positions for `nodes`.
+
+    Each node needs `id` and `type`; each edge needs `source` and `target`.
+    Returns `[{"id", "x", "y"}]` in input order, or `[]` when there are no
+    conversation nodes to anchor a layout on, so callers can leave the
+    canvas untouched.
+    """
+    result = await _invoke(
+        {"command": "layout", "nodes": nodes, "edges": edges, "rankdir": rankdir}
+    )
+    if not result.get("ok"):
+        errs = result.get("errors") or [{"message": "unknown failure"}]
+        raise TsBridgeError(
+            "layout_nodes failed: " + "; ".join(e.get("message", "") for e in errs)
+        )
+    return result["positions"]

@@ -49,6 +49,7 @@ interface WorkflowEditorHeaderProps {
     hasDraft: boolean;
     /** A settings edit is still saving; publishing or calling now would use the previous settings. */
     savingSettings?: boolean;
+    showSave?: boolean;
     onPublished: () => void;
     renameWorkflow: (newName: string) => Promise<void>;
 }
@@ -67,6 +68,7 @@ export const WorkflowEditorHeader = ({
     onBackToDraft,
     hasDraft,
     savingSettings = false,
+    showSave = true,
     onPublished,
     workflowId,
     workflowUuid,
@@ -405,7 +407,7 @@ export const WorkflowEditorHeader = ({
                 </Button>
 
                 {/* Save button (only shown when editing the draft) */}
-                {!isViewingHistoricalVersion && (
+                {!isViewingHistoricalVersion && showSave && (
                     <Button
                         onClick={handleSave}
                         disabled={!isDirty || savingWorkflow}

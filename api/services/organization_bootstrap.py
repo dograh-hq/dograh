@@ -1,8 +1,10 @@
 """Once-per-organization provisioning of Dograh-managed services.
 
-Bootstrapping mints an MPS service key, stores it as the organization's
-default model configuration, and provisions owner-scoped managed SIP
-connectivity. Service-key minting is not idempotent upstream —
+Bootstrapping mints a hosted organization's MPS service key, stores it as the
+organization's default model configuration, and provisions owner-scoped
+managed SIP connectivity. Self-hosted organizations get no key here: they get
+one by connecting a Dograh account (``dograh_account_connect``). Service-key
+minting is not idempotent upstream —
 ``create_service_key`` is a plain POST — so concurrent callers must not both
 run it.
 
@@ -17,7 +19,7 @@ from datetime import timedelta
 
 from loguru import logger
 
-from api.constants import AUTH_PROVIDER, DEPLOYMENT_MODE
+from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.organization_configuration_client import LEASE_COMPLETED
 from api.enums import OrganizationConfigurationKey
@@ -76,7 +78,11 @@ async def ensure_organization_bootstrapped(
         return True
 
     default = state.get(_CATALOG_DEFAULT_KEY)
-    has_model_configuration = isinstance(default, str) and bool(default)
+    # Self-hosted organizations configure models themselves, so bootstrap
+    # never waits on (or mints a key for) their model configuration.
+    has_model_configuration = (
+        isinstance(default, str) and bool(default)
+    ) or DEPLOYMENT_MODE == "oss"
     sip_provisioned = await _has_managed_sip_connectivity(organization_id)
 
     owner_token = await db_client.claim_configuration_lease(
@@ -193,12 +199,8 @@ async def mint_managed_service_key(organization_id: int, *, created_by: str) -> 
     """
     data = await mps_service_key_client.create_service_key(
         name=MANAGED_SERVICE_KEY_NAME,
-        description=(
-            "Auto-generated key for OSS user"
-            if AUTH_PROVIDER == "local"
-            else f"Auto-generated key for organization {organization_id}"
-        ),
-        organization_id=(None if AUTH_PROVIDER == "local" else organization_id),
+        description=f"Auto-generated key for organization {organization_id}",
+        organization_id=organization_id,
         created_by=created_by,
         expires_in_days=90,
     )

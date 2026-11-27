@@ -48,8 +48,8 @@ async def create_transport(
         transfer_strategy=PlivoConferenceStrategy(),
         hangup_strategy=PlivoHangupStrategy(),
         params=PlivoFrameSerializer.InputParams(
-            plivo_sample_rate=8000,
-            sample_rate=audio_config.pipeline_sample_rate,
+            audio_in_sample_rate=8000,
+            audio_out_sample_rate=8000,
         ),
     )
 

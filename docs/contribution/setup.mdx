@@ -72,12 +72,15 @@ bash scripts/stop_services.sh
 
 | Configuration | What it runs |
 | --- | --- |
+| **API: Uvicorn + Arq (agent builder)** | Starts the API and background worker together; use this for agent builder development |
 | **API: Uvicorn (reload)** | The FastAPI backend, with auto-reload (port from `UVICORN_PORT` in `api/.env`, default 8000) |
 | **API: Arq worker (watch)** / **API: Campaign orchestrator** / **API: ARI manager** | The other backend services — launch them alongside Uvicorn as needed |
 | **Tests: API (pytest, full suite / current file)** | pytest under the debugger, against `api/.env.test` |
 | **Tests: Pipecat (pytest, current file)** / **Python: Current file** | Debug a pipecat test or any standalone script |
 
 All configurations load `api/.env` (test configs use `api/.env.test`) and set `justMyCode: false`, so you can step into FastAPI and pipecat code — breakpoints in the `pipecat/` submodule work because it is installed editable. Inside the devcontainer the Python interpreter is preselected; on a host-managed setup, pick `./venv/bin/python` via **Python: Select Interpreter** first.
+
+The in-app agent builder executes turns in the ARQ worker. Running Uvicorn alone accepts requests but leaves them queued. If Uvicorn is already running, start **API: Arq worker (watch)** separately instead of launching a second API process.
 
 ## Repository layout
 

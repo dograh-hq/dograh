@@ -18,6 +18,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.services.aws.nova_sonic.llm import AudioConfig as NovaAudioConfig
 from pipecat.services.aws.nova_sonic.llm import AWSNovaSonicLLMService
 
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
@@ -36,12 +37,13 @@ from api.services.pipecat.service_factory import create_realtime_llm_service
 from api.services.workflow.pipecat_engine import PipecatEngine
 
 
-def _make_service() -> DograhAWSNovaSonicLLMService:
+def _make_service(**kwargs) -> DograhAWSNovaSonicLLMService:
     return DograhAWSNovaSonicLLMService(
         secret_access_key="test-secret",
         access_key_id="test-access",
         session_token="test-session",
         region="us-east-1",
+        **kwargs,
     )
 
 
@@ -394,7 +396,12 @@ async def test_messages_append_frame_sends_interactive_user_text():
 async def test_muted_audio_keeps_nova_stream_alive_without_sending_user_speech(
     sample_rate,
 ):
-    service = _make_service()
+    # As the factory does, the session declares the transport's input rate.
+    service = _make_service(
+        audio_config=NovaAudioConfig(
+            input_sample_rate=sample_rate, output_sample_rate=sample_rate
+        )
+    )
     service.push_frame = AsyncMock()
     service._sc.on_audio_input = MagicMock()
     service._send_user_audio_event = AsyncMock()

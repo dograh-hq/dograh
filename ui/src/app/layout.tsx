@@ -16,6 +16,7 @@ import SpinLoader from "@/components/SpinLoader";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/context/AppConfigContext";
+import { DograhAccountProvider } from "@/context/DograhAccountContext";
 import { OnboardingProvider } from "@/context/OnboardingContext";
 import { OrgConfigProvider } from "@/context/OrgConfigContext";
 import { TelephonyConfigWarningsProvider } from "@/context/TelephonyConfigWarningsContext";
@@ -90,13 +91,15 @@ export default function RootLayout({
                   <OrgConfigProvider>
                     <TelephonyConfigWarningsProvider>
                       <OnboardingProvider>
-                        <PostHogIdentify />
-                        {reoClientId ? <ReoProvider clientId={reoClientId} /> : null}
-                        <AppLayout>
-                          {children}
-                        </AppLayout>
-                        <Toaster />
-                        <ChatwootWidget />
+                        <DograhAccountProvider>
+                          <PostHogIdentify />
+                          {reoClientId ? <ReoProvider clientId={reoClientId} /> : null}
+                          <AppLayout>
+                            {children}
+                          </AppLayout>
+                          <Toaster />
+                          <ChatwootWidget />
+                        </DograhAccountProvider>
                       </OnboardingProvider>
                     </TelephonyConfigWarningsProvider>
                   </OrgConfigProvider>

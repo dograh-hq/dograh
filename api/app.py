@@ -36,6 +36,7 @@ from api.constants import REDIS_URL
 from api.errors.mps import MPS_UNAVAILABLE_PUBLIC_MESSAGE, MPSUnavailableError
 from api.mcp_server import mcp
 from api.routes.main import router as main_router
+from api.services.pipecat.prompt_cache import close_prompt_cache
 from api.services.pipecat.recording_audio_cache import handle_recording_cache_sync
 from api.services.pipecat.tracing_config import (
     handle_langfuse_sync,
@@ -104,7 +105,10 @@ async def lifespan(app: FastAPI):
                 await sync_manager.stop()
             finally:
                 try:
-                    await close_speech_cache()
+                    try:
+                        await close_speech_cache()
+                    finally:
+                        await close_prompt_cache()
                 finally:
                     await loop_lag.stop()
                     metrics.stop()

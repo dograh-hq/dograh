@@ -2,6 +2,7 @@ import type {
     AmbientNoiseConfigurationDefaults,
     CallDispositionOption as GeneratedCallDispositionOption,
     ModelConfigurationOverride,
+    PromptVariablesConfiguration,
     WorkflowConfigurationDefaults as GeneratedWorkflowConfigurationDefaults,
 } from "@/client/types.gen";
 
@@ -113,6 +114,7 @@ type WorkflowConfigurationBase = Omit<
     | "text_chat_inactivity_timeout_seconds"
     | "external_pbx_field_mappings"
     | "external_pbx_lead_headers"
+    | "prompt_variables"
 >;
 
 export type WorkflowConfigurations = WorkflowConfigurationBase & {
@@ -128,6 +130,7 @@ export type WorkflowConfigurations = WorkflowConfigurationBase & {
     transcript_configuration: TranscriptConfiguration;
     context_compaction_enabled: boolean;  // Summarize context on node transitions to remove stale tool calls
     tts_cache_enabled: boolean;
+    prompt_variables?: PromptVariablesConfiguration;
     call_dispositions: CallDispositionOption[];  // Allowed terminal business outcomes
     text_chat_inactivity_timeout_seconds?: number;  // End inactive text chats after this many seconds
     external_pbx_field_mappings: ExternalPBXFieldMapping[];

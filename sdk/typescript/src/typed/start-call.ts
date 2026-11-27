@@ -44,7 +44,7 @@ export interface StartCall {
     /**
      * Pre-recorded audio file played at the start of the call. Required when Greeting Type is Pre-recorded Audio.
      *
-     * LLM hint: Value is the `recording_id` string. Use the `list_recordings` MCP tool to discover available recordings.
+     * LLM hint: Value is the numeric database `id` as a string. Use the `list_recordings` MCP tool to discover available recordings.
      */
     greeting_recording_id?: string;
     /**

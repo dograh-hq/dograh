@@ -51,6 +51,7 @@ import {
     normalizeCallDispositions,
     validateCallDispositionRows,
 } from "./components/CallDispositionEditor";
+import { PromptCachingSection } from "./components/PromptCachingSection";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -64,6 +65,7 @@ const NAV_ITEMS = [
     { id: "models", label: "Model Configuration", icon: Brain },
     { id: "variables", label: "Template Variables", icon: Variable },
     { id: "dictionary", label: "Dictionary", icon: BookA },
+    { id: "prompt-caching", label: "Prompt Caching", icon: Brain },
     { id: "voicemail", label: "Voicemail & Screening", icon: PhoneOff },
     { id: "deployment", label: "Add to Website", icon: Rocket },
     { id: "report", label: "Report", icon: FileDown },
@@ -1507,6 +1509,7 @@ export function WorkflowSettingsSections({
                             )}
 
                             {show("dictionary") && <DictionarySection dictionary={dictionary} onSave={saveDictionary} />}
+                            {show("prompt-caching") && <PromptCachingSection workflowConfigurations={resolved} onSave={value => saveWorkflowConfigurations(value, workflowName)} />}
 
                             {show("voicemail") && (
                                 <VoicemailSection

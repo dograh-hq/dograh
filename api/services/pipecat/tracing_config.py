@@ -139,12 +139,12 @@ class _OrgRoutingExporter(SpanExporter):
         org_buckets = {}
 
         for span in spans:
-            # Drop fastmcp's built-in auto-instrumentation spans
+            # Drop FastMCP and MCP SDK auto-instrumentation spans
             # (`tools/call <name>`, etc.) — our `@traced_tool` decorator
             # in `api/mcp_server/tracing.py` produces the spans we want. Keeping
             # both would just double every trace.
             scope = getattr(span, "instrumentation_scope", None)
-            if scope is not None and scope.name == "fastmcp":
+            if scope is not None and scope.name in {"fastmcp", "mcp-python-sdk"}:
                 continue
 
             org_id = span.attributes.get("dograh.org_id") if span.attributes else None
@@ -345,17 +345,18 @@ async def handle_langfuse_sync(event):
         unregister_org_langfuse_credentials(org_id)
 
 
-def build_remote_parent_context(trace_id: str | None):
+def build_remote_parent_context(trace_id: str | None, span_id: str | None = None):
     """Build an OTEL context whose active span carries ``trace_id``.
 
     Spans started under the returned context join the Langfuse trace identified
-    by ``trace_id`` (Langfuse groups observations by trace id). The parent span
-    id is a non-existent placeholder, so spans created under it attach at the
-    trace root rather than nesting under a real parent span.
+    by ``trace_id`` (Langfuse groups observations by trace id), even when that
+    trace was exported earlier by another process. With ``span_id`` they nest
+    under that span; without it the parent is a non-existent placeholder, so
+    they attach at the trace root.
 
-    This is the shared primitive behind both post-call QA tracing and text-chat
-    trace stitching. Returns the context, or ``None`` when tracing is
-    unavailable or ``trace_id`` is missing/invalid.
+    This is the shared primitive behind post-call QA tracing, post-call
+    extraction and text-chat trace stitching. Returns the context, or ``None``
+    when tracing is unavailable or an id is missing/invalid.
     """
     if not trace_id:
         return None
@@ -371,7 +372,7 @@ def build_remote_parent_context(trace_id: str | None):
 
         parent_span_context = SpanContext(
             trace_id=int(trace_id, 16),
-            span_id=0x1,
+            span_id=int(span_id, 16) if span_id else 0x1,
             is_remote=True,
             trace_flags=TraceFlags(0x01),
         )

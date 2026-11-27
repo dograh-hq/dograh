@@ -26,6 +26,8 @@ from api.services.configuration.run_model_configuration import (
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.pipecat.fallback_llm import FallbackLLMProcessor
 from api.services.pipecat.service_factory import create_llm_service
+from api.services.pipecat.tracing_config import build_remote_parent_context
+from api.services.pipecat.usage_metrics import InferenceUsage
 from api.services.workflow.conversation_history import (
     build_conversation_history,
     has_user_turns,
@@ -38,6 +40,7 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
     ExtractionResponseError,
     extract_variables,
 )
+from api.services.workflow.qa.tracing import setup_langfuse_parent_context
 
 FINAL_EXTRACTION_BUDGET_SECONDS = 60.0
 EXTRACTION_ATTEMPT_TIMEOUT_SECONDS = 15.0
@@ -113,6 +116,19 @@ async def _retry(
             await asyncio.sleep(RETRY_DELAYS[attempt])
 
 
+def _call_trace_parent_context(run) -> Any:
+    """Parent the extraction spans to the call's trace.
+
+    Nests under the conversation span the engine recorded at hangup; a run
+    without one attaches at the trace root by the trace id in ``trace_url``.
+    """
+    payload = (run.logs or {}).get("final_extraction") or {}
+    parent = payload.get("trace_parent") or {}
+    if parent.get("trace_id") and parent.get("span_id"):
+        return build_remote_parent_context(parent["trace_id"], parent["span_id"])
+    return setup_langfuse_parent_context(run)
+
+
 async def run_final_extraction(run_id: int, organization_id: int, token: str) -> None:
     run, run_org = await db_client.get_workflow_run_with_context(run_id)
     if run is None or run_org != organization_id:
@@ -123,12 +139,14 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
         return
     set_current_run_id(str(run_id))
     set_current_org_id(organization_id)
+    parent_context = _call_trace_parent_context(run)
     variables: dict = {}
     disposition = None
     disposition_request: dict = {}
     errors: list[str] = []
+    usage = InferenceUsage()
 
-    async def with_llm(request, operation):
+    async def with_llm(request, operation, *, cache_enabled=False):
         # Validate the pinned definition through the run's organization even
         # when it belongs to an agent visited after the original workflow.
         definition = await db_client.get_workflow_definition(
@@ -152,6 +170,15 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
             config, (run.initial_context or {}).get(MPS_CORRELATION_ID_CONTEXT_KEY)
         )
         try:
+            configure = getattr(llm, "configure_inference", None)
+            if configure:
+                configure(
+                    usage=usage,
+                    organization_id=organization_id,
+                    workflow_id=request["workflow_id"],
+                    node_id=request.get("node_id", "disposition"),
+                    cache_enabled=cache_enabled,
+                )
             return await _retry(
                 lambda: operation(llm),
                 run_id=run_id,
@@ -184,9 +211,12 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
                                 requested,
                                 request.get("conversation_history", conversation),
                                 extraction_prompt=request["prompt"],
+                                parent_ctx=parent_context,
                                 strict=True,
+                                separate_static_prompt=True,
                             )
                         ),
+                        cache_enabled=request.get("cache_static_prompt") is True,
                     )
                     names = {variable.name for variable in requested}
                     variables.update(
@@ -207,7 +237,7 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
                         context=context,
                         options=options,
                         template_context=None,
-                    ).extract(raise_on_error=True),
+                    ).extract(parent_context=parent_context, raise_on_error=True),
                 )
     except Exception as exc:  # noqa: BLE001 - persist failure before integrations
         errors.append(type(exc).__name__)
@@ -226,6 +256,7 @@ async def run_final_extraction(run_id: int, organization_id: int, token: str) ->
         ),
         status=status,
         error_class=errors[-1] if errors else None,
+        usage_info=usage.serialize(),
     )
     if not saved:
         raise RuntimeError("Completion lease expired before extraction was saved")

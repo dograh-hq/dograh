@@ -21,12 +21,17 @@ async def test_call_event_names_the_workflow_by_uuid_and_the_tenant(
     run = SimpleNamespace(
         mode="webrtc",
         initial_context={"direction": "inbound"},
-        workflow=SimpleNamespace(workflow_uuid="wf-uuid", organization_id=42),
+        workflow=SimpleNamespace(id=777, workflow_uuid="wf-uuid", organization_id=42),
     )
     monkeypatch.setattr(
         event_handlers.db_client,
         "get_workflow_run_by_id",
         AsyncMock(return_value=run),
+    )
+    monkeypatch.setattr(
+        event_handlers.db_client,
+        "get_workflow_origin",
+        AsyncMock(return_value=("template", True)),
     )
 
     await event_handlers._capture_call_event(
@@ -41,6 +46,8 @@ async def test_call_event_names_the_workflow_by_uuid_and_the_tenant(
             "workflow_uuid": "wf-uuid",
             "call_type": "webrtc",
             "call_direction": "inbound",
+            "workflow_origin": "template",
+            "builder_edited": True,
             "error_reason": "busy",
         },
     )
@@ -64,4 +71,6 @@ async def test_call_event_for_a_missing_run_has_no_tenant(monkeypatch, capture):
         "workflow_uuid": None,
         "call_type": None,
         "call_direction": None,
+        "workflow_origin": None,
+        "builder_edited": None,
     }

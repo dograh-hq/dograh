@@ -4,7 +4,8 @@ Each FastAPI worker both publishes and listens on a single Redis pub/sub
 channel.  When shared state changes (e.g. Langfuse credentials), the worker
 that handled the mutation broadcasts a lightweight event.  Every worker
 (including the sender) receives it and runs the registered handler, which
-re-reads authoritative state from the DB.
+re-reads authoritative state from the DB.  ARQ workers listen too, handling
+only the events whose state they hold.
 """
 
 import asyncio
@@ -84,7 +85,7 @@ class WorkerSyncManager:
                             f"Worker sync handler error: {event.event_type}"
                         )
                 else:
-                    logger.warning(
+                    logger.debug(
                         f"No handler for worker sync event: {event.event_type}"
                     )
         except asyncio.CancelledError:

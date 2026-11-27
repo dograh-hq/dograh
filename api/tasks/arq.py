@@ -15,6 +15,7 @@ setup_logging()
 from arq import create_pool, cron
 from arq.connections import ArqRedis, RedisSettings
 from arq.worker import func
+from loguru import logger
 from redis.asyncio.retry import Retry
 from redis.backoff import ExponentialBackoff
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -58,6 +59,12 @@ REDIS_SETTINGS = RedisSettings(
     ssl_check_hostname=False if use_ssl else None,
 )
 
+from api.services.pipecat.tracing_config import (
+    handle_langfuse_sync,
+    load_all_org_langfuse_credentials,
+)
+from api.services.worker_sync.manager import WorkerSyncManager
+from api.services.worker_sync.protocol import WorkerSyncEventType
 from api.tasks.campaign_tasks import (
     process_campaign_batch,
     sync_campaign_source,
@@ -77,7 +84,40 @@ from api.tasks.workflow_completion import (
 )
 
 
+async def startup(ctx: dict) -> None:
+    """Route post-call spans to each org's own Langfuse project, as the API does.
+
+    Without the org exporters, spans from an org that connected its own
+    Langfuse export to Dograh's project under that org's trace ids. Failures
+    are logged rather than raised: tracing must never stop the worker.
+    """
+    try:
+        await load_all_org_langfuse_credentials()
+    except Exception:
+        logger.exception("Failed to load org Langfuse credentials")
+    sync_manager = WorkerSyncManager(REDIS_URL)
+    sync_manager.register(
+        WorkerSyncEventType.LANGFUSE_CREDENTIALS, handle_langfuse_sync
+    )
+    try:
+        await sync_manager.start()
+    except Exception:
+        logger.exception(
+            "Failed to start worker sync; Langfuse credential changes apply on restart"
+        )
+        return
+    ctx["worker_sync_manager"] = sync_manager
+
+
+async def shutdown(ctx: dict) -> None:
+    sync_manager = ctx.get("worker_sync_manager")
+    if sync_manager:
+        await sync_manager.stop()
+
+
 class WorkerSettings:
+    on_startup = startup
+    on_shutdown = shutdown
     functions = [
         func(process_builder_run, timeout=900),
         run_integrations_post_workflow_run,

@@ -13,6 +13,7 @@ from typing import (
     Union,
 )
 
+from opentelemetry import trace as otel_trace
 from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -367,6 +368,22 @@ class PipecatEngine:
         if not tracing_ctx:
             return None
         return tracing_ctx.get_turn_context() or tracing_ctx.get_conversation_context()
+
+    def _conversation_trace_parent(self) -> dict | None:
+        """Identify the conversation span so post-call work can nest under it."""
+        tracing_ctx: TracingContext | None = getattr(
+            self.call_worker, "_tracing_context", None
+        )
+        context = tracing_ctx.get_conversation_context() if tracing_ctx else None
+        if context is None:
+            return None
+        span_context = otel_trace.get_current_span(context).get_span_context()
+        if not span_context.is_valid:
+            return None
+        return {
+            "trace_id": format(span_context.trace_id, "032x"),
+            "span_id": format(span_context.span_id, "016x"),
+        }
 
     async def initialize(self):
         # TODO: May be set_node in a separate task so that we return from initialize immediately
@@ -930,6 +947,9 @@ class PipecatEngine:
         agent = self.active_agent
         self._final_extraction_snapshot = {
             "version": 1,
+            # Read before teardown: the conversation span is gone once the
+            # pipeline finishes, and the worker extracts after that.
+            "trace_parent": self._conversation_trace_parent(),
             "requests": requests,
             "disposition": {
                 "options": options,

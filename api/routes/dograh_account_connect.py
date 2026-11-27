@@ -1,6 +1,7 @@
 """Connect a self-hosted install to a Dograh account.
 
-Self-hosted installs call ``/start`` and ``/poll``. The hosted app calls the
+Self-hosted installs use ``/email/*`` for inline verification, or ``/start``
+and ``/poll`` for browser approval. The hosted app calls the
 ``/requests`` routes for the signed-in person, whose verified email and
 selected team decide which account the install's key draws on. ``/status``
 answers, in either deployment mode, whether the organization has a usable
@@ -19,6 +20,11 @@ from api.schemas.dograh_account_connect import (
     AccountConnectStart,
     AccountConnectStartRequest,
     DograhAccountStatus,
+    EmailConnectConfirmRequest,
+    EmailConnectStart,
+    EmailConnectStartRequest,
+    EmailConnectVerifyRequest,
+    EmailConnectVerifyResponse,
 )
 from api.services.auth.depends import (
     VerifiedStackIdentity,
@@ -27,9 +33,13 @@ from api.services.auth.depends import (
     get_verified_stack_user,
 )
 from api.services.dograh_account_connect import (
+    confirm_email_connect,
     get_dograh_account_status,
     poll_account_connect,
+    require_connect_owner,
     start_account_connect,
+    start_email_connect,
+    verify_email_connect,
 )
 from api.services.mps_service_key_client import mps_service_key_client
 
@@ -42,6 +52,60 @@ def _require_self_hosted() -> None:
             status_code=404,
             detail="Only self-hosted installations connect to a Dograh account",
         )
+
+
+@router.post(
+    "/email/start",
+    response_model=EmailConnectStart,
+    operation_id="start_dograh_email_connect",
+)
+async def email_start(
+    request: EmailConnectStartRequest,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    _require_self_hosted()
+    return await start_email_connect(
+        organization_id=user.selected_organization_id,
+        user_id=user.id,
+        email=str(request.email),
+        install_url=request.install_url,
+        created_by=str(user.provider_id),
+    )
+
+
+@router.post(
+    "/email/verify",
+    response_model=EmailConnectVerifyResponse,
+    operation_id="verify_dograh_email_connect",
+)
+async def email_verify(
+    request: EmailConnectVerifyRequest,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    _require_self_hosted()
+    return await verify_email_connect(
+        organization_id=user.selected_organization_id,
+        user_id=user.id,
+        **request.model_dump(),
+    )
+
+
+@router.post(
+    "/email/confirm",
+    response_model=AccountConnectPoll,
+    operation_id="confirm_dograh_email_connect",
+)
+async def email_confirm(
+    request: EmailConnectConfirmRequest,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    _require_self_hosted()
+    return await confirm_email_connect(
+        organization_id=user.selected_organization_id,
+        user_id=user.id,
+        device_code=request.device_code,
+        team_id=str(request.team_id),
+    )
 
 
 @router.get(
@@ -66,7 +130,10 @@ async def start(
 ) -> AccountConnectStart:
     _require_self_hosted()
     return await start_account_connect(
-        install_url=request.install_url, created_by=str(user.provider_id)
+        install_url=request.install_url,
+        created_by=str(user.provider_id),
+        organization_id=user.selected_organization_id,
+        user_id=user.id,
     )
 
 
@@ -80,6 +147,9 @@ async def poll(
     user: UserModel = Depends(get_user_with_selected_organization),
 ) -> AccountConnectPoll:
     _require_self_hosted()
+    await require_connect_owner(
+        user.selected_organization_id, user.id, request.device_code
+    )
     return await poll_account_connect(
         user.selected_organization_id, request.device_code
     )

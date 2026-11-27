@@ -260,3 +260,124 @@ async def test_status_works_in_hosted_deployments(monkeypatch):
     _status_mps(monkeypatch, key=KEY, validate=Mock(return_value=True))
     user = SimpleNamespace(provider_id="u", selected_organization_id=ORG)
     assert (await routes.get_status(user=user)).status == "connected"
+
+
+async def test_email_verification_and_confirmation_require_local_request_owner(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        connect.db_client, "get_configuration_values", AsyncMock(return_value={})
+    )
+    call = AsyncMock()
+    monkeypatch.setattr(connect.mps_service_key_client, "email_account_connect", call)
+    with pytest.raises(HTTPException) as error:
+        await connect.verify_email_connect(
+            organization_id=ORG, user_id=1, device_code="foreign", code="123456"
+        )
+    assert error.value.status_code == 404
+    with pytest.raises(HTTPException):
+        await connect.confirm_email_connect(
+            organization_id=ORG, user_id=1, device_code="foreign", team_id="team"
+        )
+    call.assert_not_awaited()
+
+
+async def test_email_start_records_owner_and_confirmation_stores_key(
+    monkeypatch, delivery
+):
+    request = {
+        "device_code": "device",
+        "user_code": "BCDF-GHJK",
+        "verification_uri": "https://app.dograh.com/connect",
+        "verification_uri_complete": "https://app.dograh.com/connect?code=BCDF-GHJK",
+        "expires_in": 600,
+        "interval": 3,
+    }
+    owners = {}
+
+    async def save_owner(org, key, value):
+        assert org == ORG
+        owners[key] = value
+
+    monkeypatch.setattr(
+        delivery.db,
+        "upsert_configuration",
+        AsyncMock(side_effect=save_owner),
+        raising=False,
+    )
+    delivery.db.get_configuration_values.side_effect = lambda org, keys: {
+        key: owners[key] for key in keys if key in owners
+    }
+    monkeypatch.setattr(
+        delivery.mps,
+        "email_account_connect",
+        AsyncMock(return_value=request),
+        raising=False,
+    )
+    await connect.start_email_connect(
+        organization_id=ORG,
+        user_id=9,
+        email="person@example.com",
+        install_url="http://localhost:3000",
+        created_by="oss_user",
+    )
+    with pytest.raises(HTTPException):
+        await connect.verify_email_connect(
+            organization_id=ORG, user_id=10, device_code="device", code="123456"
+        )
+    result = await connect.confirm_email_connect(
+        organization_id=ORG, user_id=9, device_code="device", team_id="team"
+    )
+    assert result.status == "connected"
+    assert KEY not in result.model_dump_json()
+
+
+async def test_email_mps_calls_have_no_cloud_credentials(mps_http):
+    mps_http.responses.append(httpx.Response(200, json={"teams": []}))
+    await mps_http.client.email_account_connect(
+        "verify", {"device_code": "device", "code": "123456"}
+    )
+    request = mps_http.requests[0]
+    assert request.url.path.endswith("/connect/email/verify")
+    assert "X-Secret-Key" not in request.headers
+    assert "X-Stack-Team-Id" not in request.headers
+
+
+async def test_email_verification_preserves_stack_selected_team(monkeypatch):
+    owner_key = connect._connect_owner_key("device")
+    monkeypatch.setattr(
+        connect.db_client,
+        "get_configuration_values",
+        AsyncMock(return_value={owner_key: {"user_id": 9}}),
+    )
+    teams = [{"id": "first", "name": "Personal"}, {"id": "selected", "name": "Company"}]
+    monkeypatch.setattr(
+        connect.mps_service_key_client,
+        "email_account_connect",
+        AsyncMock(return_value={"teams": teams, "selected_team": teams[1]}),
+    )
+    verified = await connect.verify_email_connect(
+        organization_id=ORG, user_id=9, device_code="device", code="123456"
+    )
+    assert verified.selected_team.id == "selected"
+
+
+async def test_oss_checkout_uses_installed_key_and_no_caller_selected_team(
+    mps_http, monkeypatch
+):
+    monkeypatch.setattr(
+        mps_http.client, "_runtime_service_key", AsyncMock(return_value=KEY)
+    )
+    mps_http.responses.append(
+        httpx.Response(
+            200, json={"checkout_url": "https://checkout.dograh.com/?session=short"}
+        )
+    )
+    result = await mps_http.client.create_service_key_purchase_url(ORG)
+    request = mps_http.requests[0]
+    assert request.url.path.endswith("/billing/checkout-sessions/self")
+    assert request.headers["Authorization"] == f"Bearer {KEY}"
+    assert "X-Secret-Key" not in request.headers
+    assert "X-Stack-Team-Id" not in request.headers
+    assert not request.content
+    assert KEY not in result["checkout_url"]

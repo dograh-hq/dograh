@@ -148,5 +148,7 @@ describe("billing ledger filters", () => {
         await screen.findByText("Credits remaining");
         expect(mocks.getCredits.mock.calls[0][0].query).toEqual({ page: 1, limit: 50 });
         expect(screen.queryByLabelText("Activity")).toBeNull();
+        expect(screen.getByRole("button", { name: "Add Credits" })).toBeDefined();
+        expect(screen.queryByRole("link", { name: "Invoices" })).toBeNull();
     });
 });

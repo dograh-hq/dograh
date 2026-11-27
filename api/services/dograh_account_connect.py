@@ -1,8 +1,8 @@
 """Connect a self-hosted organization to a Dograh account.
 
-The install starts a request at MPS, shows the person a code, and polls until
-they approve it on the hosted app. The first poll after approval carries a
-service key on the approving account; it goes straight into the
+The install starts a request at MPS and verifies email inline or waits for
+browser approval. The first poll after approval carries a service key on
+the approving account; it goes straight into the
 organization's Dograh connection, and never reaches the browser.
 """
 
@@ -10,12 +10,16 @@ import asyncio
 import hashlib
 from urllib.parse import urlsplit
 
+from fastapi import HTTPException
+
 from api.db import db_client
 from api.errors.mps import MPSUnavailableError
 from api.schemas.dograh_account_connect import (
     AccountConnectPoll,
     AccountConnectStart,
     DograhAccountStatus,
+    EmailConnectStart,
+    EmailConnectVerifyResponse,
 )
 from api.services.configuration.model_connections import (
     dograh_key_connection_uuids,
@@ -24,6 +28,63 @@ from api.services.configuration.model_connections import (
 from api.services.mps_service_key_client import mps_service_key_client
 
 _INSTALL_NAME_LIMIT = 80
+
+
+def _connect_owner_key(device_code: str) -> str:
+    return "dograh_connect_owner:" + hashlib.sha256(device_code.encode()).hexdigest()
+
+
+async def start_email_connect(
+    *,
+    organization_id: int,
+    user_id: int,
+    email: str,
+    install_url: str | None,
+    created_by: str,
+):
+    started = await mps_service_key_client.email_account_connect(
+        "start",
+        {
+            "email": email,
+            "install_name": install_name_for(install_url),
+            "install_url": install_url,
+            "created_by": created_by,
+        },
+    )
+    result = EmailConnectStart.model_validate(started)
+    await db_client.upsert_configuration(
+        organization_id, _connect_owner_key(result.device_code), {"user_id": user_id}
+    )
+    return result
+
+
+async def require_connect_owner(organization_id: int, user_id: int, device_code: str):
+    name = _connect_owner_key(device_code)
+    values = await db_client.get_configuration_values(organization_id, [name])
+    if values.get(name, {}).get("user_id") != user_id:
+        raise HTTPException(
+            404, "This connection request does not belong to your session"
+        )
+
+
+async def verify_email_connect(
+    *, organization_id: int, user_id: int, device_code: str, code: str
+):
+    await require_connect_owner(organization_id, user_id, device_code)
+    result = await mps_service_key_client.email_account_connect(
+        "verify", {"device_code": device_code, "code": code}
+    )
+    return EmailConnectVerifyResponse.model_validate(result)
+
+
+async def confirm_email_connect(
+    *, organization_id: int, user_id: int, device_code: str, team_id: str
+):
+    await require_connect_owner(organization_id, user_id, device_code)
+    await mps_service_key_client.email_account_connect(
+        "confirm", {"device_code": device_code, "team_id": team_id}
+    )
+    return await poll_account_connect(organization_id, device_code)
 
 
 async def get_dograh_account_status(organization_id: int) -> DograhAccountStatus:
@@ -54,14 +115,18 @@ def install_name_for(install_url: str | None) -> str:
 
 
 async def start_account_connect(
-    *, install_url: str | None, created_by: str
+    *, install_url: str | None, created_by: str, organization_id: int, user_id: int
 ) -> AccountConnectStart:
     started = await mps_service_key_client.start_account_connect(
         install_name=install_name_for(install_url),
         install_url=install_url,
         created_by=created_by,
     )
-    return AccountConnectStart.model_validate(started)
+    result = AccountConnectStart.model_validate(started)
+    await db_client.upsert_configuration(
+        organization_id, _connect_owner_key(result.device_code), {"user_id": user_id}
+    )
+    return result
 
 
 async def poll_account_connect(

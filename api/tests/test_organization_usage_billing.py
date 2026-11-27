@@ -261,6 +261,43 @@ def _billing_client(monkeypatch, mode="saas", organization_id=42, **mps_methods)
     return TestClient(app)
 
 
+async def test_oss_purchase_uses_configured_service_key_account(monkeypatch):
+    monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "oss")
+    purchase = AsyncMock(
+        return_value={"checkout_url": "https://checkout.dograh.com/?session=short"}
+    )
+    hosted = AsyncMock()
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "create_service_key_purchase_url",
+        purchase,
+    )
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client, "create_credit_purchase_url", hosted
+    )
+    response = await organization_usage.create_mps_credit_purchase_url(
+        user=SimpleNamespace(selected_organization_id=42)
+    )
+    assert response.checkout_url.startswith("https://checkout.dograh.com/")
+    purchase.assert_awaited_once_with(42)
+    hosted.assert_not_awaited()
+
+
+async def test_oss_purchase_without_models_keeps_actionable_error(monkeypatch):
+    monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "oss")
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "create_service_key_purchase_url",
+        AsyncMock(side_effect=HTTPException(400, "Connect models first")),
+    )
+    with pytest.raises(HTTPException) as error:
+        await organization_usage.create_mps_credit_purchase_url(
+            user=SimpleNamespace(selected_organization_id=42)
+        )
+    assert error.value.status_code == 400
+    assert error.value.detail == "Connect models first"
+
+
 def test_billing_payments_lists_mps_payments(monkeypatch):
     payment = {
         "payment_order_id": 200,

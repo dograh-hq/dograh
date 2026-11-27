@@ -513,6 +513,17 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
+    async def create_service_key_purchase_url(self, organization_id: int) -> dict:
+        """Create deposit-only checkout for the configured key's MPS account."""
+        key = await self._runtime_service_key(organization_id)
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/billing/checkout-sessions/self",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def create_credit_purchase_url(
         self,
         organization_id: int,
@@ -1216,7 +1227,7 @@ class MPSServiceKeyClient:
     _CONNECT_PATH = "/api/v1/service-keys/connect"
     # MPS writes these details for people (expired code, already approved,
     # too many requests), so they pass through to the UI unchanged.
-    _CONNECT_PASSTHROUGH_STATUSES = frozenset({400, 403, 404, 409, 429})
+    _CONNECT_PASSTHROUGH_STATUSES = frozenset({400, 403, 404, 409, 410, 429})
 
     async def _connect_call(
         self,
@@ -1283,6 +1294,17 @@ class MPSServiceKeyClient:
             "/poll",
             headers={"Content-Type": "application/json"},
             json={"device_code": device_code},
+        )
+
+    async def email_account_connect(self, step: str, payload: dict) -> dict:
+        if step not in {"start", "verify", "confirm"}:
+            raise ValueError("Unknown email connection step")
+        return await self._connect_call(
+            f"email_connect_{step}",
+            "POST",
+            f"/email/{step}",
+            headers={"Content-Type": "application/json"},
+            json=payload,
         )
 
     async def acknowledge_account_connect(self, device_code: str) -> dict:

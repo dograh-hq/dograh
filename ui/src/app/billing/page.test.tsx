@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
     getCredits: vi.fn(), push: vi.fn(), error: vi.fn(),
     params: new URLSearchParams(),
     auth: { isAuthenticated: true, loading: false },
-    config: { deploymentMode: "saas" },
+    config: { deploymentMode: "saas", backendStatus: "reachable" },
 }));
 vi.mock("next/navigation", () => ({
     useRouter: () => ({ push: mocks.push }), useSearchParams: () => mocks.params,
@@ -39,10 +39,19 @@ beforeEach(() => {
     mocks.params = new URLSearchParams();
     mocks.auth.loading = false;
     mocks.config.deploymentMode = "saas";
+    mocks.config.backendStatus = "reachable";
     mocks.getCredits.mockResolvedValue(response);
 });
 
 describe("billing ledger filters", () => {
+    it("does not offer checkout while the backend is unreachable", async () => {
+        mocks.config.deploymentMode = "oss";
+        mocks.config.backendStatus = "unreachable";
+        render(<BillingPage />);
+        await screen.findByText("Credits remaining");
+        expect(screen.queryByRole("button", { name: "Add Credits" })).toBeNull();
+    });
+
     it("shows each Agent Builder charge with request quantity and small-credit precision", async () => {
         mocks.getCredits.mockResolvedValue({ data: {
             ...response.data,
@@ -148,5 +157,7 @@ describe("billing ledger filters", () => {
         await screen.findByText("Credits remaining");
         expect(mocks.getCredits.mock.calls[0][0].query).toEqual({ page: 1, limit: 50 });
         expect(screen.queryByLabelText("Activity")).toBeNull();
+        expect(screen.getByRole("button", { name: "Add Credits" })).toBeDefined();
+        expect(screen.queryByRole("link", { name: "Invoices" })).toBeNull();
     });
 });

@@ -1,6 +1,7 @@
 from typing import Literal
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class AccountConnectStartRequest(BaseModel):
@@ -19,6 +20,33 @@ class AccountConnectStart(BaseModel):
 
 class AccountConnectPollRequest(BaseModel):
     device_code: str = Field(min_length=1, max_length=128)
+
+
+class EmailConnectStartRequest(AccountConnectStartRequest):
+    email: EmailStr = Field(max_length=254)
+
+
+class EmailConnectStart(BaseModel):
+    device_code: str
+    expires_in: int
+
+
+class EmailConnectVerifyRequest(AccountConnectPollRequest):
+    code: str = Field(pattern=r"^[0-9]{6}$")
+
+
+class EmailConnectConfirmRequest(AccountConnectPollRequest):
+    team_id: UUID
+
+
+class EmailConnectTeam(BaseModel):
+    id: str
+    name: str
+
+
+class EmailConnectVerifyResponse(BaseModel):
+    selected_team: EmailConnectTeam
+    teams: list[EmailConnectTeam]
 
 
 class AccountConnectPoll(BaseModel):

@@ -400,26 +400,27 @@ async def create_mps_credit_purchase_url(
     user: UserModel = Depends(get_user_with_selected_organization),
 ):
     """Create a checkout URL for purchasing organization credits."""
-    if DEPLOYMENT_MODE == "oss":
-        raise HTTPException(
-            status_code=404,
-            detail="Credit purchases are not available in OSS mode",
-        )
-
     organization_id = user.selected_organization_id
     assert organization_id is not None
 
     try:
-        session = await mps_service_key_client.create_credit_purchase_url(
-            organization_id=organization_id,
-            created_by=str(user.provider_id),
-            return_url=f"{UI_APP_URL.rstrip('/')}/billing",
-            billing_details={
-                "source": "dograh_billing",
-                "dograh_user_id": str(user.id),
-                "dograh_provider_id": str(user.provider_id),
-            },
-        )
+        if DEPLOYMENT_MODE == "oss":
+            session = await mps_service_key_client.create_service_key_purchase_url(
+                organization_id
+            )
+        else:
+            session = await mps_service_key_client.create_credit_purchase_url(
+                organization_id=organization_id,
+                created_by=str(user.provider_id),
+                return_url=f"{UI_APP_URL.rstrip('/')}/billing",
+                billing_details={
+                    "source": "dograh_billing",
+                    "dograh_user_id": str(user.id),
+                    "dograh_provider_id": str(user.provider_id),
+                },
+            )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(f"Failed to create MPS credit purchase URL: {exc}")
         raise HTTPException(

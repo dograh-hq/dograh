@@ -111,7 +111,7 @@ it('resumes the pending action after connection without changing pages', async (
     mocks.status = 'invalid';
     render(<Action />);
     fireEvent.click(screen.getByText('Try action'));
-    expect(screen.getByText('Reconnect your Dograh account')).toBeTruthy();
+    expect(screen.getByText('Reconnect Dograh models')).toBeTruthy();
     fireEvent.click(screen.getByText('Approve on Dograh'));
     expect(mocks.refresh).toHaveBeenCalledOnce();
     expect(mocks.proceed).not.toHaveBeenCalled();

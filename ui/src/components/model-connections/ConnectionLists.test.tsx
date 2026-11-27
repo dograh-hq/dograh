@@ -12,6 +12,7 @@ import type { ModelConnectionCatalog, NamedModelConfiguration, ProviderConnectio
 import { useModelConnections } from "./useModelConnections";
 
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { id: "user", email: "person@example.com", organizationId: "org" }, loading: false }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/client/sdk.gen", () => ({ archiveNamedModelConfiguration: vi.fn(), archiveProviderConnection: vi.fn(), restoreNamedModelConfiguration: vi.fn(), restoreProviderConnection: vi.fn(), setDefaultModelConfiguration: vi.fn() }));
 vi.mock("./useModelConnections", () => ({ useModelConnections: vi.fn() }));
@@ -31,7 +32,7 @@ const refreshConfig = vi.fn();
 beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useModelConnections).mockReturnValue({ catalog, connections, configurations, defaultUuid: "Sales", loading: false, error: null, reload, addConnection: vi.fn() });
-    vi.mocked(useOrgConfig).mockReturnValue({ refreshConfig } as unknown as ReturnType<typeof useOrgConfig>);
+    vi.mocked(useOrgConfig).mockReturnValue({ refreshConfig, orgContext: { organization_id: 42 }, loading: false } as unknown as ReturnType<typeof useOrgConfig>);
     vi.mocked(setDefaultModelConfiguration).mockResolvedValue({ data: {} } as never);
     vi.mocked(restoreNamedModelConfiguration).mockResolvedValue({ data: {} } as never);
     vi.mocked(restoreProviderConnection).mockResolvedValue({ data: {} } as never);
@@ -49,21 +50,21 @@ describe("Dograh account section on the Models page", () => {
     it.each(["missing", "invalid"] as const)("offers to connect a self-hosted installation whose key is %s", (status) => {
         deployment("oss", status);
         render(<ModelConfigurationsManager />);
-        expect(screen.getByRole("button", { name: "Connect Dograh account" })).toBeDefined();
+        expect(screen.getByRole("button", { name: "Send verification code" })).toBeDefined();
         expect(vi.mocked(useDograhAccount)).toHaveBeenCalledWith(true);
-        expect(screen.queryByText(/Reconnect your Dograh account/) !== null).toBe(status === "invalid");
+        expect(screen.getByLabelText("Email address")).toBeDefined();
     });
 
     it.each(["connected", "loading", "unknown"] as const)("shows no connect option while the status is %s", (status) => {
         deployment("oss", status);
         render(<ModelConfigurationsManager />);
-        expect(screen.queryByRole("button", { name: "Connect Dograh account" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Send verification code" })).toBeNull();
     });
 
     it("never offers connecting on hosted deployments or reads the status there", () => {
         deployment("saas", "missing");
         render(<ModelConfigurationsManager />);
-        expect(screen.queryByRole("button", { name: "Connect Dograh account" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Send verification code" })).toBeNull();
         expect(vi.mocked(useDograhAccount)).toHaveBeenCalledWith(false);
     });
 });

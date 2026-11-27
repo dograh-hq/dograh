@@ -52,7 +52,7 @@ export function ModelSetupModal({ open, reconnect, onConnected, onDone, onCancel
                 <div className="flex items-start gap-3">
                     <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                     <div>
-                        <p className="font-medium">Dograh account connected</p>
+                        <p className="font-medium">Dograh models connected</p>
                         <p className="mt-1 text-sm text-muted-foreground">Dograh models and the agent builder are ready to use.</p>
                     </div>
                 </div>
@@ -61,15 +61,14 @@ export function ModelSetupModal({ open, reconnect, onConnected, onDone, onCancel
                 <section aria-labelledby="model-setup-dograh" className="space-y-3 rounded-lg border border-primary/40 p-4">
                     <div>
                         <div className="flex items-center gap-2">
-                            <h3 id="model-setup-dograh" className="font-medium">{reconnect ? 'Reconnect your Dograh account' : 'Dograh models'}</h3>
+                            <h3 id="model-setup-dograh" className="font-medium">{reconnect ? 'Reconnect Dograh models' : 'Dograh models'}</h3>
                             <Badge variant="secondary">Recommended</Badge>
                         </div>
                         <p className="mt-1 text-sm text-muted-foreground">{reconnect
                             ? "Dograh no longer accepts this installation's key. Reconnect to keep using Dograh models and the agent builder."
-                            : 'Connect a free Dograh account. You get trial credits, no API keys to copy, and the agent builder, which creates and modifies an agent using natural language.'}</p>
+                            : 'Use Dograh hosted AI Models. Dograh provides complementary signup credits.'}</p>
                     </div>
                     <DograhAccountConnectFlow
-                        prompt="Sign in to Dograh with your email. New accounts get trial credits."
                         onPendingChange={setPending}
                         onConnected={async () => { setConnected(true); await onConnected(); }} />
                 </section>
@@ -79,7 +78,7 @@ export function ModelSetupModal({ open, reconnect, onConnected, onDone, onCancel
                         <h3 id="model-setup-own-keys" className="font-medium">Your own provider keys</h3>
                         <p className="mt-1 text-sm text-muted-foreground">
                             Use API keys from LLM, voice and transcription providers you already have.
-                            The agent builder needs a Dograh account, so you would build agents on the canvas.
+                            Build agents on the canvas without Dograh registration. The natural-language agent builder uses Dograh-managed services.
                         </p>
                     </div>
                     <Button variant="outline" disabled={pending} onClick={() => finish('own_keys', '/provider-connections/new')}>Add provider keys</Button>

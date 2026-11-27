@@ -2249,6 +2249,87 @@ export type DuplicateTemplateRequest = {
 };
 
 /**
+ * EmailConnectConfirmRequest
+ */
+export type EmailConnectConfirmRequest = {
+    /**
+     * Device Code
+     */
+    device_code: string;
+    /**
+     * Team Id
+     */
+    team_id: string;
+};
+
+/**
+ * EmailConnectStart
+ */
+export type EmailConnectStart = {
+    /**
+     * Device Code
+     */
+    device_code: string;
+    /**
+     * Expires In
+     */
+    expires_in: number;
+};
+
+/**
+ * EmailConnectStartRequest
+ */
+export type EmailConnectStartRequest = {
+    /**
+     * Install Url
+     */
+    install_url?: string | null;
+    /**
+     * Email
+     */
+    email: string;
+};
+
+/**
+ * EmailConnectTeam
+ */
+export type EmailConnectTeam = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
+ * EmailConnectVerifyRequest
+ */
+export type EmailConnectVerifyRequest = {
+    /**
+     * Device Code
+     */
+    device_code: string;
+    /**
+     * Code
+     */
+    code: string;
+};
+
+/**
+ * EmailConnectVerifyResponse
+ */
+export type EmailConnectVerifyResponse = {
+    selected_team: EmailConnectTeam;
+    /**
+     * Teams
+     */
+    teams: Array<EmailConnectTeam>;
+};
+
+/**
  * EmbedConfigResponse
  *
  * Response model for embed configuration
@@ -14524,6 +14605,123 @@ export type ReactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePutRes
      */
     200: unknown;
 };
+
+export type StartDograhEmailConnectData = {
+    body: EmailConnectStartRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/dograh-account/connect/email/start';
+};
+
+export type StartDograhEmailConnectErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StartDograhEmailConnectError = StartDograhEmailConnectErrors[keyof StartDograhEmailConnectErrors];
+
+export type StartDograhEmailConnectResponses = {
+    /**
+     * Successful Response
+     */
+    200: EmailConnectStart;
+};
+
+export type StartDograhEmailConnectResponse = StartDograhEmailConnectResponses[keyof StartDograhEmailConnectResponses];
+
+export type VerifyDograhEmailConnectData = {
+    body: EmailConnectVerifyRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/dograh-account/connect/email/verify';
+};
+
+export type VerifyDograhEmailConnectErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type VerifyDograhEmailConnectError = VerifyDograhEmailConnectErrors[keyof VerifyDograhEmailConnectErrors];
+
+export type VerifyDograhEmailConnectResponses = {
+    /**
+     * Successful Response
+     */
+    200: EmailConnectVerifyResponse;
+};
+
+export type VerifyDograhEmailConnectResponse = VerifyDograhEmailConnectResponses[keyof VerifyDograhEmailConnectResponses];
+
+export type ConfirmDograhEmailConnectData = {
+    body: EmailConnectConfirmRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/dograh-account/connect/email/confirm';
+};
+
+export type ConfirmDograhEmailConnectErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ConfirmDograhEmailConnectError = ConfirmDograhEmailConnectErrors[keyof ConfirmDograhEmailConnectErrors];
+
+export type ConfirmDograhEmailConnectResponses = {
+    /**
+     * Successful Response
+     */
+    200: AccountConnectPoll;
+};
+
+export type ConfirmDograhEmailConnectResponse = ConfirmDograhEmailConnectResponses[keyof ConfirmDograhEmailConnectResponses];
 
 export type GetDograhAccountStatusData = {
     body?: never;

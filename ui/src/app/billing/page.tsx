@@ -5,7 +5,6 @@ import {
     ChevronRight,
     CircleDollarSign,
     CreditCard,
-    ExternalLink,
     FileText,
     Info,
     RefreshCw,
@@ -125,7 +124,7 @@ export default function BillingPage() {
 
     const hasAppConfig = !configLoading && config !== null;
     const isOssMode = hasAppConfig && config.deploymentMode === "oss";
-    const canPurchaseCredits = hasAppConfig && config.deploymentMode !== "oss";
+    const canPurchaseCredits = hasAppConfig && config.backendStatus === "reachable";
     const totalQuota = credits?.total_quota ?? 0;
     const remainingCredits = credits?.remaining_credits ?? 0;
     const usedCredits = credits?.total_credits_used ?? 0;
@@ -217,6 +216,7 @@ export default function BillingPage() {
         setPurchasing(true);
         try {
             const response = await createMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPost();
+            if (response.error) throw new Error(detailFromError(response.error, "Unable to open checkout"));
             const checkoutUrl = response.data?.checkout_url;
             if (!checkoutUrl) {
                 throw new Error("Missing checkout URL");
@@ -224,7 +224,7 @@ export default function BillingPage() {
             window.location.href = checkoutUrl;
         } catch (error) {
             console.error("Failed to create credit purchase URL:", error);
-            toast.error("Failed to open checkout");
+            toast.error(error instanceof Error ? error.message : "Failed to open checkout");
             setPurchasing(false);
         }
     };
@@ -247,7 +247,7 @@ export default function BillingPage() {
                 <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
                 Refresh
             </Button>
-                {canPurchaseCredits && (
+                {hasAppConfig && !isOssMode && (
                     <Button variant="outline" asChild>
                         <Link href="/billing/invoices">
                             <FileText className="h-4 w-4 mr-2" />
@@ -265,27 +265,8 @@ export default function BillingPage() {
                 <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
                     <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
                     <div className="text-sm text-amber-900 dark:text-amber-200">
-                        <p className="font-medium">Manage credits on Dograh</p>
-                        <p className="mt-1">
-                            View your account and purchase credits at{" "}
-                            <a
-                                href="https://app.dograh.com"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 font-medium underline underline-offset-2"
-                            >
-                                app.dograh.com
-                                <ExternalLink className="h-3 w-3" />
-                            </a>
-                            . Connect your Dograh account in{" "}
-                            <Link
-                                href="/model-configurations"
-                                className="font-medium underline underline-offset-2"
-                            >
-                                Model Configurations
-                            </Link>
-                            . Connected installations use that account&apos;s balance automatically.
-                        </p>
+                        <p className="font-medium">Credits for Dograh-managed models</p>
+                        <p className="mt-1">Add Credits opens Dograh checkout for the account connected to this installation. After payment, return here and refresh your balance. Connect models in <Link href="/model-configurations" className="font-medium underline underline-offset-2">Model Configurations</Link> if you have not already.</p>
                     </div>
                 </div>
             )}

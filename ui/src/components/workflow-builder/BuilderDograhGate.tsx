@@ -41,7 +41,7 @@ export function BuilderDograhGate({ reason, onConnected, offerBlankCanvas }: Bui
             <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
         {selfHosted
-            ? <DograhAccountConnectFlow onConnected={onConnected} prompt="Sign in to Dograh with your email. New accounts get trial credits." />
+            ? <DograhAccountConnectFlow onConnected={onConnected} />
             : <Button asChild variant="outline"><Link href="/model-configurations">Open Models page</Link></Button>}
         {offerBlankCanvas && <p className="text-sm text-muted-foreground">
             Prefer to build it yourself?{' '}

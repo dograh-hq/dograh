@@ -11,7 +11,10 @@ import hashlib
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException
+from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
+from api.constants import REDIS_URL
 from api.db import db_client
 from api.errors.mps import MPSUnavailableError
 from api.schemas.dograh_account_connect import (
@@ -30,8 +33,33 @@ from api.services.mps_service_key_client import mps_service_key_client
 _INSTALL_NAME_LIMIT = 80
 
 
-def _connect_owner_key(device_code: str) -> str:
-    return "dograh_connect_owner:" + hashlib.sha256(device_code.encode()).hexdigest()
+def _connect_owner_key(organization_id: int, device_code: str) -> str:
+    return (
+        f"dograh_connect_owner:{organization_id}:"
+        + hashlib.sha256(device_code.encode()).hexdigest()
+    )
+
+
+def _connect_owner_store():
+    return Redis.from_url(
+        REDIS_URL, decode_responses=True, socket_connect_timeout=5, socket_timeout=5
+    )
+
+
+async def _store_connect_owner(organization_id, user_id, request):
+    # Ownership lasts only as long as the challenge, including abandoned starts
+    # and resends. Redis shares this binding across API workers.
+    try:
+        async with _connect_owner_store() as redis:
+            await redis.set(
+                _connect_owner_key(organization_id, request.device_code),
+                str(user_id),
+                ex=request.expires_in,
+            )
+    except RedisError:
+        raise HTTPException(
+            503, "Unable to save this connection request. Please retry."
+        ) from None
 
 
 async def start_email_connect(
@@ -52,16 +80,19 @@ async def start_email_connect(
         },
     )
     result = EmailConnectStart.model_validate(started)
-    await db_client.upsert_configuration(
-        organization_id, _connect_owner_key(result.device_code), {"user_id": user_id}
-    )
+    await _store_connect_owner(organization_id, user_id, result)
     return result
 
 
 async def require_connect_owner(organization_id: int, user_id: int, device_code: str):
-    name = _connect_owner_key(device_code)
-    values = await db_client.get_configuration_values(organization_id, [name])
-    if values.get(name, {}).get("user_id") != user_id:
+    try:
+        async with _connect_owner_store() as redis:
+            owner = await redis.get(_connect_owner_key(organization_id, device_code))
+    except RedisError:
+        raise HTTPException(
+            503, "Unable to verify this connection request. Please retry."
+        ) from None
+    if owner != str(user_id):
         raise HTTPException(
             404, "This connection request does not belong to your session"
         )
@@ -123,9 +154,7 @@ async def start_account_connect(
         created_by=created_by,
     )
     result = AccountConnectStart.model_validate(started)
-    await db_client.upsert_configuration(
-        organization_id, _connect_owner_key(result.device_code), {"user_id": user_id}
-    )
+    await _store_connect_owner(organization_id, user_id, result)
     return result
 
 

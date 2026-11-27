@@ -29,5 +29,8 @@ export function DograhAccountConnectFlow({ onConnected, onPendingChange }: Conne
     const { user, loading } = useAuth();
     const organization = user && ('selectedTeam' in user ? user.selectedTeam?.id : 'organizationId' in user ? user.organizationId : '');
     const email = user && ('primaryEmail' in user ? user.primaryEmail : 'email' in user ? user.email : '');
-    return <EmailDograhAccountConnect key={`${user?.id}:${organization}`} initialEmail={email || ''} ready={!loading && Boolean(user)} onConnected={onConnected} onPendingChange={onPendingChange} />;
+    return <div className="space-y-3">
+        {!loading && user && !organization && <p role="status" className="text-sm text-muted-foreground">Select an organization to connect Dograh models.</p>}
+        <EmailDograhAccountConnect key={`${user?.id}:${organization}`} initialEmail={email || ''} ready={!loading && Boolean(user && organization)} onConnected={onConnected} onPendingChange={onPendingChange} />
+    </div>;
 }

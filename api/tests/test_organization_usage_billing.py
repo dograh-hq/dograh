@@ -295,6 +295,7 @@ async def test_oss_purchase_without_models_keeps_actionable_error(monkeypatch):
             user=SimpleNamespace(selected_organization_id=42)
         )
     assert error.value.status_code == 400
+    assert error.value.detail == "Connect models first"
 
 
 def test_billing_payments_lists_mps_payments(monkeypatch):

@@ -124,7 +124,7 @@ export default function BillingPage() {
 
     const hasAppConfig = !configLoading && config !== null;
     const isOssMode = hasAppConfig && config.deploymentMode === "oss";
-    const canPurchaseCredits = hasAppConfig;
+    const canPurchaseCredits = hasAppConfig && config.backendStatus === "reachable";
     const totalQuota = credits?.total_quota ?? 0;
     const remainingCredits = credits?.remaining_credits ?? 0;
     const usedCredits = credits?.total_credits_used ?? 0;

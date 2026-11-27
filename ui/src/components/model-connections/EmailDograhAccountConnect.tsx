@@ -83,6 +83,13 @@ export function EmailDograhAccountConnect({ initialEmail, ready, onConnected, on
     };
 
     const send = () => run(async (id, signal) => {
+        // A resend replaces the old challenge; its deadline must not cancel
+        // the new request while email delivery is still in flight.
+        setRequest(null);
+        setExpiresAt(0);
+        setVerifiedTeam(null);
+        setCode("");
+        setStep("email");
         const response = await startDograhEmailConnect({ body: { email: email.trim(), install_url: window.location.origin }, signal });
         if (id !== generation.current) return;
         if (response.error || !response.data) throw new Error(detailFromError(response.error, "Unable to send a verification code. Please try again."));

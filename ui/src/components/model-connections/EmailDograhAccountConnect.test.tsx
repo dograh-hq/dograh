@@ -109,4 +109,27 @@ describe("inline email connection", () => {
         await send();
         expect((screen.getByRole("button", { name: /Resend code/ }) as HTMLButtonElement).disabled).toBe(true);
     });
+
+    it("keeps a resend that completes after the old verification deadline", async () => {
+        vi.useFakeTimers();
+        try {
+            render(<EmailDograhAccountConnect {...props} />);
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send verification code" })); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(599000); });
+
+            let resolve!: (value: never) => void;
+            vi.mocked(startDograhEmailConnect).mockReturnValueOnce(new Promise<never>(done => { resolve = done; }));
+            fireEvent.click(screen.getByRole("button", { name: /Resend code/ }));
+            await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+            expect(vi.mocked(startDograhEmailConnect).mock.calls[1][0]?.signal?.aborted).toBe(false);
+
+            await act(async () => { resolve({ data: { ...started, device_code: "fresh-device" } } as never); });
+            fireEvent.change(screen.getByLabelText("Verification code"), { target: { value: "123456" } });
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Verify email" })); });
+            expect(verifyDograhEmailConnect).toHaveBeenCalledWith(expect.objectContaining({ body: { device_code: "fresh-device", code: "123456" } }));
+            expect(connected).toHaveBeenCalledOnce();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

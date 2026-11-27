@@ -1,6 +1,9 @@
+import asyncio
 import json
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -18,6 +21,25 @@ from api.services.mps_service_key_client import MPSServiceKeyClient
 
 ORG = 42
 KEY = "mps_sk_connected"
+
+
+@pytest.fixture
+def owner_store(monkeypatch):
+    values = {}
+
+    async def save(key, value, *, ex):
+        values[key] = value
+
+    store = SimpleNamespace(
+        set=AsyncMock(side_effect=save), get=AsyncMock(side_effect=values.get)
+    )
+
+    @asynccontextmanager
+    async def open_store():
+        yield store
+
+    monkeypatch.setattr(connect, "_connect_owner_store", open_store)
+    return store
 
 
 @pytest.fixture
@@ -263,11 +285,8 @@ async def test_status_works_in_hosted_deployments(monkeypatch):
 
 
 async def test_email_verification_and_confirmation_require_local_request_owner(
-    monkeypatch,
+    monkeypatch, owner_store
 ):
-    monkeypatch.setattr(
-        connect.db_client, "get_configuration_values", AsyncMock(return_value={})
-    )
     call = AsyncMock()
     monkeypatch.setattr(connect.mps_service_key_client, "email_account_connect", call)
     with pytest.raises(HTTPException) as error:
@@ -283,7 +302,7 @@ async def test_email_verification_and_confirmation_require_local_request_owner(
 
 
 async def test_email_start_records_owner_and_confirmation_stores_key(
-    monkeypatch, delivery
+    monkeypatch, delivery, owner_store
 ):
     request = {
         "device_code": "device",
@@ -292,21 +311,6 @@ async def test_email_start_records_owner_and_confirmation_stores_key(
         "verification_uri_complete": "https://app.dograh.com/connect?code=BCDF-GHJK",
         "expires_in": 600,
         "interval": 3,
-    }
-    owners = {}
-
-    async def save_owner(org, key, value):
-        assert org == ORG
-        owners[key] = value
-
-    monkeypatch.setattr(
-        delivery.db,
-        "upsert_configuration",
-        AsyncMock(side_effect=save_owner),
-        raising=False,
-    )
-    delivery.db.get_configuration_values.side_effect = lambda org, keys: {
-        key: owners[key] for key in keys if key in owners
     }
     monkeypatch.setattr(
         delivery.mps,
@@ -321,9 +325,16 @@ async def test_email_start_records_owner_and_confirmation_stores_key(
         install_url="http://localhost:3000",
         created_by="oss_user",
     )
+    owner_store.set.assert_awaited_once_with(
+        connect._connect_owner_key(ORG, "device"), "9", ex=600
+    )
     with pytest.raises(HTTPException):
         await connect.verify_email_connect(
             organization_id=ORG, user_id=10, device_code="device", code="123456"
+        )
+    with pytest.raises(HTTPException):
+        await connect.verify_email_connect(
+            organization_id=ORG + 1, user_id=9, device_code="device", code="123456"
         )
     result = await connect.confirm_email_connect(
         organization_id=ORG, user_id=9, device_code="device", team_id="team"
@@ -343,13 +354,11 @@ async def test_email_mps_calls_have_no_cloud_credentials(mps_http):
     assert "X-Stack-Team-Id" not in request.headers
 
 
-async def test_email_verification_preserves_stack_selected_team(monkeypatch):
-    owner_key = connect._connect_owner_key("device")
-    monkeypatch.setattr(
-        connect.db_client,
-        "get_configuration_values",
-        AsyncMock(return_value={owner_key: {"user_id": 9}}),
-    )
+async def test_email_verification_preserves_stack_selected_team(
+    monkeypatch, owner_store
+):
+    owner_store.get.side_effect = None
+    owner_store.get.return_value = "9"
     teams = [{"id": "first", "name": "Personal"}, {"id": "selected", "name": "Company"}]
     monkeypatch.setattr(
         connect.mps_service_key_client,
@@ -360,6 +369,53 @@ async def test_email_verification_preserves_stack_selected_team(monkeypatch):
         organization_id=ORG, user_id=9, device_code="device", code="123456"
     )
     assert verified.selected_team.id == "selected"
+
+
+async def test_owner_store_failure_never_forwards_verification(
+    monkeypatch, owner_store
+):
+    owner_store.get.side_effect = connect.RedisError("unavailable")
+    call = AsyncMock()
+    monkeypatch.setattr(connect.mps_service_key_client, "email_account_connect", call)
+    with pytest.raises(HTTPException) as error:
+        await connect.verify_email_connect(
+            organization_id=ORG, user_id=9, device_code="device", code="123456"
+        )
+    assert error.value.status_code == 503
+    call.assert_not_awaited()
+
+
+async def test_connection_ownership_expires_in_redis(monkeypatch):
+    # Only this unique test key is written; no shared Redis data is cleared.
+    request = SimpleNamespace(device_code=str(uuid4()), expires_in=600)
+    key = connect._connect_owner_key(ORG, request.device_code)
+    call = AsyncMock()
+    monkeypatch.setattr(connect.mps_service_key_client, "email_account_connect", call)
+    async with connect._connect_owner_store() as redis:
+        try:
+            await connect._store_connect_owner(ORG, 9, request)
+            assert 0 < await redis.ttl(key) <= 600
+            await connect.require_connect_owner(ORG, 9, request.device_code)
+            # Accelerate expiry instead of waiting for the complete OTP lifetime.
+            await redis.pexpire(key, 1)
+            async with asyncio.timeout(2):
+                while await redis.exists(key):
+                    await asyncio.sleep(0.01)
+            for action, extra in [
+                (connect.verify_email_connect, {"code": "123456"}),
+                (connect.confirm_email_connect, {"team_id": "team"}),
+            ]:
+                with pytest.raises(HTTPException) as error:
+                    await action(
+                        organization_id=ORG,
+                        user_id=9,
+                        device_code=request.device_code,
+                        **extra,
+                    )
+                assert error.value.status_code == 404
+            call.assert_not_awaited()
+        finally:
+            await redis.delete(key)
 
 
 async def test_oss_checkout_uses_installed_key_and_no_caller_selected_team(

@@ -33,6 +33,23 @@ def append_unique_tags(existing_tags: object, new_tags: object) -> list:
     return tags
 
 
+def merge_run_extra(stored_extra: dict | None, extra: dict) -> dict:
+    """Merge ``extra`` keys into a run's stored ``extra``.
+
+    A pending ``workflow_completion`` only initializes the completion record:
+    repeating it must not reset a worker's progress on a record already there.
+    """
+    stored_extra = stored_extra or {}
+    updates = dict(extra)
+    completion_update = updates.get("workflow_completion") or {}
+    if (
+        stored_extra.get("workflow_completion")
+        and completion_update.get("status") == "pending"
+    ):
+        updates.pop("workflow_completion")
+    return {**stored_extra, **updates}
+
+
 class WorkflowRunClient(BaseDBClient):
     async def create_workflow_run(
         self,
@@ -512,17 +529,7 @@ class WorkflowRunClient(BaseDBClient):
             if annotations:
                 run.annotations = {**run.annotations, **annotations}
             if extra:
-                stored_extra = run.extra or {}
-                completion_exists = bool(stored_extra.get("workflow_completion"))
-                completion_update = extra.get("workflow_completion") or {}
-                initializes_completion = completion_update.get("status") == "pending"
-
-                extra_updates = extra.copy()
-                # Repeated initialization must preserve the worker's progress.
-                if completion_exists and initializes_completion:
-                    extra_updates.pop("workflow_completion")
-
-                run.extra = {**stored_extra, **extra_updates}
+                run.extra = merge_run_extra(run.extra, extra)
             if is_completed:
                 run.is_completed = is_completed
             if state:

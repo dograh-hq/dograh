@@ -855,23 +855,28 @@ class PipecatEngine:
             run_in_background=False,
         )
 
-    async def extract_variables_standalone(self, node: Node) -> Optional[dict]:
-        """Run one node's extraction on an engine that never owned a pipeline.
+    async def freeze_final_extraction_standalone(
+        self,
+        node: Node | None,
+        *,
+        call_status: str,
+        disposition_mapping: dict[str, str],
+    ) -> None:
+        """Freeze the final extraction on an engine that never owned a pipeline.
 
-        A text chat ends outside any pipeline -- every turn builds and tears one
-        down, and the session-end request arrives with none running -- so its
-        final extraction cannot come through ``_end_call``. This hands that path
-        the single piece of ``initialize`` extraction needs, without opening MCP
-        sessions or pushing LLM settings for a conversation that is already over.
-
-        Callers own the resulting values; ``self._gathered_context`` is updated
-        in place as usual, but nothing here persists it.
+        A text chat ended by the user or by inactivity has no running engine --
+        every turn builds and tears down its own pipeline -- so ``_end_call``
+        never runs for it. This records the same handoff ``_end_call`` records
+        for a deferred call, with ``call_status`` as the disposition fallback,
+        so the completion worker extracts the node's variables and the
+        disposition. Callers persist ``final_extraction_logs`` and
+        ``final_extraction_metadata``.
         """
-        if self._variable_extraction_manager is None:
-            self._variable_extraction_manager = VariableExtractionManager(self)
         self.active_agent.current_node = node
-        return await self._perform_variable_extraction_if_needed(
-            node, run_in_background=False
+        self._disposition_mapping = dict(disposition_mapping)
+        self._gathered_context[CALL_DISPOSITION_CONTEXT_KEY] = call_status
+        await self._defer_terminal_extraction(
+            call_status, should_extract_disposition=True
         )
 
     def _snapshot_extraction_request(self, node: Node | None) -> dict | None:
@@ -1604,6 +1609,11 @@ class PipecatEngine:
                 self._end_call(call_status, abort_immediately), name="call-shutdown"
             )
         await asyncio.shield(self._shutdown_task)
+
+    async def wait_for_call_shutdown(self) -> None:
+        """Wait for teardown started by ``end_call_with_reason`` to finish."""
+        if self._shutdown_task is not None:
+            await asyncio.shield(self._shutdown_task)
 
     async def _end_call(
         self,

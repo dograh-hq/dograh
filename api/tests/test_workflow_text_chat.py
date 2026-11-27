@@ -16,11 +16,13 @@ from api.db.models import OrganizationModel, UserModel, organization_users_assoc
 from api.errors.failure import ErrorOwner, ErrorSource, annotate_failure_metadata
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.pipecat.pre_call_fetch import PreCallFetchResult
+from api.services.workflow.disposition_extraction import DispositionExtractionService
+from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.run_creation import prepare_workflow_run_inputs
 from api.services.workflow.text_chat_runner import (
     _deserialize_text_chat_checkpoint_messages,
     _serialize_text_chat_checkpoint_messages,
-    extract_text_chat_final_variables,
+    freeze_text_chat_final_extraction,
 )
 from api.services.workflow.text_chat_session_service import (
     TextChatSessionRevisionConflictError,
@@ -28,6 +30,7 @@ from api.services.workflow.text_chat_session_service import (
     complete_text_chat_session,
 )
 from api.tasks.function_names import FunctionNames
+from api.tasks.workflow_completion import process_workflow_completion
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from api.tests.support.model_catalog import seed_default_model_configuration
 from pipecat.tests import MockLLMService
@@ -179,6 +182,7 @@ async def _create_user_and_workflow(
     *,
     workflow_definition: dict,
     suffix: str,
+    workflow_configurations: dict | None = None,
 ):
     org = OrganizationModel(provider_id=f"textchat-org-{suffix}")
     async_session.add(org)
@@ -208,8 +212,70 @@ async def _create_user_and_workflow(
         user_id=user.id,
         organization_id=org.id,
     )
+    if workflow_configurations is not None:
+        # Text chats pin the draft, so the configurations go there.
+        await db_session.save_workflow_draft(
+            workflow.id,
+            workflow_definition=workflow_definition,
+            workflow_configurations=workflow_configurations,
+        )
 
     return user, workflow
+
+
+_CALL_DISPOSITIONS = {
+    "call_dispositions": [
+        {"code": "issue_resolved", "description": "The customer's issue was solved."},
+        {"code": "not_interested", "description": "The customer declined."},
+    ]
+}
+
+
+class _CompletionWorkerLLM:
+    """Answers the completion worker's variable and disposition requests."""
+
+    def __init__(self, variables: dict, disposition: str):
+        self._variables = variables
+        self._disposition = disposition
+        self.requests: list[str] = []
+        self.prompts: list[str] = []
+
+    async def run_inference(self, context, system_instruction=None, **_kwargs):
+        self.prompts.append(
+            "\n".join(str(message.get("content")) for message in context.get_messages())
+        )
+        if "call_disposition" in (system_instruction or ""):
+            self.requests.append("disposition")
+            return json.dumps({"call_disposition": self._disposition})
+        self.requests.append("variables")
+        return json.dumps(self._variables)
+
+    async def cleanup(self):
+        pass
+
+
+async def _run_completion_worker(run_id: int, llm: _CompletionWorkerLLM) -> None:
+    """Run the completion job up to integrations, which are stubbed out."""
+    with (
+        patch(
+            "api.services.workflow.final_extraction.create_llm_service",
+            return_value=llm,
+        ),
+        patch(
+            "api.tasks.workflow_completion.run_integrations_post_workflow_run",
+            AsyncMock(),
+        ),
+        patch(
+            "api.tasks.workflow_completion."
+            "report_completed_workflow_run_platform_usage",
+            AsyncMock(),
+        ),
+        patch(
+            "api.tasks.workflow_completion.sync_external_pbx_call_record",
+            AsyncMock(),
+        ),
+    ):
+        await process_workflow_completion(None, run_id)
 
 
 @pytest.mark.asyncio
@@ -1051,19 +1117,313 @@ async def test_text_chat_end_transition_persists_synchronous_variable_extraction
     upload_artifacts.assert_awaited_once()
 
 
+def _end_node_workflow_definition() -> dict:
+    return {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "Help the customer.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                    "greeting_type": "text",
+                    "greeting": "Welcome to the workflow tester.",
+                },
+            },
+            {
+                "id": "end",
+                "type": "endCall",
+                "position": {"x": 0, "y": 200},
+                "data": {
+                    "name": "End",
+                    "prompt": "Thank the customer and end the conversation.",
+                    "is_end": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-end",
+                "source": "start",
+                "target": "end",
+                "data": {
+                    "label": "End The Call",
+                    "condition": "When the customer asks to end the conversation.",
+                },
+            }
+        ],
+    }
+
+
+def _ending_turn_llm() -> MockLLMService:
+    """A reply that moves the chat to its end node and says goodbye."""
+    return MockLLMService(
+        mock_steps=[
+            MockLLMService.create_function_call_chunks(
+                "end_the_call", {}, tool_call_id="call_end"
+            ),
+            MockLLMService.create_text_chunks("Glad that's sorted. Bye!"),
+        ],
+        chunk_delay=0.001,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("slow_disposal", [False, True])
+async def test_text_chat_end_node_defers_disposition_to_completion_worker(
+    db_session,
+    async_session,
+    test_client_factory,
+    slow_disposal,
+):
+    """A chat ending at an end node classifies its outcome after the turn.
+
+    The turn tears its pipeline -- and the conversation's LLM client -- down as
+    soon as the closing reply settles, so the disposition cannot be requested
+    from inside it. The turn freezes the request instead, and the completion
+    worker runs it with a client of its own before integrations read the run.
+
+    With ``slow_disposal`` a tool call is still finishing when the reply
+    settles, so the turn must wait for disposal or it persists no handoff.
+    """
+    real_finish_tool_calls = PipecatEngine.finish_tool_calls
+    disposal_slowed = asyncio.Event()
+
+    async def finish_tool_calls(engine):
+        if slow_disposal and engine.is_call_disposed():
+            await asyncio.sleep(0.5)
+            disposal_slowed.set()
+        await real_finish_tool_calls(engine)
+
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=_end_node_workflow_definition(),
+        suffix=f"end-node-disposition-{slow_disposal}",
+        workflow_configurations=_CALL_DISPOSITIONS,
+    )
+
+    llm_responses = [
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+        _ending_turn_llm(),
+    ]
+    in_turn_disposition = AsyncMock(return_value=None)
+
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+            patch.object(DispositionExtractionService, "extract", in_turn_disposition),
+            patch.object(PipecatEngine, "finish_tool_calls", finish_tool_calls),
+            patch("api.tasks.arq.enqueue_job", AsyncMock()),
+            patch(
+                "api.services.workflow.text_chat_session_service."
+                "upload_workflow_run_artifacts",
+                AsyncMock(),
+            ),
+        ):
+            create_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions", json={}
+            )
+            assert create_response.status_code == 200
+            session = create_response.json()
+            message_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/"
+                f"{session['workflow_run_id']}/messages",
+                json={
+                    "text": "That fixed it, thanks. End the chat.",
+                    "expected_revision": session["revision"],
+                },
+            )
+            assert message_response.status_code == 200
+    assert message_response.json()["is_completed"] is True
+    in_turn_disposition.assert_not_awaited()
+    # The slow case really did finish disposal after the reply settled.
+    assert disposal_slowed.is_set() is slow_disposal
+
+    run_id = session["workflow_run_id"]
+    run = await db_session.get_workflow_run_by_id(run_id)
+    assert run.gathered_context["call_disposition"] == EndTaskReason.END_CALL.value
+    completion = run.extra["workflow_completion"]
+    assert completion["status"] == "pending"
+    assert completion["final_extraction"]["status"] == "pending"
+    frozen = run.logs["final_extraction"]
+    assert [option["code"] for option in frozen["disposition"]["options"]] == [
+        "issue_resolved",
+        "not_interested",
+    ]
+    assert frozen["disposition"]["fallback"] == EndTaskReason.END_CALL.value
+    assert frozen["requests"] == []
+    assert {
+        "role": "user",
+        "content": "That fixed it, thanks. End the chat.",
+    } in run.logs["conversation"]
+
+    llm = _CompletionWorkerLLM(variables={}, disposition="issue_resolved")
+    await _run_completion_worker(run_id, llm)
+
+    assert llm.requests == ["disposition"]
+    run = await db_session.get_workflow_run_by_id(run_id)
+    assert run.gathered_context["call_disposition"] == "issue_resolved"
+    assert run.gathered_context["mapped_call_disposition"] == "issue_resolved"
+    assert "issue_resolved" in run.gathered_context["call_tags"]
+    assert run.extra["workflow_completion"]["status"] == "done"
+    assert run.extra["workflow_completion"]["final_extraction"]["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_text_chat_disposal_past_the_turn_budget_keeps_the_chat_open(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    """A turn whose disposal outlives its budget fails instead of completing.
+
+    Completing it would persist the chat without a call status, a disposition
+    or a final extraction for the worker. Failed instead, the chat stays open
+    and ending it freezes everything as any user-ended chat does -- including
+    the failed turn's message, which never reached the checkpoint.
+    """
+    release_disposal = asyncio.Event()
+    real_finish_tool_calls = PipecatEngine.finish_tool_calls
+    stuck_engines = []
+
+    async def finish_tool_calls(engine):
+        if engine.is_call_disposed():
+            stuck_engines.append(engine)
+            await release_disposal.wait()
+        await real_finish_tool_calls(engine)
+
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=_end_node_workflow_definition(),
+        suffix="disposal-timeout",
+        workflow_configurations=_CALL_DISPOSITIONS,
+    )
+    llm_responses = [
+        MockLLMService(mock_steps=[], chunk_delay=0.001),
+        MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Try restarting it.")],
+            chunk_delay=0.001,
+        ),
+        _ending_turn_llm(),
+    ]
+
+    try:
+        async with test_client_factory(user) as client:
+            with (
+                patch(
+                    "api.services.workflow.text_chat_runner.create_llm_service",
+                    side_effect=llm_responses,
+                ),
+                patch(
+                    "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                    new=AsyncMock(return_value=False),
+                ),
+                patch(
+                    "api.services.workflow.text_chat_runner.TEXT_CHAT_TURN_TIMEOUT_SECONDS",
+                    0.5,
+                ),
+                patch.object(PipecatEngine, "finish_tool_calls", finish_tool_calls),
+                patch("api.tasks.arq.enqueue_job", AsyncMock()),
+                patch(
+                    "api.services.workflow.text_chat_session_service."
+                    "upload_workflow_run_artifacts",
+                    AsyncMock(),
+                ),
+            ):
+                response = await client.post(
+                    f"/api/v1/workflow/{workflow.id}/text-chat/sessions", json={}
+                )
+                assert response.status_code == 200
+                session = response.json()
+                run_id = session["workflow_run_id"]
+                base = f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{run_id}"
+                response = await client.post(
+                    f"{base}/messages",
+                    json={
+                        "text": "My router keeps dropping.",
+                        "expected_revision": session["revision"],
+                    },
+                )
+                assert response.status_code == 200
+                session = response.json()
+
+                # The ending turn's disposal is stuck past the turn's budget.
+                response = await client.post(
+                    f"{base}/messages",
+                    json={
+                        "text": "That fixed it, thanks. End the chat.",
+                        "expected_revision": session["revision"],
+                    },
+                )
+                assert response.status_code == 500
+                assert stuck_engines
+
+                run = await db_session.get_workflow_run_by_id(run_id)
+                assert run.is_completed is False
+                failed = await db_session.get_workflow_run_text_session(
+                    run_id, organization_id=user.selected_organization_id
+                )
+                assert failed.session_data["turns"][-1]["status"] == "failed"
+
+                response = await client.post(
+                    f"{base}/end", json={"expected_revision": failed.revision}
+                )
+                assert response.status_code == 200
+    finally:
+        release_disposal.set()
+        for engine in stuck_engines:
+            await asyncio.wait_for(engine.wait_for_call_shutdown(), timeout=5)
+
+    run = await db_session.get_workflow_run_by_id(run_id)
+    assert run.is_completed is True
+    assert run.gathered_context["call_disposition"] == "user_hangup"
+    assert run.extra["workflow_completion"]["final_extraction"]["status"] == "pending"
+    assert run.logs["final_extraction"]["disposition"]["fallback"] == "user_hangup"
+    assert {"role": "user", "content": "My router keeps dropping."} in run.logs[
+        "conversation"
+    ]
+    assert run.logs["conversation"][-1] == {
+        "role": "user",
+        "content": "That fixed it, thanks. End the chat.",
+    }
+
+    llm = _CompletionWorkerLLM(variables={}, disposition="issue_resolved")
+    await _run_completion_worker(run_id, llm)
+
+    assert llm.requests == ["disposition"]
+    assert "That fixed it, thanks. End the chat." in llm.prompts[0]
+    run = await db_session.get_workflow_run_by_id(run_id)
+    assert run.gathered_context["call_disposition"] == "issue_resolved"
+
+
 @pytest.mark.asyncio
 async def test_text_chat_user_end_persists_variable_extraction_without_transition(
     db_session,
     async_session,
     test_client_factory,
 ):
-    """A chat the user walks away from still extracts the current node's variables.
+    """A chat the user walks away from still extracts its node and outcome.
 
-    Voice calls get this from ``PipecatEngine._end_call``. Text chats tear the
-    pipeline down after every turn, so before this the only trigger was a node
-    transition -- and a user who simply closes the widget never causes one.
-    Anything rendered from ``gathered_context`` afterwards (webhooks especially)
-    would ship blanks for variables the node was configured to extract.
+    Text chats tear the pipeline down after every turn, so a user who simply
+    closes the widget never reaches an end node and no engine disposes of the
+    chat. ``/end`` freezes the current node's variables and the disposition
+    instead, and the completion worker extracts them before webhooks render
+    ``gathered_context``.
     """
     workflow_definition = {
         "nodes": [
@@ -1120,6 +1480,7 @@ async def test_text_chat_user_end_persists_variable_extraction_without_transitio
         async_session,
         workflow_definition=workflow_definition,
         suffix="user-end-extraction",
+        workflow_configurations=_CALL_DISPOSITIONS,
     )
 
     # The assistant answers and stays put -- no transition, so nothing on the
@@ -1198,19 +1559,33 @@ async def test_text_chat_user_end_persists_variable_extraction_without_transitio
             assert end_response.status_code == 200
 
     payload = end_response.json()
+    run_id = session["workflow_run_id"]
 
-    assert extraction_calls == [["ticket_number"]]
+    # `/end` only froze the work; nothing was extracted in the request.
+    assert extraction_calls == []
     assert payload["is_completed"] is True
     assert payload["gathered_context"]["call_disposition"] == "user_hangup"
-    assert payload["gathered_context"]["extracted_variables"] == {
-        "ticket_number": "1054202"
-    }
-    assert payload["gathered_context"]["ticket_number"] == "1054202"
+    workflow_run = await db_session.get_workflow_run_by_id(run_id)
+    frozen = workflow_run.logs["final_extraction"]
+    assert [request["node_id"] for request in frozen["requests"]] == ["start"]
+    assert frozen["disposition"]["fallback"] == "user_hangup"
+    assert workflow_run.extra["workflow_completion"]["final_extraction"]["status"] == (
+        "pending"
+    )
 
-    workflow_run = await db_session.get_workflow_run_by_id(session["workflow_run_id"])
+    llm = _CompletionWorkerLLM(
+        variables={"ticket_number": "1054202"}, disposition="issue_resolved"
+    )
+    await _run_completion_worker(run_id, llm)
+
+    assert llm.requests == ["variables", "disposition"]
+    workflow_run = await db_session.get_workflow_run_by_id(run_id)
     assert workflow_run.gathered_context["extracted_variables"] == {
         "ticket_number": "1054202"
     }
+    assert workflow_run.gathered_context["ticket_number"] == "1054202"
+    assert workflow_run.gathered_context["call_disposition"] == "issue_resolved"
+    assert workflow_run.gathered_context["call_status"] == "user_hangup"
 
 
 @pytest.mark.asyncio
@@ -1287,18 +1662,7 @@ async def test_text_chat_end_extracts_from_a_turn_left_pending(
 
     llm_responses = [
         MockLLMService(mock_steps=[], chunk_delay=0.001),
-        MockLLMService(mock_steps=[], chunk_delay=0.001),
     ]
-
-    captured = {}
-
-    async def fake_extraction(self, variables, *_args, **_kwargs):
-        captured["messages"] = [
-            dict(message)
-            for message in self._context.get_messages()
-            if isinstance(message, dict)
-        ]
-        return {"ticket_number": "1054202"}
 
     enqueue = AsyncMock()
     upload_artifacts = AsyncMock()
@@ -1312,11 +1676,6 @@ async def test_text_chat_end_extracts_from_a_turn_left_pending(
             patch(
                 "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
                 new=AsyncMock(return_value=False),
-            ),
-            patch(
-                "api.services.workflow.pipecat_engine_variable_extractor."
-                "VariableExtractionManager._perform_extraction",
-                new=fake_extraction,
             ),
             patch("api.tasks.arq.enqueue_job", enqueue),
             patch(
@@ -1359,20 +1718,32 @@ async def test_text_chat_end_extracts_from_a_turn_left_pending(
             )
             assert end_response.status_code == 200
 
-    payload = end_response.json()
+    assert end_response.json()["is_completed"] is True
 
-    assert captured["messages"][-1] == {
+    # The conversation frozen for the completion worker ends with the message.
+    workflow_run = await db_session.get_workflow_run_by_id(run_id)
+    assert workflow_run.logs["conversation"][-1] == {
         "role": "user",
         "content": "My ticket is 1054202, please chase it.",
     }
-    assert payload["gathered_context"]["extracted_variables"] == {
-        "ticket_number": "1054202"
-    }
+    assert [
+        request["node_id"]
+        for request in workflow_run.logs["final_extraction"]["requests"]
+    ] == ["start"]
     # The transcript already carried this message; extraction now agrees.
-    workflow_run = await db_session.get_workflow_run_by_id(run_id)
     assert _log_texts(workflow_run.logs, "rtf-user-transcription") == [
         "My ticket is 1054202, please chase it."
     ]
+
+    llm = _CompletionWorkerLLM(variables={"ticket_number": "1054202"}, disposition="")
+    await _run_completion_worker(run_id, llm)
+
+    assert llm.requests == ["variables"]
+    assert "My ticket is 1054202, please chase it." in llm.prompts[0]
+    workflow_run = await db_session.get_workflow_run_by_id(run_id)
+    assert workflow_run.gathered_context["extracted_variables"] == {
+        "ticket_number": "1054202"
+    }
 
 
 @pytest.mark.asyncio
@@ -1383,11 +1754,12 @@ async def test_text_chat_end_completes_when_the_checkpoint_cannot_be_parsed(
 ):
     """A corrupt or legacy checkpoint must not keep the chat from completing.
 
-    Extraction is best effort and runs before the completion write, so anything
-    escaping it would leave the run incomplete: no transcript, no completion job
-    and no webhook at all -- strictly worse than the blank fields extraction
-    exists to prevent. `_deserialize_text_chat_checkpoint_messages` rejects
-    unexpected shapes by design, so the parsing has to be inside the handler.
+    Freezing the final extraction is best effort and runs before the completion
+    write, so anything escaping it would leave the run incomplete: no
+    transcript, no completion job and no webhook at all -- strictly worse than
+    the blank fields extraction exists to prevent.
+    `_deserialize_text_chat_checkpoint_messages` rejects unexpected shapes by
+    design, so the parsing has to be inside the handler.
     """
     workflow_definition = {
         "nodes": [
@@ -1465,6 +1837,8 @@ async def test_text_chat_end_completes_when_the_checkpoint_cannot_be_parsed(
     assert completed_run.state == "completed"
     assert completed_run.gathered_context["call_disposition"] == "user_hangup"
     assert "extracted_variables" not in completed_run.gathered_context
+    assert "final_extraction" not in completed_run.logs
+    assert "final_extraction" not in completed_run.extra["workflow_completion"]
     # The completion job still runs, so webhooks and billing are not stranded.
     enqueue.assert_awaited_once_with(
         FunctionNames.PROCESS_WORKFLOW_COMPLETION,
@@ -1586,12 +1960,13 @@ async def test_text_chat_end_without_pinned_revision_keeps_a_concurrent_turn(
     async_session,
     test_client_factory,
 ):
-    """An unpinned end must not overwrite state committed while it extracts.
+    """An unpinned end must not overwrite state committed while it freezes.
 
     `expected_revision` defaults to None on both end-request schemas, so the
-    write used to run unguarded. Extraction waits on an LLM between reading the
-    session and writing it back, which is easily long enough for a message or
-    rewind to commit -- and that turn would be silently erased.
+    write used to run unguarded. Freezing the final extraction reads the
+    database between reading the session and writing it back, which is long
+    enough for a message or rewind to commit -- and that turn would be
+    silently erased.
     """
     user, workflow = await _create_user_and_workflow(
         db_session,
@@ -1603,13 +1978,13 @@ async def test_text_chat_end_without_pinned_revision_keeps_a_concurrent_turn(
         db_session, user, workflow, user_text="My ticket is 1054202."
     )
 
-    extraction_started = asyncio.Event()
-    release_extraction = asyncio.Event()
+    freeze_started = asyncio.Event()
+    release_freeze = asyncio.Event()
 
-    async def blocking_extraction(_self, _variables, *_args, **_kwargs):
-        extraction_started.set()
-        await release_extraction.wait()
-        return {"ticket_number": "1054202"}
+    async def blocking_mapping(_organization_id):
+        freeze_started.set()
+        await release_freeze.wait()
+        return {}
 
     loaded = await db_session.get_workflow_run_text_session(
         workflow_run.id, organization_id=user.selected_organization_id
@@ -1617,15 +1992,8 @@ async def test_text_chat_end_without_pinned_revision_keeps_a_concurrent_turn(
 
     with (
         patch(
-            "api.services.workflow.text_chat_runner.create_llm_service",
-            side_effect=lambda *a, **k: MockLLMService(
-                mock_steps=[], chunk_delay=0.001
-            ),
-        ),
-        patch(
-            "api.services.workflow.pipecat_engine_variable_extractor."
-            "VariableExtractionManager._perform_extraction",
-            new=blocking_extraction,
+            "api.services.workflow.text_chat_runner.get_disposition_mapping",
+            new=blocking_mapping,
         ),
         patch("api.tasks.arq.enqueue_job", AsyncMock()),
         patch(
@@ -1641,9 +2009,9 @@ async def test_text_chat_end_without_pinned_revision_keeps_a_concurrent_turn(
                 expected_revision=None,
             )
         )
-        await asyncio.wait_for(extraction_started.wait(), timeout=5)
+        await asyncio.wait_for(freeze_started.wait(), timeout=5)
 
-        # A message lands while completion is blocked on the LLM.
+        # A message lands while completion is still freezing its extraction.
         concurrent = await db_session.get_workflow_run_text_session(
             workflow_run.id, organization_id=user.selected_organization_id
         )
@@ -1654,7 +2022,7 @@ async def test_text_chat_end_without_pinned_revision_keeps_a_concurrent_turn(
             expected_revision=concurrent.revision,
         )
 
-        release_extraction.set()
+        release_freeze.set()
         result = await asyncio.wait_for(completion, timeout=10)
 
     # The concurrent turn survived; completion rebuilt itself around it.
@@ -1667,8 +2035,10 @@ async def test_text_chat_end_without_pinned_revision_keeps_a_concurrent_turn(
 
     completed_run = await db_session.get_workflow_run_by_id(workflow_run.id)
     assert completed_run.is_completed is True
-    assert completed_run.gathered_context["extracted_variables"] == {
-        "ticket_number": "1054202"
+    # The extraction was frozen again from the state that won.
+    assert completed_run.logs["conversation"][-1] == {
+        "role": "user",
+        "content": "One more thing.",
     }
 
 
@@ -1689,13 +2059,13 @@ async def test_text_chat_end_with_pinned_revision_reports_a_concurrent_turn(
         db_session, user, workflow, user_text="My ticket is 1054202."
     )
 
-    extraction_started = asyncio.Event()
-    release_extraction = asyncio.Event()
+    freeze_started = asyncio.Event()
+    release_freeze = asyncio.Event()
 
-    async def blocking_extraction(_self, _variables, *_args, **_kwargs):
-        extraction_started.set()
-        await release_extraction.wait()
-        return {"ticket_number": "1054202"}
+    async def blocking_mapping(_organization_id):
+        freeze_started.set()
+        await release_freeze.wait()
+        return {}
 
     loaded = await db_session.get_workflow_run_text_session(
         workflow_run.id, organization_id=user.selected_organization_id
@@ -1704,15 +2074,8 @@ async def test_text_chat_end_with_pinned_revision_reports_a_concurrent_turn(
 
     with (
         patch(
-            "api.services.workflow.text_chat_runner.create_llm_service",
-            side_effect=lambda *a, **k: MockLLMService(
-                mock_steps=[], chunk_delay=0.001
-            ),
-        ),
-        patch(
-            "api.services.workflow.pipecat_engine_variable_extractor."
-            "VariableExtractionManager._perform_extraction",
-            new=blocking_extraction,
+            "api.services.workflow.text_chat_runner.get_disposition_mapping",
+            new=blocking_mapping,
         ),
         patch("api.tasks.arq.enqueue_job", AsyncMock()),
     ):
@@ -1723,7 +2086,7 @@ async def test_text_chat_end_with_pinned_revision_reports_a_concurrent_turn(
                 expected_revision=pinned_revision,
             )
         )
-        await asyncio.wait_for(extraction_started.wait(), timeout=5)
+        await asyncio.wait_for(freeze_started.wait(), timeout=5)
 
         concurrent = await db_session.get_workflow_run_text_session(
             workflow_run.id, organization_id=user.selected_organization_id
@@ -1735,7 +2098,7 @@ async def test_text_chat_end_with_pinned_revision_reports_a_concurrent_turn(
             expected_revision=concurrent.revision,
         )
 
-        release_extraction.set()
+        release_freeze.set()
         with pytest.raises(TextChatSessionRevisionConflictError):
             await asyncio.wait_for(completion, timeout=10)
 
@@ -1785,47 +2148,104 @@ async def test_final_extraction_refuses_a_run_from_another_organization(
         workflow_run.id, organization_id=user.selected_organization_id
     )
 
-    extraction_calls = []
+    # The run's real organization: the extraction is frozen.
+    allowed = await freeze_text_chat_final_extraction(
+        workflow_run_id=workflow_run.id,
+        workflow_id=workflow.id,
+        organization_id=user.selected_organization_id,
+        checkpoint=text_session.checkpoint,
+        completion_reason="user_hangup",
+        session_data=text_session.session_data,
+    )
 
-    async def fake_extraction(_self, _variables, *_args, **_kwargs):
-        extraction_calls.append(True)
-        return {"ticket_number": "1054202"}
+    # Another real organization reaching the same run: refused, even though
+    # its own configuration would work.
+    refused = await freeze_text_chat_final_extraction(
+        workflow_run_id=workflow_run.id,
+        workflow_id=workflow.id,
+        organization_id=other_user.selected_organization_id,
+        checkpoint=text_session.checkpoint,
+        completion_reason="user_hangup",
+        session_data=text_session.session_data,
+    )
 
-    with (
-        patch(
-            "api.services.workflow.text_chat_runner.create_llm_service",
-            side_effect=lambda *a, **k: MockLLMService(
-                mock_steps=[], chunk_delay=0.001
-            ),
-        ),
-        patch(
-            "api.services.workflow.pipecat_engine_variable_extractor."
-            "VariableExtractionManager._perform_extraction",
-            new=fake_extraction,
-        ),
-    ):
-        # The run's real organization: extraction proceeds.
-        allowed = await extract_text_chat_final_variables(
-            workflow_run_id=workflow_run.id,
-            workflow_id=workflow.id,
-            organization_id=user.selected_organization_id,
-            checkpoint=text_session.checkpoint,
-            session_data=text_session.session_data,
-        )
+    assert allowed is not None
+    assert [
+        request["node_id"] for request in allowed.logs["final_extraction"]["requests"]
+    ] == ["start"]
+    assert allowed.metadata["status"] == "pending"
+    assert refused is None
 
-        # Another real organization reaching the same run: refused, without
-        # touching the LLM, even though its own configuration would work.
-        refused = await extract_text_chat_final_variables(
-            workflow_run_id=workflow_run.id,
-            workflow_id=workflow.id,
-            organization_id=other_user.selected_organization_id,
-            checkpoint=text_session.checkpoint,
-            session_data=text_session.session_data,
-        )
 
-    assert allowed["extracted_variables"] == {"ticket_number": "1054202"}
-    assert refused == {}
-    assert len(extraction_calls) == 1
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rewound_turn_status", ["completed", "failed"])
+async def test_final_extraction_ignores_turns_rewound_away_from(
+    db_session,
+    async_session,
+    test_client_factory,
+    rewound_turn_status,
+):
+    """A chat ended after a rewind extracts only the conversation it shows.
+
+    A rewind moves the cursor back without touching the stored checkpoint, so
+    the checkpoint -- and the session's last turn -- still carry what the user
+    rewound away from until the next message replaces it.
+    """
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=_extraction_workflow_definition(),
+        suffix=f"rewound-{rewound_turn_status}",
+    )
+    workflow_run = await _session_with_one_user_turn(
+        db_session, user, workflow, user_text="My ticket is 1054202."
+    )
+    kept = {"role": "user", "content": "My ticket is 1054202."}
+    rewound = {"role": "user", "content": "Actually, it is 999."}
+    kept_checkpoint = {
+        "version": 1,
+        "anchor_turn_id": "turn-1",
+        "current_node_id": "start",
+        "messages": [kept],
+        "gathered_context": {},
+        "tool_state": {},
+    }
+    rewound_turn = {
+        "id": "turn-2",
+        "status": rewound_turn_status,
+        "user_message": {"text": rewound["content"]},
+        "events": [],
+    }
+    stored_checkpoint = kept_checkpoint
+    if rewound_turn_status == "completed":
+        stored_checkpoint = {**kept_checkpoint, "messages": [kept, rewound]}
+        rewound_turn["checkpoint_after_turn"] = stored_checkpoint
+    session_data = {
+        "status": "rewound",
+        "cursor_turn_id": "turn-1",
+        "turns": [
+            {
+                "id": "turn-1",
+                "status": "completed",
+                "user_message": {"text": kept["content"]},
+                "events": [],
+                "checkpoint_after_turn": kept_checkpoint,
+            },
+            rewound_turn,
+        ],
+    }
+
+    frozen = await freeze_text_chat_final_extraction(
+        workflow_run_id=workflow_run.id,
+        workflow_id=workflow.id,
+        organization_id=user.selected_organization_id,
+        checkpoint=stored_checkpoint,
+        completion_reason="user_hangup",
+        session_data=session_data,
+    )
+
+    assert frozen is not None
+    assert frozen.logs["conversation"] == [kept]
 
 
 @pytest.mark.asyncio

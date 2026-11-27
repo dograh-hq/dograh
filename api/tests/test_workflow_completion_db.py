@@ -232,7 +232,8 @@ async def test_extraction_and_context_patch_preserve_each_others_fields(
             run_id,
             organization_id,
             "owner",
-            variables={"name": "Ada", "tag_lead": "qualified"},
+            # An empty tag value is extracted but never becomes a call tag.
+            variables={"name": "Ada", "tag_lead": "qualified", "tag_unset": ""},
             disposition="qualified",
             fallback="end_call",
             mapped_disposition="QUAL",
@@ -270,6 +271,7 @@ async def test_extraction_and_context_patch_preserve_each_others_fields(
         "earlier": "kept",
         "name": "Ada",
         "tag_lead": "qualified",
+        "tag_unset": "",
     }
     assert set(run.gathered_context["call_tags"]) == {
         "user_speech",

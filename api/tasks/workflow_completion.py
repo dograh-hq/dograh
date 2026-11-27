@@ -18,8 +18,8 @@ from api.tasks.run_integrations import run_integrations_post_workflow_run
 async def process_workflow_completion(_ctx, workflow_run_id: int):
     """Extract, run integrations, bill and write back after artifact upload.
 
-    New voice runs carry a durable completion record. Legacy runs and text
-    chats use the same steps without participating in voice-run recovery.
+    Voice calls and text chats carry a durable completion record. Runs that
+    predate it use the same steps without participating in recovery.
     """
     set_current_run_id(str(workflow_run_id))
     run, organization_id = await db_client.get_workflow_run_with_context(

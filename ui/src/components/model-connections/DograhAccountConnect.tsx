@@ -1,6 +1,7 @@
 "use client";
 
 import { PageSection } from "@/components/layout/PageLayout";
+import { useOrgConfig } from "@/context/OrgConfigContext";
 import { useAuth } from "@/lib/auth";
 
 import { EmailDograhAccountConnect } from "./EmailDograhAccountConnect";
@@ -27,10 +28,11 @@ export function DograhAccountConnect({ onConnected, reconnect = false }: { onCon
  */
 export function DograhAccountConnectFlow({ onConnected, onPendingChange }: ConnectProps) {
     const { user, loading } = useAuth();
-    const organization = user && ('selectedTeam' in user ? user.selectedTeam?.id : 'organizationId' in user ? user.organizationId : '');
+    const { orgContext, loading: organizationLoading } = useOrgConfig();
+    const organization = orgContext?.organization_id;
     const email = user && ('primaryEmail' in user ? user.primaryEmail : 'email' in user ? user.email : '');
     return <div className="space-y-3">
-        {!loading && user && !organization && <p role="status" className="text-sm text-muted-foreground">Select an organization to connect Dograh models.</p>}
-        <EmailDograhAccountConnect key={`${user?.id}:${organization}`} initialEmail={email || ''} ready={!loading && Boolean(user && organization)} onConnected={onConnected} onPendingChange={onPendingChange} />
+        {!loading && !organizationLoading && user && organization == null && <p role="status" className="text-sm text-muted-foreground">Select an organization to connect Dograh models.</p>}
+        <EmailDograhAccountConnect key={`${user?.id}:${organization}`} initialEmail={email || ''} ready={!loading && !organizationLoading && Boolean(user) && organization != null} onConnected={onConnected} onPendingChange={onPendingChange} />
     </div>;
 }

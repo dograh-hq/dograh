@@ -110,6 +110,32 @@ describe("inline email connection", () => {
         expect((screen.getByRole("button", { name: /Resend code/ }) as HTMLButtonElement).disabled).toBe(true);
     });
 
+    it.each(["initial", "resend"])("can cancel a stalled %s email request and ignores its late reply", async (kind) => {
+        vi.useFakeTimers();
+        try {
+            const pending = vi.fn();
+            render(<EmailDograhAccountConnect {...props} onPendingChange={pending} />);
+            if (kind === "resend") {
+                await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send verification code" })); });
+                await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+            }
+            let resolve!: (value: never) => void;
+            vi.mocked(startDograhEmailConnect).mockReturnValueOnce(new Promise<never>(done => { resolve = done; }));
+            fireEvent.click(screen.getByRole("button", { name: kind === "resend" ? /Resend code/ : "Send verification code" }));
+            expect(startDograhEmailConnect).toHaveBeenCalledTimes(kind === "resend" ? 2 : 1);
+            expect(pending).toHaveBeenLastCalledWith(true);
+            fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+            expect(pending).toHaveBeenLastCalledWith(false);
+            expect(vi.mocked(startDograhEmailConnect).mock.calls.at(-1)?.[0]?.signal?.aborted).toBe(true);
+            await act(async () => { resolve({ data: { ...started, device_code: "cancelled-device" } } as never); });
+            expect(screen.queryByLabelText("Verification code")).toBeNull();
+            expect((screen.getByLabelText("Email address") as HTMLInputElement).disabled).toBe(false);
+            expect(connected).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("keeps a resend that completes after the old verification deadline", async () => {
         vi.useFakeTimers();
         try {

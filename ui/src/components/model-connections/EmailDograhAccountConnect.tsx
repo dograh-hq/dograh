@@ -140,6 +140,6 @@ export function EmailDograhAccountConnect({ initialEmail, ready, onConnected, on
                 {!verifiedTeam && <Button type="button" variant="outline" disabled={busy || now < resendAt} onClick={() => void send()}>Resend code{now < resendAt ? ` (${Math.ceil((resendAt - now) / 1000)}s)` : ""}</Button>}
                 <Button type="button" variant="ghost" onClick={reset}>Change email</Button></div>
         </form>}
-        {step !== "email" && <Button variant="ghost" onClick={reset}>Cancel</Button>}
+        {(step !== "email" || busy) && <Button variant="ghost" onClick={reset}>Cancel</Button>}
     </div>;
 }

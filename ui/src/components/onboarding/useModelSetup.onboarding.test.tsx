@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({ read: vi.fn(), proceed: vi.fn(), status: 'miss
 vi.mock('@/client/sdk.gen', () => ({ getUserOnboardingStateApiV1UserOnboardingStateGet: mocks.read }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: '1' }, isAuthenticated: true, loading: false }) }));
 vi.mock('@/context/AppConfigContext', () => ({ useAppConfig: () => ({ config: { deploymentMode: 'oss' } }) }));
+vi.mock('@/context/OrgConfigContext', () => ({ useOrgConfig: () => ({ orgContext: { organization_id: 7 }, loading: false }) }));
 vi.mock('@/context/DograhAccountContext', () => ({ useDograhAccount: () => ({ status: mocks.status, refresh: vi.fn() }) }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));

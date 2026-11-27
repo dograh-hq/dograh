@@ -40,7 +40,7 @@ export const PostHogEvent = {
   HIRE_NUDGE_CLICKED: "hire_nudge_clicked",
   HIRE_NUDGE_DISMISSED: "hire_nudge_dismissed",
   HIRE_NUDGE_EXPIRED: "hire_nudge_expired",
-  ONBOARDING_SHOWN: "onboarding_shown",
-  ONBOARDING_SUBMITTED: "onboarding_submitted",
-  ONBOARDING_SKIPPED: "onboarding_skipped",
+  // Self-hosted first run: choosing how the installation gets AI models.
+  MODEL_SETUP_SHOWN: "model_setup_shown",
+  MODEL_SETUP_COMPLETED: "model_setup_completed",
 } as const;

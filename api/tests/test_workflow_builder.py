@@ -803,26 +803,23 @@ async def test_local_builder_routes_inference_and_builds_a_real_preview(
 
 
 @pytest.mark.asyncio
-async def test_builder_stream_directs_unconfigured_org_to_model_configurations(
+async def test_builder_refuses_a_turn_before_storing_it_without_a_dograh_key(
     monkeypatch,
 ):
-    from langgraph.checkpoint.memory import InMemorySaver
-
-    from api.enums import OrganizationConfigurationKey
     from api.routes.workflow_builder import router
     from api.services.auth.depends import get_user
+    from api.services.workflow.builder_runtime import execution
     from api.services.workflow.builder_runtime import model as adapter
-    from api.services.workflow.builder_runtime import service as runtime
 
-    @asynccontextmanager
-    async def checkpoints(thread_id, **kwargs):
-        yield InMemorySaver()
-
-    config = AsyncMock(return_value=None)
-    minted = AsyncMock()
-    monkeypatch.setattr(runtime.db_client, "builder_checkpointer", checkpoints)
-    monkeypatch.setattr(runtime.db_client, "get_configuration", config)
-    monkeypatch.setattr(adapter.mps_service_key_client, "create_correlation_id", minted)
+    admitted = AsyncMock()
+    # The shared execution fixture stubs the key check; exercise the real one.
+    monkeypatch.setattr(execution, "builder_service_key", adapter.builder_service_key)
+    monkeypatch.setattr(
+        adapter.mps_service_key_client,
+        "find_runtime_service_key",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(execution.db_client, "admit_builder_run", admitted)
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_user] = lambda: SimpleNamespace(
@@ -835,18 +832,6 @@ async def test_builder_stream_directs_unconfigured_org_to_model_configurations(
             f"/workflow/builder/{uuid4()}/turn",
             json={"request_id": str(uuid4()), "message": "Build a receptionist"},
         )
-    events = [
-        json.loads(line[6:])
-        for line in response.text.splitlines()
-        if line.startswith("data: ")
-    ]
-    assert response.status_code == 200
-    assert {key: value for key, value in events[-1].items() if key != "seq"} == {
-        "type": "error",
-        "message": "Agent builder is currently only supported with a Dograh Service Key. Set it in /model-configurations.",
-        "status_code": 400,
-    }
-    config.assert_awaited_once_with(
-        27, OrganizationConfigurationKey.MODEL_CONFIGURATION_DEFAULT_UUID.value
-    )
-    minted.assert_not_awaited()
+    assert response.status_code == 400
+    assert "Agent builder runs on Dograh models" in response.json()["detail"]
+    admitted.assert_not_awaited()

@@ -1,8 +1,8 @@
 "use client";
 
-// Shared chrome for the lead dialogs (HireExpert, Enterprise, post-signup
-// Onboarding). Wraps the existing @/components/ui/dialog primitive (which already
-// supplies the blurred backdrop) and adds a consistent header band (eyebrow +
+// Shared chrome for the lead dialogs (HireExpert, Enterprise). Wraps the
+// existing @/components/ui/dialog primitive (which already supplies the
+// blurred backdrop) and adds a consistent header band (eyebrow +
 // title + description), a scrollable body with underline fields, a footer
 // (primary CTA + optional ghost secondary + optional helper slot), and a bottom
 // trust-line slot. The visual language ("Ledger", user-approved): flat charcoal
@@ -43,7 +43,7 @@ interface LeadModalShellProps {
   overlay?: ReactNode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  // Forwarded to DialogContent so callers can lock dismissal (onboarding gate).
+  // Forwarded to DialogContent so callers can lock dismissal.
   contentProps?: React.ComponentProps<typeof DialogContent>;
 }
 

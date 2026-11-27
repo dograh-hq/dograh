@@ -2,6 +2,7 @@
 
 from fastapi import HTTPException
 
+from api.constants import DEPLOYMENT_MODE
 from api.errors.failure import DograhFailure
 from api.errors.mps import MPS_UNAVAILABLE_PUBLIC_MESSAGE
 
@@ -16,9 +17,10 @@ class BuilderModelError(HTTPException):
             status_code = 504
         elif upstream_status_code in {401, 403}:
             status_code = upstream_status_code
-            message = (
-                "Dograh could not authorize agent builder. Check your Dograh "
-                "Service Key in /model-configurations and try again."
+            message = "Dograh no longer accepts this organization's Dograh key. " + (
+                "Reconnect your Dograh account on the Models page, then try again."
+                if DEPLOYMENT_MODE == "oss"
+                else "Check the Dograh connection on the Models page, then try again."
             )
         elif upstream_status_code == 402:
             status_code = 402

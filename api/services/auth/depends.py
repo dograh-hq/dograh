@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Query, WebSocket
@@ -164,10 +165,29 @@ async def get_service_key_user(
     user: UserModel = Depends(get_user),
     authorization: Annotated[str | None, Header()] = None,
 ) -> UserModel:
-    """Preserve local OSS issuance; hosted account keys require verified email."""
+    """Hosted account keys require a verified email.
+
+    Self-hosted installs never mint keys here; they connect a Dograh account
+    and collect a key bound to it (``routes/dograh_account_connect``).
+    """
     if DEPLOYMENT_MODE == "oss":
-        return user
+        raise HTTPException(
+            status_code=403,
+            detail="Connect your Dograh account on the Models page to use Dograh models",
+        )
     return await get_verified_stack_user(user, authorization)
+
+
+@dataclass(frozen=True)
+class VerifiedStackIdentity:
+    """A signed-in user, with the Stack identity that verified them."""
+
+    user: UserModel
+    identity: dict
+
+    @property
+    def team_name(self) -> str | None:
+        return _stack_team_name(self.identity)
 
 
 async def get_verified_stack_user(
@@ -175,6 +195,14 @@ async def get_verified_stack_user(
     authorization: Annotated[str | None, Header()] = None,
 ) -> UserModel:
     """Key issuance requires a current verified Stack identity, never OSS/API auth."""
+    return (await get_verified_stack_identity(user, authorization)).user
+
+
+async def get_verified_stack_identity(
+    user: UserModel = Depends(get_user),
+    authorization: Annotated[str | None, Header()] = None,
+) -> VerifiedStackIdentity:
+    """Like ``get_verified_stack_user``, keeping the identity Stack returned."""
     if AUTH_PROVIDER != "stack" or DEPLOYMENT_MODE == "oss":
         raise HTTPException(
             status_code=403,
@@ -197,7 +225,7 @@ async def get_verified_stack_user(
         raise HTTPException(
             status_code=403, detail="Selected team does not match your organization"
         )
-    return user
+    return VerifiedStackIdentity(user=user, identity=identity)
 
 
 def _stack_team_name(stack_user: dict) -> str | None:

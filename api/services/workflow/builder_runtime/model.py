@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, convert_to_openai_messages
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
+from api.constants import DEPLOYMENT_MODE
 from api.errors.failure import (
     ErrorSource,
     classify_exception,
@@ -17,16 +18,36 @@ from api.errors.failure import (
     log_failure,
 )
 from api.errors.mps import MPSUnavailableError
-from api.services.configuration.ai_model_configuration import (
-    get_resolved_ai_model_configuration,
-)
-from api.services.managed_model_services import get_dograh_service_api_key
 from api.services.mps_service_key_client import mps_service_key_client
 
 from .errors import BuilderModelError
 from .tracing import builder_trace_metadata
 
 BUILDER_USAGE_CONTEXT = "workflow_builder"
+
+
+def builder_requires_dograh_message() -> str:
+    if DEPLOYMENT_MODE == "oss":
+        return (
+            "Agent builder runs on Dograh models. Connect your Dograh account "
+            "on the Models page to use it."
+        )
+    return (
+        "Agent builder runs on Dograh models. Add a Dograh connection on the "
+        "Models page to use it."
+    )
+
+
+async def builder_service_key(organization_id: int) -> str:
+    """The Dograh key the builder runs on: the one Dograh's other features use.
+
+    The builder's own model calls are a Dograh service, so they do not depend
+    on which providers the organization's agents are configured to use.
+    """
+    service_key = await mps_service_key_client.find_runtime_service_key(organization_id)
+    if not service_key or not service_key.strip():
+        raise HTTPException(400, builder_requires_dograh_message())
+    return service_key.strip()
 
 
 async def _completion_with_retry(**kwargs):
@@ -76,16 +97,7 @@ class BuilderChatModel(BaseChatModel):
     async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
         # Resolve on inference, so configuration changes apply to resumed sessions
         # and credentials never enter the model's serialized fields/checkpoints.
-        resolved = await get_resolved_ai_model_configuration(
-            organization_id=self.organization_id
-        )
-        api_key = (get_dograh_service_api_key(resolved.effective) or "").strip()
-        if not api_key:
-            raise HTTPException(
-                400,
-                "Agent builder is currently only supported with a Dograh Service Key. "
-                "Set it in /model-configurations.",
-            )
+        api_key = await builder_service_key(self.organization_id)
         wire = convert_to_openai_messages(messages)
         for original, converted in zip(messages, wire):
             if original.type == "ai":

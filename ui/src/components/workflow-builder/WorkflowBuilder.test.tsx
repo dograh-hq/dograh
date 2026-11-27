@@ -3,8 +3,10 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 import { WorkflowBuilder } from './WorkflowBuilder';
 
-const mocks = vi.hoisted(() => ({ signedIn: true, get: vi.fn(), open: vi.fn(), events: vi.fn(), cancel: vi.fn(), send: vi.fn(), save: vi.fn(), push: vi.fn(), token: vi.fn(async () => 'token') }));
+const mocks = vi.hoisted(() => ({ signedIn: true, get: vi.fn(), open: vi.fn(), events: vi.fn(), cancel: vi.fn(), send: vi.fn(), save: vi.fn(), push: vi.fn(), token: vi.fn(async () => 'token'), dograhStatus: 'connected', deploymentMode: 'oss', refreshDograh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock('@/context/DograhAccountContext', () => ({ useDograhAccount: () => ({ status: mocks.dograhStatus, refresh: mocks.refreshDograh }) }));
+vi.mock('@/context/AppConfigContext', () => ({ useAppConfig: () => ({ config: { deploymentMode: mocks.deploymentMode } }) }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: mocks.signedIn ? { id: '1', organizationId: '7' } : null, loading: false, getAccessToken: mocks.token }) }));
 vi.mock('@/client/sdk.gen', () => ({
     getBuilderSessionApiV1WorkflowBuilderSessionIdGet: mocks.get,
@@ -23,6 +25,8 @@ const session = {
 beforeEach(() => {
     vi.clearAllMocks();
     mocks.signedIn = true;
+    mocks.dograhStatus = 'connected';
+    mocks.deploymentMode = 'oss';
     Element.prototype.scrollIntoView = vi.fn();
     window.history.replaceState({}, '', '/workflow/create?session=retained-session');
     mocks.get.mockResolvedValue({ data: session });
@@ -285,4 +289,41 @@ it('shows a sign-in action when authentication finishes without a user', () => {
     expect(screen.queryByText('Restoring conversation…')).toBeNull();
     expect(mocks.open).not.toHaveBeenCalled();
     expect(mocks.get).not.toHaveBeenCalled();
+});
+
+it('offers to connect a Dograh account instead of a composer when the organization has no key', async () => {
+    mocks.dograhStatus = 'missing';
+    window.history.replaceState({}, '', '/workflow/create');
+    render(<WorkflowBuilder />);
+    const gate = await screen.findByRole('region', { name: 'Agent builder setup' });
+    expect(gate.textContent).toContain('Agent builder runs on Dograh models');
+    expect(screen.getByRole('button', { name: 'Connect Dograh account' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Start from a blank canvas' })).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByText('What should your agent do?')).toBeNull();
+    expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it('asks hosted organizations to fix their Dograh connection on the Models page', async () => {
+    mocks.dograhStatus = 'invalid';
+    mocks.deploymentMode = 'saas';
+    render(<WorkflowBuilder workflowId={41} />);
+    const gate = await screen.findByRole('region', { name: 'Agent builder setup' });
+    expect(gate.textContent).toContain('no longer accepts');
+    expect(screen.getByRole('link', { name: 'Open Models page' }).getAttribute('href')).toBe('/model-configurations');
+    expect(screen.queryByRole('button', { name: 'Connect Dograh account' })).toBeNull();
+    // Editing an agent already has a canvas.
+    expect(screen.queryByRole('button', { name: 'Start from a blank canvas' })).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
+});
+
+it('holds sending until the Dograh status is known', async () => {
+    mocks.dograhStatus = 'loading';
+    window.history.replaceState({}, '', '/workflow/create');
+    render(<WorkflowBuilder />);
+    const composer = await screen.findByRole('textbox');
+    fireEvent.change(composer, { target: { value: 'Build a receptionist' } });
+    expect((screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(mocks.send).not.toHaveBeenCalled();
 });

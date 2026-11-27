@@ -52,22 +52,16 @@ async def create_service_key(
     request: CreateServiceKeyRequest,
     user: UserModel = Depends(get_service_key_user),
 ):
-    """Create a legacy OSS trial key or a verified hosted account key."""
-    if DEPLOYMENT_MODE != "oss" and not user.selected_organization_id:
+    """Create a verified hosted account key (self-hosted installs connect instead)."""
+    if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
     try:
         result = await mps_service_key_client.create_service_key(
             name=request.name,
-            organization_id=(
-                None if DEPLOYMENT_MODE == "oss" else user.selected_organization_id
-            ),
+            organization_id=user.selected_organization_id,
             created_by=str(user.provider_id),
             expires_in_days=request.expires_in_days or 90,
-            description=(
-                f"Service key: {request.name}"
-                if DEPLOYMENT_MODE == "oss"
-                else f"Service key for organization {user.selected_organization_id}"
-            ),
+            description=f"Service key for organization {user.selected_organization_id}",
         )
         return CreateServiceKeyResponse.model_validate(result)
     except HTTPException:

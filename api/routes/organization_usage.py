@@ -212,8 +212,16 @@ async def get_current_period_usage(user: UserModel = Depends(get_user)):
 
 
 async def _oss_mps_credits_response(user: UserModel) -> MPSBillingCreditsResponse:
-    """Aggregate per-key MPS credits for OSS deployments (no billing account)."""
-    usage = await mps_service_key_client.get_usage_by_created_by(str(user.provider_id))
+    """Read the balance of the Dograh credential this organization actually uses."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    service_key = await mps_service_key_client.find_runtime_service_key(
+        user.selected_organization_id
+    )
+    if not service_key:
+        # Fresh OSS installs have no models until they connect an account/BYOK.
+        return MPSBillingCreditsResponse()
+    usage = await mps_service_key_client.check_service_key_usage(service_key)
 
     total_used = float(usage.get("total_credits_used", 0.0))
     total_remaining = float(usage.get("remaining_credits", 0.0))

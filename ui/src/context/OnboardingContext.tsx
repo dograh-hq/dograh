@@ -10,7 +10,7 @@ import type { OnboardingStateUpdate } from '@/client/types.gen';
 import { useAuth } from '@/lib/auth';
 
 export type TooltipKey = 'web_call' | 'customize_workflow';
-export type OnboardingActionKey = 'web_call_started' | 'model_setup_dismissed';
+export type OnboardingActionKey = 'web_call_started' | `model_setup_dismissed:${string}`;
 
 // Server-backed onboarding state (GET/PUT /user/onboarding-state), stored
 // per-user under the ONBOARDING user-configuration key — deliberately

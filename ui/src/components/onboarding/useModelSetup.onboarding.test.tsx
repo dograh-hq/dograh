@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { OnboardingProvider } from '@/context/OnboardingContext';
 
@@ -25,10 +25,11 @@ beforeEach(() => {
     vi.clearAllMocks();
     mocks.status = 'missing';
 });
+afterEach(() => vi.restoreAllMocks());
 
 it.each(['missing', 'invalid'])('allows calls when onboarding fails and the Dograh status is %s', async status => {
     mocks.status = status;
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.read.mockResolvedValue({ error: { detail: 'Service unavailable' } });
     render(<OnboardingProvider><Call /></OnboardingProvider>);
     const button = screen.getByRole('button', { name: 'Start call' }) as HTMLButtonElement;
@@ -36,18 +37,16 @@ it.each(['missing', 'invalid'])('allows calls when onboarding fails and the Dogr
     fireEvent.click(button);
     await waitFor(() => expect(mocks.proceed).toHaveBeenCalledOnce());
     expect(screen.queryByRole('dialog')).toBeNull();
-    errorLog.mockRestore();
 });
 
 it('recovers from a network failure while reading onboarding', async () => {
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.read.mockRejectedValue(new Error('Network error'));
     render(<OnboardingProvider><Call /></OnboardingProvider>);
     const button = screen.getByRole('button', { name: 'Start call' }) as HTMLButtonElement;
     await waitFor(() => expect(button.disabled).toBe(false));
     fireEvent.click(button);
     await waitFor(() => expect(mocks.proceed).toHaveBeenCalledOnce());
-    errorLog.mockRestore();
 });
 
 it('still waits for an in-flight preference read before offering setup', async () => {

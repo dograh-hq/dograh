@@ -103,9 +103,9 @@ export function WorkflowTesterPanel({
 
     const createVoiceRun = useCallback(async () => {
         if (!accessToken || disabled) return;
+        if (!await ensureSetup()) return;
         setCreatingVoiceRun(true);
         try {
-            if (!await ensureSetup()) return;
             const response = await createWorkflowRunApiV1WorkflowWorkflowIdRunsPost({
                 path: { workflow_id: workflowId },
                 body: {
@@ -266,7 +266,8 @@ export function WorkflowTesterPanel({
                             <ManualTextChatPanel
                                 key={chatSessionKey}
                                 workflowId={workflowId}
-                                ready={tokenReady && !!accessToken}
+                                ready={tokenReady && !!accessToken && !checkingModelSetup}
+                                beforeStart={ensureSetup}
                                 initialContextVariables={initialContextVariables}
                                 disabled={testerBlocked}
                                 disabledReason={effectiveDisabledReason}

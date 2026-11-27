@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createRunMock, markActionCompletedMock } = vi.hoisted(() => ({
+const { createRunMock, markActionCompletedMock, createChatMock } = vi.hoisted(() => ({
     createRunMock: vi.fn(),
+    createChatMock: vi.fn(),
     markActionCompletedMock: vi.fn(),
 }));
 const setup = vi.hoisted(() => ({ status: 'connected', dismissed: false }));
@@ -16,6 +17,7 @@ vi.mock('@/components/model-connections/DograhAccountConnect', () => ({
 
 vi.mock("@/client/sdk.gen", () => ({
     createWorkflowRunApiV1WorkflowWorkflowIdRunsPost: createRunMock,
+    streamTextChatSession: createChatMock,
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -43,10 +45,6 @@ vi.mock("./workflow-tester/EmbeddedVoiceTester", () => ({
     EmbeddedVoiceTester: ({ workflowRunId }: { workflowRunId: number }) => (
         <div data-testid="voice-tester">run:{workflowRunId}</div>
     ),
-}));
-
-vi.mock("./workflow-tester/ManualTextChatPanel", () => ({
-    ManualTextChatPanel: () => <div data-testid="chat-panel" />,
 }));
 
 vi.mock("./workflow-tester/AiSimulatorPlaceholder", () => ({
@@ -80,6 +78,11 @@ describe("WorkflowTesterPanel voice run lifecycle", () => {
     beforeEach(() => {
         setup.status = 'connected';
         setup.dismissed = false;
+        createChatMock.mockReset();
+        createChatMock.mockImplementation(async () => ({ stream: (async function* () {
+            yield { type: 'complete', session: { workflow_run_id: 42, workflow_id: 10124, revision: 1, is_completed: false,
+                session_data: { status: 'idle', turns: [], discarded_future: [] }, checkpoint: {} } };
+        })() }));
         let nextRunId = 630140;
         createRunMock.mockReset();
         createRunMock.mockImplementation(async () => ({
@@ -114,7 +117,7 @@ describe("WorkflowTesterPanel voice run lifecycle", () => {
         fireEvent.click(await screen.findByRole('button', { name: /run test/i }));
         fireEvent.click(await screen.findByText('Skip for now'));
         expect((await screen.findByTestId('voice-tester')).textContent).toBe('run:630140');
-        expect(markActionCompletedMock).toHaveBeenCalledWith('model_setup_dismissed');
+        expect(markActionCompletedMock).toHaveBeenCalledWith('model_setup_dismissed:1');
     });
 
     it('does not prompt again when setup was dismissed earlier', async () => {
@@ -133,7 +136,7 @@ describe("WorkflowTesterPanel voice run lifecycle", () => {
         await startVoiceRun();
 
         switchTo(/test chat/i);
-        await waitFor(() => expect(screen.getByTestId("chat-panel")).toBeTruthy());
+        expect(await screen.findByRole('button', { name: 'Start Test' })).toBeTruthy();
 
         switchTo(/test audio/i);
 
@@ -155,5 +158,26 @@ describe("WorkflowTesterPanel voice run lifecycle", () => {
 
         expect(await startVoiceRun()).toBe("run:630141");
         expect(createRunMock).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(['connect', 'skip'])('offers setup before Test Chat creates a session and resumes after %s', async choice => {
+        setup.status = 'missing';
+        renderPanel();
+        await screen.findByRole('button', { name: /run test/i });
+        switchTo(/test chat/i);
+        const start = await screen.findByRole('button', { name: 'Start Test' });
+        expect(screen.queryByRole('dialog')).toBeNull();
+        fireEvent.click(start);
+        expect(await screen.findByRole('dialog', { name: 'Set up AI models' })).toBeTruthy();
+        expect(createChatMock).not.toHaveBeenCalled();
+        if (choice === 'connect') {
+            fireEvent.click(screen.getByText('Approve on Dograh'));
+            fireEvent.click(screen.getByText('Continue'));
+        } else {
+            fireEvent.click(screen.getByText('Skip for now'));
+        }
+        expect(await screen.findByRole('button', { name: 'End chat' })).toBeTruthy();
+        expect(createChatMock).toHaveBeenCalledOnce();
+        expect(createRunMock).not.toHaveBeenCalled();
     });
 });

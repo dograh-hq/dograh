@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ call: vi.fn(), dismissed: false, markAction: v
 vi.mock('react-international-phone/style.css', () => ({}));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: '1' }, loading: false }) }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: '1', organizationId: '1' }, loading: false }) }));
 vi.mock('@/context/AppConfigContext', () => ({ useAppConfig: () => ({ config: { deploymentMode: 'oss' } }) }));
 vi.mock('@/context/DograhAccountContext', () => ({ useDograhAccount: () => ({ status: 'missing', refresh: vi.fn() }) }));
 vi.mock('@/context/UserConfigContext', () => ({ useUserConfig: () => ({ refreshConfig: vi.fn() }) }));
@@ -35,6 +35,7 @@ it('waits for Start Call before showing model setup and preserves the destinatio
     fireEvent.click(start);
     expect(await screen.findByRole('dialog', { name: 'Set up AI models' })).toBeTruthy();
     expect(mocks.call).not.toHaveBeenCalled();
+    expect(start.textContent).toBe('Start Call');
     fireEvent.click(screen.getByText('Approve on Dograh'));
     fireEvent.click(screen.getByText('Continue'));
     await waitFor(() => expect(mocks.call).toHaveBeenCalledOnce());
@@ -46,5 +47,5 @@ it('allows a phone call using existing providers when setup is skipped', async (
     fireEvent.click(await screen.findByRole('button', { name: 'Start Call' }));
     fireEvent.click(await screen.findByText('Skip for now'));
     await waitFor(() => expect(mocks.call).toHaveBeenCalledOnce());
-    expect(mocks.markAction).toHaveBeenCalledWith('model_setup_dismissed');
+    expect(mocks.markAction).toHaveBeenCalledWith('model_setup_dismissed:1');
 });

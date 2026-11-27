@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { PostHogEvent } from '@/constants/posthog-events';
 import { useAppConfig } from '@/context/AppConfigContext';
 import { useDograhAccount } from '@/context/DograhAccountContext';
-import { useOnboarding } from '@/context/OnboardingContext';
+import { type OnboardingActionKey, useOnboarding } from '@/context/OnboardingContext';
 import { useAuth } from '@/lib/auth';
 
 import { type ModelSetupChoice, ModelSetupModal } from './ModelSetupModal';
@@ -22,7 +22,8 @@ export function useModelSetup(source: 'builder' | 'call', enabled = true) {
     const { loading: onboardingLoading, loadFailed: onboardingUnavailable, hasCompletedAction, markActionCompleted } = useOnboarding();
     const [open, setOpen] = useState(false);
     const resolve = useRef<((proceed: boolean) => void) | null>(null);
-    const dismissed = hasCompletedAction('model_setup_dismissed');
+    const dismissalKey: OnboardingActionKey = `model_setup_dismissed:${organization ?? ''}`;
+    const dismissed = hasCompletedAction(dismissalKey);
     const needsSetup = selfHosted && (dograh.status === 'missing' || dograh.status === 'invalid');
     // Wait for an in-flight dismissal read, but never block calls on an
     // unavailable optional preference. The context suppresses one-time UI
@@ -52,7 +53,9 @@ export function useModelSetup(source: 'builder' | 'call', enabled = true) {
 
     const finish = (choice: ModelSetupChoice) => {
         posthog.capture(PostHogEvent.MODEL_SETUP_COMPLETED, { choice, source });
-        if (choice === 'skipped' || choice === 'own_keys') markActionCompleted('model_setup_dismissed');
+        // Opening provider setup does not establish that usable keys exist.
+        // Only an explicit skip suppresses future prompts in this organization.
+        if (choice === 'skipped') markActionCompleted(dismissalKey);
         // BYOK can run calls, but the builder always needs a Dograh account.
         close(choice === 'dograh' || (source === 'call' && choice === 'skipped'));
     };

@@ -282,13 +282,11 @@ export const PhoneCallDialog = ({
     };
 
     const handleStartCall = async () => {
+        if (!user || callLoading || !await ensureSetup()) return;
         setCallLoading(true);
         setCallError(null);
         setCallSuccessMsg(null);
         try {
-            if (!user) return;
-            if (!await ensureSetup()) return;
-
             // Save phone number if it has changed
             if (phoneChanged) {
                 await savePhoneNumberPreference();

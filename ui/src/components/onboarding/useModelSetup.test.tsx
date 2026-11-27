@@ -4,7 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { useModelSetup } from './useModelSetup';
 
 const mocks = vi.hoisted(() => ({
-    status: 'missing', deploymentMode: 'oss', dismissed: false,
+    status: 'missing', deploymentMode: 'oss', dismissed: new Set<string>(),
     organizationId: '1',
     refresh: vi.fn(), markAction: vi.fn(), push: vi.fn(), capture: vi.fn(), proceed: vi.fn(), cancelled: vi.fn(),
 }));
@@ -13,7 +13,7 @@ vi.mock('posthog-js', () => ({ default: { capture: mocks.capture } }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: '1', organizationId: mocks.organizationId }, loading: false }) }));
 vi.mock('@/context/AppConfigContext', () => ({ useAppConfig: () => ({ config: { deploymentMode: mocks.deploymentMode } }) }));
 vi.mock('@/context/DograhAccountContext', () => ({ useDograhAccount: () => ({ status: mocks.status, refresh: mocks.refresh }) }));
-vi.mock('@/context/OnboardingContext', () => ({ useOnboarding: () => ({ loading: false, hasCompletedAction: () => mocks.dismissed, markActionCompleted: mocks.markAction }) }));
+vi.mock('@/context/OnboardingContext', () => ({ useOnboarding: () => ({ loading: false, hasCompletedAction: (key: string) => mocks.dismissed.has(key), markActionCompleted: mocks.markAction }) }));
 vi.mock('@/components/model-connections/DograhAccountConnect', () => ({
     DograhAccountConnectFlow: ({ onConnected, onPendingChange }: { onConnected: () => Promise<void>; onPendingChange: (pending: boolean) => void }) => <>
         <button onClick={() => onPendingChange(true)}>Start connecting</button>
@@ -33,9 +33,9 @@ beforeEach(() => {
     vi.clearAllMocks();
     mocks.status = 'missing';
     mocks.deploymentMode = 'oss';
-    mocks.dismissed = false;
+    mocks.dismissed = new Set();
     mocks.organizationId = '1';
-    mocks.markAction.mockImplementation(() => { mocks.dismissed = true; });
+    mocks.markAction.mockImplementation((key: string) => { mocks.dismissed.add(key); });
 });
 
 it('prompts on the first call attempt and remembers an explicit skip across visits', async () => {
@@ -46,7 +46,7 @@ it('prompts on the first call attempt and remembers an explicit skip across visi
     expect(mocks.proceed).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('Skip for now'));
     await waitFor(() => expect(mocks.proceed).toHaveBeenCalledOnce());
-    expect(mocks.markAction).toHaveBeenCalledWith('model_setup_dismissed');
+    expect(mocks.markAction).toHaveBeenCalledWith('model_setup_dismissed:1');
     unmount();
     render(<Action />);
     fireEvent.click(screen.getByText('Try action'));
@@ -55,7 +55,7 @@ it('prompts on the first call attempt and remembers an explicit skip across visi
 });
 
 it('still requires Dograh for the builder after the call prompt was skipped', async () => {
-    mocks.dismissed = true;
+    mocks.dismissed.add('model_setup_dismissed:1');
     render(<Action source="builder" />);
     fireEvent.click(screen.getByText('Try action'));
     fireEvent.click(screen.getByText('Skip for now'));
@@ -89,8 +89,22 @@ it('routes to provider setup without starting a call', async () => {
     fireEvent.click(screen.getByText('Add provider keys'));
     await waitFor(() => expect(mocks.cancelled).toHaveBeenCalledOnce());
     expect(mocks.push).toHaveBeenCalledWith('/provider-connections/new');
-    expect(mocks.markAction).toHaveBeenCalledWith('model_setup_dismissed');
+    expect(mocks.markAction).not.toHaveBeenCalled();
     expect(mocks.proceed).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Try action'));
+    expect(screen.getByRole('dialog', { name: 'Set up AI models' })).toBeTruthy();
+});
+
+it('offers setup in another organization after an explicit skip', async () => {
+    const { rerender } = render(<Action />);
+    fireEvent.click(screen.getByText('Try action'));
+    fireEvent.click(screen.getByText('Skip for now'));
+    await waitFor(() => expect(mocks.proceed).toHaveBeenCalledOnce());
+    mocks.organizationId = '2';
+    rerender(<Action />);
+    fireEvent.click(screen.getByText('Try action'));
+    expect(screen.getByRole('dialog', { name: 'Set up AI models' })).toBeTruthy();
+    expect(mocks.proceed).toHaveBeenCalledOnce();
 });
 
 it('resumes the pending action after connection without changing pages', async () => {

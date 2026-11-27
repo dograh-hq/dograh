@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { createWorkflowApiV1WorkflowCreateDefinitionPost } from '@/client/sdk.gen';
+import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
 import { getRandomId } from '@/lib/utils';
@@ -38,11 +39,13 @@ const BLANK_WORKFLOW_DEFINITION = {
 /** Creates an agent from a one-node starter canvas and opens it in the editor. */
 export function useCreateBlankWorkflow() {
     const router = useRouter();
-    const { user, getAccessToken } = useAuth();
+    const { user, loading: authLoading, getAccessToken } = useAuth();
     const [isCreating, setIsCreating] = useState(false);
+    // Creating needs a signed-in user; callers disable the action until then.
+    const ready = !authLoading && Boolean(user);
 
     const createBlankWorkflow = async () => {
-        if (isCreating || !user) return;
+        if (isCreating || !ready) return;
         setIsCreating(true);
 
         try {
@@ -58,9 +61,11 @@ export function useCreateBlankWorkflow() {
                 },
             });
 
-            if (response.data?.id) {
-                router.push(`/workflow/${response.data.id}`);
+            if (response.error || !response.data?.id) {
+                toast.error(detailFromError(response.error, 'Failed to create workflow'));
+                return;
             }
+            router.push(`/workflow/${response.data.id}`);
         } catch (err) {
             logger.error(`Error creating blank workflow: ${err}`);
             toast.error('Failed to create workflow');
@@ -69,5 +74,5 @@ export function useCreateBlankWorkflow() {
         }
     };
 
-    return { createBlankWorkflow, isCreating };
+    return { createBlankWorkflow, isCreating, ready };
 }

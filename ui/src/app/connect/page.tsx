@@ -22,6 +22,14 @@ import { cn } from '@/lib/utils';
 
 type Decision = 'approved' | 'denied';
 
+// Every state a request can be in once someone decided it. An issued request
+// was approved and its installation has collected the key.
+const CLOSED_TITLES: Record<Exclude<AccountConnectRequest['status'], 'pending'>, string> = {
+    approved: 'This request was already approved',
+    issued: 'This request was already approved',
+    denied: 'This request was already denied',
+};
+
 const CODE_LENGTH = 8;
 // The one-time code in the sign-in email, beside its link.
 const EMAIL_CODE_LENGTH = 6;
@@ -292,7 +300,7 @@ function Approval({ code }: { code: string }) {
     </Outcome>;
     if (!request) return <Waiting>Loading the connection request…</Waiting>;
     if (request.status !== 'pending') return <Outcome icon={AlertCircle} tone="neutral"
-        title={`This request was already ${request.status === 'denied' ? 'denied' : 'approved'}`} action={enterAnother}>
+        title={CLOSED_TITLES[request.status] ?? 'This request is no longer available'} action={enterAnother}>
         <p>To connect again, start from your installation and use the new code it shows.</p>
     </Outcome>;
     if (deadline?.expired) return <Outcome icon={AlertCircle} tone="neutral" title="This code has expired" action={enterAnother}>

@@ -169,7 +169,7 @@ export type AccountConnectRequest = {
     /**
      * Status
      */
-    status: string;
+    status: 'pending' | 'approved' | 'denied' | 'issued';
     /**
      * Expires In
      */

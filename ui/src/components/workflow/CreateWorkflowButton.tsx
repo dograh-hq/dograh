@@ -15,7 +15,7 @@ import { useCreateBlankWorkflow } from './useCreateBlankWorkflow';
 
 export function CreateWorkflowButton() {
     const router = useRouter();
-    const { createBlankWorkflow, isCreating } = useCreateBlankWorkflow();
+    const { createBlankWorkflow, isCreating, ready } = useCreateBlankWorkflow();
 
     const handleAgentBuilder = () => {
         router.push('/workflow/create');
@@ -38,7 +38,7 @@ export function CreateWorkflowButton() {
                         <div className="text-xs text-muted-foreground">AI generates a workflow from your description</div>
                     </div>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void createBlankWorkflow()} disabled={isCreating} className="cursor-pointer">
+                <DropdownMenuItem onClick={() => void createBlankWorkflow()} disabled={isCreating || !ready} className="cursor-pointer">
                     <LayoutTemplate className="w-4 h-4 mr-2" />
                     <div>
                         <div className="font-medium">Blank Canvas</div>

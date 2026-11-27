@@ -262,6 +262,23 @@ def dograh_model_configuration_spec(connection_uuid) -> dict:
     }
 
 
+def dograh_key_connection_uuids(configuration: dict) -> list[str]:
+    """The connections a configuration's Dograh key is read from, in order.
+
+    Mirrors ``get_dograh_service_api_key``: the first active role served by a
+    Dograh connection supplies the key Dograh's features run on.
+    """
+    active = _active_roles(configuration.get("mode"))
+    uuids = []
+    for role in ("llm", "tts", "stt", "embeddings"):
+        selection = configuration.get(role)
+        if role in active and isinstance(selection, dict):
+            uuid = selection.get("provider_connection_uuid")
+            if uuid:
+                uuids.append(str(uuid))
+    return uuids
+
+
 async def get_default_model_configuration(organization_id):
     row = await db_client.get_configuration(organization_id, DEFAULT_KEY)
     if row is None or not row.value:

@@ -1,13 +1,20 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
 from fastapi import HTTPException
 
 from api.errors.mps import MPSUnavailableError
 from api.routes import dograh_account_connect as routes
-from api.schemas.dograh_account_connect import AccountConnectPollRequest
+from api.schemas.dograh_account_connect import (
+    AccountConnectPollRequest,
+    AccountConnectStartRequest,
+)
 from api.services import dograh_account_connect as connect
+from api.services.auth.depends import VerifiedStackIdentity
+from api.services.mps_service_key_client import MPSServiceKeyClient
 
 ORG = 42
 KEY = "mps_sk_connected"
@@ -107,10 +114,112 @@ def test_install_is_named_by_its_host():
 
 async def test_hosted_deployments_do_not_start_or_poll(monkeypatch):
     monkeypatch.setattr(routes, "DEPLOYMENT_MODE", "saas")
+    mps = SimpleNamespace(
+        start_account_connect=AsyncMock(), poll_account_connect=AsyncMock()
+    )
+    monkeypatch.setattr(connect, "mps_service_key_client", mps)
     user = SimpleNamespace(provider_id="u", selected_organization_id=ORG)
+    with pytest.raises(HTTPException) as error:
+        await routes.start(AccountConnectStartRequest(install_url=None), user=user)
+    assert error.value.status_code == 404
     with pytest.raises(HTTPException) as error:
         await routes.poll(AccountConnectPollRequest(device_code="device"), user=user)
     assert error.value.status_code == 404
+    mps.start_account_connect.assert_not_awaited()
+    mps.poll_account_connect.assert_not_awaited()
+
+
+async def test_approve_names_the_team_stack_verified(monkeypatch):
+    mps = SimpleNamespace(decide_account_connect_request=AsyncMock(return_value={}))
+    monkeypatch.setattr(routes, "mps_service_key_client", mps)
+    user = SimpleNamespace(provider_id="u", selected_organization_id=ORG)
+    verified = VerifiedStackIdentity(
+        user=user, identity={"selected_team": {"display_name": "Acme"}}
+    )
+    assert (await routes.approve("BCDF-GHJK", verified=verified)).status == "approved"
+    mps.decide_account_connect_request.assert_awaited_once_with(
+        "BCDF-GHJK",
+        approve=True,
+        organization_id=ORG,
+        created_by="u",
+        team_name="Acme",
+    )
+
+
+@pytest.fixture
+def mps_http(monkeypatch):
+    """A real MPS client whose requests go to queued responses."""
+    requests, responses = [], []
+    real_client = httpx.AsyncClient
+
+    def handle(request):
+        requests.append(request)
+        response = responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: real_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    client = MPSServiceKeyClient()
+    monkeypatch.setattr(
+        client, "_tenant_headers", AsyncMock(return_value={"X-Tenant": "t"})
+    )
+    return SimpleNamespace(client=client, requests=requests, responses=responses)
+
+
+async def test_connect_calls_return_the_mps_answer(mps_http):
+    mps_http.responses.append(httpx.Response(200, json={"user_code": "BCDF-GHJK"}))
+    assert await mps_http.client.start_account_connect(
+        install_name="host", install_url=None, created_by="u"
+    ) == {"user_code": "BCDF-GHJK"}
+    [request] = mps_http.requests
+    assert request.url.path.endswith("/api/v1/service-keys/connect/start")
+    assert json.loads(request.content) == {
+        "install_name": "host",
+        "install_url": None,
+        "created_by": "u",
+    }
+
+
+async def test_a_user_code_cannot_change_the_request_path(mps_http):
+    mps_http.responses.append(httpx.Response(200, json={}))
+    await mps_http.client.get_account_connect_request(
+        "../approve", organization_id=ORG, created_by="u"
+    )
+    [request] = mps_http.requests
+    assert request.url.raw_path.endswith(b"/connect/requests/..%2Fapprove")
+    assert request.headers["X-Tenant"] == "t"
+
+
+@pytest.mark.parametrize(
+    "response,detail",
+    [
+        (httpx.Response(409, json={"detail": "This request was denied."}), None),
+        (httpx.Response(409, json=["not", "an", "object"]), "Request failed"),
+        (httpx.Response(409, text="not json"), "Request failed"),
+    ],
+)
+async def test_mps_refusals_keep_their_status(mps_http, response, detail):
+    mps_http.responses.append(response)
+    with pytest.raises(HTTPException) as error:
+        await mps_http.client.decide_account_connect_request(
+            "BCDFGHJK", approve=False, organization_id=ORG, created_by="u"
+        )
+    assert error.value.status_code == 409
+    assert error.value.detail == (detail or "This request was denied.")
+
+
+@pytest.mark.parametrize(
+    "response", [httpx.Response(502), httpx.ConnectError("connection refused")]
+)
+async def test_mps_outages_raise_unavailable(mps_http, response):
+    mps_http.responses.append(response)
+    with pytest.raises(MPSUnavailableError):
+        await mps_http.client.poll_account_connect("device")
 
 
 def _status_mps(monkeypatch, *, key, validate):

@@ -215,13 +215,10 @@ async def _oss_mps_credits_response(user: UserModel) -> MPSBillingCreditsRespons
     """Read the balance of the Dograh credential this organization actually uses."""
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
-    try:
-        service_key = await mps_service_key_client._runtime_service_key(
-            user.selected_organization_id
-        )
-    except HTTPException as exc:
-        if exc.status_code != 400:
-            raise
+    service_key = await mps_service_key_client.find_runtime_service_key(
+        user.selected_organization_id
+    )
+    if not service_key:
         # Fresh OSS installs have no models until they connect an account/BYOK.
         return MPSBillingCreditsResponse()
     usage = await mps_service_key_client.check_service_key_usage(service_key)

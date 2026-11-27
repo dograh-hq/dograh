@@ -7,9 +7,7 @@ answers, in either deployment mode, whether the organization has a usable
 Dograh key at all.
 """
 
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from api.constants import DEPLOYMENT_MODE
 from api.db.models import UserModel
@@ -23,10 +21,11 @@ from api.schemas.dograh_account_connect import (
     DograhAccountStatus,
 )
 from api.services.auth.depends import (
+    VerifiedStackIdentity,
     get_user_with_selected_organization,
+    get_verified_stack_identity,
     get_verified_stack_user,
 )
-from api.services.auth.stack_auth import stackauth
 from api.services.dograh_account_connect import (
     get_dograh_account_status,
     poll_account_connect,
@@ -109,21 +108,15 @@ async def get_request(
 )
 async def approve(
     user_code: str,
-    user: UserModel = Depends(get_verified_stack_user),
-    authorization: Annotated[str | None, Header()] = None,
+    verified: VerifiedStackIdentity = Depends(get_verified_stack_identity),
 ) -> AccountConnectDecision:
-    # get_verified_stack_user has just checked this identity; read it again
-    # for the team name the install shows once it is connected.
-    identity = (
-        await stackauth.get_user(authorization) if authorization else None
-    ) or {}
-    team = identity.get("selected_team") or {}
+    # The install shows the team name once it is connected.
     await mps_service_key_client.decide_account_connect_request(
         user_code,
         approve=True,
-        organization_id=user.selected_organization_id,
-        created_by=str(user.provider_id),
-        team_name=team.get("display_name"),
+        organization_id=verified.user.selected_organization_id,
+        created_by=str(verified.user.provider_id),
+        team_name=verified.team_name,
     )
     return AccountConnectDecision(status="approved")
 

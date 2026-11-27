@@ -28,13 +28,16 @@ type ModelSetupModalProps = {
 export function ModelSetupModal({ open, reconnect, onConnected, onDone }: ModelSetupModalProps) {
     const router = useRouter();
     const [connected, setConnected] = useState(false);
+    // While a request waits for approval, only its Cancel ends it: closing
+    // would abandon the code and record onboarding as skipped.
+    const [pending, setPending] = useState(false);
 
     const finish = (choice: ModelSetupChoice, path?: string) => {
         onDone(choice);
         if (path) router.push(path);
     };
 
-    return <Dialog open={open} onOpenChange={next => { if (!next) finish(connected ? 'dograh' : 'skipped'); }}>
+    return <Dialog open={open} onOpenChange={next => { if (!next && !pending) finish(connected ? 'dograh' : 'skipped'); }}>
         {/* Clicking outside must not throw away a connection in progress. */}
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[600px]" onInteractOutside={event => event.preventDefault()}>
             <DialogHeader>
@@ -67,6 +70,7 @@ export function ModelSetupModal({ open, reconnect, onConnected, onDone }: ModelS
                     </div>
                     <DograhAccountConnectFlow
                         prompt="Sign in to Dograh with your email. New accounts get trial credits."
+                        onPendingChange={setPending}
                         onConnected={async () => { setConnected(true); await onConnected(); }} />
                 </section>
 
@@ -83,7 +87,7 @@ export function ModelSetupModal({ open, reconnect, onConnected, onDone }: ModelS
             </div>}
 
             {!connected && <DialogFooter>
-                <Button variant="ghost" onClick={() => finish('skipped')}>Skip for now</Button>
+                <Button variant="ghost" disabled={pending} onClick={() => finish('skipped')}>Skip for now</Button>
             </DialogFooter>}
         </DialogContent>
     </Dialog>;

@@ -322,8 +322,15 @@ class ModelConnectionClient(BaseDBClient):
         team_name,
         key_prefix,
         configuration_for,
+        key_connections_for,
     ):
-        """Save connected credentials, the default and a retry receipt atomically."""
+        """Save connected credentials, the default and a retry receipt atomically.
+
+        The key replaces the one Dograh's features run on: the Dograh
+        connection the default configuration reads its key from
+        (``key_connections_for`` lists them in reading order), else the oldest
+        active one, else a new one.
+        """
         async with self.async_session() as session:
             await self._lock_catalog(session, organization_id)
             receipt = await session.scalar(
@@ -334,17 +341,44 @@ class ModelConnectionClient(BaseDBClient):
             )
             if receipt is not None:
                 return deepcopy(receipt.value)
-            connection = await session.scalar(
-                select(ProviderConnectionModel)
-                .where(
-                    ProviderConnectionModel.organization_id == organization_id,
-                    ProviderConnectionModel.provider == "dograh",
-                    ProviderConnectionModel.is_active.is_(True),
+            candidates = list(
+                await session.scalars(
+                    select(ProviderConnectionModel)
+                    .where(
+                        ProviderConnectionModel.organization_id == organization_id,
+                        ProviderConnectionModel.provider == "dograh",
+                        ProviderConnectionModel.is_active.is_(True),
+                    )
+                    .order_by(
+                        ProviderConnectionModel.created_at, ProviderConnectionModel.id
+                    )
                 )
-                .order_by(
-                    ProviderConnectionModel.created_at, ProviderConnectionModel.id
+            )
+            default = await session.scalar(
+                select(OrganizationConfigurationModel).where(
+                    OrganizationConfigurationModel.organization_id == organization_id,
+                    OrganizationConfigurationModel.key == DEFAULT_KEY,
                 )
-                .limit(1)
+            )
+            default_uuid = default.value if default is not None else None
+            made_default = not (isinstance(default_uuid, str) and default_uuid)
+            named = (
+                None
+                if made_default
+                else await self._catalog_row(
+                    session, NamedModelConfigurationModel, organization_id, default_uuid
+                )
+            )
+            by_uuid = {str(candidate.uuid): candidate for candidate in candidates}
+            connection = next(
+                (
+                    by_uuid[uuid]
+                    for uuid in (
+                        key_connections_for(named.configuration) if named else []
+                    )
+                    if uuid in by_uuid
+                ),
+                candidates[0] if candidates else None,
             )
             if connection is None:
                 connection = ProviderConnectionModel(
@@ -364,15 +398,6 @@ class ModelConnectionClient(BaseDBClient):
                     connection.credentials = credentials
                     connection.revision += 1
                     connection.updated_at = datetime.now(UTC)
-            default = await session.scalar(
-                select(OrganizationConfigurationModel).where(
-                    OrganizationConfigurationModel.organization_id == organization_id,
-                    OrganizationConfigurationModel.key == DEFAULT_KEY,
-                )
-            )
-            made_default = not (
-                default and isinstance(default.value, str) and default.value
-            )
             if made_default:
                 configuration = NamedModelConfigurationModel(
                     organization_id=organization_id,

@@ -32,7 +32,8 @@ class AccountConnectRequest(BaseModel):
     user_code: str
     install_name: str
     install_url: str | None = None
-    status: str
+    # MPS answers 404 for an expired code, so it never reports one here.
+    status: Literal["pending", "approved", "denied", "issued"]
     expires_in: int
 
 

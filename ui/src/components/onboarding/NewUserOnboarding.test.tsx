@@ -28,10 +28,12 @@ vi.mock('@/context/OnboardingContext', () => ({
 vi.mock('@/context/DograhAccountContext', () => ({
     useDograhAccountContext: () => ({ status: mocks.status, request: mocks.request, refresh: mocks.refresh }),
 }));
-// The device flow has its own tests; here it only needs to report a connection.
+// The device flow has its own tests; here it only reports progress.
 vi.mock('@/components/model-connections/DograhAccountConnect', () => ({
-    DograhAccountConnectFlow: ({ onConnected }: { onConnected: () => Promise<void> }) =>
-        <button type="button" onClick={() => void onConnected()}>Approve on Dograh</button>,
+    DograhAccountConnectFlow: ({ onConnected, onPendingChange }: { onConnected: () => Promise<void>; onPendingChange?: (pending: boolean) => void }) => <>
+        <button type="button" onClick={() => onPendingChange?.(true)}>Start connecting</button>
+        <button type="button" onClick={() => void onConnected()}>Approve on Dograh</button>
+    </>,
 }));
 
 beforeEach(() => {
@@ -101,6 +103,16 @@ describe('Set up AI models', () => {
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
         expect(mocks.markCompleted).toHaveBeenCalledWith({ skipped: true });
         expect(mocks.capture).toHaveBeenCalledWith('model_setup_completed', { choice: 'skipped' });
+    });
+
+    it('cannot be closed while a connection waits for approval', async () => {
+        render(<NewUserOnboarding />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Start connecting' }));
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+        expect(screen.getByRole('dialog')).toBeDefined();
+        expect((screen.getByRole('button', { name: 'Skip for now' }) as HTMLButtonElement).disabled).toBe(true);
+        expect(mocks.markCompleted).not.toHaveBeenCalled();
     });
 
     it('sends people who bring their own keys to add a provider', async () => {

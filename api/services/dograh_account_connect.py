@@ -18,6 +18,7 @@ from api.schemas.dograh_account_connect import (
     DograhAccountStatus,
 )
 from api.services.configuration.model_connections import (
+    dograh_key_connection_uuids,
     dograh_model_configuration_spec,
 )
 from api.services.mps_service_key_client import mps_service_key_client
@@ -89,6 +90,7 @@ async def poll_account_connect(
         team_name=result.get("team_name"),
         key_prefix=result.get("key_prefix"),
         configuration_for=dograh_model_configuration_spec,
+        key_connections_for=dograh_key_connection_uuids,
     )
     await mps_service_key_client.acknowledge_account_connect(device_code)
     return AccountConnectPoll.model_validate(saved)

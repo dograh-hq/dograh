@@ -1245,9 +1245,10 @@ class MPSServiceKeyClient:
             return response.json()
         if response.status_code in self._CONNECT_PASSTHROUGH_STATUSES:
             try:
-                detail = response.json().get("detail")
+                body = response.json()
             except ValueError:
-                detail = None
+                body = None
+            detail = body.get("detail") if isinstance(body, dict) else None
             raise HTTPException(
                 status_code=response.status_code,
                 detail=detail if isinstance(detail, str) else "Request failed",

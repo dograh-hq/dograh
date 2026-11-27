@@ -29,6 +29,8 @@ type ConnectProps = {
     onConnected: () => Promise<void> | void;
     // Shown beside the connect button before a request starts.
     prompt?: ReactNode;
+    // True while a request is starting or waiting for approval.
+    onPendingChange?: (pending: boolean) => void;
 };
 
 /** The Models page section for connecting (or reconnecting) a Dograh account. */
@@ -45,8 +47,12 @@ export function DograhAccountConnect({ onConnected, reconnect = false }: { onCon
  * bound to their account. The key is stored server-side; the browser never
  * sees it.
  */
-export function DograhAccountConnectFlow({ onConnected, prompt = CONNECT_PROMPT }: ConnectProps) {
+export function DograhAccountConnectFlow({ onConnected, prompt = CONNECT_PROMPT, onPendingChange }: ConnectProps) {
     const [state, setState] = useState<State>({ step: "idle" });
+    const pending = state.step === "starting" || state.step === "waiting";
+    const onPendingChangeRef = useRef(onPendingChange);
+    useEffect(() => { onPendingChangeRef.current = onPendingChange; }, [onPendingChange]);
+    useEffect(() => { onPendingChangeRef.current?.(pending); }, [pending]);
     const [error, setError] = useState<string | null>(null);
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const expiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -110,6 +116,8 @@ export function DograhAccountConnectFlow({ onConnected, prompt = CONNECT_PROMPT 
         setState({ step: "starting" });
         // Open the tab inside the click so popup blockers allow it.
         const tab = window.open("about:blank", "_blank");
+        // Like rel="noopener" on the link: the approval page gets no handle on this one.
+        if (tab) tab.opener = null;
         const response = await startDograhAccountConnect({ body: { install_url: window.location.origin } });
         if (!mounted.current) { tab?.close(); return; }
         if (response.error || !response.data) {

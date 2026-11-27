@@ -10,7 +10,10 @@ from fastapi import FastAPI
 from api.db.model_connection_client import ModelCatalogConflict, ModelCatalogNotFound
 from api.routes import model_connections as routes
 from api.services.auth.depends import get_user_with_selected_organization
-from api.services.configuration.model_connections import dograh_model_configuration_spec
+from api.services.configuration.model_connections import (
+    dograh_key_connection_uuids,
+    dograh_model_configuration_spec,
+)
 
 
 async def connect_key(client, org, key="connected", receipt="connect:test", **kwargs):
@@ -21,6 +24,7 @@ async def connect_key(client, org, key="connected", receipt="connect:test", **kw
         team_name="Acme",
         key_prefix="mps_sk_con",
         configuration_for=dograh_model_configuration_spec,
+        key_connections_for=dograh_key_connection_uuids,
         **kwargs,
     )
 
@@ -55,6 +59,47 @@ async def test_connect_replaces_trial_and_preserves_existing_default(db_session)
         "api_key": "connected"
     }
     assert len(await db_session.list_named_model_configurations(org)) == 1
+
+
+@pytest.mark.asyncio
+async def test_reconnect_replaces_the_key_the_default_runs_on(db_session):
+    org = await create_org(db_session)
+    oldest = await create_connection(db_session, org, "oldest")
+    current = await create_connection(db_session, org, "expired")
+    named = await db_session.create_named_model_configuration(
+        org, name="Current", configuration=pipeline(current)
+    )
+    await db_session.set_default_named_model_configuration(org, named.uuid)
+    assert not (await connect_key(db_session, org))["made_default"]
+    assert (
+        await db_session.get_provider_connection(org, current.uuid)
+    ).credentials == {"api_key": "connected"}
+    assert (await db_session.get_provider_connection(org, oldest.uuid)).credentials == {
+        "api_key": "oldest"
+    }
+
+
+def test_dograh_key_is_read_from_active_roles_in_order():
+    realtime = {
+        "version": 3,
+        "mode": "realtime",
+        "tts": {"provider_connection_uuid": "voice"},
+        "realtime": {"provider_connection_uuid": "live"},
+        "embeddings": {"provider_connection_uuid": "vectors"},
+        "llm": {"provider_connection_uuid": "text"},
+    }
+    assert dograh_key_connection_uuids(realtime) == ["text", "vectors"]
+    pipeline_spec = {
+        **realtime,
+        "mode": "pipeline",
+        "stt": {"provider_connection_uuid": "ears"},
+    }
+    assert dograh_key_connection_uuids(pipeline_spec) == [
+        "text",
+        "voice",
+        "ears",
+        "vectors",
+    ]
 
 
 @pytest.mark.asyncio

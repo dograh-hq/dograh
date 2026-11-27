@@ -107,6 +107,11 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
     // A refusal that points at the Models page means the key changed since the
     // status was read; show the setup prompt instead of the composer.
     useEffect(() => { if (error?.includes('Models page')) void refreshDograh(); }, [error, refreshDograh]);
+    // Once reconnected here, that refusal no longer applies.
+    const onDograhConnected = async () => {
+        await refreshDograh();
+        setError(current => current?.includes('Models page') ? null : current);
+    };
 
     useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [session?.messages?.length, session?.pending?.length, status]);
 
@@ -222,7 +227,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
                         {!sessionId && !restoring && <Button variant="outline" size="sm" onClick={() => setRestoreAttempt(value => value + 1)}>Retry restoring conversation</Button>}
                         {error.includes('Models page') && <Link href="/model-configurations" className="mt-2 block font-medium underline">Open Models page</Link>}
                     </div>}
-                    {!busy && !awaitingUser && !needsDograh && session?.can_continue && <Button variant="outline" disabled={disabled || saving} onClick={() => void send()}>Resume building</Button>}
+                    {!busy && !awaitingUser && !needsDograh && session?.can_continue && <Button variant="outline" disabled={disabled || saving || checkingDograh} onClick={() => void send()}>Resume building</Button>}
                     <div ref={bottom} />
                 </div>
                 {!workflowId && session?.proposal && <div className="px-5 pt-4 md:px-7">
@@ -232,7 +237,7 @@ export function WorkflowBuilder({ workflowId, disabled = false, onSaved, onBusyC
                     </Button>
                 </div>}
                 {needsDograh ? <div className={isStarting ? '' : 'm-4'}>
-                    <BuilderDograhGate reason={dograh.status as 'missing' | 'invalid'} offerBlankCanvas={!workflowId} onConnected={refreshDograh} />
+                    <BuilderDograhGate reason={dograh.status as 'missing' | 'invalid'} offerBlankCanvas={!workflowId} onConnected={onDograhConnected} />
                 </div> : <form className={`rounded-xl border bg-background p-3 ${isStarting ? 'shadow-sm' : 'm-4'}`} onSubmit={event => { event.preventDefault(); if (input.trim()) void send({ message: input.trim() }); }}>
                     <Textarea ref={composer} aria-label="Describe your agent or request a change" placeholder={pendingApproval ? 'Review the requirements above to continue…' : pendingToolApproval ? 'Review the tool above to continue…' : pendingQuestions.length ? 'Answer the questions above to continue…' : workflowId || session?.proposal ? 'Ask for a change to your agent…' : 'Build me an agent that…'} className="min-h-[80px] resize-none border-0 shadow-none focus-visible:ring-0" value={input} maxLength={12000} disabled={busy || saving || restoring || awaitingUser || disabled || !sessionId}
                         onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (input.trim()) void send({ message: input.trim() }); } }} />

@@ -51,7 +51,7 @@ describe("Dograh account section on the Models page", () => {
         render(<ModelConfigurationsManager />);
         expect(screen.getByRole("button", { name: "Connect Dograh account" })).toBeDefined();
         expect(vi.mocked(useDograhAccount)).toHaveBeenCalledWith(true);
-        if (status === "invalid") expect(screen.getByText(/Reconnect your Dograh account/)).toBeDefined();
+        expect(screen.queryByText(/Reconnect your Dograh account/) !== null).toBe(status === "invalid");
     });
 
     it.each(["connected", "loading", "unknown"] as const)("shows no connect option while the status is %s", (status) => {

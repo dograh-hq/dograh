@@ -22,7 +22,7 @@ type BuilderDograhGateProps = {
 export function BuilderDograhGate({ reason, onConnected, offerBlankCanvas }: BuilderDograhGateProps) {
     const { config } = useAppConfig();
     const selfHosted = config?.deploymentMode === 'oss';
-    const { createBlankWorkflow, isCreating } = useCreateBlankWorkflow();
+    const { createBlankWorkflow, isCreating, ready } = useCreateBlankWorkflow();
 
     const title = reason === 'invalid'
         ? (selfHosted ? 'Reconnect your Dograh account' : 'Check your Dograh connection')
@@ -45,7 +45,7 @@ export function BuilderDograhGate({ reason, onConnected, offerBlankCanvas }: Bui
             : <Button asChild variant="outline"><Link href="/model-configurations">Open Models page</Link></Button>}
         {offerBlankCanvas && <p className="text-sm text-muted-foreground">
             Prefer to build it yourself?{' '}
-            <button type="button" className="font-medium text-foreground underline underline-offset-4 disabled:opacity-50" disabled={isCreating} onClick={() => void createBlankWorkflow()}>
+            <button type="button" className="font-medium text-foreground underline underline-offset-4 disabled:opacity-50" disabled={isCreating || !ready} onClick={() => void createBlankWorkflow()}>
                 {isCreating ? 'Creating…' : 'Start from a blank canvas'}
             </button>
         </p>}

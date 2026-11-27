@@ -23,7 +23,9 @@ async def test_get_billing_credits_oss_uses_configured_account_key(monkeypatch):
     )
     resolve_key = AsyncMock(return_value="mps_sk_connected")
     monkeypatch.setattr(
-        organization_usage.mps_service_key_client, "_runtime_service_key", resolve_key
+        organization_usage.mps_service_key_client,
+        "find_runtime_service_key",
+        resolve_key,
     )
     legacy = AsyncMock()
     monkeypatch.setattr(
@@ -51,8 +53,8 @@ async def test_get_billing_credits_oss_uses_configured_account_key(monkeypatch):
 async def test_unconnected_oss_has_no_invented_trial_credits(monkeypatch):
     monkeypatch.setattr(
         organization_usage.mps_service_key_client,
-        "_runtime_service_key",
-        AsyncMock(side_effect=HTTPException(400, "Connect an account")),
+        "find_runtime_service_key",
+        AsyncMock(return_value=None),
     )
     response = await organization_usage._oss_mps_credits_response(
         SimpleNamespace(selected_organization_id=42)
@@ -64,7 +66,7 @@ async def test_unconnected_oss_has_no_invented_trial_credits(monkeypatch):
 async def test_oss_balance_failure_does_not_fall_back_to_anonymous_quota(monkeypatch):
     monkeypatch.setattr(
         organization_usage.mps_service_key_client,
-        "_runtime_service_key",
+        "find_runtime_service_key",
         AsyncMock(return_value="mps_sk_connected"),
     )
     monkeypatch.setattr(

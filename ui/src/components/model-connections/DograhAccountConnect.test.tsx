@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { pollDograhAccountConnect, startDograhAccountConnect } from "@/client/sdk.gen";
 
-import { DograhAccountConnect } from "./DograhAccountConnect";
+import { DograhAccountConnect, DograhAccountConnectFlow } from "./DograhAccountConnect";
 
 vi.mock("@/client/sdk.gen", () => ({ startDograhAccountConnect: vi.fn(), pollDograhAccountConnect: vi.fn() }));
 
@@ -49,6 +49,20 @@ describe("Connect Dograh account", () => {
         expect(pollDograhAccountConnect).toHaveBeenCalledWith(expect.objectContaining({ body: { device_code: "device-secret" } }));
         expect(screen.getByRole("status").textContent).toContain("Connected to Acme.");
         expect(onConnected).toHaveBeenCalledOnce();
+    });
+
+    it("reports a pending request and detaches the approval tab", async () => {
+        const tab = { opener: window as unknown, location: { href: "" }, close: vi.fn() };
+        vi.mocked(window.open).mockReturnValue(tab as never);
+        vi.mocked(pollDograhAccountConnect).mockResolvedValue({ data: { status: "pending" } } as never);
+        const onPendingChange = vi.fn();
+        render(<DograhAccountConnectFlow onConnected={vi.fn()} onPendingChange={onPendingChange} />);
+        await connect();
+        expect(tab.opener).toBeNull();
+        expect(tab.location.href).toBe(started.verification_uri_complete);
+        expect(onPendingChange).toHaveBeenLastCalledWith(true);
+        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+        expect(onPendingChange).toHaveBeenLastCalledWith(false);
     });
 
     it("offers a restart when the request is denied", async () => {

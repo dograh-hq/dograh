@@ -1,5 +1,6 @@
 """Service helpers for text-chat session lifecycle orchestration."""
 
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -19,9 +20,10 @@ from api.services.workflow.text_chat_logs import (
     build_text_chat_realtime_feedback_events,
 )
 from api.services.workflow.text_chat_runner import (
+    TextChatFinalExtraction,
     default_text_chat_checkpoint,
     execute_text_chat_pending_turn,
-    extract_text_chat_final_variables,
+    freeze_text_chat_final_extraction,
     merge_text_chat_usage_info,
     normalize_text_chat_checkpoint,
 )
@@ -209,7 +211,7 @@ def _build_text_chat_completion_write(
     completed_at: datetime,
     disposition: str,
     mapped_disposition: str,
-    extracted: dict[str, Any],
+    final_extraction: TextChatFinalExtraction | None,
 ) -> dict[str, Any]:
     """Project one session snapshot into the completion write's arguments.
 
@@ -225,14 +227,6 @@ def _build_text_chat_completion_write(
     call_tags = list(gathered_context.get("call_tags") or [])
     if disposition not in call_tags:
         call_tags.append(disposition)
-    # A workflow author turns an extracted variable into a call tag by naming it
-    # `tag_*`; PipecatEngine.record_call_tags does this promotion on the voice
-    # path, after extraction has landed.
-    for key, value in extracted.items():
-        if not key.startswith("tag_") or not isinstance(value, str) or not value:
-            continue
-        if value not in call_tags:
-            call_tags.append(value)
 
     usage_info = dict(workflow_run.usage_info or {})
     usage_info["call_duration_seconds"] = _text_chat_duration_seconds(
@@ -244,7 +238,6 @@ def _build_text_chat_completion_write(
         "session_data": completed_session_data,
         "usage_info": usage_info,
         "gathered_context": {
-            **extracted,
             "call_disposition": disposition,
             "mapped_call_disposition": mapped_disposition,
             # Text chats end on an explicit completion reason rather than a
@@ -255,10 +248,26 @@ def _build_text_chat_completion_write(
         "logs": {
             "realtime_feedback_events": build_text_chat_realtime_feedback_events(
                 completed_session_data
-            )
+            ),
+            **(final_extraction.logs if final_extraction else {}),
         },
+        "extra": _completion_extra(
+            final_extraction.metadata if final_extraction else {}
+        ),
         "state": WorkflowRunState.COMPLETED.value,
     }
+
+
+def _completion_extra(final_extraction: dict[str, Any]) -> dict[str, Any]:
+    """The completion record the worker claims before it extracts and notifies.
+
+    Text chats carry the same record voice calls do, so the completion job runs
+    the frozen final extraction before integrations and is recovered if lost.
+    """
+    completion: dict[str, Any] = {"status": "pending", "created_at": time.time()}
+    if final_extraction:
+        completion["final_extraction"] = final_extraction
+    return {"workflow_completion": completion}
 
 
 async def complete_text_chat_session(
@@ -277,10 +286,10 @@ async def complete_text_chat_session(
     the normal revision conflict.
 
     The write is always guarded by a revision, even when the caller pins none:
-    final variable extraction waits on an LLM between reading the session and
-    writing it back, and an unguarded write would clobber anything committed in
-    that window. A caller that pinned no revision still gets its chat ended --
-    the conflict is retried once against the state that won.
+    freezing the final extraction reads the database between reading the
+    session and writing it back, and an unguarded write would clobber anything
+    committed in that window. A caller that pinned no revision still gets its
+    chat ended -- the conflict is retried once against the state that won.
     """
     workflow_run = text_session.workflow_run
     if workflow_run.is_completed:
@@ -294,27 +303,17 @@ async def complete_text_chat_session(
         workflow_run.workflow.organization_id, disposition
     )
 
-    # A voice call extracts the current node's variables during engine teardown.
     # Text chat has no engine here, and a chat the user walks away from never
-    # transitions, so without this the node's variables are never extracted at
-    # all -- and the webhooks rendered from gathered_context ship blanks.
-    extracted = await extract_text_chat_final_variables(
-        workflow_run_id=run_id,
-        workflow_id=workflow_run.workflow_id,
-        # The organization this call was already authorized against, so the
-        # helper's unscoped run read can be validated rather than trusted.
-        organization_id=workflow_run.workflow.organization_id,
-        checkpoint=text_session.checkpoint,
-        # Completion can win while a turn is still pending, and that turn's user
-        # message is only in session_data until it executes. The transcript
-        # reads it from there; so must extraction.
-        session_data=normalize_text_chat_session_data(text_session.session_data),
+    # reaches an end node, so this is the only place its current node's
+    # variables and its disposition are queued for extraction.
+    final_extraction = await _freeze_final_extraction(
+        run_id, text_session, completion_reason
     )
 
-    # The snapshot this write is built from was read before the extraction
-    # above, which waits on an LLM for a second or more. Guard the write with
-    # the revision that snapshot came from even when the caller pinned none,
-    # or a message or rewind committing meanwhile is silently overwritten.
+    # The snapshot this write is built from was read before the freeze above.
+    # Guard the write with the revision that snapshot came from even when the
+    # caller pinned none, or a message or rewind committing meanwhile is
+    # silently overwritten.
     try:
         await db_client.complete_workflow_run_text_session(
             run_id,
@@ -328,7 +327,7 @@ async def complete_text_chat_session(
                 completed_at=completed_at,
                 disposition=disposition,
                 mapped_disposition=mapped_disposition,
-                extracted=extracted,
+                final_extraction=final_extraction,
             ),
         )
     except WorkflowRunTextSessionRevisionConflictError as e:
@@ -340,13 +339,14 @@ async def complete_text_chat_session(
 
         # No revision was pinned, so the caller asked to end the chat whatever
         # else lands. Honour that, but off the state that actually won rather
-        # than the snapshot this call started from. `extracted` is reused: the
-        # racing turn only appended to the same conversation, and a second LLM
-        # round trip on an already-contended path is not worth the freshness.
+        # than the snapshot this call started from.
         text_session = await _reload_text_chat_session(run_id)
         if text_session.workflow_run.is_completed:
             await _enqueue_text_chat_completion(run_id)
             return text_session
+        final_extraction = await _freeze_final_extraction(
+            run_id, text_session, completion_reason
+        )
         try:
             await db_client.complete_workflow_run_text_session(
                 run_id,
@@ -356,7 +356,7 @@ async def complete_text_chat_session(
                     completed_at=completed_at,
                     disposition=disposition,
                     mapped_disposition=mapped_disposition,
-                    extracted=extracted,
+                    final_extraction=final_extraction,
                 ),
             )
         except WorkflowRunTextSessionRevisionConflictError as retry_error:
@@ -374,6 +374,27 @@ async def complete_text_chat_session(
     await _enqueue_text_chat_completion(run_id)
 
     return await _reload_text_chat_session(run_id)
+
+
+async def _freeze_final_extraction(
+    run_id: int,
+    text_session: WorkflowRunTextSessionModel,
+    completion_reason: str,
+) -> TextChatFinalExtraction | None:
+    workflow_run = text_session.workflow_run
+    return await freeze_text_chat_final_extraction(
+        workflow_run_id=run_id,
+        workflow_id=workflow_run.workflow_id,
+        # The organization this call was already authorized against, so the
+        # helper's unscoped run read can be validated rather than trusted.
+        organization_id=workflow_run.workflow.organization_id,
+        checkpoint=text_session.checkpoint,
+        completion_reason=completion_reason,
+        # Completion can win while a turn is still pending, and that turn's user
+        # message is only in session_data until it executes. The transcript
+        # reads it from there; so must extraction.
+        session_data=normalize_text_chat_session_data(text_session.session_data),
+    )
 
 
 async def execute_pending_text_chat_turn(
@@ -456,7 +477,8 @@ async def execute_pending_text_chat_turn(
                 usage_info=merged_usage_info,
                 initial_context=execution.initial_context,
                 gathered_context=execution.gathered_context,
-                logs=text_chat_logs,
+                logs={**text_chat_logs, **execution.final_extraction_logs},
+                extra=_completion_extra(execution.final_extraction),
                 state=execution.state,
             )
         else:

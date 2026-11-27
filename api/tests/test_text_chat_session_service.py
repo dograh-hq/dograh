@@ -6,6 +6,7 @@ import pytest
 
 import api.services.workflow.text_chat_session_service as text_chat_session_service
 from api.db.models import WorkflowRunTextSessionModel
+from api.services.workflow.text_chat_runner import TextChatFinalExtraction
 from api.services.workflow.text_chat_session_service import (
     TextChatSessionExecutionError,
     TextChatTurnNotFoundError,
@@ -155,6 +156,11 @@ async def test_completed_pending_turn_enqueues_workflow_completion(monkeypatch):
         gathered_context={"call_disposition": "end_call_tool"},
         state="completed",
         is_completed=True,
+        final_extraction_logs={
+            "conversation": [{"role": "user", "content": "Goodbye"}],
+            "final_extraction": {"version": 1, "requests": []},
+        },
+        final_extraction={"status": "pending", "node_ids": []},
     )
     reloaded = SimpleNamespace(workflow_run=SimpleNamespace(is_completed=True))
     complete_session = AsyncMock()
@@ -200,6 +206,14 @@ async def test_completed_pending_turn_enqueues_workflow_completion(monkeypatch):
     assert complete_session.await_args.kwargs["state"] == "completed"
     duration = complete_session.await_args.kwargs["usage_info"]["call_duration_seconds"]
     assert 300 <= duration < 310
+    # The turn froze its final extraction; the completion worker runs it.
+    logs = complete_session.await_args.kwargs["logs"]
+    assert logs["conversation"] == [{"role": "user", "content": "Goodbye"}]
+    assert logs["final_extraction"] == {"version": 1, "requests": []}
+    assert "realtime_feedback_events" in logs
+    completion = complete_session.await_args.kwargs["extra"]["workflow_completion"]
+    assert completion["status"] == "pending"
+    assert completion["final_extraction"] == {"status": "pending", "node_ids": []}
     upload_transcript.assert_awaited_once()
     enqueue_completion.assert_awaited_once_with(42)
 
@@ -250,20 +264,22 @@ async def test_complete_text_chat_session_marks_user_hangup_and_enqueues(
         "_reload_text_chat_session",
         AsyncMock(return_value=reloaded),
     )
-    # The node's variables are extracted here, not on the turn path -- an
-    # abandoned chat never transitions. `tag_*` values become call tags, the
-    # same promotion PipecatEngine.record_call_tags does for voice.
-    extract_variables = AsyncMock(
-        return_value={
-            "ticket_number": "1054202",
-            "tag_vip": "vip",
-            "extracted_variables": {"ticket_number": "1054202", "tag_vip": "vip"},
-        }
+    # The node's variables and the disposition are frozen here, not on the turn
+    # path -- an abandoned chat never reaches an end node -- and extracted by
+    # the completion worker.
+    freeze = AsyncMock(
+        return_value=TextChatFinalExtraction(
+            logs={
+                "conversation": [{"role": "user", "content": "Ticket 1054202"}],
+                "final_extraction": {"version": 1, "requests": [{"node_id": "agent"}]},
+            },
+            metadata={"status": "pending", "node_ids": ["agent"]},
+        )
     )
     monkeypatch.setattr(
         text_chat_session_service,
-        "extract_text_chat_final_variables",
-        extract_variables,
+        "freeze_text_chat_final_extraction",
+        freeze,
     )
 
     result = await complete_text_chat_session(
@@ -279,25 +295,24 @@ async def test_complete_text_chat_session_marks_user_hangup_and_enqueues(
     assert complete_session.await_args.kwargs["expected_revision"] == 4
     update = complete_session.await_args.kwargs
     assert update["state"] == "completed"
+    # The completion reason is the disposition until the worker refines it.
     assert update["gathered_context"] == {
-        "ticket_number": "1054202",
-        "tag_vip": "vip",
-        "extracted_variables": {"ticket_number": "1054202", "tag_vip": "vip"},
         "call_disposition": "user_hangup",
         "mapped_call_disposition": "user_hangup",
         "call_status": "user_hangup",
-        "call_tags": ["existing", "user_hangup", "vip"],
+        "call_tags": ["existing", "user_hangup"],
     }
     # session_data goes along so a turn still pending when completion wins is
     # not dropped from the extraction context. It is the session's own snapshot,
     # not the write payload: extraction reads turns, the write stamps status.
-    extract_variables.assert_awaited_once_with(
+    freeze.assert_awaited_once_with(
         workflow_run_id=42,
         workflow_id=11,
         # The org this call was authorized against, so the helper's unscoped
         # run read can be validated rather than trusted.
         organization_id=7,
         checkpoint={"current_node_id": "agent"},
+        completion_reason="user_hangup",
         session_data=text_chat_session_service.normalize_text_chat_session_data(
             {"status": "idle", "turns": []}
         ),
@@ -306,7 +321,17 @@ async def test_complete_text_chat_session_marks_user_hangup_and_enqueues(
         "llm": {"prompt_tokens": 12},
         "call_duration_seconds": 450.0,
     }
-    assert update["logs"] == {"realtime_feedback_events": []}
+    assert update["logs"] == {
+        "realtime_feedback_events": [],
+        "conversation": [{"role": "user", "content": "Ticket 1054202"}],
+        "final_extraction": {"version": 1, "requests": [{"node_id": "agent"}]},
+    }
+    completion = update["extra"]["workflow_completion"]
+    assert completion["status"] == "pending"
+    assert completion["final_extraction"] == {
+        "status": "pending",
+        "node_ids": ["agent"],
+    }
     upload_transcript.assert_awaited_once_with(42, [])
     enqueue_completion.assert_awaited_once_with(42)
 

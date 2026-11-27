@@ -68,13 +68,10 @@ from api.services.pipecat.worker_runner import (
     run_pipeline_worker,
     wait_for_pipeline_worker_started,
 )
+from api.services.workflow.disposition_mapping import get_disposition_mapping
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.initial_context import merge_external_initial_context
-from api.services.workflow.pipecat_engine import (
-    ENGINE_OWNED_CONTEXT_KEYS,
-    FINAL_EXTRACTION_TIMEOUT_SECONDS,
-    PipecatEngine,
-)
+from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.prompt_variables import CallContextMessage
 from api.services.workflow.workflow_graph import WorkflowGraph
 
@@ -82,6 +79,9 @@ TEXT_CHAT_CHECKPOINT_VERSION = 1
 TEXT_CHAT_TURN_TIMEOUT_SECONDS = 60.0
 TEXT_CHAT_IDLE_SETTLE_SECONDS = 0.2
 TEXT_CHAT_INTERNAL_CANCEL_REASON = "text_chat_turn_complete"
+# Disposal makes no LLM calls -- extraction is deferred -- so this only bounds
+# tool calls and agent retirement that it waits out.
+TEXT_CHAT_SHUTDOWN_TIMEOUT_SECONDS = 10.0
 
 
 def _pipecat_type_tag(type_: type) -> str:
@@ -200,6 +200,17 @@ class TextChatTurnExecutionResult:
     initial_context: dict[str, Any]
     state: str
     is_completed: bool
+    # The completion worker's handoff, set when this turn ended the chat.
+    final_extraction_logs: dict[str, Any] = field(default_factory=dict)
+    final_extraction: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TextChatFinalExtraction:
+    """Handoff a completed chat leaves for the completion worker to extract."""
+
+    logs: dict[str, Any]
+    metadata: dict[str, Any]
 
 
 @dataclass
@@ -627,16 +638,15 @@ async def execute_text_chat_pending_turn(
     call_dispositions = WorkflowConfigurationDefaults.model_validate(
         {"call_dispositions": run_configs.get("call_dispositions") or []}
     ).call_dispositions
-    needs_extraction_llm = workflow_graph.uses_variable_extraction() or bool(
-        call_dispositions
-    )
+    # Transitions extract inside the turn. Final extraction and the disposition
+    # are deferred to the completion worker, which builds its own client.
     variable_extraction_llm = (
         create_llm_service(
             user_config,
             correlation_id=mps_correlation_id,
             usage_context="variable_extraction",
         )
-        if needs_extraction_llm
+        if workflow_graph.uses_variable_extraction()
         and user_config.llm.provider == ServiceProviders.DOGRAH.value
         else llm
     )
@@ -723,9 +733,16 @@ async def execute_text_chat_pending_turn(
         # Each text turn owns a short-lived pipeline. Complete extraction before
         # leaving a node so teardown cannot discard the result before checkpointing.
         run_transition_variable_extraction_in_background=False,
+        # The turn tears its pipeline down -- and with it the LLM client --
+        # as soon as the reply settles, so the end of the chat only freezes
+        # its extraction for the completion worker.
+        defer_final_extraction=True,
     )
     engine.active_agent.workflow_id = workflow.id
     engine.active_agent.definition_id = run_definition.id
+    engine.active_agent.model_configuration_snapshot = dict(
+        workflow_run.model_configuration_snapshot or {}
+    )
     engine._gathered_context = dict(base_checkpoint["gathered_context"])
     capture_processor = _TextChatCaptureProcessor(
         response_window, context, engine, on_event=on_event
@@ -849,6 +866,19 @@ async def execute_text_chat_pending_turn(
                 runner_task=runner_task,
                 activity_marker=generation_marker,
             )
+
+        if engine.is_call_disposed():
+            # Disposal stamps the disposition and freezes the final extraction,
+            # and the conversation span it nests that extraction under is gone
+            # once the pipeline is cancelled below.
+            try:
+                async with asyncio.timeout(TEXT_CHAT_SHUTDOWN_TIMEOUT_SECONDS):
+                    await engine.wait_for_call_shutdown()
+            except TimeoutError:
+                logger.warning(
+                    f"Text chat disposal did not finish within "
+                    f"{TEXT_CHAT_SHUTDOWN_TIMEOUT_SECONDS}s for run {workflow_run_id}"
+                )
     finally:
         try:
             if not task.has_finished():
@@ -903,41 +933,42 @@ async def execute_text_chat_pending_turn(
             else WorkflowRunState.RUNNING.value
         ),
         is_completed=engine.is_call_disposed(),
+        final_extraction_logs=jsonable_encoder(engine.final_extraction_logs()),
+        final_extraction=engine.final_extraction_metadata(),
     )
 
 
-async def extract_text_chat_final_variables(
+async def freeze_text_chat_final_extraction(
     *,
     workflow_run_id: int,
     workflow_id: int,
     organization_id: int,
     checkpoint: dict[str, Any] | None,
+    completion_reason: str,
     session_data: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Extract the current node's variables for a chat ending without a transition.
+) -> TextChatFinalExtraction | None:
+    """Freeze the final extraction of a chat that ends outside any turn.
 
-    Voice calls get this from ``PipecatEngine._end_call``. Text chats have no
-    engine at session end -- each turn tears its pipeline down -- so until this
-    ran, the only extraction trigger was a node transition. A user who simply
-    closes the widget never causes one, which left every abandoned chat with no
-    extracted variables at all and any webhook rendered from
-    ``gathered_context`` shipping blanks.
+    A chat the user closes, or the inactivity sweeper ends, never reaches an
+    end node, so no turn's engine disposes of it. This freezes the current
+    node's variables and the disposition, with ``completion_reason`` as its
+    fallback, for the completion worker to extract -- as a turn that ends the
+    chat does.
 
-    Returns the extracted values, or an empty dict when there is nothing to
-    extract. Never raises: the caller persists completion *after* this, so an
-    escaping exception would leave the chat incomplete -- no transcript, no
-    completion job and no webhook at all, which is worse than the blank fields
-    this exists to prevent. Parsing the stored checkpoint is therefore inside
-    the handler too: a legacy or corrupt shape raises from
-    `normalize_text_chat_checkpoint` and `_deserialize_text_chat_checkpoint_messages`
-    (which rejects unexpected shapes by design), not just from the work below.
+    Returns None when there is nothing to extract. Never raises: the caller
+    persists completion *after* this, so an escaping exception would leave the
+    chat incomplete -- no transcript, no completion job and no webhook at all.
+    Parsing the stored checkpoint is therefore inside the handler too: a legacy
+    or corrupt shape raises from `normalize_text_chat_checkpoint` and
+    `_deserialize_text_chat_checkpoint_messages` (which rejects unexpected
+    shapes by design), not just from the work below.
     """
     try:
         base_checkpoint = normalize_text_chat_checkpoint(checkpoint)
         current_node_id = base_checkpoint.get("current_node_id")
         if not current_node_id:
             # No turn ever completed, so no node was entered and nothing was said.
-            return {}
+            return None
 
         messages = _deserialize_text_chat_checkpoint_messages(
             base_checkpoint["messages"]
@@ -953,8 +984,8 @@ async def extract_text_chat_final_variables(
             isinstance(message, dict) and message.get("role") == "user"
             for message in messages
         ):
-            # Only the greeting happened. Nothing a node could extract from.
-            return {}
+            # Only the greeting happened. Nothing to extract or classify.
+            return None
 
         # `get_workflow_run_with_context` is the unscoped system-caller read, so
         # the run is fetched by id and its ownership validated here instead --
@@ -970,95 +1001,56 @@ async def extract_text_chat_final_variables(
             or workflow_run.definition is None
             or workflow_run.workflow is None
         ):
-            return {}
+            return None
         if run_organization_id != organization_id:
             # A caller reached a run outside the organization it authorized
-            # against. Nothing is extracted, and it is logged rather than
-            # silently skipped because it means a bug upstream, not an
-            # ordinary "nothing to extract".
+            # against. Nothing is frozen, and it is logged rather than silently
+            # skipped because it means a bug upstream, not an ordinary
+            # "nothing to extract".
             logger.warning(
                 f"Refusing final text-chat extraction for run {workflow_run_id}: "
                 f"run belongs to organization {run_organization_id}, "
                 f"caller authorized against {organization_id}"
             )
-            return {}
+            return None
 
+        run_definition = workflow_run.definition
         workflow_graph = WorkflowGraph(
-            ReactFlowDTO.model_validate(workflow_run.definition.workflow_json),
+            ReactFlowDTO.model_validate(run_definition.workflow_json),
             skip_instance_constraints_for={"trigger"},
         )
-        node = workflow_graph.nodes.get(current_node_id)
-        if not (node and node.extraction_enabled and node.extraction_variables):
-            return {}
-
-        from api.services.configuration.run_model_configuration import (
-            get_effective_ai_model_configuration_for_run,
-        )
-
-        # Route this extraction's spans to the org's Langfuse project, the way
-        # the turn path does for every other text-chat span.
-        set_current_org_id(organization_id)
-
-        run_configs = workflow_run.definition.workflow_configurations or {}
-        user_config = await get_effective_ai_model_configuration_for_run(
-            organization_id=organization_id,
-            workflow_configurations=run_configs,
-            workflow_run=workflow_run,
-        )
-        if user_config.llm is None:
-            return {}
-
-        from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
-
-        initial_context = dict(workflow_run.initial_context or {})
-        # Reuse the id the conversation already billed against rather than
-        # minting a new one for a run that is over.
-        correlation_id = initial_context.get(MPS_CORRELATION_ID_CONTEXT_KEY)
-        llm = create_llm_service(
-            user_config,
-            correlation_id=correlation_id,
-            usage_context="variable_extraction",
-        )
+        run_configs = run_definition.workflow_configurations or {}
+        call_dispositions = WorkflowConfigurationDefaults.model_validate(
+            {"call_dispositions": run_configs.get("call_dispositions") or []}
+        ).call_dispositions
 
         context = LLMContext()
         context.set_messages(messages)
         engine = PipecatEngine(
-            llm=llm,
-            variable_extraction_llm=llm,
             context=context,
             workflow=workflow_graph,
-            call_context_vars=initial_context,
+            call_context_vars=dict(workflow_run.initial_context or {}),
             workflow_run_id=workflow_run_id,
+            call_dispositions=call_dispositions,
+            defer_final_extraction=True,
         )
-        engine._gathered_context = dict(base_checkpoint["gathered_context"])
-
-        async with asyncio.timeout(FINAL_EXTRACTION_TIMEOUT_SECONDS):
-            extracted = await engine.extract_variables_standalone(node)
-        if not extracted:
-            return {}
-
-        result = {
-            key: value
-            for key, value in extracted.items()
-            if key not in ENGINE_OWNED_CONTEXT_KEYS
-        }
-        # The engine merged this turn's values into the `extracted_variables`
-        # it was seeded with. The completion write merges only at the top
-        # level, so hand back the whole sub-dict or earlier transitions' values
-        # would be dropped.
-        result["extracted_variables"] = dict(
-            (await engine.get_gathered_context()).get("extracted_variables") or {}
+        engine.active_agent.workflow_id = workflow_run.workflow_id
+        engine.active_agent.definition_id = run_definition.id
+        engine.active_agent.model_configuration_snapshot = dict(
+            workflow_run.model_configuration_snapshot or {}
         )
-        return jsonable_encoder(result)
-    except asyncio.TimeoutError:
-        logger.warning(
-            f"Final text-chat variable extraction timed out after "
-            f"{FINAL_EXTRACTION_TIMEOUT_SECONDS}s for run {workflow_run_id}"
+        await engine.freeze_final_extraction_standalone(
+            workflow_graph.nodes.get(current_node_id),
+            call_status=completion_reason,
+            disposition_mapping=await get_disposition_mapping(organization_id),
         )
-        return {}
+        return TextChatFinalExtraction(
+            logs=jsonable_encoder(engine.final_extraction_logs()),
+            metadata=engine.final_extraction_metadata(),
+        )
     except Exception as e:
         # Extraction is best-effort: never block a chat from completing.
         logger.error(
-            f"Final text-chat variable extraction failed for run {workflow_run_id}: {e}"
+            f"Freezing final text-chat extraction failed for run {workflow_run_id}: {e}"
         )
-        return {}
+        return None

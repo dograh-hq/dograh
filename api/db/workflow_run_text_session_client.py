@@ -10,6 +10,7 @@ from api.db.models import (
     WorkflowRunModel,
     WorkflowRunTextSessionModel,
 )
+from api.db.workflow_run_client import merge_run_extra
 from api.enums import WorkflowRunMode
 
 
@@ -223,6 +224,7 @@ class WorkflowRunTextSessionClient(BaseDBClient):
         state: str,
         checkpoint: dict | None = None,
         initial_context: dict | None = None,
+        extra: dict | None = None,
     ) -> WorkflowRunTextSessionModel:
         """Atomically complete a text session and its owning workflow run."""
         async with self.async_session() as session:
@@ -273,6 +275,8 @@ class WorkflowRunTextSessionClient(BaseDBClient):
                 **(workflow_run.logs or {}),
                 **logs,
             }
+            if extra:
+                workflow_run.extra = merge_run_extra(workflow_run.extra, extra)
             workflow_run.state = state
             workflow_run.is_completed = True
 

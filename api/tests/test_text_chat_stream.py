@@ -208,6 +208,8 @@ async def test_shutdown_hands_off_committed_turn_before_cancelling(
         gathered_context={},
         state="completed",
         is_completed=True,
+        final_extraction_logs={},
+        final_extraction={},
     )
     execute = AsyncMock(return_value=execution)
 

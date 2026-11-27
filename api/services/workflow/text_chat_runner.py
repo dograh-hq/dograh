@@ -73,6 +73,7 @@ from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.initial_context import merge_external_initial_context
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.prompt_variables import CallContextMessage
+from api.services.workflow.text_chat_logs import visible_text_chat_turns
 from api.services.workflow.workflow_graph import WorkflowGraph
 
 TEXT_CHAT_CHECKPOINT_VERSION = 1
@@ -178,13 +179,33 @@ def unanswered_text_chat_user_message(
     or after its last turn failed therefore holds that message in its
     transcript but not in its checkpoint. Extraction reads it from here so it
     does not miss the last thing the user said, which is usually the one that
-    matters most.
+    matters most. Turns past a rewind cursor are not part of the conversation.
     """
-    turns = list((session_data or {}).get("turns") or [])
+    turns = visible_text_chat_turns(session_data or {})
     if not turns or turns[-1].get("status") not in ("pending", "failed"):
         return None
     user_message = turns[-1].get("user_message") or {}
     return ((user_message.get("text") or "").strip()) or None
+
+
+def _visible_text_chat_checkpoint(
+    session_data: dict[str, Any] | None,
+    checkpoint: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The checkpoint of the conversation the session currently shows.
+
+    A rewind moves ``cursor_turn_id`` back without touching the stored
+    checkpoint, which still holds the turns after the cursor until the next
+    message replaces them. The last visible completed turn's own checkpoint
+    is the conversation as the user left it.
+    """
+    for turn in reversed(visible_text_chat_turns(session_data or {})):
+        if turn.get("status") != "completed":
+            continue
+        if turn.get("checkpoint_after_turn"):
+            return normalize_text_chat_checkpoint(turn["checkpoint_after_turn"])
+        break
+    return normalize_text_chat_checkpoint(checkpoint)
 
 
 @dataclass
@@ -965,7 +986,7 @@ async def freeze_text_chat_final_extraction(
     shapes by design), not just from the work below.
     """
     try:
-        base_checkpoint = normalize_text_chat_checkpoint(checkpoint)
+        base_checkpoint = _visible_text_chat_checkpoint(session_data, checkpoint)
         current_node_id = base_checkpoint.get("current_node_id")
         if not current_node_id:
             # No turn ever completed, so no node was entered and nothing was said.

@@ -2178,6 +2178,77 @@ async def test_final_extraction_refuses_a_run_from_another_organization(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("rewound_turn_status", ["completed", "failed"])
+async def test_final_extraction_ignores_turns_rewound_away_from(
+    db_session,
+    async_session,
+    test_client_factory,
+    rewound_turn_status,
+):
+    """A chat ended after a rewind extracts only the conversation it shows.
+
+    A rewind moves the cursor back without touching the stored checkpoint, so
+    the checkpoint -- and the session's last turn -- still carry what the user
+    rewound away from until the next message replaces it.
+    """
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=_extraction_workflow_definition(),
+        suffix=f"rewound-{rewound_turn_status}",
+    )
+    workflow_run = await _session_with_one_user_turn(
+        db_session, user, workflow, user_text="My ticket is 1054202."
+    )
+    kept = {"role": "user", "content": "My ticket is 1054202."}
+    rewound = {"role": "user", "content": "Actually, it is 999."}
+    kept_checkpoint = {
+        "version": 1,
+        "anchor_turn_id": "turn-1",
+        "current_node_id": "start",
+        "messages": [kept],
+        "gathered_context": {},
+        "tool_state": {},
+    }
+    rewound_turn = {
+        "id": "turn-2",
+        "status": rewound_turn_status,
+        "user_message": {"text": rewound["content"]},
+        "events": [],
+    }
+    stored_checkpoint = kept_checkpoint
+    if rewound_turn_status == "completed":
+        stored_checkpoint = {**kept_checkpoint, "messages": [kept, rewound]}
+        rewound_turn["checkpoint_after_turn"] = stored_checkpoint
+    session_data = {
+        "status": "rewound",
+        "cursor_turn_id": "turn-1",
+        "turns": [
+            {
+                "id": "turn-1",
+                "status": "completed",
+                "user_message": {"text": kept["content"]},
+                "events": [],
+                "checkpoint_after_turn": kept_checkpoint,
+            },
+            rewound_turn,
+        ],
+    }
+
+    frozen = await freeze_text_chat_final_extraction(
+        workflow_run_id=workflow_run.id,
+        workflow_id=workflow.id,
+        organization_id=user.selected_organization_id,
+        checkpoint=stored_checkpoint,
+        completion_reason="user_hangup",
+        session_data=session_data,
+    )
+
+    assert frozen is not None
+    assert frozen.logs["conversation"] == [kept]
+
+
+@pytest.mark.asyncio
 async def test_text_chat_chains_multiple_follow_up_completions_in_one_turn(
     db_session,
     async_session,

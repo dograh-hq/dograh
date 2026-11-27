@@ -1035,6 +1035,7 @@ async def test_configure_inbound_points_bot_at_attached_agent():
         account_id_field="client_id",
         account_id="123",
         to_number=DID,
+        country_hint="IN",
         organization_id=9,
     )
     # Signed for the attached workflow (id 1) with this config's API token.
@@ -1047,6 +1048,56 @@ async def test_configure_inbound_points_bot_at_attached_agent():
         ),
     )
     prov.route_inbound_to_bot.assert_called_once_with(did="910000000000", bot_id=77)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed_address", ["9000000000", "09000000000"])
+async def test_configure_inbound_national_number_matches_stored_e164(typed_address):
+    # Dograh hands over the address as typed; a number added under India is
+    # stored as +91..., and provision_phone_number already named the bot from
+    # that form. The lookup, bot name and routed DID must all use it too, or
+    # the number is never found and the bot is left on the unassigned URL.
+    client_cls, _ = _mock_sdk_client()
+    prov = _provisioner_mock()
+    db = MagicMock()
+    db.find_inbound_route_by_account = AsyncMock(
+        return_value=(
+            SimpleNamespace(id=2, organization_id=9),
+            SimpleNamespace(inbound_workflow_id=1),
+        )
+    )
+    db.get_workflow_by_id = AsyncMock(
+        return_value=SimpleNamespace(
+            id=1, workflow_uuid="28894e31-d767-45bc-b3f4-3c5b4e55950a"
+        )
+    )
+    with (
+        patch.object(provider_module, "VoiceLinkClient", client_cls),
+        patch.object(provider_module, "PipecatProvisioner", return_value=prov),
+        patch.object(provider_module, "db_client", db),
+        patch.object(provider_module, "get_current_org_id", return_value="9"),
+        patch.object(
+            provider_module,
+            "get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=BACKEND,
+        ),
+    ):
+        result = await _provider().configure_inbound(
+            typed_address, "https://api.example.test/api/v1/telephony/inbound/run"
+        )
+
+    assert result.ok is True
+    db.find_inbound_route_by_account.assert_awaited_once_with(
+        provider="voicelink",
+        account_id_field="client_id",
+        account_id="123",
+        to_number="+919000000000",
+        country_hint="IN",
+        organization_id=9,
+    )
+    assert prov.ensure_bot.call_args.kwargs["bot_name"] == "dograh-919000000000"
+    prov.route_inbound_to_bot.assert_called_once_with(did="919000000000", bot_id=77)
 
 
 @pytest.mark.asyncio
@@ -1170,3 +1221,30 @@ async def test_configure_inbound_detach_parks_bot():
         bot_name="dograh-910000000000", websocket_url=UNASSIGNED_URL
     )
     db.find_inbound_route_by_account.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_configure_inbound_detach_parks_the_same_bot_for_national_number():
+    # Detaching must park the bot the number was provisioned with (named from
+    # the stored E.164 form), not create a second one from the typed digits.
+    client_cls, _ = _mock_sdk_client()
+    prov = _provisioner_mock()
+    db = MagicMock()
+    with (
+        patch.object(provider_module, "VoiceLinkClient", client_cls),
+        patch.object(provider_module, "PipecatProvisioner", return_value=prov),
+        patch.object(provider_module, "db_client", db),
+        patch.object(
+            provider_module,
+            "get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=BACKEND,
+        ),
+    ):
+        result = await _provider().configure_inbound("9000000000", None)
+
+    assert result.ok is True
+    prov.ensure_bot.assert_called_once_with(
+        bot_name="dograh-919000000000", websocket_url=UNASSIGNED_URL
+    )
+    prov.route_inbound_to_bot.assert_called_once_with(did="919000000000", bot_id=77)

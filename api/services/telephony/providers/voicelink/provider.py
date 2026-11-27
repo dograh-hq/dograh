@@ -70,6 +70,9 @@ HANDSHAKE_TIMEOUT_S = 10
 # and the country code as separate fields, and a number with the country code
 # baked in fails with cause 38 ("Network out of order").
 INDIA_COUNTRY_CODE = "91"
+# ISO-2 form, the hint ``normalize_telephony_address`` takes to turn a
+# national Indian number into E.164.
+INDIA_ISO_COUNTRY = "IN"
 
 # Where a DID's bot points while no agent is attached. Dograh closes the socket
 # with "Workflow not found", so a stray inbound call fails fast.
@@ -182,6 +185,24 @@ class VoiceLinkProvider(TelephonyProvider):
     def _did_digits(number: str) -> str:
         """VoiceLink identifies a DID by its digits, e.g. ``919XXXXXXXXX``."""
         return "".join(ch for ch in (number or "") if ch.isdigit())
+
+    @staticmethod
+    def _canonical_address(address: str) -> str:
+        """``address`` as Dograh stores it: E.164, India assumed if national.
+
+        Dograh keeps both the address a number was added with and its
+        normalized form, and hands :meth:`configure_inbound` the former. A
+        number added as ``9XXXXXXXXX`` under India is stored as
+        ``+919XXXXXXXXX``; normalizing with the same hint here makes the
+        lookup, the bot name and the routed DID agree with that row and with
+        the bot :meth:`provision_phone_number` created from the stored form.
+        VoiceLink issues Indian DIDs only, so the hint is never wrong for a
+        number that passed :meth:`validate_phone_number`; an E.164 address is
+        left as it is.
+        """
+        return normalize_telephony_address(
+            address, country_hint=INDIA_ISO_COUNTRY
+        ).canonical
 
     @staticmethod
     def _split_indian_number(number: str) -> tuple[str, str]:
@@ -823,11 +844,16 @@ class VoiceLinkProvider(TelephonyProvider):
         The attached agent's URL carries a stream token signed with the API
         token (see :meth:`_stream_token`). After rotating the API token,
         re-save the phone number so the bot URL is re-signed.
+
+        ``address`` arrives as the user typed it, which for a national number
+        is not what the phone-number row stores, so it is canonicalised first
+        (see :meth:`_canonical_address`).
         """
         if not self.validate_config():
             return ProviderSyncResult(
                 ok=False, message="VoiceLink provider not properly configured"
             )
+        address = self._canonical_address(address)
         if webhook_url is None:
             url = await self._agent_stream_url(UNASSIGNED_WORKFLOW_UUID)
         else:
@@ -882,7 +908,9 @@ class VoiceLinkProvider(TelephonyProvider):
         be matched, and the row's owner is checked again on the way out. The
         lookup also keys on ``client_id``; without one there is no route:
         inbound streams are matched by client id, so a number attached without
-        one could never receive a call.
+        one could never receive a call. The India hint makes the lookup's own
+        normalisation match the stored E.164 address even for a national
+        number (see :meth:`_canonical_address`).
         """
         if self.client_id is None:
             return None
@@ -891,6 +919,7 @@ class VoiceLinkProvider(TelephonyProvider):
             account_id_field="client_id",
             account_id=str(self.client_id),
             to_number=address,
+            country_hint=INDIA_ISO_COUNTRY,
             organization_id=organization_id,
         )
         if route is None:

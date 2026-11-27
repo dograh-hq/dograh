@@ -18,18 +18,18 @@ type ModelSetupModalProps = {
     // Called once an account is connected, before the person moves on.
     onConnected: () => Promise<void> | void;
     onDone: (choice: ModelSetupChoice) => void;
+    onCancel: () => void;
 };
 
 /**
- * A self-hosted installation's first run: choose where agents get their
+ * Shown on a builder submission or call attempt: choose where agents get their
  * LLM, voice and transcription models. A connected Dograh account also
  * unlocks the agent builder.
  */
-export function ModelSetupModal({ open, reconnect, onConnected, onDone }: ModelSetupModalProps) {
+export function ModelSetupModal({ open, reconnect, onConnected, onDone, onCancel }: ModelSetupModalProps) {
     const router = useRouter();
     const [connected, setConnected] = useState(false);
-    // While a request waits for approval, only its Cancel ends it: closing
-    // would abandon the code and record onboarding as skipped.
+    // While a request waits for approval, only its Cancel ends it.
     const [pending, setPending] = useState(false);
 
     const finish = (choice: ModelSetupChoice, path?: string) => {
@@ -37,7 +37,7 @@ export function ModelSetupModal({ open, reconnect, onConnected, onDone }: ModelS
         if (path) router.push(path);
     };
 
-    return <Dialog open={open} onOpenChange={next => { if (!next && !pending) finish(connected ? 'dograh' : 'skipped'); }}>
+    return <Dialog open={open} onOpenChange={next => { if (!next && !pending) onCancel(); }}>
         {/* Clicking outside must not throw away a connection in progress. */}
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[600px]" onInteractOutside={event => event.preventDefault()}>
             <DialogHeader>
@@ -56,7 +56,7 @@ export function ModelSetupModal({ open, reconnect, onConnected, onDone }: ModelS
                         <p className="mt-1 text-sm text-muted-foreground">Dograh models and the agent builder are ready to use.</p>
                     </div>
                 </div>
-                <Button onClick={() => finish('dograh', '/workflow/create')}>Build your first agent<ArrowRight className="h-4 w-4" /></Button>
+                <Button onClick={() => finish('dograh')}>Continue<ArrowRight className="h-4 w-4" /></Button>
             </div> : <div className="space-y-4">
                 <section aria-labelledby="model-setup-dograh" className="space-y-3 rounded-lg border border-primary/40 p-4">
                     <div>
@@ -82,7 +82,7 @@ export function ModelSetupModal({ open, reconnect, onConnected, onDone }: ModelS
                             The agent builder needs a Dograh account, so you would build agents on the canvas.
                         </p>
                     </div>
-                    <Button variant="outline" onClick={() => finish('own_keys', '/provider-connections/new')}>Add provider keys</Button>
+                    <Button variant="outline" disabled={pending} onClick={() => finish('own_keys', '/provider-connections/new')}>Add provider keys</Button>
                 </section>
             </div>}
 

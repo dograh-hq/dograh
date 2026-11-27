@@ -5,6 +5,14 @@ const { createRunMock, markActionCompletedMock } = vi.hoisted(() => ({
     createRunMock: vi.fn(),
     markActionCompletedMock: vi.fn(),
 }));
+const setup = vi.hoisted(() => ({ status: 'connected', dismissed: false }));
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock('@/context/AppConfigContext', () => ({ useAppConfig: () => ({ config: { deploymentMode: 'oss' } }) }));
+vi.mock('@/context/DograhAccountContext', () => ({ useDograhAccount: () => ({ status: setup.status, refresh: vi.fn() }) }));
+vi.mock('@/components/model-connections/DograhAccountConnect', () => ({
+    DograhAccountConnectFlow: ({ onConnected }: { onConnected: () => Promise<void> }) => <button onClick={() => void onConnected()}>Approve on Dograh</button>,
+}));
 
 vi.mock("@/client/sdk.gen", () => ({
     createWorkflowRunApiV1WorkflowWorkflowIdRunsPost: createRunMock,
@@ -13,13 +21,14 @@ vi.mock("@/client/sdk.gen", () => ({
 vi.mock("@/lib/auth", () => ({
     useAuth: () => ({
         isAuthenticated: true,
+        user: { id: '1', organizationId: '1' },
         loading: false,
         getAccessToken: async () => "token",
     }),
 }));
 
 vi.mock("@/context/OnboardingContext", () => ({
-    useOnboarding: () => ({ markActionCompleted: markActionCompletedMock }),
+    useOnboarding: () => ({ loading: false, hasCompletedAction: () => setup.dismissed, markActionCompleted: markActionCompletedMock }),
 }));
 
 vi.mock("posthog-js", () => ({ default: { capture: vi.fn() } }));
@@ -69,6 +78,8 @@ const switchTo = (name: RegExp) =>
 
 describe("WorkflowTesterPanel voice run lifecycle", () => {
     beforeEach(() => {
+        setup.status = 'connected';
+        setup.dismissed = false;
         let nextRunId = 630140;
         createRunMock.mockReset();
         createRunMock.mockImplementation(async () => ({
@@ -81,6 +92,37 @@ describe("WorkflowTesterPanel voice run lifecycle", () => {
         renderPanel();
 
         expect(await startVoiceRun()).toBe("run:630140");
+    });
+
+    it('prompts on Run Test and creates no run until the user connects and continues', async () => {
+        setup.status = 'missing';
+        renderPanel();
+        const button = await screen.findByRole('button', { name: /run test/i });
+        expect(screen.queryByRole('dialog')).toBeNull();
+        fireEvent.click(button);
+        expect(await screen.findByRole('dialog', { name: 'Set up AI models' })).toBeTruthy();
+        expect(createRunMock).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByText('Approve on Dograh'));
+        fireEvent.click(screen.getByText('Continue'));
+        expect((await screen.findByTestId('voice-tester')).textContent).toBe('run:630140');
+        expect(createRunMock).toHaveBeenCalledOnce();
+    });
+
+    it('lets calls proceed using existing providers after skipping setup', async () => {
+        setup.status = 'missing';
+        renderPanel();
+        fireEvent.click(await screen.findByRole('button', { name: /run test/i }));
+        fireEvent.click(await screen.findByText('Skip for now'));
+        expect((await screen.findByTestId('voice-tester')).textContent).toBe('run:630140');
+        expect(markActionCompletedMock).toHaveBeenCalledWith('model_setup_dismissed');
+    });
+
+    it('does not prompt again when setup was dismissed earlier', async () => {
+        setup.status = 'missing';
+        setup.dismissed = true;
+        renderPanel();
+        expect(await startVoiceRun()).toBe('run:630140');
+        expect(screen.queryByRole('dialog')).toBeNull();
     });
 
     it("releases the run id when the audio tab is left", async () => {

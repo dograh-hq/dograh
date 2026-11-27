@@ -20,6 +20,7 @@ import type {
     PhoneNumberResponse,
     TelephonyConfigurationListItem,
 } from '@/client/types.gen';
+import { useModelSetup } from '@/components/onboarding/useModelSetup';
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -68,6 +69,7 @@ export const PhoneCallDialog = ({
 }: PhoneCallDialogProps) => {
     const router = useRouter();
     const { refreshConfig } = useUserConfig();
+    const { checking: checkingModelSetup, ensureSetup, setupModal } = useModelSetup('call', open);
     const [preferences, setPreferences] = useState<OrganizationPreferences>({});
     const [phoneNumber, setPhoneNumber] = useState("");
     const [callLoading, setCallLoading] = useState(false);
@@ -285,6 +287,7 @@ export const PhoneCallDialog = ({
         setCallSuccessMsg(null);
         try {
             if (!user) return;
+            if (!await ensureSetup()) return;
 
             // Save phone number if it has changed
             if (phoneChanged) {
@@ -564,7 +567,7 @@ export const PhoneCallDialog = ({
                     {!callSuccessMsg ? (
                         <Button
                             onClick={handleStartCall}
-                            disabled={callLoading || !phoneNumber || selectedConfigBlocked}
+                            disabled={callLoading || checkingModelSetup || !phoneNumber || selectedConfigBlocked}
                         >
                             {callLoading ? "Calling..." : "Start Call"}
                         </Button>
@@ -586,15 +589,18 @@ export const PhoneCallDialog = ({
     );
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent>
-                {checkingConfig || needsConfiguration === null
-                    ? renderLoading()
-                    : needsPhoneService
-                        ? renderConnectPhoneService()
-                        : renderPhoneCallForm()
-                }
-            </DialogContent>
-        </Dialog>
+        <>
+            <Dialog open={open} onOpenChange={onOpenChange}>
+                <DialogContent>
+                    {checkingConfig || needsConfiguration === null
+                        ? renderLoading()
+                        : needsPhoneService
+                            ? renderConnectPhoneService()
+                            : renderPhoneCallForm()
+                    }
+                </DialogContent>
+            </Dialog>
+            {setupModal}
+        </>
     );
 };

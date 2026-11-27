@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { createWorkflowRunApiV1WorkflowWorkflowIdRunsPost } from "@/client/sdk.gen";
 import { OnboardingTooltip } from "@/components/onboarding/OnboardingTooltip";
+import { useModelSetup } from "@/components/onboarding/useModelSetup";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -51,6 +52,7 @@ export function WorkflowTesterPanel({
 }: WorkflowTesterPanelProps) {
     const auth = useAuth();
     const { markActionCompleted } = useOnboarding();
+    const { checking: checkingModelSetup, ensureSetup, setupModal } = useModelSetup('call', isVisible);
     const { isAuthenticated, loading: authLoading, getAccessToken } = auth;
     const [accessToken, setAccessToken] = useState<string | null>(null);
     const [activeMode, setActiveMode] = useState<"audio" | "text">("audio");
@@ -103,6 +105,7 @@ export function WorkflowTesterPanel({
         if (!accessToken || disabled) return;
         setCreatingVoiceRun(true);
         try {
+            if (!await ensureSetup()) return;
             const response = await createWorkflowRunApiV1WorkflowWorkflowIdRunsPost({
                 path: { workflow_id: workflowId },
                 body: {
@@ -127,7 +130,7 @@ export function WorkflowTesterPanel({
         } finally {
             setCreatingVoiceRun(false);
         }
-    }, [accessToken, disabled, markActionCompleted, workflowId, workflowOrigin]);
+    }, [accessToken, disabled, ensureSetup, markActionCompleted, workflowId, workflowOrigin]);
 
     const authUnavailableReason = tokenReady && !accessToken
         ? "Authentication is required before testing can start."
@@ -220,7 +223,7 @@ export function WorkflowTesterPanel({
                                         <Button
                                             ref={runTestButtonRef}
                                             onClick={createVoiceRun}
-                                            disabled={creatingVoiceRun || testerBlocked}
+                                            disabled={creatingVoiceRun || testerBlocked || checkingModelSetup}
                                         >
                                             {creatingVoiceRun ? (
                                                 <>
@@ -285,6 +288,7 @@ export function WorkflowTesterPanel({
                 showNext={false}
                 enabled={runTestTooltipEnabled}
             />
+            {setupModal}
         </div>
     );
 }

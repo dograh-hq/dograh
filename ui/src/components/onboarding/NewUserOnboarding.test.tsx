@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NewUserOnboarding } from './NewUserOnboarding';
@@ -28,14 +28,6 @@ vi.mock('@/context/OnboardingContext', () => ({
 vi.mock('@/context/DograhAccountContext', () => ({
     useDograhAccountContext: () => ({ status: mocks.status, request: mocks.request, refresh: mocks.refresh }),
 }));
-// The device flow has its own tests; here it only reports progress.
-vi.mock('@/components/model-connections/DograhAccountConnect', () => ({
-    DograhAccountConnectFlow: ({ onConnected, onPendingChange }: { onConnected: () => Promise<void>; onPendingChange?: (pending: boolean) => void }) => <>
-        <button type="button" onClick={() => onPendingChange?.(true)}>Start connecting</button>
-        <button type="button" onClick={() => void onConnected()}>Approve on Dograh</button>
-    </>,
-}));
-
 beforeEach(() => {
     vi.clearAllMocks();
     mocks.deploymentMode = 'oss';
@@ -45,30 +37,14 @@ beforeEach(() => {
 });
 
 describe('first run', () => {
-    it('asks a new self-hosted user to set up AI models when no Dograh key works', async () => {
-        render(<NewUserOnboarding />);
-        expect(await screen.findByRole('dialog', { name: 'Set up AI models' })).toBeDefined();
-        expect(mocks.request).toHaveBeenCalledOnce();
-        expect(mocks.registration).toHaveBeenCalledOnce();
-        expect(mocks.capture).toHaveBeenCalledWith('model_setup_shown', { dograh_status: 'missing' });
-        expect(mocks.markCompleted).not.toHaveBeenCalled();
-        expect(screen.queryByText(/How did you hear about us/)).toBeNull();
-    });
-
-    it('offers to reconnect when the existing key is rejected', async () => {
-        mocks.status = 'invalid';
-        render(<NewUserOnboarding />);
-        expect(await screen.findByText('Reconnect your Dograh account')).toBeDefined();
-    });
-
-    it.each(['connected', 'unknown'])('shows nothing to a self-hosted user whose status is %s', async (status) => {
+    it.each(['missing', 'invalid', 'connected', 'unknown'])('records OSS registration without setup when Dograh status is %s', async (status) => {
         mocks.status = status;
         render(<NewUserOnboarding />);
-        await waitFor(() => expect(mocks.request).toHaveBeenCalledOnce());
+        await waitFor(() => expect(mocks.markCompleted).toHaveBeenCalledWith());
+        expect(mocks.registration).toHaveBeenCalledOnce();
+        expect(mocks.request).not.toHaveBeenCalled();
+        expect(mocks.capture).not.toHaveBeenCalled();
         expect(screen.queryByRole('dialog')).toBeNull();
-        // Connected is done; an unreadable status asks again next session.
-        if (status === 'connected') expect(mocks.markCompleted).toHaveBeenCalledWith();
-        else expect(mocks.markCompleted).not.toHaveBeenCalled();
     });
 
     it('shows hosted users nothing and records their registration once', async () => {
@@ -93,45 +69,5 @@ describe('first run', () => {
         mocks.completedAt = '2026-11-01T00:00:00Z';
         render(<NewUserOnboarding />);
         expect(mocks.count).not.toHaveBeenCalled();
-    });
-});
-
-describe('Set up AI models', () => {
-    it('can be skipped, and is not shown again', async () => {
-        render(<NewUserOnboarding />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }));
-        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-        expect(mocks.markCompleted).toHaveBeenCalledWith({ skipped: true });
-        expect(mocks.capture).toHaveBeenCalledWith('model_setup_completed', { choice: 'skipped' });
-    });
-
-    it('cannot be closed while a connection waits for approval', async () => {
-        render(<NewUserOnboarding />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Start connecting' }));
-        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
-        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-        expect(screen.getByRole('dialog')).toBeDefined();
-        expect((screen.getByRole('button', { name: 'Skip for now' }) as HTMLButtonElement).disabled).toBe(true);
-        expect(mocks.markCompleted).not.toHaveBeenCalled();
-    });
-
-    it('sends people who bring their own keys to add a provider', async () => {
-        render(<NewUserOnboarding />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Add provider keys' }));
-        expect(mocks.push).toHaveBeenCalledWith('/provider-connections/new');
-        expect(mocks.markCompleted).toHaveBeenCalledWith({ skipped: false });
-        expect(mocks.capture).toHaveBeenCalledWith('model_setup_completed', { choice: 'own_keys' });
-    });
-
-    it('confirms a connected account, then opens the agent builder', async () => {
-        render(<NewUserOnboarding />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Approve on Dograh' }));
-        expect(await screen.findByText('Dograh account connected')).toBeDefined();
-        expect(mocks.refresh).toHaveBeenCalledOnce();
-        expect(mocks.markCompleted).not.toHaveBeenCalled();
-        fireEvent.click(screen.getByRole('button', { name: /Build your first agent/ }));
-        expect(mocks.push).toHaveBeenCalledWith('/workflow/create');
-        expect(mocks.markCompleted).toHaveBeenCalledWith({ skipped: false });
-        expect(mocks.capture).toHaveBeenCalledWith('model_setup_completed', { choice: 'dograh' });
     });
 });

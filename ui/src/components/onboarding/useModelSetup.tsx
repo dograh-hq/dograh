@@ -19,12 +19,15 @@ export function useModelSetup(source: 'builder' | 'call', enabled = true) {
     const { config } = useAppConfig();
     const selfHosted = config?.deploymentMode === 'oss';
     const dograh = useDograhAccount(enabled && (selfHosted || source === 'builder'));
-    const { loading: onboardingLoading, hasCompletedAction, markActionCompleted } = useOnboarding();
+    const { loading: onboardingLoading, loadFailed: onboardingUnavailable, hasCompletedAction, markActionCompleted } = useOnboarding();
     const [open, setOpen] = useState(false);
     const resolve = useRef<((proceed: boolean) => void) | null>(null);
     const dismissed = hasCompletedAction('model_setup_dismissed');
     const needsSetup = selfHosted && (dograh.status === 'missing' || dograh.status === 'invalid');
-    const checking = authLoading || !user || !config || ((selfHosted || source === 'builder') && dograh.status === 'loading') || (needsSetup && source === 'call' && onboardingLoading);
+    // Wait for an in-flight dismissal read, but never block calls on an
+    // unavailable optional preference. The context suppresses one-time UI
+    // on failure; the backend still validates the configured providers.
+    const checking = authLoading || !user || !config || ((selfHosted || source === 'builder') && dograh.status === 'loading') || (needsSetup && source === 'call' && onboardingLoading && !onboardingUnavailable);
 
     // Closing the caller, navigating away, or switching organizations must
     // never resume an abandoned request or call under a different account.

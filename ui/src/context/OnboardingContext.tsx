@@ -29,6 +29,8 @@ interface OnboardingContextType {
     // has* checks report "already seen/done" so one-time UI never flashes
     // for users who have in fact seen it.
     loading: boolean;
+    // Distinguish an unavailable optional state from an in-flight read.
+    loadFailed: boolean;
     // Post-signup onboarding form gate (set once on submit/skip).
     onboardingCompletedAt: string | null;
     onboardingSkipped: boolean;
@@ -63,6 +65,7 @@ const OnboardingContext = createContext<OnboardingContextType | undefined>(undef
 export const OnboardingProvider = ({ children }: { children: React.ReactNode }) => {
     const [state, setState] = useState<OnboardingState>(defaultState);
     const [loaded, setLoaded] = useState(false);
+    const [loadFailed, setLoadFailed] = useState(false);
 
     const auth = useAuth();
     const authRef = useRef(auth);
@@ -89,6 +92,7 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
                 // Fetch failed: stay in loading so one-time UI stays suppressed
                 // (fail closed — never re-show onboarding to an onboarded user).
                 console.error('[onboarding] failed to fetch onboarding state', res?.error);
+                setLoadFailed(true);
             }
         })();
     }, [auth.loading, auth.isAuthenticated]);
@@ -156,6 +160,7 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
         <OnboardingContext.Provider
             value={{
                 loading: !loaded,
+                loadFailed,
                 onboardingCompletedAt: state.completed_at,
                 onboardingSkipped: state.skipped,
                 markOnboardingCompleted,

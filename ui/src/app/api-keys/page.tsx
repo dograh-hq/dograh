@@ -1,6 +1,7 @@
 "use client";
 
 import { Copy, Eye, EyeOff, Key, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -326,9 +327,8 @@ export default function APIKeysPage() {
         );
     }
 
-    // In OSS mode, check if there's already an active service key
-    const activeServiceKeys = serviceKeys.filter(key => !key.archived_at);
-    const canCreateServiceKey = !isOSS || activeServiceKeys.length === 0;
+    // Self-hosted installs get a key by connecting a Dograh account.
+    const canCreateServiceKey = !isOSS;
     const showServiceKeyArchiveControls = !isOSS;
 
     return (
@@ -457,8 +457,8 @@ export default function APIKeysPage() {
                                 Create Service Key
                             </Button>
                         ) : (
-                            <span className="text">
-                                To generate additional service keys, <a href="https://app.dograh.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Sign up on app.dograh.com</a>
+                            <span className="text-sm">
+                                <Link href="/model-configurations" className="text-primary hover:underline">Connect your Dograh account</Link> on the Models page to use Dograh models
                             </span>
                         )}</>}>
                     {isServiceKeysLoading ? (

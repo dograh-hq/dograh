@@ -14,6 +14,8 @@ from api.enums import PostHogEvent
 from api.schemas.workflow_builder import BuilderSession, BuilderTurnRequest
 from api.services.posthog_tenant import capture_tenant_event
 
+from .model import builder_service_key
+
 ACTIVE = {"queued", "running"}
 
 
@@ -41,6 +43,8 @@ async def admit_builder_turn(
 ) -> dict:
     if not user.selected_organization_id:
         raise HTTPException(403, "Select an organization first")
+    # Refuse before anything is stored: without a Dograh key the run could only fail.
+    await builder_service_key(user.selected_organization_id)
     if request.workflow_id is not None:
         from api.services.workflow.builder import load_builder_workflow
 

@@ -459,13 +459,13 @@ async def test_model_adapter_preserves_reasoning_and_provider_tool_metadata(
     ],
     ids=["missing", "empty", "blank", "byok"],
 )
-async def test_model_adapter_requires_configured_dograh_key(
+async def test_model_adapter_requires_a_dograh_key(
     monkeypatch, managed_builder_config, llm
 ):
-    from api.services.workflow.builder_runtime import model as adapter
+    from api.services.configuration import ai_model_configuration
 
     monkeypatch.setattr(
-        adapter,
+        ai_model_configuration,
         "get_resolved_ai_model_configuration",
         AsyncMock(
             return_value=ResolvedAIModelConfiguration(
@@ -473,6 +473,11 @@ async def test_model_adapter_requires_configured_dograh_key(
                 source="organization_v3",
             )
         ),
+    )
+    monkeypatch.setattr(
+        mps_client_module.db_client,
+        "list_provider_connections",
+        AsyncMock(return_value=[]),
     )
     # A leftover process-wide key cannot enable an unconfigured organization.
     monkeypatch.setenv("WORKFLOW_BUILDER_MPS_API_KEY", "unrelated-server-key")
@@ -483,10 +488,61 @@ async def test_model_adapter_requires_configured_dograh_key(
     ):
         await model.ainvoke([HumanMessage(content="Hello")])
     assert error.value.status_code == 400
-    assert "only supported with a Dograh Service Key" in error.value.detail
-    assert "/model-configurations" in error.value.detail
+    assert "Agent builder runs on Dograh models" in error.value.detail
+    assert "Models page" in error.value.detail
     managed_builder_config[1].assert_not_awaited()
     client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_model_adapter_uses_a_dograh_connection_beside_a_byok_default(
+    monkeypatch,
+):
+    """Connecting a Dograh account never replaces a BYOK default, yet enables the builder."""
+    from api.services.configuration import ai_model_configuration
+    from api.services.workflow.builder_runtime import model as adapter
+
+    monkeypatch.setattr(
+        ai_model_configuration,
+        "get_resolved_ai_model_configuration",
+        AsyncMock(
+            return_value=ResolvedAIModelConfiguration(
+                effective=EffectiveAIModelConfiguration(
+                    llm=OpenAILLMService(api_key="byok-secret")
+                ),
+                source="organization_v3",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        mps_client_module.db_client,
+        "list_provider_connections",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(provider="openai", credentials={"api_key": "byok"}),
+                SimpleNamespace(
+                    provider="dograh", credentials={"api_key": "connected-key"}
+                ),
+            ]
+        ),
+    )
+    completion = AsyncMock(
+        return_value={
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "Hi"},
+                    "finish_reason": "stop",
+                }
+            ]
+        }
+    )
+    monkeypatch.setattr(
+        adapter.mps_service_key_client, "create_agent_builder_completion", completion
+    )
+    await BuilderChatModel(organization_id=2, user_id="3").ainvoke(
+        [HumanMessage(content="Hello")]
+    )
+    assert completion.await_args.kwargs["service_key"] == "connected-key"
 
 
 @pytest.mark.asyncio
@@ -494,8 +550,8 @@ async def test_model_adapter_requires_configured_dograh_key(
     "upstream_status,status,error_code,message",
     [
         (400, 400, "dograh-400", "rejected"),
-        (401, 401, "dograh-401", "Service Key"),
-        (403, 403, "dograh-403", "Service Key"),
+        (401, 401, "dograh-401", "Dograh key"),
+        (403, 403, "dograh-403", "Dograh key"),
         (402, 402, "dograh-insufficient-credits", "credits"),
         (429, 429, "dograh-429", "rate limiting"),
         (500, 503, "dograh-500", MPS_UNAVAILABLE_PUBLIC_MESSAGE),

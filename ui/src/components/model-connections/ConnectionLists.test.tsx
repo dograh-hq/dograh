@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { archiveNamedModelConfiguration, archiveProviderConnection, restoreNamedModelConfiguration, restoreProviderConnection, setDefaultModelConfiguration } from "@/client/sdk.gen";
+import { useAppConfig } from "@/context/AppConfigContext";
+import { useDograhAccount } from "@/context/DograhAccountContext";
 import { useOrgConfig } from "@/context/OrgConfigContext";
 
 import ModelConfigurationsManager from "./ModelConfigurationsManager";
@@ -14,6 +16,8 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/client/sdk.gen", () => ({ archiveNamedModelConfiguration: vi.fn(), archiveProviderConnection: vi.fn(), restoreNamedModelConfiguration: vi.fn(), restoreProviderConnection: vi.fn(), setDefaultModelConfiguration: vi.fn() }));
 vi.mock("./useModelConnections", () => ({ useModelConnections: vi.fn() }));
 vi.mock("@/context/OrgConfigContext", () => ({ useOrgConfig: vi.fn() }));
+vi.mock("@/context/AppConfigContext", () => ({ useAppConfig: vi.fn(() => ({ config: null })) }));
+vi.mock("@/context/DograhAccountContext", () => ({ useDograhAccount: vi.fn(() => ({ status: "connected", refresh: vi.fn() })) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const provider = { credential_fields: {}, connection_fields: {}, settings_schema: { properties: {} } };
@@ -32,6 +36,36 @@ beforeEach(() => {
     vi.mocked(restoreNamedModelConfiguration).mockResolvedValue({ data: {} } as never);
     vi.mocked(restoreProviderConnection).mockResolvedValue({ data: {} } as never);
     reload.mockReset();
+    vi.mocked(useAppConfig).mockReturnValue({ config: null } as unknown as ReturnType<typeof useAppConfig>);
+    vi.mocked(useDograhAccount).mockReturnValue({ status: "connected", refresh: vi.fn() });
+});
+
+function deployment(mode: string, status: ReturnType<typeof useDograhAccount>["status"]) {
+    vi.mocked(useAppConfig).mockReturnValue({ config: { deploymentMode: mode } } as unknown as ReturnType<typeof useAppConfig>);
+    vi.mocked(useDograhAccount).mockReturnValue({ status, refresh: vi.fn() });
+}
+
+describe("Dograh account section on the Models page", () => {
+    it.each(["missing", "invalid"] as const)("offers to connect a self-hosted installation whose key is %s", (status) => {
+        deployment("oss", status);
+        render(<ModelConfigurationsManager />);
+        expect(screen.getByRole("button", { name: "Connect Dograh account" })).toBeDefined();
+        expect(vi.mocked(useDograhAccount)).toHaveBeenCalledWith(true);
+        if (status === "invalid") expect(screen.getByText(/Reconnect your Dograh account/)).toBeDefined();
+    });
+
+    it.each(["connected", "loading", "unknown"] as const)("shows no connect option while the status is %s", (status) => {
+        deployment("oss", status);
+        render(<ModelConfigurationsManager />);
+        expect(screen.queryByRole("button", { name: "Connect Dograh account" })).toBeNull();
+    });
+
+    it("never offers connecting on hosted deployments or reads the status there", () => {
+        deployment("saas", "missing");
+        render(<ModelConfigurationsManager />);
+        expect(screen.queryByRole("button", { name: "Connect Dograh account" })).toBeNull();
+        expect(vi.mocked(useDograhAccount)).toHaveBeenCalledWith(false);
+    });
 });
 
 describe("provider connection and model configuration lists", () => {

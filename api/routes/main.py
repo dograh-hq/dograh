@@ -9,6 +9,7 @@ from api.routes.agent_stream import router as agent_stream_router
 from api.routes.auth import router as auth_router
 from api.routes.campaign import router as campaign_router
 from api.routes.credentials import router as credentials_router
+from api.routes.dograh_account_connect import router as dograh_account_connect_router
 from api.routes.folder import router as folder_router
 from api.routes.knowledge_base import router as knowledge_base_router
 from api.routes.model_connections import router as model_connections_router
@@ -54,6 +55,7 @@ router.include_router(organization_router)
 router.include_router(model_connections_router)
 router.include_router(s3_router)
 router.include_router(service_keys_router)
+router.include_router(dograh_account_connect_router)
 router.include_router(organization_usage_router)
 router.include_router(reports_router)
 router.include_router(webrtc_signaling_router)

@@ -176,7 +176,7 @@ async def test_utilities_require_an_existing_usable_key(
     with pytest.raises(HTTPException) as error:
         await MPSServiceKeyClient()._runtime_service_key(42)
     assert error.value.status_code == 400
-    assert "Add a Dograh provider" in error.value.detail
+    assert "Connect your Dograh account" in error.value.detail
     assert "default" not in error.value.detail
 
 

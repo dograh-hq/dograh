@@ -313,6 +313,93 @@ class ModelConnectionClient(BaseDBClient):
             await session.commit()
             return configuration_uuid
 
+    async def store_connected_service_key(
+        self,
+        organization_id,
+        *,
+        receipt_key,
+        service_key,
+        team_name,
+        key_prefix,
+        configuration_for,
+    ):
+        """Save connected credentials, the default and a retry receipt atomically."""
+        async with self.async_session() as session:
+            await self._lock_catalog(session, organization_id)
+            receipt = await session.scalar(
+                select(OrganizationConfigurationModel).where(
+                    OrganizationConfigurationModel.organization_id == organization_id,
+                    OrganizationConfigurationModel.key == receipt_key,
+                )
+            )
+            if receipt is not None:
+                return deepcopy(receipt.value)
+            connection = await session.scalar(
+                select(ProviderConnectionModel)
+                .where(
+                    ProviderConnectionModel.organization_id == organization_id,
+                    ProviderConnectionModel.provider == "dograh",
+                    ProviderConnectionModel.is_active.is_(True),
+                )
+                .order_by(
+                    ProviderConnectionModel.created_at, ProviderConnectionModel.id
+                )
+                .limit(1)
+            )
+            if connection is None:
+                connection = ProviderConnectionModel(
+                    organization_id=organization_id,
+                    name="Dograh",
+                    provider="dograh",
+                    credentials={"api_key": service_key},
+                    connection_settings={},
+                )
+                session.add(connection)
+                await session.flush()
+            else:
+                credentials = merge_provider_credentials(
+                    connection.credentials, {"api_key": service_key}
+                )
+                if credentials != connection.credentials:
+                    connection.credentials = credentials
+                    connection.revision += 1
+                    connection.updated_at = datetime.now(UTC)
+            default = await session.scalar(
+                select(OrganizationConfigurationModel).where(
+                    OrganizationConfigurationModel.organization_id == organization_id,
+                    OrganizationConfigurationModel.key == DEFAULT_KEY,
+                )
+            )
+            made_default = not (
+                default and isinstance(default.value, str) and default.value
+            )
+            if made_default:
+                configuration = NamedModelConfigurationModel(
+                    organization_id=organization_id,
+                    name="Organization default",
+                    configuration=configuration_for(connection.uuid),
+                )
+                session.add(configuration)
+                await session.flush()
+                await self._write_default_pointer(
+                    session, organization_id, configuration.uuid
+                )
+            result = {
+                "status": "connected",
+                "team_name": team_name,
+                "key_prefix": key_prefix,
+                "made_default": made_default,
+            }
+            session.add(
+                OrganizationConfigurationModel(
+                    organization_id=organization_id,
+                    key=receipt_key,
+                    value=result,
+                )
+            )
+            await session.commit()
+            return result
+
     async def set_default_named_model_configuration(
         self, organization_id, configuration_uuid, *, expected_revision=None
     ):

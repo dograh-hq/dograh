@@ -10,6 +10,104 @@ from fastapi import FastAPI
 from api.db.model_connection_client import ModelCatalogConflict, ModelCatalogNotFound
 from api.routes import model_connections as routes
 from api.services.auth.depends import get_user_with_selected_organization
+from api.services.configuration.model_connections import dograh_model_configuration_spec
+
+
+async def connect_key(client, org, key="connected", receipt="connect:test", **kwargs):
+    return await client.store_connected_service_key(
+        org,
+        receipt_key=receipt,
+        service_key=key,
+        team_name="Acme",
+        key_prefix="mps_sk_con",
+        configuration_for=dograh_model_configuration_spec,
+        **kwargs,
+    )
+
+
+@pytest.mark.asyncio
+async def test_connected_credentials_and_receipt_are_idempotent(db_session):
+    org = await create_org(db_session)
+    first = await connect_key(db_session, org)
+    assert first["made_default"]
+    assert await connect_key(db_session, org, key="must-not-overwrite") == first
+    [connection] = await db_session.list_provider_connections(org)
+    assert connection.credentials == {"api_key": "connected"}
+    assert len(await db_session.list_named_model_configurations(org)) == 1
+    assert (await db_session.get_configuration_values(org, ["connect:test"]))[
+        "connect:test"
+    ] == first
+    other = await create_org(db_session)
+    assert await db_session.get_configuration_values(other, ["connect:test"]) == {}
+
+
+@pytest.mark.asyncio
+async def test_connect_replaces_trial_and_preserves_existing_default(db_session):
+    org = await create_org(db_session)
+    trial = await create_connection(db_session, org, "trial")
+    named = await db_session.create_named_model_configuration(
+        org, name="Existing", configuration=pipeline(trial)
+    )
+    await db_session.set_default_named_model_configuration(org, named.uuid)
+    result = await connect_key(db_session, org)
+    assert not result["made_default"]
+    assert (await db_session.get_provider_connection(org, trial.uuid)).credentials == {
+        "api_key": "connected"
+    }
+    assert len(await db_session.list_named_model_configurations(org)) == 1
+
+
+@pytest.mark.asyncio
+async def test_connect_keeps_byok_default(db_session):
+    org = await create_org(db_session)
+    byok = await db_session.create_provider_connection(
+        org,
+        name="OpenAI",
+        provider="openai",
+        credentials={"api_key": "byok"},
+        connection_settings={},
+    )
+    named = await db_session.create_named_model_configuration(
+        org, name="BYOK", configuration=pipeline(byok)
+    )
+    await db_session.set_default_named_model_configuration(org, named.uuid)
+    assert not (await connect_key(db_session, org))["made_default"]
+    assert len(await db_session.list_provider_connections(org)) == 2
+    assert (await db_session.get_provider_connection(org, byok.uuid)).credentials == {
+        "api_key": "byok"
+    }
+
+
+@pytest.mark.asyncio
+async def test_connect_existing_connection_gets_default(db_session):
+    org = await create_org(db_session)
+    trial = await create_connection(db_session, org, "trial")
+    assert (await connect_key(db_session, org))["made_default"]
+    [named] = await db_session.list_named_model_configurations(org)
+    assert named.configuration["llm"]["provider_connection_uuid"] == trial.uuid
+
+
+@pytest.mark.asyncio
+async def test_failed_connect_rolls_back_credentials_and_receipt(
+    db_session, async_session, monkeypatch
+):
+    org = await create_org(db_session)
+    trial = await create_connection(db_session, org, "trial")
+    trial_uuid = trial.uuid
+
+    async def fail(*args):
+        raise RuntimeError("write failed")
+
+    monkeypatch.setattr(db_session, "_write_default_pointer", fail)
+    with pytest.raises(RuntimeError):
+        # db_session intentionally shares one open session. A savepoint models
+        # the rollback normally performed when the production session closes.
+        async with async_session.begin_nested():
+            await connect_key(db_session, org)
+    assert (await db_session.get_provider_connection(org, trial_uuid)).credentials == {
+        "api_key": "trial"
+    }
+    assert await db_session.get_configuration_values(org, ["connect:test"]) == {}
 
 
 async def create_org(client):

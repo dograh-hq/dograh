@@ -164,9 +164,16 @@ async def get_service_key_user(
     user: UserModel = Depends(get_user),
     authorization: Annotated[str | None, Header()] = None,
 ) -> UserModel:
-    """Preserve local OSS issuance; hosted account keys require verified email."""
+    """Hosted account keys require a verified email.
+
+    Self-hosted installs never mint keys here; they connect a Dograh account
+    and collect a key bound to it (``routes/dograh_account_connect``).
+    """
     if DEPLOYMENT_MODE == "oss":
-        return user
+        raise HTTPException(
+            status_code=403,
+            detail="Connect your Dograh account on the Models page to use Dograh models",
+        )
     return await get_verified_stack_user(user, authorization)
 
 

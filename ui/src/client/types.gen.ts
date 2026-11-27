@@ -109,6 +109,114 @@ export type AriConfigurationRequest = {
 };
 
 /**
+ * AccountConnectDecision
+ */
+export type AccountConnectDecision = {
+    /**
+     * Status
+     */
+    status: 'approved' | 'denied';
+};
+
+/**
+ * AccountConnectPoll
+ */
+export type AccountConnectPoll = {
+    /**
+     * Status
+     */
+    status: 'pending' | 'connected' | 'denied' | 'expired' | 'collected';
+    /**
+     * Team Name
+     */
+    team_name?: string | null;
+    /**
+     * Key Prefix
+     */
+    key_prefix?: string | null;
+    /**
+     * Made Default
+     */
+    made_default?: boolean;
+};
+
+/**
+ * AccountConnectPollRequest
+ */
+export type AccountConnectPollRequest = {
+    /**
+     * Device Code
+     */
+    device_code: string;
+};
+
+/**
+ * AccountConnectRequest
+ */
+export type AccountConnectRequest = {
+    /**
+     * User Code
+     */
+    user_code: string;
+    /**
+     * Install Name
+     */
+    install_name: string;
+    /**
+     * Install Url
+     */
+    install_url?: string | null;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Expires In
+     */
+    expires_in: number;
+};
+
+/**
+ * AccountConnectStart
+ */
+export type AccountConnectStart = {
+    /**
+     * Device Code
+     */
+    device_code: string;
+    /**
+     * User Code
+     */
+    user_code: string;
+    /**
+     * Verification Uri
+     */
+    verification_uri: string;
+    /**
+     * Verification Uri Complete
+     */
+    verification_uri_complete: string;
+    /**
+     * Expires In
+     */
+    expires_in: number;
+    /**
+     * Interval
+     */
+    interval: number;
+};
+
+/**
+ * AccountConnectStartRequest
+ */
+export type AccountConnectStartRequest = {
+    /**
+     * Install Url
+     */
+    install_url?: string | null;
+};
+
+/**
  * ActiveCallsResponse
  */
 export type ActiveCallsResponse = {
@@ -2114,6 +2222,16 @@ export type DocumentUploadResponseSchema = {
      * S3 key where file should be uploaded
      */
     s3_key: string;
+};
+
+/**
+ * DograhAccountStatus
+ */
+export type DograhAccountStatus = {
+    /**
+     * Status
+     */
+    status: 'connected' | 'missing' | 'invalid';
 };
 
 /**
@@ -14406,6 +14524,255 @@ export type ReactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePutRes
      */
     200: unknown;
 };
+
+export type GetDograhAccountStatusData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/dograh-account/connect/status';
+};
+
+export type GetDograhAccountStatusErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetDograhAccountStatusError = GetDograhAccountStatusErrors[keyof GetDograhAccountStatusErrors];
+
+export type GetDograhAccountStatusResponses = {
+    /**
+     * Successful Response
+     */
+    200: DograhAccountStatus;
+};
+
+export type GetDograhAccountStatusResponse = GetDograhAccountStatusResponses[keyof GetDograhAccountStatusResponses];
+
+export type StartDograhAccountConnectData = {
+    body: AccountConnectStartRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/dograh-account/connect/start';
+};
+
+export type StartDograhAccountConnectErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type StartDograhAccountConnectError = StartDograhAccountConnectErrors[keyof StartDograhAccountConnectErrors];
+
+export type StartDograhAccountConnectResponses = {
+    /**
+     * Successful Response
+     */
+    200: AccountConnectStart;
+};
+
+export type StartDograhAccountConnectResponse = StartDograhAccountConnectResponses[keyof StartDograhAccountConnectResponses];
+
+export type PollDograhAccountConnectData = {
+    body: AccountConnectPollRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/dograh-account/connect/poll';
+};
+
+export type PollDograhAccountConnectErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PollDograhAccountConnectError = PollDograhAccountConnectErrors[keyof PollDograhAccountConnectErrors];
+
+export type PollDograhAccountConnectResponses = {
+    /**
+     * Successful Response
+     */
+    200: AccountConnectPoll;
+};
+
+export type PollDograhAccountConnectResponse = PollDograhAccountConnectResponses[keyof PollDograhAccountConnectResponses];
+
+export type GetDograhAccountConnectRequestData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * User Code
+         */
+        user_code: string;
+    };
+    query?: never;
+    url: '/api/v1/dograh-account/connect/requests/{user_code}';
+};
+
+export type GetDograhAccountConnectRequestErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetDograhAccountConnectRequestError = GetDograhAccountConnectRequestErrors[keyof GetDograhAccountConnectRequestErrors];
+
+export type GetDograhAccountConnectRequestResponses = {
+    /**
+     * Successful Response
+     */
+    200: AccountConnectRequest;
+};
+
+export type GetDograhAccountConnectRequestResponse = GetDograhAccountConnectRequestResponses[keyof GetDograhAccountConnectRequestResponses];
+
+export type ApproveDograhAccountConnectRequestData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * User Code
+         */
+        user_code: string;
+    };
+    query?: never;
+    url: '/api/v1/dograh-account/connect/requests/{user_code}/approve';
+};
+
+export type ApproveDograhAccountConnectRequestErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ApproveDograhAccountConnectRequestError = ApproveDograhAccountConnectRequestErrors[keyof ApproveDograhAccountConnectRequestErrors];
+
+export type ApproveDograhAccountConnectRequestResponses = {
+    /**
+     * Successful Response
+     */
+    200: AccountConnectDecision;
+};
+
+export type ApproveDograhAccountConnectRequestResponse = ApproveDograhAccountConnectRequestResponses[keyof ApproveDograhAccountConnectRequestResponses];
+
+export type DenyDograhAccountConnectRequestData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * User Code
+         */
+        user_code: string;
+    };
+    query?: never;
+    url: '/api/v1/dograh-account/connect/requests/{user_code}/deny';
+};
+
+export type DenyDograhAccountConnectRequestErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DenyDograhAccountConnectRequestError = DenyDograhAccountConnectRequestErrors[keyof DenyDograhAccountConnectRequestErrors];
+
+export type DenyDograhAccountConnectRequestResponses = {
+    /**
+     * Successful Response
+     */
+    200: AccountConnectDecision;
+};
+
+export type DenyDograhAccountConnectRequestResponse = DenyDograhAccountConnectRequestResponses[keyof DenyDograhAccountConnectRequestResponses];
 
 export type GetOrganizationConcurrentCallsApiV1OrganizationsConcurrentCallsGetData = {
     body?: never;

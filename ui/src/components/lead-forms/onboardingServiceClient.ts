@@ -64,7 +64,3 @@ export async function postLeadToService(
   return post(LEAD_PATH[kind], body);
 }
 
-// Persist an onboarding submission (or skip — body carries `skipped`).
-export async function postOnboardingToService(body: Record<string, unknown>): Promise<void> {
-  await post("/api/v1/onboarding", body);
-}

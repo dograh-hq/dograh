@@ -11,18 +11,26 @@ from api.routes import organization_usage
 
 
 @pytest.mark.asyncio
-async def test_get_billing_credits_oss_aggregates_by_created_by(monkeypatch):
+async def test_get_billing_credits_oss_uses_configured_account_key(monkeypatch):
     monkeypatch.setattr(organization_usage, "DEPLOYMENT_MODE", "oss")
     get_usage = AsyncMock(
         return_value={"total_credits_used": 12.5, "remaining_credits": 487.5}
     )
     monkeypatch.setattr(
         organization_usage.mps_service_key_client,
-        "get_usage_by_created_by",
+        "check_service_key_usage",
         get_usage,
     )
+    resolve_key = AsyncMock(return_value="mps_sk_connected")
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client, "_runtime_service_key", resolve_key
+    )
+    legacy = AsyncMock()
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client, "get_usage_by_created_by", legacy
+    )
 
-    user = SimpleNamespace(provider_id="provider-123", selected_organization_id=None)
+    user = SimpleNamespace(provider_id="oss-local-user", selected_organization_id=42)
 
     response = await organization_usage.get_billing_credits(
         page=1,
@@ -30,11 +38,44 @@ async def test_get_billing_credits_oss_aggregates_by_created_by(monkeypatch):
         user=user,
     )
 
-    get_usage.assert_awaited_once_with("provider-123")
+    resolve_key.assert_awaited_once_with(42)
+    get_usage.assert_awaited_once_with("mps_sk_connected")
+    legacy.assert_not_awaited()
     assert response.total_credits_used == 12.5
     assert response.remaining_credits == 487.5
     assert response.total_quota == 500.0
     assert response.ledger_entries == []
+
+
+@pytest.mark.asyncio
+async def test_unconnected_oss_has_no_invented_trial_credits(monkeypatch):
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "_runtime_service_key",
+        AsyncMock(side_effect=HTTPException(400, "Connect an account")),
+    )
+    response = await organization_usage._oss_mps_credits_response(
+        SimpleNamespace(selected_organization_id=42)
+    )
+    assert response.total_quota == 0 and response.remaining_credits == 0
+
+
+@pytest.mark.asyncio
+async def test_oss_balance_failure_does_not_fall_back_to_anonymous_quota(monkeypatch):
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "_runtime_service_key",
+        AsyncMock(return_value="mps_sk_connected"),
+    )
+    monkeypatch.setattr(
+        organization_usage.mps_service_key_client,
+        "check_service_key_usage",
+        AsyncMock(side_effect=ConnectionError("MPS down")),
+    )
+    with pytest.raises(ConnectionError):
+        await organization_usage._oss_mps_credits_response(
+            SimpleNamespace(selected_organization_id=42)
+        )
 
 
 @pytest.mark.asyncio

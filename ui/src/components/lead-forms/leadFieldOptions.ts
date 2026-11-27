@@ -6,7 +6,6 @@ export type LeadSource =
   | "billing_custom_pricing"
   | "builder_nudge"
   | "hire_expert"
-  | "onboarding"
   | "pricing_custom_volume"
   | "landing_contact"
   | "auth_page";
@@ -48,59 +47,4 @@ export const ENTERPRISE_DEPLOYMENT_OPTIONS = [
   { value: "yes", label: "Yes" },
   { value: "no", label: "No" },
   { value: "maybe", label: "Maybe" },
-] as const;
-
-// ---------------------------------------------------------------------------
-// Post-signup onboarding form options
-// ---------------------------------------------------------------------------
-
-// Onboarding: are you migrating from another provider? (a trimmed competitor list).
-// "no" → not migrating; "other" → reveals a free-text provider field.
-export const ONBOARDING_MIGRATION_OPTIONS = [
-  { value: "no", label: "No, I'm not migrating" },
-  { value: "vapi", label: "Vapi" },
-  { value: "retell", label: "Retell" },
-  { value: "bland", label: "Bland" },
-  { value: "elevenlabs", label: "ElevenLabs" },
-  { value: "synthflow", label: "Synthflow" },
-  { value: "other", label: "Other" },
-] as const;
-
-// Onboarding: how did you hear about us? (trimmed).
-export const ONBOARDING_HEARD_OPTIONS = [
-  { value: "github", label: "GitHub" },
-  { value: "search_engine", label: "Search engine" },
-  { value: "social_media", label: "Social media (Twitter, LinkedIn)" },
-  { value: "youtube", label: "YouTube" },
-  { value: "ai_tool", label: "AI tool (ChatGPT, Claude)" },
-  { value: "referral", label: "Someone told me about it" },
-  { value: "other", label: "Other" },
-] as const;
-
-// Onboarding: expected monthly call volume. Its own set — value "exploring" is NOT
-// the qualifier's "not-sure"; onboarding has no flow, so this is analytics-only.
-export const ONBOARDING_VOLUME_OPTIONS = [
-  { value: "0-5k", label: "0–5k" },
-  { value: "5k-100k", label: "5k–100k" },
-  { value: "100k+", label: "100k+" },
-  { value: "exploring", label: "Exploring" },
-] as const;
-
-// Onboarding: what best describes you.
-export const ONBOARDING_PERSONA_OPTIONS = [
-  { value: "enterprise_midmarket", label: "Enterprise / Mid-Market" },
-  { value: "agency", label: "Agency / consultancy building for clients" },
-  { value: "local_business", label: "Local business" },
-  { value: "startup", label: "Startup" },
-  { value: "solo", label: "Solo founder / builder" },
-] as const;
-
-// Persona values that unlock the on-prem conditional question.
-export const ONBOARDING_ONPREM_PERSONAS: readonly string[] = ["enterprise_midmarket"];
-
-// Onboarding: on-prem deployment need (conditional on Enterprise/Mid-Market).
-export const ONBOARDING_ONPREM_OPTIONS = [
-  { value: "yes", label: "Yes" },
-  { value: "no", label: "No" },
-  { value: "not_sure", label: "Not sure" },
 ] as const;

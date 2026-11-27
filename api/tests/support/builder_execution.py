@@ -116,6 +116,10 @@ async def builder_execution(monkeypatch):
         AsyncMock(return_value=True),
     )
     monkeypatch.setattr(execution, "enqueue_builder_run", enqueue)
+    # Admission requires a Dograh key; these tests stub inference separately.
+    monkeypatch.setattr(
+        execution, "builder_service_key", AsyncMock(return_value="test-service-key")
+    )
     yield SimpleNamespace(rows=rows, events=events, tasks=tasks, enqueue=enqueue)
     for task in tasks:
         if not task.done():

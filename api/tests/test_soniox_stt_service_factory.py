@@ -39,9 +39,9 @@ def test_soniox_stt_configuration_exposes_defaults_and_languages():
     ]
 
     assert config.provider == ServiceProviders.SONIOX
-    assert config.model == "stt-rt-v5"
+    assert config.model == "stt-rt-v6"
     assert config.language == "multi"
-    assert SONIOX_STT_MODELS == ("stt-rt-v5",)
+    assert SONIOX_STT_MODELS == ("stt-rt-v6",)
     assert "multi" in SONIOX_STT_LANGUAGES
     assert "hi" in SONIOX_STT_LANGUAGES
     assert language_schema["examples"] == list(SONIOX_STT_LANGUAGES)
@@ -67,7 +67,7 @@ def test_soniox_stt_uses_local_turns_with_language_hint():
     assert kwargs["api_key"] == "test-key"
     assert kwargs["sample_rate"] == 16000
     assert kwargs["vad_force_turn_endpoint"] is True
-    assert kwargs["settings"].model == "stt-rt-v5"
+    assert kwargs["settings"].model == "stt-rt-v6"
     assert kwargs["settings"].language_hints == [Language.HI]
 
 

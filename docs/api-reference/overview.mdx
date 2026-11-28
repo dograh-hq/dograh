@@ -11,11 +11,21 @@ All API requests are made to:
 https://your-dograh-instance/api/v1
 ```
 
-If you are using the hosted version, the base URL is `https://app.dograh.com/api/v1`.
+If you are using the hosted version, the base URL is `https://api.dograh.com/api/v1`. Use the same host for the [SDKs](/sdks/introduction) and the [MCP server](/integrations/mcp).
+
+<Note>
+Earlier versions of these docs gave `https://app.dograh.com/api/v1`. That address belongs to the dashboard: it forwards each request to `api.dograh.com`, which adds a hop, and it may rate limit API traffic. Point your integrations at `https://api.dograh.com`.
+</Note>
 
 ## Versioning
 
 The current API version is `v1`. The version is included in the URL path.
+
+## Getting run results
+
+To act on a call as soon as it ends, add a [Webhook node](/voice-agent/webhook) to the agent. Dograh sends the run's outcome and extracted variables to your endpoint after every run (see [Webhook Payloads](/developer/webhooks)), so you don't need to poll for results.
+
+If you do poll `GET /workflow/{workflow_id}/runs`, keep the interval modest (for example, once a minute), poll only agents that have calls in progress, and back off when you receive HTTP `429`.
 
 ## Request format
 

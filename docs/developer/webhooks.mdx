@@ -12,7 +12,7 @@ Dograh executes **webhook nodes** asynchronously after a workflow run completes.
 1. A call completes (or a run finishes)
 2. Dograh executes any `webhook` nodes in the workflow asynchronously
 3. The payload template is rendered with the run's context and sent as a JSON `POST` (or your configured method) to your endpoint
-4. Non-200 responses are logged but do not block or retry by default (configure `retry_config` to change this)
+4. Any `2xx` response counts as delivered. Network errors, timeouts and `408`, `425`, `429` or `5xx` responses are retried with exponential backoff, up to 5 attempts in total. Any other response stops delivery for that run.
 
 ---
 

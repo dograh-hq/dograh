@@ -51,6 +51,45 @@ Dograh AI answers voice calls that WhatsApp users place to your WhatsApp Busines
   />
 </Frame>
 
+<Tip>
+  **Quickstart (Optional): Automate Steps 3–6**
+
+  You can automate the remaining steps (Dograh configuration, number syncing, webhook setup, calling activation, and agent workflow creation) in one command using [wavoice](https://github.com/amitbhakt/wavoice). Requires [`uv`](https://docs.astral.sh/uv/) installed on your system.
+
+  ```bash
+  uvx wavoice dograh setup
+  ```
+
+  You will be prompted for:
+  - **Dograh API Key** — From [app.dograh.com/api-keys](https://app.dograh.com/api-keys) (under **API Keys**)
+  - **Meta Access Token** — System User token from Step 2
+  - **Meta App Secret** — From Step 2
+
+  <Accordion title="What this command automates">
+    - **Auto-discovers** your WhatsApp Business Account ID (WABA ID) and Phone Number ID from your token
+    - **Enables WhatsApp Voice Calling** on your phone number via Meta Graph API
+    - **Creates the WhatsApp telephony configuration** in Dograh AI
+    - **Syncs phone numbers** from Meta into Dograh
+    - **Deploys a starter voice assistant workflow** ("WhatsApp Voice Assistant") and binds it as the inbound agent
+    - **Configures Meta Webhooks** on your WABA and phone number pointing to Dograh Cloud
+  </Accordion>
+
+  <Accordion title="Passing credentials via flags">
+    ```bash
+    uvx wavoice dograh setup \
+      --api-key "<DOGRAH_API_KEY>" \
+      --token "<META_ACCESS_TOKEN>" \
+      --secret "<META_APP_SECRET>"
+    ```
+  </Accordion>
+
+  Once finished, call your WhatsApp number to test immediately.
+
+  ---
+
+  **Prefer manual setup?** Skip to [Step 3: Configure in Dograh AI](#step-3-configure-in-dograh-ai) below.
+</Tip>
+
 ## Step 3: Configure in Dograh AI
 
 1. Navigate to **/telephony-configurations**, click **Add configuration**, and select **WhatsApp**

@@ -534,7 +534,7 @@ AWS_BEDROCK_MODELS = [
     "us.amazon.nova-pro-v1:0",
     "us.amazon.nova-lite-v1:0",
     "us.amazon.nova-micro-v1:0",
-    "us.anthropic.claude-sonnet-4-20250514-v1:0",
+    "us.anthropic.claude-sonnet-4-6",
     "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
     "us.anthropic.claude-haiku-4-5-20251001-v1:0",
 ]

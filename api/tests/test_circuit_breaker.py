@@ -265,8 +265,8 @@ class TestRecordAndEvaluate:
                 "api.services.campaign.circuit_breaker.get_campaign_event_publisher"
             ) as mock_get_publisher,
         ):
-            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
-            mock_db.update_campaign = AsyncMock()
+            mock_db.get_campaign = AsyncMock(return_value=mock_campaign)
+            mock_db.update_campaign_state = AsyncMock()
             mock_db.append_campaign_log = AsyncMock()
 
             mock_publisher = AsyncMock()
@@ -276,12 +276,12 @@ class TestRecordAndEvaluate:
             cb.record_call_outcome = AsyncMock(return_value=(True, stats))
 
             await cb.record_and_evaluate(
-                campaign_id=42, is_failure=True, workflow_run_id=100
+                campaign_id=42, is_failure=True, organization_id=7, workflow_run_id=100
             )
 
             # Verify campaign was paused
-            mock_db.update_campaign.assert_called_once_with(
-                campaign_id=42, state="paused"
+            mock_db.update_campaign_state.assert_called_once_with(
+                campaign_id=42, state="paused", organization_id=7
             )
 
             # Verify event was published
@@ -300,15 +300,15 @@ class TestRecordAndEvaluate:
         mock_campaign.orchestrator_metadata = {}
 
         with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
-            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            mock_db.get_campaign = AsyncMock(return_value=mock_campaign)
 
             cb.record_call_outcome = AsyncMock(return_value=(False, None))
 
             await cb.record_and_evaluate(
-                campaign_id=42, is_failure=False, workflow_run_id=100
+                campaign_id=42, is_failure=False, organization_id=7, workflow_run_id=100
             )
 
-            mock_db.update_campaign.assert_not_called()
+            mock_db.update_campaign_state.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_skips_when_campaign_not_running(self):
@@ -322,12 +322,12 @@ class TestRecordAndEvaluate:
         mock_campaign.state = "paused"
 
         with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
-            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            mock_db.get_campaign = AsyncMock(return_value=mock_campaign)
 
             cb.record_call_outcome = AsyncMock()
 
             await cb.record_and_evaluate(
-                campaign_id=42, is_failure=True, workflow_run_id=100
+                campaign_id=42, is_failure=True, organization_id=7, workflow_run_id=100
             )
 
             # Should not even attempt to record
@@ -347,12 +347,12 @@ class TestRecordAndEvaluate:
         mock_campaign.orchestrator_metadata = {"circuit_breaker": custom_config}
 
         with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
-            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            mock_db.get_campaign = AsyncMock(return_value=mock_campaign)
 
             cb.record_call_outcome = AsyncMock(return_value=(False, None))
 
             await cb.record_and_evaluate(
-                campaign_id=42, is_failure=True, workflow_run_id=100
+                campaign_id=42, is_failure=True, organization_id=7, workflow_run_id=100
             )
 
             cb.record_call_outcome.assert_called_once_with(
@@ -371,11 +371,11 @@ class TestRecordAndEvaluate:
         cb = CircuitBreaker()
 
         with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
-            mock_db.get_campaign_by_id = AsyncMock(side_effect=Exception("DB exploded"))
+            mock_db.get_campaign = AsyncMock(side_effect=Exception("DB exploded"))
 
             # Should NOT raise
             await cb.record_and_evaluate(
-                campaign_id=42, is_failure=True, workflow_run_id=100
+                campaign_id=42, is_failure=True, organization_id=7, workflow_run_id=100
             )
 
 
@@ -402,7 +402,7 @@ class TestCircuitBreakerRecentFailures:
         mock_campaign.orchestrator_metadata = {}
 
         with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
-            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            mock_db.get_campaign = AsyncMock(return_value=mock_campaign)
             mock_db.append_campaign_log = AsyncMock()
             cb.record_call_outcome = AsyncMock(return_value=(False, None))
             cb._get_recent_failures = AsyncMock(return_value=[])
@@ -410,6 +410,7 @@ class TestCircuitBreakerRecentFailures:
             await cb.record_and_evaluate(
                 campaign_id=42,
                 is_failure=True,
+                organization_id=7,
                 workflow_run_id=100,
                 reason="pipeline_error",
             )
@@ -435,13 +436,14 @@ class TestCircuitBreakerRecentFailures:
         mock_campaign.orchestrator_metadata = {}
 
         with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
-            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            mock_db.get_campaign = AsyncMock(return_value=mock_campaign)
             cb.record_call_outcome = AsyncMock(return_value=(False, None))
             cb._get_recent_failures = AsyncMock(return_value=[])
 
             await cb.record_and_evaluate(
                 campaign_id=42,
                 is_failure=False,
+                organization_id=7,
                 workflow_run_id=100,
                 reason=None,
             )
@@ -486,8 +488,8 @@ class TestCircuitBreakerRecentFailures:
                 "api.services.campaign.circuit_breaker.get_campaign_event_publisher"
             ) as mock_get_publisher,
         ):
-            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
-            mock_db.update_campaign = AsyncMock()
+            mock_db.get_campaign = AsyncMock(return_value=mock_campaign)
+            mock_db.update_campaign_state = AsyncMock()
             mock_db.append_campaign_log = AsyncMock()
 
             mock_publisher = AsyncMock()
@@ -499,6 +501,7 @@ class TestCircuitBreakerRecentFailures:
             await cb.record_and_evaluate(
                 campaign_id=42,
                 is_failure=True,
+                organization_id=7,
                 workflow_run_id=100,
                 reason="pipeline_error",
             )
@@ -606,6 +609,11 @@ async def test_repeated_carrier_callbacks_do_not_record_outcomes(
     assert notify.await_count == 2
 
 
+# =============================================================================
+# Integration test: resume_campaign resets circuit breaker
+# =============================================================================
+
+
 class TestResumeCampaignResetsCircuitBreaker:
     """Test that resuming a campaign resets the circuit breaker."""
 
@@ -622,12 +630,12 @@ class TestResumeCampaignResetsCircuitBreaker:
             patch("api.services.campaign.runner.db_client") as mock_db,
             patch("api.services.campaign.runner.circuit_breaker") as mock_cb,
         ):
-            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
-            mock_db.update_campaign = AsyncMock()
+            mock_db.get_campaign = AsyncMock(return_value=mock_campaign)
+            mock_db.update_campaign_state = AsyncMock()
             mock_cb.reset = AsyncMock(return_value=True)
 
             runner = CampaignRunnerService()
-            await runner.resume_campaign(42)
+            await runner.resume_campaign(42, organization_id=7)
 
             # Verify circuit breaker was reset
             mock_cb.reset.assert_called_once_with(42)

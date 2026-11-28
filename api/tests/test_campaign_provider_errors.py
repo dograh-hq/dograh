@@ -153,7 +153,7 @@ async def test_resume_clears_old_ratio_before_readmitting_dispatch(monkeypatch):
     events = []
     monkeypatch.setattr(
         runner.db_client,
-        "get_campaign_by_id",
+        "get_campaign",
         AsyncMock(return_value=SimpleNamespace(state="paused", organization_id=1)),
     )
     monkeypatch.setattr(
@@ -174,5 +174,5 @@ async def test_resume_clears_old_ratio_before_readmitting_dispatch(monkeypatch):
         "campaign_resume_transition",
         transition,
     )
-    await runner.campaign_runner_service.resume_campaign(8)
+    await runner.campaign_runner_service.resume_campaign(8, 1)
     assert events == ["locked", "reset", "running"]

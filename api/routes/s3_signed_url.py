@@ -50,9 +50,17 @@ def _extract_org_id_from_key(key: str) -> Optional[int]:
     *org_id* is a positive integer. Workflow recordings require an additional
     path segment so they cannot be confused with legacy workflow-run artifacts
     such as ``recordings/{run_id}/user.wav``. Returns ``None`` when the pattern
-    does not match.
+    does not match. Ambient noise requires a workflow ID and one sanitized filename.
     """
     parts = key.split("/")
+    ambient_match = re.fullmatch(
+        r"ambient-noise/([1-9][0-9]*)/[1-9][0-9]*/([a-zA-Z0-9._-]+)", key
+    )
+    if ambient_match and ambient_match.group(2) not in (".", ".."):
+        try:
+            return int(ambient_match.group(1))
+        except ValueError:
+            return None
     if (
         len(parts) >= 3
         and parts[0] in ORG_SCOPED_STORAGE_PREFIXES

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any
+
+from loguru import logger
 
 from api.errors.failure import ErrorSource, classify_exception, log_failure
 from api.services.integrations.base import (
+    ContextProvider,
     IntegrationCompletionContext,
     IntegrationNodeRegistration,
     IntegrationPackageSpec,
     IntegrationRuntimeContext,
+    IntegrationTool,
 )
 from api.services.workflow.node_data import BaseNodeData
 
@@ -90,6 +95,69 @@ def create_runtime_sessions(
             continue
         sessions.extend(package.create_runtime_sessions(context))
     return sessions
+
+
+def create_integration_tools(
+    workflow_graph: Any,
+    *,
+    realtime: bool = False,
+    reserved_names: Collection[str] = (),
+) -> list[IntegrationTool]:
+    """Collect the tools integrations add to a node.
+
+    A tool whose name the node already uses, for a transition, custom tool or
+    knowledge base, is left out, so an integration can never take over a
+    function the workflow defines.
+    """
+    _ensure_loaded()
+    tools: list[IntegrationTool] = []
+    taken = set(reserved_names)
+    for package in all_packages():
+        if package.create_tools is None:
+            continue
+        # A failing integration loses its tools; the conversation keeps going.
+        try:
+            created = package.create_tools(workflow_graph, realtime=realtime)
+        except Exception as exc:
+            log_failure(
+                classify_exception(
+                    exc,
+                    source=ErrorSource.INTEGRATION,
+                    provider=package.name,
+                ),
+                integration_package=package.name,
+            )
+            continue
+        for tool in created:
+            if tool.name in taken:
+                logger.warning(
+                    f"Integration '{package.name}' tool '{tool.name}' skipped: "
+                    "the node already has a function with that name"
+                )
+                continue
+            taken.add(tool.name)
+            tools.append(tool)
+    return tools
+
+
+def create_integration_context_providers(workflow_graph: Any) -> list[ContextProvider]:
+    _ensure_loaded()
+    providers: list[ContextProvider] = []
+    for package in all_packages():
+        if package.create_context_providers is None:
+            continue
+        try:
+            providers.extend(package.create_context_providers(workflow_graph))
+        except Exception as exc:
+            log_failure(
+                classify_exception(
+                    exc,
+                    source=ErrorSource.INTEGRATION,
+                    provider=package.name,
+                ),
+                integration_package=package.name,
+            )
+    return providers
 
 
 def iter_completion_packages(

@@ -15,6 +15,9 @@ from api.services.pipecat.speech_playback import PlaybackOutcome, SpeechPlayback
         # Chinese has no spaces between words; each character is a word.
         ("不要继续说了", True),
         ("停", False),
+        # Japanese is written the same way: each kana or kanji is a word.
+        ("やめてください", True),
+        ("止", False),
         ("please stop", True),
         ("stop", False),
     ],

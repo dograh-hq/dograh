@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.52.1 (2026-11-28)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Bug Fixes
+* fix: defer text chat final extraction to the completion worker by @a6kme in https://github.com/dograh-hq/dograh/pull/1015
+### Documentation
+* docs: point API, SDK and MCP examples at api.dograh.com by @a6kme in https://github.com/dograh-hq/dograh/pull/1017
+
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.52.0...dograh-v1.52.1
+
 ## 1.52.0 (2026-11-27)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

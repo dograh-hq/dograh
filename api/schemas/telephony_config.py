@@ -198,6 +198,7 @@ class TelephonyConfigurationListResponse(BaseModel):
 __all__ = [
     "ARIConfigurationRequest",
     "CloudonixConfigurationRequest",
+    "DialConfigurationRequest",
     "ExotelConfigurationRequest",
     "PlivoConfigurationRequest",
     "TelephonyConfigRequest",

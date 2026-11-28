@@ -16,13 +16,15 @@ pipeline does not start by replaying seconds of stale caller audio.
 
 import asyncio
 import json
+from collections import deque
 from typing import Any, Optional
 
 from fastapi import WebSocket
 from loguru import logger
 
-# ~1 s of 20 ms media frames. Older frames are dropped while nobody reads.
-_MAX_BUFFERED_FRAMES = 50
+# ~1 s of 20 ms media frames. Older audio is dropped while nobody reads;
+# control frames (dtmf, mark, call_ended, ...) are always kept.
+_MAX_BUFFERED_MEDIA_FRAMES = 50
 
 _DISCONNECT = {"type": "websocket.disconnect", "code": 1006}
 
@@ -32,7 +34,10 @@ class DialWebSocket:
 
     def __init__(self, websocket: WebSocket) -> None:
         self._websocket = websocket
-        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        # (message, is_media) pairs, oldest first.
+        self._buffer: deque[tuple[dict[str, Any], bool]] = deque()
+        self._media_count = 0
+        self._ready = asyncio.Event()
         self._pump_task: Optional[asyncio.Task] = None
         self._closed = False
 
@@ -76,21 +81,43 @@ class DialWebSocket:
             logger.debug(f"Could not echo Dial ping_pong: {e}")
         return True
 
+    @staticmethod
+    def _is_media(message: dict[str, Any]) -> bool:
+        text = message.get("text")
+        if not text or "media" not in text:
+            return False
+        try:
+            frame = json.loads(text)
+        except json.JSONDecodeError:
+            return False
+        return isinstance(frame, dict) and frame.get("type") == "media"
+
     def _enqueue(self, message: dict[str, Any]) -> None:
-        while self._queue.qsize() >= _MAX_BUFFERED_FRAMES:
-            try:
-                self._queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        self._queue.put_nowait(message)
+        is_media = self._is_media(message)
+        if is_media and self._media_count >= _MAX_BUFFERED_MEDIA_FRAMES:
+            # Drop the oldest audio frame, never a control frame.
+            for i, (_, queued_is_media) in enumerate(self._buffer):
+                if queued_is_media:
+                    del self._buffer[i]
+                    self._media_count -= 1
+                    break
+        self._buffer.append((message, is_media))
+        if is_media:
+            self._media_count += 1
+        self._ready.set()
 
     async def receive(self) -> dict[str, Any]:
         """Next non-keepalive ASGI message, or a disconnect once the socket ends."""
         if self._pump_task is None:
             self.start()
-        if self._closed and self._queue.empty():
+        if self._closed and not self._buffer:
             return dict(_DISCONNECT)
-        message = await self._queue.get()
+        while not self._buffer:
+            self._ready.clear()
+            await self._ready.wait()
+        message, is_media = self._buffer.popleft()
+        if is_media:
+            self._media_count -= 1
         if message.get("type") == "websocket.disconnect":
             self._closed = True
         return message
@@ -130,7 +157,13 @@ class DialWebSocket:
             self._pump_task.cancel()
             try:
                 await self._pump_task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
+                # The pump's own cancellation is expected; the caller being
+                # cancelled is not ours to swallow.
+                current = asyncio.current_task()
+                if current is not None and current.cancelling():
+                    raise
+            except Exception:
                 pass
 
     def __getattr__(self, name: str) -> Any:

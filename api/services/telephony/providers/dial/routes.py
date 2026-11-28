@@ -131,6 +131,22 @@ async def dial_media_socket(websocket: WebSocket, account_id: str, call_id: str)
         await socket.stop()
 
 
+async def _find_run_for_call(call_id: str):
+    """The run that placed ``call_id``, waiting briefly for it to be stored.
+
+    ``initiate_call`` stores the Dial call id only after ``POST /calls``
+    returns, so a socket or a webhook can arrive for a call whose run does not
+    know its id yet.
+    """
+    for attempt in range(_OUTBOUND_RUN_LOOKUP_ATTEMPTS):
+        run = await db_client.get_workflow_run_by_call_id(call_id)
+        if run:
+            return run
+        if attempt + 1 < _OUTBOUND_RUN_LOOKUP_ATTEMPTS:
+            await asyncio.sleep(_OUTBOUND_RUN_LOOKUP_INTERVAL_SECONDS)
+    return None
+
+
 async def _provider_for_run(run) -> Optional[DialProvider]:
     if (run.initial_context or {}).get("provider") != PROVIDER_NAME:
         return None
@@ -141,12 +157,7 @@ async def _provider_for_run(run) -> Optional[DialProvider]:
 async def _serve_outbound(
     socket: DialWebSocket, account_id: str, call_id: str, signature: Optional[str]
 ) -> None:
-    run = None
-    for _ in range(_OUTBOUND_RUN_LOOKUP_ATTEMPTS):
-        run = await db_client.get_workflow_run_by_call_id(call_id)
-        if run:
-            break
-        await asyncio.sleep(_OUTBOUND_RUN_LOOKUP_INTERVAL_SECONDS)
+    run = await _find_run_for_call(call_id)
 
     if not run:
         # Not a call Dograh placed (e.g. one made from the Dial dashboard
@@ -381,8 +392,26 @@ async def dial_events(account_id: str, request: Request):
         # webhook.ping and any event types added later: acknowledged, ignored.
         return {"status": "ignored"}
 
-    call_id = (event.get("data") or {}).get("callId")
-    run = await db_client.get_workflow_run_by_call_id(call_id) if call_id else None
+    data = event.get("data") or {}
+    call_id = data.get("callId")
+    if not call_id:
+        return {"status": "ignored"}
+
+    if data.get("direction") == "outbound":
+        run = await _find_run_for_call(call_id)
+        if not run:
+            # A call that fails at once can report call.ended before the run
+            # that placed it has stored its id. Answering 2xx would drop the
+            # only signal that closes that run, so ask Dial to retry: it
+            # redelivers with backoff (https://docs.getdial.ai/documentation/platform/webhooks#retries).
+            logger.warning(
+                f"[Dial] call.ended for {call_id} arrived before its run; retrying"
+            )
+            raise HTTPException(status_code=503, detail="Workflow run not found yet")
+    else:
+        # Inbound runs are created before the pipeline starts, so a missing run
+        # means Dograh never accepted the call: nothing to close.
+        run = await db_client.get_workflow_run_by_call_id(call_id)
     if not run or (run.initial_context or {}).get("provider") != PROVIDER_NAME:
         return {"status": "ignored"}
 

@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from fastapi import HTTPException
 from loguru import logger
 
-from api.enums import TelephonyCallStatus
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -36,7 +36,7 @@ from .signatures import SIGNATURE_HEADER, verify_dial_signature
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
-PROVIDER_NAME = "dial"
+PROVIDER_NAME = WorkflowRunMode.DIAL.value
 
 # POST /api/v1/calls requires an instruction. In Self-Hosted audio mode Dial
 # runs no agent of its own; the text only comes back to us in call_connected.

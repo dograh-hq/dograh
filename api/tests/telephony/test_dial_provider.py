@@ -328,7 +328,17 @@ async def test_list_provider_phone_numbers_keeps_only_voice_numbers():
 
 
 class _FakeDialClient:
-    def __init__(self, *, access="granted", webhooks=None, account_id=ACCOUNT_ID):
+    def __init__(
+        self,
+        *,
+        access="granted",
+        webhooks=None,
+        account_id=ACCOUNT_ID,
+        created_secret=WEBHOOK_SECRET,
+        fetched_secret=None,
+    ):
+        self.created_secret = created_secret
+        self.fetched_secret = fetched_secret
         self.access = access
         self.webhooks = list(webhooks or [])
         self.account_id = account_id
@@ -359,10 +369,15 @@ class _FakeDialClient:
 
     async def create_webhook(self, target_url, event_types):
         self.calls.append(("create_webhook", target_url, event_types))
-        return {"id": "wh_new", "targetUrl": target_url, "secret": WEBHOOK_SECRET}
+        return {"id": "wh_new", "targetUrl": target_url, "secret": self.created_secret}
 
     async def get_webhook_secret(self, webhook_id):
+        if self.fetched_secret is not None:
+            return self.fetched_secret
         return f"secret-for-{webhook_id}"
+
+    async def delete_webhook(self, webhook_id):
+        self.calls.append(("delete_webhook", webhook_id))
 
 
 def _patch_setup(fake):
@@ -702,3 +717,219 @@ def test_unsigned_event_is_rejected_like_an_unknown_account():
 
     assert response.status_code == 404
     db.get_workflow_run_by_call_id.assert_not_awaited()
+
+
+# --------------------------------------------------------------------------
+# Review follow-ups
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "t=" + "9" * 400 + ",v1=00",  # would overflow float arithmetic
+        "t=1e9,v1=00",
+        "t=²³,v1=00",  # unicode digits int() rejects
+        f"t={int(time.time())},v1=ééé",  # non-ASCII signature
+    ],
+)
+def test_hostile_signature_headers_are_rejected_not_raised(header):
+    assert verify_dial_signature(AUDIO_SECRET, header, CALL_ID) is False
+
+
+async def test_serializer_drops_malformed_media_instead_of_raising():
+    serializer = await _serializer()
+    for payload in ("not base64!!", "QUJD=extra", 12345):
+        frame = await serializer.deserialize(
+            json.dumps({"type": "media", "payload": payload})
+        )
+        assert frame is None
+
+
+async def test_wrapper_keeps_control_frames_when_dropping_old_audio():
+    dtmf = json.dumps({"type": "dtmf", "digit": "5"})
+    frames = [{"type": "websocket.receive", "text": dtmf}] + [
+        {"type": "websocket.receive", "text": json.dumps({"type": "media", "seq": i})}
+        for i in range(200)
+    ]
+    socket = DialWebSocket(_FakeSocket(frames))
+    socket.start()
+    await asyncio.sleep(0.05)
+
+    first = json.loads((await socket.receive())["text"])
+    second = json.loads((await socket.receive())["text"])
+    assert first == {"type": "dtmf", "digit": "5"}
+    assert second["seq"] == 150
+    await socket.stop()
+
+
+async def test_wrapper_stop_does_not_swallow_the_callers_cancellation():
+    socket = DialWebSocket(_FakeSocket([]))
+    socket.start()
+    await asyncio.sleep(0)
+
+    # stop() cancels the pump and awaits it; cancel the caller mid-await.
+    task = asyncio.create_task(socket.stop())
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_save_rejects_a_webhook_without_a_signing_secret():
+    fake = _FakeDialClient(created_secret="", fetched_secret="")
+    client_patch, endpoints_patch = _patch_setup(fake)
+    with client_patch, endpoints_patch, pytest.raises(HTTPException) as exc:
+        await dial_package._ensure_dial_setup({"api_key": "sk_live_test"})
+    assert "signing secret" in exc.value.detail
+
+
+async def test_save_replaces_a_stored_webhook_that_points_at_an_old_url():
+    target = f"https://dograh.example/api/v1/telephony/dial/events/{ACCOUNT_ID}"
+    fake = _FakeDialClient(
+        webhooks=[
+            {"id": "wh_1", "targetUrl": "https://old-tunnel.example/events"},
+            {"id": "wh_2", "targetUrl": target},
+        ]
+    )
+    client_patch, endpoints_patch = _patch_setup(fake)
+    with client_patch, endpoints_patch:
+        saved = await dial_package._ensure_dial_setup(_credentials())
+
+    # The webhook already targeting this backend is reused, not duplicated,
+    # and the stale one this configuration created is removed.
+    assert saved["webhook_id"] == "wh_2"
+    assert saved["webhook_secret"] == "secret-for-wh_2"
+    assert ("delete_webhook", "wh_1") in fake.calls
+    assert not [c for c in fake.calls if c[0] == "create_webhook"]
+
+
+def test_config_loader_does_not_read_numbers_from_credentials():
+    loaded = dial_package._config_loader({**_credentials(), "from_numbers": ["+1"]})
+    assert "from_numbers" not in loaded
+
+
+def test_outbound_socket_for_a_run_on_another_dial_account_is_rejected():
+    pipeline = AsyncMock()
+    other_account = _provider(account_id="acct_other")
+    with (
+        patch("api.services.telephony.providers.dial.routes.db_client") as db,
+        patch(
+            "api.services.telephony.providers.dial.routes.get_telephony_provider_for_run",
+            AsyncMock(return_value=other_account),
+        ),
+        patch("api.services.pipecat.run_pipeline.run_pipeline_telephony", pipeline),
+    ):
+        db.list_active_telephony_configurations_by_provider = AsyncMock(
+            return_value=[_config()]
+        )
+        db.get_workflow_run_by_call_id = AsyncMock(return_value=_run())
+
+        with TestClient(_app()).websocket_connect(
+            f"/api/v1/telephony/dial/ws/{ACCOUNT_ID}/{CALL_ID}",
+            headers=_signed_headers(),
+        ) as ws:
+            ws.send_json(_connected())
+            assert ws.receive_json() == {"type": "end_call"}
+            with pytest.raises(WebSocketDisconnect) as exc:
+                ws.receive_text()
+
+    assert exc.value.code == 4401
+    pipeline.assert_not_awaited()
+
+
+def test_event_for_a_run_on_another_dial_account_is_ignored():
+    process = AsyncMock()
+    body, headers = _signed_event(
+        {"type": "call.ended", "data": {"callId": CALL_ID, "status": "busy"}}
+    )
+    with (
+        patch("api.services.telephony.providers.dial.routes.db_client") as db,
+        patch(
+            "api.services.telephony.providers.dial.routes.get_telephony_provider_for_run",
+            AsyncMock(return_value=_provider(account_id="acct_other")),
+        ),
+        patch(
+            "api.services.telephony.providers.dial.routes._process_status_update",
+            process,
+        ),
+    ):
+        db.list_active_telephony_configurations_by_provider = AsyncMock(
+            return_value=[_config()]
+        )
+        db.get_workflow_run_by_call_id = AsyncMock(return_value=_run())
+        response = TestClient(_app()).post(
+            f"/api/v1/telephony/dial/events/{ACCOUNT_ID}", content=body, headers=headers
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ignored"}
+    process.assert_not_awaited()
+
+
+def test_outbound_call_ended_before_its_run_is_stored_is_retried():
+    body, headers = _signed_event(
+        {
+            "type": "call.ended",
+            "data": {"callId": CALL_ID, "direction": "outbound", "status": "failed"},
+        }
+    )
+    with (
+        patch("api.services.telephony.providers.dial.routes.db_client") as db,
+        patch(
+            "api.services.telephony.providers.dial.routes._OUTBOUND_RUN_LOOKUP_INTERVAL_SECONDS",
+            0,
+        ),
+    ):
+        db.list_active_telephony_configurations_by_provider = AsyncMock(
+            return_value=[_config()]
+        )
+        db.get_workflow_run_by_call_id = AsyncMock(return_value=None)
+        response = TestClient(_app()).post(
+            f"/api/v1/telephony/dial/events/{ACCOUNT_ID}", content=body, headers=headers
+        )
+
+    # Non-2xx makes Dial redeliver with backoff once the run knows its id.
+    assert response.status_code == 503
+
+
+def test_outbound_call_ended_waits_for_a_run_stored_moments_later():
+    process = AsyncMock()
+    body, headers = _signed_event(
+        {
+            "type": "call.ended",
+            "data": {"callId": CALL_ID, "direction": "outbound", "status": "failed"},
+        }
+    )
+    with (
+        patch("api.services.telephony.providers.dial.routes.db_client") as db,
+        patch(
+            "api.services.telephony.providers.dial.routes._OUTBOUND_RUN_LOOKUP_INTERVAL_SECONDS",
+            0,
+        ),
+        patch(
+            "api.services.telephony.providers.dial.routes.get_telephony_provider_for_run",
+            AsyncMock(return_value=_provider()),
+        ),
+        patch(
+            "api.services.telephony.providers.dial.routes._process_status_update",
+            process,
+        ),
+    ):
+        db.list_active_telephony_configurations_by_provider = AsyncMock(
+            return_value=[_config()]
+        )
+        db.get_workflow_run_by_call_id = AsyncMock(side_effect=[None, None, _run()])
+        response = TestClient(_app()).post(
+            f"/api/v1/telephony/dial/events/{ACCOUNT_ID}", content=body, headers=headers
+        )
+
+    assert response.status_code == 200
+    assert process.await_args.args[1].status == TelephonyCallStatus.FAILED
+
+
+def test_dial_runs_count_as_telephony_in_history_filters():
+    from api.enums import WORKFLOW_RUN_MODES_BY_CHANNEL, WorkflowRunMode
+
+    assert WorkflowRunMode.DIAL.value == DialProvider.PROVIDER_NAME
+    assert "dial" in WORKFLOW_RUN_MODES_BY_CHANNEL["telephony"]

@@ -155,6 +155,9 @@ class DialClient:
         )
         return data.get("webhook") or {}
 
+    async def delete_webhook(self, webhook_id: str) -> None:
+        await self._request("DELETE", f"/webhooks/{webhook_id}")
+
     async def get_webhook_secret(self, webhook_id: str) -> str:
         data = await self._request("GET", f"/webhooks/{webhook_id}/secret")
         return str(data.get("secret") or "")

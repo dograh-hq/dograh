@@ -13,6 +13,7 @@ Us → Dial: ``media``, ``clear`` (barge-in), ``end_call`` (hang up).
 """
 
 import base64
+import binascii
 import json
 
 from loguru import logger
@@ -94,11 +95,16 @@ class DialFrameSerializer(FrameSerializer):
 
         if message_type == "media":
             payload_base64 = message.get("payload")
-            if not payload_base64:
+            if not payload_base64 or not isinstance(payload_base64, str):
                 return None
-            audio = await self._resample_audio_in(
-                g711.ulaw_to_pcm(base64.b64decode(payload_base64))
-            )
+            # A bad frame is dropped, not raised: an exception here would end
+            # pipecat's receive loop and with it the call.
+            try:
+                ulaw = base64.b64decode(payload_base64, validate=True)
+            except (binascii.Error, ValueError):
+                logger.warning(f"Dial call {self._call_id}: dropping malformed media")
+                return None
+            audio = await self._resample_audio_in(g711.ulaw_to_pcm(ulaw))
             if not audio:
                 return None
             return InputAudioRawFrame(

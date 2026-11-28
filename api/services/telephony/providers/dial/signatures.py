@@ -47,10 +47,12 @@ def verify_dial_signature(
     if not timestamp or not signature:
         return False
 
-    try:
-        signed_at = int(timestamp)
-    except ValueError:
+    # Every header field is attacker-controlled. Anything malformed must read as
+    # "not signed", never raise: an exception here would surface as a 500 on
+    # the webhook route and a 1011 on the media socket instead of a rejection.
+    if not (timestamp.isascii() and timestamp.isdigit()) or len(timestamp) > 12:
         return False
+    signed_at = int(timestamp)
 
     current = time.time() if now is None else now
     if abs(current - signed_at) > tolerance_seconds:
@@ -61,7 +63,8 @@ def verify_dial_signature(
         f"{timestamp}.{signed_data}".encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
-    return hmac.compare_digest(expected, signature)
+    # Compare bytes: compare_digest raises TypeError on non-ASCII str input.
+    return hmac.compare_digest(expected.encode("ascii"), signature.encode("utf-8"))
 
 
 def sign_for_tests(secret: str, signed_data: str, timestamp: int) -> str:

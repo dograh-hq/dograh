@@ -68,7 +68,6 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "audio_signing_secret": value.get("audio_signing_secret"),
         "webhook_id": value.get("webhook_id"),
         "webhook_secret": value.get("webhook_secret"),
-        "from_numbers": value.get("from_numbers", []),
     }
 
 
@@ -125,25 +124,61 @@ async def _require_self_hosted_access(client: DialClient) -> None:
 async def _ensure_webhook(
     client: DialClient, credentials: Dict[str, Any], target_url: str
 ) -> Dict[str, Any]:
-    """Reuse this account's Dograh webhook if it exists, else create it."""
+    """Reuse this account's Dograh webhook if it exists, else create it.
+
+    A webhook is reused only when it already targets ``target_url``; the
+    stored id alone is not enough, because the backend URL can change between
+    saves. When the stored webhook points somewhere else it was ours, so it is
+    removed rather than left delivering to a dead endpoint.
+    """
     webhooks = await client.list_webhooks()
+    stored_id = credentials.get("webhook_id")
+
     existing = next(
-        (w for w in webhooks if w.get("id") == credentials.get("webhook_id")), None
+        (
+            w
+            for w in webhooks
+            if w.get("id") == stored_id and w.get("targetUrl") == target_url
+        ),
+        None,
     ) or next((w for w in webhooks if w.get("targetUrl") == target_url), None)
 
-    if existing and existing.get("targetUrl") == target_url:
+    stale = next(
+        (
+            w
+            for w in webhooks
+            if w.get("id") == stored_id and w.get("targetUrl") != target_url
+        ),
+        None,
+    )
+    if stale:
+        try:
+            await client.delete_webhook(stale["id"])
+            logger.info(
+                f"[Dial] removed call-status webhook {stale['id']} for an old URL"
+            )
+        except DialAPIError as e:
+            logger.warning(f"[Dial] could not remove stale webhook {stale['id']}: {e}")
+
+    if existing:
         webhook_id = existing["id"]
         secret = credentials.get("webhook_secret")
-        if webhook_id != credentials.get("webhook_id") or not secret:
+        if webhook_id != stored_id or not secret:
             secret = await client.get_webhook_secret(webhook_id)
-        return {**credentials, "webhook_id": webhook_id, "webhook_secret": secret}
+    else:
+        created = await client.create_webhook(target_url, _WEBHOOK_EVENT_TYPES)
+        webhook_id = created.get("id")
+        if not webhook_id:
+            raise _setup_error("Dial did not return an id for the call-status webhook.")
+        secret = created.get("secret") or await client.get_webhook_secret(webhook_id)
+        logger.info(f"[Dial] created call-status webhook {webhook_id} -> {target_url}")
 
-    created = await client.create_webhook(target_url, _WEBHOOK_EVENT_TYPES)
-    webhook_id = created.get("id")
-    if not webhook_id:
-        raise _setup_error("Dial did not return an id for the call-status webhook.")
-    secret = created.get("secret") or await client.get_webhook_secret(webhook_id)
-    logger.info(f"[Dial] created call-status webhook {webhook_id} -> {target_url}")
+    # Without a secret every delivery would fail verification, and calls that
+    # never connect could not close their runs.
+    if not secret:
+        raise _setup_error(
+            "Dial did not return a signing secret for the call-status webhook."
+        )
     return {**credentials, "webhook_id": webhook_id, "webhook_secret": secret}
 
 

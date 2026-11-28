@@ -15,4 +15,6 @@ class DialConfigurationRequest(BaseModel):
     """
 
     provider: Literal["dial"] = Field(default="dial")
-    api_key: str = Field(..., description="Dial API key (starts with sk_live_)")
+    api_key: str = Field(
+        ..., min_length=1, description="Dial API key (starts with sk_live_)"
+    )

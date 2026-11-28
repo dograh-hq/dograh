@@ -23,6 +23,7 @@ from pipecat.frames.frames import (
     StopFrame,
     TextFrame,
     TTSAudioRawFrame,
+    TTSStoppedFrame,
     TTSTextFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -87,7 +88,9 @@ class SpeechPlayback:
         self.manage_text = True
         self.text: str | None = None
         self.text_parts: list[TextPartForConcatenation] = []
-        self._text_ends: list[float] = []
+        self._text_ends: list[float | None] = []
+        self._pending_segments: list[tuple[int, str | None]] = []
+        self._segment_ends: dict[str, float] = {}
         self._word_origin: float | None = None
         self.context: LLMContext | None = None
         self.delivered_text = ""
@@ -151,7 +154,10 @@ class SpeechPlayback:
             return self.text
         parts = []
         for part, end in zip(self.text_parts, self._text_ends):
-            if end > self.played_seconds + 1e-6:
+            if end is None:
+                if not complete:
+                    break
+            elif end > self.played_seconds + 1e-6:
                 break
             parts.append(part)
         if complete and self._pending_word is not None:
@@ -313,6 +319,24 @@ class SpeechPlaybackTracker:
         speech = self.greeting
         if speech is not None and not speech.manage_text:
             return
+        # Stop frames drain after their context's audio in the transport queue.
+        if (
+            speech
+            and not speech.done
+            and isinstance(frame, TTSStoppedFrame)
+            and speech.id in self._output_scopes
+            and speech.played_seconds > 0
+        ):
+            if frame.context_id is not None:
+                speech._segment_ends[frame.context_id] = speech.played_seconds
+            pending = []
+            for index, context_id in speech._pending_segments:
+                if context_id == frame.context_id:
+                    speech._text_ends[index] = speech.played_seconds
+                else:
+                    pending.append((index, context_id))
+            speech._pending_segments = pending
+            return
         if isinstance(frame, TextFrame) and frame.metadata.get("dograh_greeting_id"):
             frame.append_to_context = False
             if isinstance(frame, TTSTextFrame):
@@ -355,14 +379,23 @@ class SpeechPlaybackTracker:
                     speech.text_parts.append(speech._pending_word)
                     speech._text_ends.append(word_end)
                 speech._pending_word = part
-            elif frame.aggregated_by != "recording" and speech.has_output:
+            # Untimed text belongs to a whole TTS context, not its first chunk.
+            elif frame.aggregated_by != "recording":
                 speech.timing_source = "segment"
                 if speech._pending_word is not None:
                     speech.text_parts.append(speech._pending_word)
                     speech._text_ends.append(speech.played_seconds)
                     speech._pending_word = None
+                if frame.context_id is None:
+                    end = speech.played_seconds if speech.has_output else None
+                else:
+                    end = speech._segment_ends.get(frame.context_id)
+                if end is None:
+                    speech._pending_segments.append(
+                        (len(speech.text_parts), frame.context_id)
+                    )
                 speech.text_parts.append(part)
-                speech._text_ends.append(speech.played_seconds)
+                speech._text_ends.append(end)
         frame.append_to_context = False
 
     @staticmethod

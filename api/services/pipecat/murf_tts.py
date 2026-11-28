@@ -151,7 +151,9 @@ class MurfTTSService(WebsocketTTSService):
         )
 
         default_settings = TTSSettings(
-            model=None,
+            # Reported on trace spans, where Langfuse matches it to a price;
+            # Murf itself gets the model from the connection URL.
+            model=params.model,
             voice=params.voice_id or "Matthew",
             language=None,
         )

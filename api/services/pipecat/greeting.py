@@ -32,6 +32,7 @@ from pipecat.turns.user_start.base_user_turn_start_strategy import (
     BaseUserTurnStartStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.utils.text.word_count import count_spoken_words
 
 
 class GreetingUserTurnStartStrategy(BaseUserTurnStartStrategy):
@@ -60,7 +61,7 @@ class GreetingUserTurnStartStrategy(BaseUserTurnStartStrategy):
             if (
                 not self.speech.done
                 and self.speech.allow_interrupt
-                and len(frame.text.split()) >= self.speech.interrupt_min_words
+                and count_spoken_words(frame.text) >= self.speech.interrupt_min_words
             ):
                 await self.trigger_user_turn_started()
                 await self.speech.wait()
